@@ -98,7 +98,7 @@ func TestAPIMissReturnsJSON404(t *testing.T) {
 	}
 
 	rec := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/snapshot", nil)
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/does-not-exist", nil)
 	srv.ServeHTTP(rec, req)
 
 	if rec.Code != http.StatusNotFound {

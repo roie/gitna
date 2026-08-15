@@ -12,10 +12,21 @@ import (
 
 	"github.com/roie/gitna/internal/browser"
 	"github.com/roie/gitna/internal/gitx"
+	"github.com/roie/gitna/internal/protocol"
 	"github.com/roie/gitna/internal/server"
 	"github.com/roie/gitna/internal/session"
 	"github.com/roie/gitna/internal/webui"
 )
+
+// repoAdapter bridges the git-backed repository to the server's Repo interface.
+type repoAdapter struct {
+	runner *gitx.ExecRunner
+	repo   gitx.Repository
+}
+
+func (a repoAdapter) Snapshot(ctx context.Context) (protocol.RepoSnapshot, error) {
+	return a.repo.Status(ctx, a.runner)
+}
 
 // Run starts the workbench session for path and blocks until ctx is cancelled
 // or the server fails. path must be inside a Git repository; the session binds
@@ -48,7 +59,11 @@ func Run(ctx context.Context, path string) error {
 		return fmt.Errorf("app: load embedded assets: %w", err)
 	}
 
-	srv, err := server.New(staticFS, server.Options{Token: token, Host: host})
+	srv, err := server.New(staticFS, server.Options{
+		Token: token,
+		Host:  host,
+		Repo:  repoAdapter{runner: runner, repo: repo},
+	})
 	if err != nil {
 		return fmt.Errorf("app: create server: %w", err)
 	}

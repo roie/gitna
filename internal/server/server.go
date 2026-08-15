@@ -1,6 +1,7 @@
 package server
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"io/fs"
@@ -8,7 +9,15 @@ import (
 	"net/http"
 	"path"
 	"strings"
+	"sync/atomic"
+
+	"github.com/roie/gitna/internal/protocol"
 )
+
+// Repo provides repository state to the API handlers.
+type Repo interface {
+	Snapshot(ctx context.Context) (protocol.RepoSnapshot, error)
+}
 
 // Options carries server configuration.
 type Options struct {
@@ -17,13 +26,17 @@ type Options struct {
 	Token string
 	// Host is the only permitted Host header, e.g. "127.0.0.1:PORT".
 	Host string
+	// Repo supplies repository state. When nil, snapshot routes return 503.
+	Repo Repo
 }
 
-// Server serves the embedded frontend and, in later tasks, the repository API.
+// Server serves the embedded frontend and the repository API.
 type Server struct {
 	static   fs.FS
 	api      http.Handler
 	security Security
+	repo     Repo
+	gen      atomic.Uint64
 }
 
 // New creates a Server that serves static assets from staticFS (rooted at the
@@ -33,13 +46,16 @@ func New(staticFS fs.FS, opts Options) (*Server, error) {
 	if staticFS == nil {
 		return nil, errors.New("server: nil static filesystem")
 	}
-	return &Server{
+	s := &Server{
 		static: staticFS,
+		repo:   opts.Repo,
 		security: Security{
 			Token: opts.Token,
 			Host:  opts.Host,
 		},
-	}, nil
+	}
+	s.api = s.apiRoutes()
+	return s, nil
 }
 
 // Handler returns the root handler for the server. When a capability token is
@@ -51,11 +67,7 @@ func (s *Server) Handler() http.Handler {
 // ServeHTTP routes requests between the static frontend and the API surface.
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if strings.HasPrefix(r.URL.Path, "/api/") {
-		if s.api != nil {
-			s.api.ServeHTTP(w, r)
-			return
-		}
-		writeJSON(w, http.StatusNotFound, map[string]string{"error": "not found"})
+		s.api.ServeHTTP(w, r)
 		return
 	}
 	s.serveStatic(w, r)

@@ -14,6 +14,7 @@ func initTestRepo(t *testing.T) string {
 	runGit(t, root, "init", "-q", root)
 	runGit(t, root, "config", "user.email", "test@example.com")
 	runGit(t, root, "config", "user.name", "Test")
+	runGit(t, root, "branch", "-M", "main")
 	runGit(t, root, "commit", "-q", "--allow-empty", "-m", "initial")
 	return root
 }
@@ -26,6 +27,18 @@ func runGit(t *testing.T, dir string, args ...string) string {
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		t.Fatalf("git %v: %v: %s", args, err, out)
+	}
+	return string(out)
+}
+
+func runGitErr(t *testing.T, dir string, args ...string) string {
+	t.Helper()
+	cmd := exec.Command("git", args...)
+	cmd.Dir = dir
+	cmd.Env = append(os.Environ(), "GIT_TERMINAL_PROMPT=0")
+	out, err := cmd.CombinedOutput()
+	if err == nil {
+		t.Fatalf("git %v unexpectedly succeeded: %s", args, out)
 	}
 	return string(out)
 }
