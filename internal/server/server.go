@@ -10,29 +10,43 @@ import (
 	"strings"
 )
 
-// Options carries server configuration. Security-related fields are added by
-// later tasks; the struct exists now so callers and tests have a stable
-// constructor signature.
-type Options struct{}
+// Options carries server configuration.
+type Options struct {
+	// Token is the capability token required in every session URL. When empty,
+	// the server rejects all requests.
+	Token string
+	// Host is the only permitted Host header, e.g. "127.0.0.1:PORT".
+	Host string
+}
 
 // Server serves the embedded frontend and, in later tasks, the repository API.
 type Server struct {
-	static fs.FS
-	api    http.Handler
+	static   fs.FS
+	api      http.Handler
+	security Security
 }
 
 // New creates a Server that serves static assets from staticFS (rooted at the
 // frontend build output) with SPA fallback to index.html for extensionless
 // non-API GET routes. /api/ misses return JSON 404.
-func New(staticFS fs.FS, _ Options) (*Server, error) {
+func New(staticFS fs.FS, opts Options) (*Server, error) {
 	if staticFS == nil {
 		return nil, errors.New("server: nil static filesystem")
 	}
-	return &Server{static: staticFS}, nil
+	return &Server{
+		static: staticFS,
+		security: Security{
+			Token: opts.Token,
+			Host:  opts.Host,
+		},
+	}, nil
 }
 
-// Handler returns the root handler for the server.
-func (s *Server) Handler() http.Handler { return http.HandlerFunc(s.ServeHTTP) }
+// Handler returns the root handler for the server. When a capability token is
+// configured, requests must pass the session security boundary first.
+func (s *Server) Handler() http.Handler {
+	return s.security.Wrap(http.HandlerFunc(s.ServeHTTP))
+}
 
 // ServeHTTP routes requests between the static frontend and the API surface.
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {

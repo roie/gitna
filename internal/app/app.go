@@ -13,6 +13,7 @@ import (
 	"github.com/roie/gitna/internal/browser"
 	"github.com/roie/gitna/internal/gitx"
 	"github.com/roie/gitna/internal/server"
+	"github.com/roie/gitna/internal/session"
 	"github.com/roie/gitna/internal/webui"
 )
 
@@ -26,16 +27,6 @@ func Run(ctx context.Context, path string) error {
 		return fmt.Errorf("app: %w", err)
 	}
 
-	staticFS, err := webui.Assets()
-	if err != nil {
-		return fmt.Errorf("app: load embedded assets: %w", err)
-	}
-
-	srv, err := server.New(staticFS, server.Options{})
-	if err != nil {
-		return fmt.Errorf("app: create server: %w", err)
-	}
-
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		return fmt.Errorf("app: listen: %w", err)
@@ -45,7 +36,24 @@ func Run(ctx context.Context, path string) error {
 	if !ok {
 		return fmt.Errorf("app: unexpected listener address %T", ln.Addr())
 	}
-	url := fmt.Sprintf("http://127.0.0.1:%d/", tcpAddr.Port)
+
+	token, err := session.NewToken()
+	if err != nil {
+		return fmt.Errorf("app: %w", err)
+	}
+	host := fmt.Sprintf("127.0.0.1:%d", tcpAddr.Port)
+
+	staticFS, err := webui.Assets()
+	if err != nil {
+		return fmt.Errorf("app: load embedded assets: %w", err)
+	}
+
+	srv, err := server.New(staticFS, server.Options{Token: token, Host: host})
+	if err != nil {
+		return fmt.Errorf("app: create server: %w", err)
+	}
+
+	url := fmt.Sprintf("http://%s/s/%s/", host, token)
 	fmt.Printf("gitna: %s\n", repo.Root)
 	fmt.Printf("gitna: serving %s\n", url)
 
