@@ -1,0 +1,8 @@
+node_modules/
+web/dist/
+internal/webui/dist/
+/dist/
+release/
+*.zip
+*.tar.gz
+.DS_Store
