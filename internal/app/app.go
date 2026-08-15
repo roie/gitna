@@ -11,14 +11,20 @@ import (
 	"time"
 
 	"github.com/roie/gitna/internal/browser"
+	"github.com/roie/gitna/internal/gitx"
 	"github.com/roie/gitna/internal/server"
 	"github.com/roie/gitna/internal/webui"
 )
 
 // Run starts the workbench session for path and blocks until ctx is cancelled
-// or the server fails. The session binds to a loopback-only OS-assigned port.
+// or the server fails. path must be inside a Git repository; the session binds
+// to a loopback-only OS-assigned port.
 func Run(ctx context.Context, path string) error {
-	_ = path // repository discovery arrives in a later task
+	runner := &gitx.ExecRunner{}
+	repo, err := gitx.Discover(ctx, runner, path)
+	if err != nil {
+		return fmt.Errorf("app: %w", err)
+	}
 
 	staticFS, err := webui.Assets()
 	if err != nil {
@@ -40,6 +46,7 @@ func Run(ctx context.Context, path string) error {
 		return fmt.Errorf("app: unexpected listener address %T", ln.Addr())
 	}
 	url := fmt.Sprintf("http://127.0.0.1:%d/", tcpAddr.Port)
+	fmt.Printf("gitna: %s\n", repo.Root)
 	fmt.Printf("gitna: serving %s\n", url)
 
 	if err := browser.Open(url); err != nil {
