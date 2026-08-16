@@ -1,9 +1,10 @@
-import type { ChangeScope, FileDiff, RepoSnapshot } from './types'
+import type { CommitFiles, DiffScope, FileDiff, GraphPage, RepoSnapshot } from './types'
 
 export interface DiffRequest {
-  scope: ChangeScope
+  scope: DiffScope
   path: string
   oldPath?: string
+  commit?: string
 }
 
 /** Mutation operation names accepted by the operations endpoint. */
@@ -36,6 +37,8 @@ export interface ApiClient {
   diff(request: DiffRequest): Promise<FileDiff>
   mutate(request: MutateRequest): Promise<void>
   commit(request: CommitRequest): Promise<OperationResult>
+  graph(skip?: number): Promise<GraphPage>
+  commitFiles(oid: string): Promise<CommitFiles>
 }
 
 /** Error carrying the HTTP status and server message so callers can react to
@@ -71,6 +74,7 @@ async function readError(res: Response): Promise<string> {
 export function diffQuery(request: DiffRequest): string {
   const params = new URLSearchParams({ scope: request.scope, path: request.path })
   if (request.oldPath) params.set('oldPath', request.oldPath)
+  if (request.commit) params.set('commit', request.commit)
   return params.toString()
 }
 
@@ -106,6 +110,14 @@ export function createApi(): ApiClient {
         }),
       )
       return (await res.json()) as OperationResult
+    },
+    async graph(skip = 0): Promise<GraphPage> {
+      const res = await expectOK(await fetch(`api/v1/graph?skip=${skip}`))
+      return (await res.json()) as GraphPage
+    },
+    async commitFiles(oid: string): Promise<CommitFiles> {
+      const res = await expectOK(await fetch(`api/v1/commit/${oid}/files`))
+      return (await res.json()) as CommitFiles
     },
   }
 }

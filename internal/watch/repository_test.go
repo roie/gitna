@@ -148,8 +148,15 @@ func TestWatcherReportsIndexAndCommitChanges(t *testing.T) {
 	drain(t, events, 100*time.Millisecond)
 
 	runGit(t, root, "commit", "-q", "-m", "change")
-	if got := nextEvent(t, events); got != InvalidateSnapshot {
-		t.Fatalf("commit: got %q, want %q", got, InvalidateSnapshot)
+	// A commit updates both HEAD and refs/heads/main, so the debounced flush
+	// emits snapshot and graph invalidations together; Go map iteration order
+	// is random, so accept either arrival order as long as the snapshot
+	// invalidation is among them.
+	seen := map[InvalidationKind]bool{}
+	seen[nextEvent(t, events)] = true
+	seen[nextEvent(t, events)] = true
+	if !seen[InvalidateSnapshot] {
+		t.Fatalf("commit: got %v, want a snapshot invalidation", seen)
 	}
 	drain(t, events, 200*time.Millisecond)
 }

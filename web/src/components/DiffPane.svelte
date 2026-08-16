@@ -3,7 +3,7 @@
   import { ChangeDiff } from '../lib/pierre-diff'
   import { splitHunkPatches, type HunkPatch } from '../lib/hunk-patches'
   import type { RepoState } from '../lib/repo-state.svelte'
-  import type { ChangeKind, ChangeScope, FileDiff } from '../lib/types'
+  import type { ChangeKind, DiffScope, FileDiff } from '../lib/types'
   import ConfirmDialog from './ConfirmDialog.svelte'
 
   interface Props {
@@ -15,13 +15,26 @@
   let { state: repo }: Props = $props()
 
   interface ActiveDiff {
-    scope: ChangeScope
+    scope: DiffScope
     path: string
     oldPath?: string
     kind: ChangeKind
+    commit?: string
+    subject?: string
   }
 
   let active = $derived.by<ActiveDiff | null>(() => {
+    const commitDiff = repo.commitDiff
+    if (commitDiff) {
+      return {
+        scope: 'commit',
+        path: commitDiff.path,
+        oldPath: commitDiff.oldPath,
+        kind: commitDiff.kind,
+        commit: commitDiff.oid,
+        subject: commitDiff.subject,
+      }
+    }
     const change = repo.selectedChange
     if (!change) return null
     return {
@@ -57,6 +70,7 @@
         scope: change.scope,
         path: change.path,
         oldPath: change.oldPath,
+        commit: change.commit,
       })
       if (seq !== fetchSeq) return
       diff = result
@@ -104,7 +118,7 @@
 
   const hunks = $derived.by<HunkPatch[]>(() => {
     const patch = diff?.patch
-    if (!patch || !active || active.kind !== 'modified') return []
+    if (!patch || !active || active.scope === 'commit' || active.kind !== 'modified') return []
     return splitHunkPatches(patch)
   })
 
@@ -153,9 +167,16 @@
 <section class="diff-pane" aria-label="Diff">
   <header class="diff-header">
     {#if active}
-      <span class="diff-path" title={active.path}>{active.path}</span>
+      <span class="diff-path" title={active.path}>
+        {#if active.scope === 'commit' && active.subject}
+          <span class="diff-subject">{active.subject}</span>
+        {/if}
+        {active.path}
+      </span>
       <span class="diff-scope">{active.scope}</span>
-      {#if active.scope === 'unstaged'}
+      {#if active.scope === 'commit'}
+        <span class="diff-commit" title={active.commit}>{active.commit?.slice(0, 8)}</span>
+      {:else if active.scope === 'unstaged'}
         <button class="action" onclick={stageFile} disabled={repo.busy || loading}>Stage</button>
         {#if active.kind === 'untracked'}
           <button class="action action-danger" onclick={confirmDelete} disabled={repo.busy}>
@@ -257,6 +278,21 @@
     font-size: 11px;
     color: var(--color-muted);
     text-transform: capitalize;
+  }
+
+  .diff-subject {
+    font-weight: 500;
+  }
+
+  .diff-subject::after {
+    content: ' · ';
+    color: var(--color-muted);
+  }
+
+  .diff-commit {
+    font-size: 11px;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    color: var(--color-muted);
   }
 
   .diff-empty {

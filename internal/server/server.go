@@ -21,6 +21,8 @@ import (
 type Repo interface {
 	Snapshot(ctx context.Context) (protocol.RepoSnapshot, error)
 	Diff(ctx context.Context, scope protocol.DiffScope, opts protocol.DiffOptions) (protocol.FileDiff, error)
+	History(ctx context.Context, skip, limit int) ([]protocol.GraphCommit, error)
+	FilesChanged(ctx context.Context, oid string) ([]protocol.CommitFile, error)
 	StagePaths(ctx context.Context, paths []string) error
 	UnstagePaths(ctx context.Context, paths []string) error
 	DiscardTracked(ctx context.Context, paths []string) error

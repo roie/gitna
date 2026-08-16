@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest'
 import { coalesce, createRepoState, reconcileSelection } from '../src/lib/repo-state.svelte'
 import type { ApiClient } from '../src/lib/api'
-import type { ChangeScope, FileChange, RepoSnapshot } from '../src/lib/types'
+import type { ChangeScope, CommitFile, FileChange, GraphCommit, RepoSnapshot } from '../src/lib/types'
 
 function change(scope: ChangeScope, path: string, kind: FileChange['kind'] = 'modified'): FileChange {
   return {
@@ -28,6 +28,52 @@ function snapshot(overrides: Partial<RepoSnapshot> = {}): RepoSnapshot {
   }
 }
 
+function graphCommit(oid: string, parents: string[] = [], subject = oid): GraphCommit {
+  return {
+    oid,
+    parents,
+    subject,
+    authorName: 'T',
+    authorTime: '2026-01-01T00:00:00Z',
+    refs: [],
+  }
+}
+
+function commitFile(path: string, kind: CommitFile['kind'] = 'modified'): CommitFile {
+  return { path, kind }
+}
+
+/** API client whose graph pages and commit files are scripted in order. Only
+ * the last page is terminal, which is what a paged server signals. */
+function graphApi(
+  pages: GraphCommit[][],
+  filesByOid: Record<string, CommitFile[]> = {},
+  initial?: RepoSnapshot,
+): ApiClient {
+  const queue = [...pages]
+  return {
+    async snapshot() {
+      return initial ?? snapshot({ generation: 1 })
+    },
+    async diff() {
+      throw new Error('diff not used in graph tests')
+    },
+    async mutate() {
+      throw new Error('mutate not used in graph tests')
+    },
+    async commit() {
+      throw new Error('commit not used in graph tests')
+    },
+    async graph() {
+      const page = queue.shift() ?? []
+      return { commits: page, hasMore: queue.length > 0 }
+    },
+    async commitFiles(oid) {
+      return { files: filesByOid[oid] ?? [] }
+    },
+  }
+}
+
 function queuedApi(snapshots: RepoSnapshot[]): ApiClient {
   let i = 0
   return {
@@ -44,6 +90,12 @@ function queuedApi(snapshots: RepoSnapshot[]): ApiClient {
     },
     async commit() {
       throw new Error('commit not used in queuedApi tests')
+    },
+    async graph() {
+      throw new Error('graph not used in queuedApi tests')
+    },
+    async commitFiles() {
+      throw new Error('commitFiles not used in queuedApi tests')
     },
   }
 }
@@ -165,6 +217,12 @@ describe('createRepoState', () => {
         async commit() {
           throw new Error('not used')
         },
+        async graph() {
+          throw new Error('not used')
+        },
+        async commitFiles() {
+          throw new Error('not used')
+        },
       },
     })
     await state.refreshSnapshot()
@@ -190,6 +248,12 @@ describe('createRepoState', () => {
           throw new Error('not used')
         },
         async commit() {
+          throw new Error('not used')
+        },
+        async graph() {
+          throw new Error('not used')
+        },
+        async commitFiles() {
           throw new Error('not used')
         },
       },
@@ -288,12 +352,125 @@ describe('createRepoState', () => {
         async commit() {
           return { ok: false, exitCode: 1, stderr: 'policy rejects this commit' }
         },
+        async graph() {
+          throw new Error('not used')
+        },
+        async commitFiles() {
+          throw new Error('not used')
+        },
       },
     })
 
     await expect(state.commit('subject', true)).rejects.toThrow(/policy rejects this commit/)
     expect(state.mutationError).toMatch(/policy rejects this commit/)
     expect(state.busy).toBe(false)
+  })
+
+  it('assigns lanes to the loaded graph', async () => {
+    const state = createRepoState({
+      api: graphApi([
+        [graphCommit('M', ['A', 'B']), graphCommit('A', ['C']), graphCommit('B', ['C']), graphCommit('C', [])],
+      ]),
+    })
+    await state.refreshGraph()
+    expect(state.graphRows.map((r) => r.column)).toEqual([0, 0, 1, 0])
+    expect(state.graphRows[0]?.commit.oid).toBe('M')
+    expect(state.graphHasMore).toBe(false)
+  })
+
+  it('shows a new commit after refresh and keeps expanded commits and their files', async () => {
+    const state = createRepoState({
+      api: graphApi(
+        [
+          [graphCommit('c3', ['c2']), graphCommit('c2', ['c1']), graphCommit('c1', [])],
+          [graphCommit('c4', ['c3']), graphCommit('c3', ['c2']), graphCommit('c2', ['c1']), graphCommit('c1', [])],
+        ],
+        { c2: [commitFile('two.txt')] },
+      ),
+    })
+
+    await state.refreshGraph()
+    expect(state.graphRows.length).toBe(3)
+
+    await state.toggleCommit('c2')
+    await vi.waitFor(() => expect(state.commitFiles.c2).toBeDefined())
+    expect(state.expanded.c2).toBe(true)
+
+    await state.refreshGraph()
+    expect(state.graphRows.length).toBe(4)
+    expect(state.graphRows[0]?.commit.oid).toBe('c4')
+    expect(state.expanded.c2).toBe(true)
+    expect(state.commitFiles.c2).toEqual([commitFile('two.txt')])
+  })
+
+  it('collapses expanded commits that disappear after an amend', async () => {
+    const state = createRepoState({
+      api: graphApi(
+        [
+          [graphCommit('c3', ['c2']), graphCommit('c2', ['c1']), graphCommit('c1', [])],
+          [graphCommit('c3a', ['c2'], 'amended'), graphCommit('c2', ['c1']), graphCommit('c1', [])],
+        ],
+        { c3: [commitFile('three.txt')] },
+      ),
+    })
+
+    await state.refreshGraph()
+    await state.toggleCommit('c3')
+    await vi.waitFor(() => expect(state.commitFiles.c3).toBeDefined())
+    expect(state.expanded.c3).toBe(true)
+
+    await state.refreshGraph()
+    expect(state.graphRows[0]?.commit.oid).toBe('c3a')
+    expect(state.expanded.c3).toBeFalsy()
+    expect(state.commitFiles.c3).toBeUndefined()
+    expect(state.graphRows.length).toBe(3)
+  })
+
+  it('loads the next page of history', async () => {
+    const state = createRepoState({
+      api: graphApi([
+        [graphCommit('c4', ['c3']), graphCommit('c3', ['c2'])],
+        [graphCommit('c2', ['c1']), graphCommit('c1', [])],
+      ]),
+    })
+
+    await state.refreshGraph()
+    expect(state.graphRows.length).toBe(2)
+    expect(state.graphHasMore).toBe(true)
+
+    await state.loadMoreGraph()
+    expect(state.graphRows.map((r) => r.commit.oid)).toEqual(['c4', 'c3', 'c2', 'c1'])
+    expect(state.graphHasMore).toBe(false)
+  })
+
+  it('selecting a commit file sets the commit diff and clears the worktree selection', async () => {
+    const state = createRepoState({
+      api: graphApi(
+        [[graphCommit('c2', ['c1']), graphCommit('c1', [])]],
+        { c2: [commitFile('two.txt')] },
+        snapshot({ generation: 1, unstaged: [change('unstaged', 'x.txt')] }),
+      ),
+    })
+
+    await state.refreshSnapshot()
+    await state.refreshGraph()
+    await state.toggleCommit('c2')
+    await vi.waitFor(() => expect(state.commitFiles.c2).toBeDefined())
+
+    state.select('unstaged', 'x.txt')
+    expect(state.selectedChange?.path).toBe('x.txt')
+
+    state.selectCommitFile('c2', 'two', commitFile('two.txt'))
+    expect(state.selectedChange).toBeNull()
+    expect(state.commitDiff).toEqual({
+      oid: 'c2',
+      subject: 'two',
+      path: 'two.txt',
+      kind: 'modified',
+    })
+
+    state.select('unstaged', 'x.txt')
+    expect(state.commitDiff).toBeNull()
   })
 })
 

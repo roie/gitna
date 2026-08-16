@@ -3,7 +3,10 @@
 // raw Git CLI text never reaches the frontend.
 package protocol
 
-import "errors"
+import (
+	"errors"
+	"time"
+)
 
 // Sentinel errors returned by repository operations and classified by the API
 // layer into HTTP status codes.
@@ -126,4 +129,51 @@ type OperationResult struct {
 	ExitCode int    `json:"exitCode"`
 	Stdout   string `json:"stdout,omitempty"`
 	Stderr   string `json:"stderr,omitempty"`
+}
+
+// CommitRef identifies one ref pointing at a commit. Kind values are the
+// display categories the graph view renders as decorations.
+type CommitRef struct {
+	Name string `json:"name"`
+	Kind string `json:"kind"`
+}
+
+// Ref kind values carried by CommitRef.
+const (
+	RefKindHead         = "head"
+	RefKindLocalBranch  = "local-branch"
+	RefKindRemoteBranch = "remote-branch"
+	RefKindTag          = "tag"
+)
+
+// GraphCommit is one row of the repository history graph. Parent OIDs are in
+// git order (first parent first).
+type GraphCommit struct {
+	OID        string      `json:"oid"`
+	Parents    []string    `json:"parents"`
+	Subject    string      `json:"subject"`
+	AuthorName string      `json:"authorName"`
+	AuthorTime time.Time   `json:"authorTime"`
+	Refs       []CommitRef `json:"refs"`
+}
+
+// CommitFile is one path changed by a commit. Kind uses the same ChangeKind
+// vocabulary as the working-tree view so the frontend renders a single status
+// vocabulary. OldPath is set for renames.
+type CommitFile struct {
+	Path    string     `json:"path"`
+	OldPath string     `json:"oldPath,omitempty"`
+	Kind    ChangeKind `json:"kind"`
+}
+
+// GraphPage is one page of history in topological order. HasMore reports
+// whether the page was full and more history may be available after it.
+type GraphPage struct {
+	Commits []GraphCommit `json:"commits"`
+	HasMore bool          `json:"hasMore"`
+}
+
+// CommitFiles is the changed-file list for one commit.
+type CommitFiles struct {
+	Files []CommitFile `json:"files"`
 }

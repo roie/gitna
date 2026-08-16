@@ -1,13 +1,35 @@
 import { createApi, type ApiClient, type MutateRequest } from './api'
-import type { ChangeScope, FileChange, RepoSnapshot } from './types'
+import { computeGraph } from './graph-lanes'
+import type {
+  ChangeKind,
+  ChangeScope,
+  CommitFile,
+  FileChange,
+  GraphCommit,
+  RepoSnapshot,
+} from './types'
 
 export interface Selection {
   scope: ChangeScope
   change: FileChange
 }
 
+/** A file changed by a commit, selected for display in the diff pane. */
+export interface CommitDiffTarget {
+  oid: string
+  subject: string
+  path: string
+  oldPath?: string
+  kind: ChangeKind
+}
+
 export interface RepoStateOptions {
   api?: ApiClient
+}
+
+function omit<V>(obj: Record<string, V>, key: string): Record<string, V> {
+  const { [key]: _removed, ...rest } = obj
+  return rest
 }
 
 function changesIn(snap: RepoSnapshot, scope: ChangeScope): FileChange[] {
@@ -72,6 +94,18 @@ export function createRepoState(options: RepoStateOptions = {}) {
   let refreshRunning = false
   let refreshAgain = false
 
+  let graphCommits = $state<GraphCommit[]>([])
+  let graphLoading = $state(false)
+  let graphError = $state<string | null>(null)
+  let graphHasMore = $state(false)
+  let expanded = $state<Record<string, boolean>>({})
+  let commitFiles = $state<Record<string, CommitFile[]>>({})
+  let filesLoading = $state<Record<string, boolean>>({})
+  let filesError = $state<Record<string, string>>({})
+  let commitDiff = $state<CommitDiffTarget | null>(null)
+
+  const graphRows = $derived(computeGraph(graphCommits))
+
   async function refreshSnapshot(): Promise<void> {
     if (refreshRunning) {
       refreshAgain = true
@@ -100,6 +134,72 @@ export function createRepoState(options: RepoStateOptions = {}) {
 
   const scheduleRefresh = coalesce(() => void refreshSnapshot())
 
+  /**
+   * Replaces the graph with the first page of history. Expanded commits that
+   * no longer exist (e.g. after an amend) are collapsed and their cached files
+   * are dropped, so the graph never references commits it cannot render.
+   */
+  async function refreshGraph(): Promise<void> {
+    graphLoading = true
+    graphError = null
+    try {
+      const page = await api.graph(0)
+      graphCommits = page.commits
+      graphHasMore = page.hasMore
+      const present = new Set(page.commits.map((c) => c.oid))
+      const nextExpanded: Record<string, boolean> = {}
+      for (const [oid, open] of Object.entries(expanded)) {
+        if (open && present.has(oid)) nextExpanded[oid] = true
+      }
+      expanded = nextExpanded
+      const nextFiles: Record<string, CommitFile[]> = {}
+      for (const [oid, files] of Object.entries(commitFiles)) {
+        if (present.has(oid)) nextFiles[oid] = files
+      }
+      commitFiles = nextFiles
+    } catch (e) {
+      graphError = e instanceof Error ? e.message : String(e)
+    } finally {
+      graphLoading = false
+    }
+  }
+
+  /** Appends the next page of history to the loaded graph. */
+  async function loadMoreGraph(): Promise<void> {
+    graphLoading = true
+    try {
+      const page = await api.graph(graphCommits.length)
+      const seen = new Set(graphCommits.map((c) => c.oid))
+      const additions = page.commits.filter((c) => !seen.has(c.oid))
+      graphCommits = [...graphCommits, ...additions]
+      graphHasMore = page.hasMore
+    } catch (e) {
+      graphError = e instanceof Error ? e.message : String(e)
+    } finally {
+      graphLoading = false
+    }
+  }
+
+  /**
+   * Expands or collapses a commit. Expanding lazily fetches the commit's
+   * changed files on first open and keeps them cached for the session.
+   */
+  async function toggleCommit(oid: string): Promise<void> {
+    const open = !expanded[oid]
+    expanded = { ...expanded, [oid]: open }
+    if (!open || commitFiles[oid] || filesLoading[oid]) return
+    filesLoading = { ...filesLoading, [oid]: true }
+    filesError = omit(filesError, oid)
+    try {
+      const { files } = await api.commitFiles(oid)
+      commitFiles = { ...commitFiles, [oid]: files }
+    } catch (e) {
+      filesError = { ...filesError, [oid]: e instanceof Error ? e.message : String(e) }
+    } finally {
+      filesLoading = omit(filesLoading, oid)
+    }
+  }
+
   let eventSource: EventSource | null = null
 
   /**
@@ -119,13 +219,23 @@ export function createRepoState(options: RepoStateOptions = {}) {
   }
 
   function select(scope: ChangeScope, path: string | null): void {
-    if (!snapshot) return
     if (path == null) {
       selection = null
+      commitDiff = null
       return
     }
+    if (!snapshot) return
     const change = changesIn(snapshot, scope).find((c) => c.path === path)
-    if (change) selection = { scope, change }
+    if (change) {
+      selection = { scope, change }
+      commitDiff = null
+    }
+  }
+
+  /** Selects a file changed by a commit for display in the diff pane. */
+  function selectCommitFile(oid: string, subject: string, file: CommitFile): void {
+    selection = null
+    commitDiff = { oid, subject, path: file.path, oldPath: file.oldPath, kind: file.kind }
   }
 
   /**
@@ -170,6 +280,7 @@ export function createRepoState(options: RepoStateOptions = {}) {
     } finally {
       busy = false
       void refreshSnapshot()
+      void refreshGraph()
     }
   }
 
@@ -201,9 +312,40 @@ export function createRepoState(options: RepoStateOptions = {}) {
     get selectedChange() {
       return selection?.change ?? null
     },
+    get graphRows() {
+      return graphRows
+    },
+    get graphLoading() {
+      return graphLoading
+    },
+    get graphError() {
+      return graphError
+    },
+    get graphHasMore() {
+      return graphHasMore
+    },
+    get expanded() {
+      return expanded
+    },
+    get commitFiles() {
+      return commitFiles
+    },
+    get filesLoading() {
+      return filesLoading
+    },
+    get filesError() {
+      return filesError
+    },
+    get commitDiff() {
+      return commitDiff
+    },
     refreshSnapshot,
     connectEvents,
+    refreshGraph,
+    loadMoreGraph,
+    toggleCommit,
     select,
+    selectCommitFile,
     mutate,
     commit,
   }

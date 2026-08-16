@@ -18,6 +18,9 @@ type fakeRepo struct {
 	err  error
 	diff protocol.FileDiff
 
+	graphCommits []protocol.GraphCommit
+	graphFiles   []protocol.CommitFile
+
 	mu        sync.Mutex
 	stageOps  []string
 	unstages  []string
@@ -46,6 +49,20 @@ func (f *fakeRepo) Diff(context.Context, protocol.DiffScope, protocol.DiffOption
 		return protocol.FileDiff{}, f.err
 	}
 	return f.diff, nil
+}
+
+func (f *fakeRepo) History(context.Context, int, int) ([]protocol.GraphCommit, error) {
+	if f.err != nil {
+		return nil, f.err
+	}
+	return f.graphCommits, nil
+}
+
+func (f *fakeRepo) FilesChanged(context.Context, string) ([]protocol.CommitFile, error) {
+	if f.err != nil {
+		return nil, f.err
+	}
+	return f.graphFiles, nil
 }
 
 func (f *fakeRepo) StagePaths(_ context.Context, paths []string) error {
@@ -264,5 +281,109 @@ func TestDiffUnavailableWithoutRepo(t *testing.T) {
 
 	if rec.Code != http.StatusServiceUnavailable {
 		t.Fatalf("status = %d, want %d", rec.Code, http.StatusServiceUnavailable)
+	}
+}
+
+func TestGraphRouteReturnsHistory(t *testing.T) {
+	repo := &fakeRepo{graphCommits: []protocol.GraphCommit{
+		{
+			OID:        "abc123",
+			Parents:    []string{"def456"},
+			Subject:    "merge feature",
+			AuthorName: "Test",
+			Refs:       []protocol.CommitRef{{Name: "main", Kind: protocol.RefKindHead}},
+		},
+	}}
+	h := newSnapshotServer(repo)
+
+	req := httptest.NewRequest(http.MethodGet, "/s/"+testToken+"/api/v1/graph?skip=50", nil)
+	req.Host = testHost
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusOK)
+	}
+	var got protocol.GraphPage
+	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if len(got.Commits) != 1 || got.Commits[0].OID != "abc123" {
+		t.Fatalf("commits = %+v, want one abc123", got.Commits)
+	}
+	if got.Commits[0].Refs[0].Kind != protocol.RefKindHead {
+		t.Fatalf("refs = %+v, want head ref", got.Commits[0].Refs)
+	}
+}
+
+func TestGraphRouteRejectsBadSkip(t *testing.T) {
+	for _, skip := range []string{"abc", "-1", "1.5"} {
+		h := newSnapshotServer(&fakeRepo{graphCommits: []protocol.GraphCommit{{OID: "x"}}})
+		req := httptest.NewRequest(http.MethodGet, "/s/"+testToken+"/api/v1/graph?skip="+skip, nil)
+		req.Host = testHost
+		rec := httptest.NewRecorder()
+		h.ServeHTTP(rec, req)
+		if rec.Code != http.StatusBadRequest {
+			t.Fatalf("skip=%q status = %d, want %d", skip, rec.Code, http.StatusBadRequest)
+		}
+	}
+}
+
+func TestGraphRouteError(t *testing.T) {
+	h := newSnapshotServer(&fakeRepo{err: errors.New("boom")})
+	req := httptest.NewRequest(http.MethodGet, "/s/"+testToken+"/api/v1/graph", nil)
+	req.Host = testHost
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusInternalServerError {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusInternalServerError)
+	}
+}
+
+func TestCommitFilesRouteReturnsFiles(t *testing.T) {
+	repo := &fakeRepo{graphFiles: []protocol.CommitFile{
+		{Path: "c.txt", OldPath: "a.txt", Kind: protocol.KindRenamed},
+	}}
+	h := newSnapshotServer(repo)
+
+	req := httptest.NewRequest(http.MethodGet, "/s/"+testToken+"/api/v1/commit/abc123/files", nil)
+	req.Host = testHost
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusOK)
+	}
+	var got protocol.CommitFiles
+	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if len(got.Files) != 1 || got.Files[0].Path != "c.txt" || got.Files[0].OldPath != "a.txt" {
+		t.Fatalf("files = %+v, want renamed c.txt from a.txt", got.Files)
+	}
+}
+
+func TestCommitFilesRouteMapsInvalidRefTo400(t *testing.T) {
+	h := newSnapshotServer(&fakeRepo{err: protocol.ErrInvalidRef})
+	req := httptest.NewRequest(http.MethodGet, "/s/"+testToken+"/api/v1/commit/-oops/files", nil)
+	req.Host = testHost
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusBadRequest)
+	}
+}
+
+func TestCommitFilesRouteError(t *testing.T) {
+	h := newSnapshotServer(&fakeRepo{err: errors.New("boom")})
+	req := httptest.NewRequest(http.MethodGet, "/s/"+testToken+"/api/v1/commit/abc123/files", nil)
+	req.Host = testHost
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusInternalServerError {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusInternalServerError)
 	}
 }

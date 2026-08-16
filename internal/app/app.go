@@ -37,6 +37,14 @@ func (a repoAdapter) Diff(ctx context.Context, scope protocol.DiffScope, opts pr
 	return a.repo.Diff(ctx, a.runner, scope, opts)
 }
 
+func (a repoAdapter) History(ctx context.Context, skip, limit int) ([]protocol.GraphCommit, error) {
+	return a.repo.History(ctx, a.runner, skip, limit)
+}
+
+func (a repoAdapter) FilesChanged(ctx context.Context, oid string) ([]protocol.CommitFile, error) {
+	return a.repo.ChangedFiles(ctx, a.runner, oid)
+}
+
 func (a repoAdapter) StagePaths(ctx context.Context, paths []string) error {
 	return a.queue.Do(ctx, func(ctx context.Context) error {
 		return a.repo.Stage(ctx, a.runner, paths)

@@ -43,6 +43,14 @@ func (w *workbenchRepo) Diff(ctx context.Context, scope protocol.DiffScope, opts
 	return w.repo.Diff(ctx, w.runner, scope, opts)
 }
 
+func (w *workbenchRepo) History(ctx context.Context, skip, limit int) ([]protocol.GraphCommit, error) {
+	return w.repo.History(ctx, w.runner, skip, limit)
+}
+
+func (w *workbenchRepo) FilesChanged(ctx context.Context, oid string) ([]protocol.CommitFile, error) {
+	return w.repo.ChangedFiles(ctx, w.runner, oid)
+}
+
 func (w *workbenchRepo) StagePaths(ctx context.Context, paths []string) error {
 	return w.queue.Do(ctx, func(ctx context.Context) error { return w.repo.Stage(ctx, w.runner, paths) })
 }
@@ -127,6 +135,15 @@ func (h *harness) post(op string, body any) *httptest.ResponseRecorder {
 	req.Host = testHost
 	req.Header.Set("Origin", "http://"+testHost)
 	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	h.srv.ServeHTTP(rec, req)
+	return rec
+}
+
+func (h *harness) get(path string) *httptest.ResponseRecorder {
+	h.t.Helper()
+	req := httptest.NewRequest(http.MethodGet, "/s/"+testToken+path, nil)
+	req.Host = testHost
 	rec := httptest.NewRecorder()
 	h.srv.ServeHTTP(rec, req)
 	return rec
@@ -484,5 +501,123 @@ func TestOperationQueueSerializesMutations(t *testing.T) {
 	}
 	if h.status() != "M  file.txt\n" {
 		t.Fatalf("status after concurrent stages = %q, want staged M", h.status())
+	}
+}
+
+func TestGraphViaAPI(t *testing.T) {
+	h := newHarness(t)
+	h.writeFile("a.txt", "a\n")
+	h.commitAll("root commit")
+	git(t, h.root, "checkout", "-q", "-b", "feature")
+	h.writeFile("f.txt", "f\n")
+	h.commitAll("feature work")
+	git(t, h.root, "checkout", "-q", "main")
+	h.writeFile("b.txt", "b\n")
+	h.commitAll("second")
+	git(t, h.root, "merge", "-q", "--no-ff", "feature", "-m", "merge feature")
+	git(t, h.root, "tag", "v1.0")
+	git(t, h.root, "update-ref", "refs/remotes/origin/main", "HEAD")
+
+	rec := h.get("/api/v1/graph")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("graph status = %d (%s)", rec.Code, rec.Body)
+	}
+	var page protocol.GraphPage
+	if err := json.Unmarshal(rec.Body.Bytes(), &page); err != nil {
+		t.Fatalf("unmarshal graph: %v", err)
+	}
+	// initial + root + feature work + second + merge.
+	if len(page.Commits) != 5 {
+		t.Fatalf("history = %d commits, want 5", len(page.Commits))
+	}
+	merge := page.Commits[0]
+	if merge.Subject != "merge feature" || len(merge.Parents) != 2 {
+		t.Fatalf("merge = %+v, want two-parent merge feature", merge)
+	}
+	gotHead := false
+	for _, ref := range merge.Refs {
+		if ref.Kind == protocol.RefKindHead && ref.Name == "main" {
+			gotHead = true
+		}
+	}
+	if !gotHead {
+		t.Fatalf("merge refs = %+v, want HEAD main", merge.Refs)
+	}
+
+	filesRec := h.get("/api/v1/commit/" + merge.OID + "/files")
+	if filesRec.Code != http.StatusOK {
+		t.Fatalf("commit files status = %d (%s)", filesRec.Code, filesRec.Body)
+	}
+	var cf protocol.CommitFiles
+	if err := json.Unmarshal(filesRec.Body.Bytes(), &cf); err != nil {
+		t.Fatalf("unmarshal commit files: %v", err)
+	}
+	// The merge brings feature's f.txt in; b.txt already landed on main.
+	found := false
+	for _, f := range cf.Files {
+		if f.Path == "f.txt" && f.Kind == protocol.KindAdded {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("merge files = %+v, want added f.txt", cf.Files)
+	}
+
+	rootOID := page.Commits[3].OID
+	if page.Commits[3].Subject != "root commit" {
+		t.Fatalf("page[3] = %q, want root commit", page.Commits[3].Subject)
+	}
+	rootRec := h.get("/api/v1/commit/" + rootOID + "/files")
+	if rootRec.Code != http.StatusOK {
+		t.Fatalf("root files status = %d (%s)", rootRec.Code, rootRec.Body)
+	}
+	var rootFiles protocol.CommitFiles
+	if err := json.Unmarshal(rootRec.Body.Bytes(), &rootFiles); err != nil {
+		t.Fatalf("unmarshal root files: %v", err)
+	}
+	if len(rootFiles.Files) != 1 || rootFiles.Files[0].Path != "a.txt" || rootFiles.Files[0].Kind != protocol.KindAdded {
+		t.Fatalf("root files = %+v, want [a.txt added]", rootFiles.Files)
+	}
+}
+
+func TestGraphRefreshReflectsNewCommit(t *testing.T) {
+	h := newHarness(t)
+	h.writeFile("file.txt", "base\n")
+	h.commitAll("base")
+
+	before := h.get("/api/v1/graph")
+	if before.Code != http.StatusOK {
+		t.Fatalf("graph status = %d (%s)", before.Code, before.Body)
+	}
+	var beforePage protocol.GraphPage
+	if err := json.Unmarshal(before.Body.Bytes(), &beforePage); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if len(beforePage.Commits) != 2 {
+		t.Fatalf("history = %d commits, want 2", len(beforePage.Commits))
+	}
+
+	h.writeFile("file.txt", "changed\n")
+	h.commitAll("new commit")
+
+	after := h.get("/api/v1/graph")
+	var afterPage protocol.GraphPage
+	if err := json.Unmarshal(after.Body.Bytes(), &afterPage); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if len(afterPage.Commits) != 3 {
+		t.Fatalf("history after commit = %d commits, want 3", len(afterPage.Commits))
+	}
+	if afterPage.Commits[0].Subject != "new commit" {
+		t.Fatalf("head after commit = %q, want new commit", afterPage.Commits[0].Subject)
+	}
+	// Pagination: skip 2 returns only the oldest commit.
+	skipped := h.get("/api/v1/graph?skip=2")
+	var skippedPage protocol.GraphPage
+	if err := json.Unmarshal(skipped.Body.Bytes(), &skippedPage); err != nil {
+		t.Fatalf("unmarshal skipped: %v", err)
+	}
+	if len(skippedPage.Commits) != 1 || skippedPage.Commits[0].OID != beforePage.Commits[1].OID {
+		t.Fatalf("skipped = %+v, want the initial commit", skippedPage.Commits)
 	}
 }

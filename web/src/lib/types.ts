@@ -7,7 +7,40 @@ export type ChangeKind =
   | 'ignored'
   | 'conflicted'
 
+export type RefKind = 'head' | 'local-branch' | 'remote-branch' | 'tag'
+
+export interface CommitRef {
+  name: string
+  kind: RefKind
+}
+
+export interface GraphCommit {
+  oid: string
+  parents: string[]
+  subject: string
+  authorName: string
+  authorTime: string
+  refs: CommitRef[]
+}
+
+export interface GraphPage {
+  commits: GraphCommit[]
+  hasMore: boolean
+}
+
+export interface CommitFile {
+  path: string
+  oldPath?: string
+  kind: ChangeKind
+}
+
+export interface CommitFiles {
+  files: CommitFile[]
+}
+
 export type ChangeScope = 'unstaged' | 'staged'
+
+export type DiffScope = ChangeScope | 'commit'
 
 export interface FileChange {
   path: string
