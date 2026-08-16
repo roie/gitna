@@ -2,13 +2,14 @@
   import type { CommitRef, CommitFile } from '../lib/types'
   import type { GraphRow } from '../lib/graph-lanes'
   import type { RepoState } from '../lib/repo-state.svelte'
+  import ConfirmDialog from './ConfirmDialog.svelte'
 
   interface Props {
     row: GraphRow
-    state: RepoState
+    repo: RepoState
   }
 
-  let { row, state }: Props = $props()
+  let { row, repo }: Props = $props()
 
   const COLUMN = 22
   const ROW_H = 28
@@ -19,7 +20,8 @@
   const width = $derived(row.totalColumns * COLUMN)
   const cx = (col: number): number => col * COLUMN + COLUMN / 2
 
-  const expanded = $derived(!!state.expanded[row.commit.oid])
+  const expanded = $derived(!!repo.expanded[row.commit.oid])
+  const short = $derived(row.commit.oid.slice(0, 8))
 
   const date = $derived(
     new Intl.DateTimeFormat(undefined, { month: 'short', day: 'numeric' }).format(
@@ -30,6 +32,9 @@
   const sortedRefs = $derived(
     [...row.commit.refs].sort((a, b) => rank(a) - rank(b) || a.name.localeCompare(b.name)),
   )
+
+  let resetMode = $state<'soft' | 'mixed' | 'hard'>('mixed')
+  let pendingReset = $state<boolean>(false)
 
   function rank(ref: CommitRef): number {
     switch (ref.kind) {
@@ -61,6 +66,19 @@
 
   function fileLabel(file: CommitFile): string {
     return file.kind === 'renamed' && file.oldPath ? `${file.oldPath} → ${file.path}` : file.path
+  }
+
+  function handleReset(): void {
+    if (resetMode === 'hard') {
+      pendingReset = true
+      return
+    }
+    void repo.resetTo(row.commit.oid, resetMode)
+  }
+
+  function confirmHardReset(): void {
+    pendingReset = false
+    void repo.resetTo(row.commit.oid, 'hard')
   }
 </script>
 
@@ -97,7 +115,7 @@
         class="chevron"
         class:open={expanded}
         aria-label={expanded ? 'Collapse commit' : 'Expand commit'}
-        onclick={() => void state.toggleCommit(row.commit.oid)}
+        onclick={() => void repo.toggleCommit(row.commit.oid)}
       >
         <svg width="9" height="9" viewBox="0 0 9 9" class:open={expanded}>
           <path d="M2 1 L7 4.5 L2 8 Z" />
@@ -118,18 +136,18 @@
     </div>
     {#if expanded}
       <ul class="files">
-        {#if state.filesError[row.commit.oid]}
-          <li class="file-note" role="alert">{state.filesError[row.commit.oid]}</li>
-        {:else if state.filesLoading[row.commit.oid] && !state.commitFiles[row.commit.oid]}
+        {#if repo.filesError[row.commit.oid]}
+          <li class="file-note" role="alert">{repo.filesError[row.commit.oid]}</li>
+        {:else if repo.filesLoading[row.commit.oid] && !repo.commitFiles[row.commit.oid]}
           <li class="file-note">Loading…</li>
-        {:else if (state.commitFiles[row.commit.oid] ?? []).length === 0}
+        {:else if (repo.commitFiles[row.commit.oid] ?? []).length === 0}
           <li class="file-note">No files changed</li>
         {:else}
-          {#each state.commitFiles[row.commit.oid] ?? [] as file}
+          {#each repo.commitFiles[row.commit.oid] ?? [] as file}
             <li>
               <button
                 class="file"
-                onclick={() => state.selectCommitFile(row.commit.oid, row.commit.subject, file)}
+                onclick={() => repo.selectCommitFile(row.commit.oid, row.commit.subject, file)}
               >
                 <span class="file-kind">{kindGlyph(file.kind)}</span>
                 <span class="file-path" title={fileLabel(file)}>{fileLabel(file)}</span>
@@ -138,6 +156,32 @@
           {/each}
         {/if}
       </ul>
+      <div class="actions">
+        <button
+          class="action"
+          onclick={() => void repo.cherryPick(row.commit.oid)}
+          disabled={repo.busy}
+          title="Apply this commit's changes onto the current branch"
+        >
+          Cherry-pick
+        </button>
+        <button
+          class="action"
+          onclick={() => void repo.revertCommit(row.commit.oid)}
+          disabled={repo.busy}
+          title="Apply the inverse of this commit"
+        >
+          Revert
+        </button>
+        <select bind:value={resetMode} class="action-select" aria-label="Reset mode">
+          <option value="soft">soft</option>
+          <option value="mixed">mixed</option>
+          <option value="hard">hard</option>
+        </select>
+        <button class="action action-danger" onclick={handleReset} disabled={repo.busy} title={`Reset current branch to ${short}`}>
+          Reset here
+        </button>
+      </div>
     {/if}
   </div>
 </li>
@@ -325,4 +369,55 @@
   .file-note[role='alert'] {
     color: var(--color-danger);
   }
+
+  .actions {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    margin: 4px 0 2px;
+    padding: 3px 6px;
+    border: 1px solid var(--color-border);
+    border-radius: 4px;
+    flex-wrap: wrap;
+  }
+
+  .action {
+    font-size: 10px;
+    padding: 1px 6px;
+    border: 1px solid var(--color-border);
+    border-radius: 4px;
+    background: transparent;
+    color: var(--color-fg);
+    cursor: pointer;
+    white-space: nowrap;
+  }
+
+  .action-danger {
+    color: var(--color-danger);
+    border-color: var(--color-danger);
+  }
+
+  .action:disabled {
+    opacity: 0.5;
+    cursor: default;
+  }
+
+  .action-select {
+    font-size: 10px;
+    padding: 1px 4px;
+    border: 1px solid var(--color-border);
+    border-radius: 4px;
+    background: var(--color-bg);
+    color: var(--color-fg);
+  }
 </style>
+
+{#if pendingReset}
+  <ConfirmDialog
+    title={`Hard reset to ${short}?`}
+    message={`Move the current branch to ${row.commit.oid} and discard all tracked working-tree changes. Uncommitted changes will be lost. This cannot be undone.`}
+    confirmLabel="Reset hard"
+    onConfirm={() => void confirmHardReset()}
+    onCancel={() => (pendingReset = false)}
+  />
+{/if}

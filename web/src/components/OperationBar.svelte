@@ -17,6 +17,16 @@
   let publishBranch = $state<string | null>(null)
   let publishRemote = $state('origin')
 
+  let stashOpen = $state(false)
+  let stashMessage = $state('')
+  let stashUntracked = $state(false)
+
+  let tagsOpen = $state(false)
+  let newTagName = $state('')
+  let newTagMessage = $state('')
+  let tagTarget = $state('HEAD')
+  let tagPushRemote = $state('origin')
+
   const localBranches = $derived((repo.branches ?? []).filter((b) => !b.remote))
   const remoteBranches = $derived((repo.branches ?? []).filter((b) => b.remote))
   const remotes = $derived.by(() => {
@@ -36,6 +46,63 @@
     if (snap.behind > 0) bits.push(`↓${snap.behind}`)
     return bits.length ? `${snap.upstream} ${bits.join(' ')}` : snap.upstream
   })
+
+  const tagTargets = $derived.by(() => {
+    const opts: Array<{ value: string; label: string }> = [{ value: 'HEAD', label: 'HEAD' }]
+    for (const b of localBranches) opts.push({ value: b.name, label: b.name })
+    for (const b of remoteBranches) opts.push({ value: b.name, label: `${b.name} (remote)` })
+    return opts
+  })
+
+  function toggleStash(): void {
+    stashOpen = !stashOpen
+    if (stashOpen) void repo.refreshStashes()
+  }
+
+  function toggleTags(): void {
+    tagsOpen = !tagsOpen
+    if (tagsOpen) void repo.refreshTags()
+  }
+
+  function handleStashPush(event: SubmitEvent): void {
+    event.preventDefault()
+    const message = stashMessage.trim()
+    if (!message || repo.busy) return
+    stashMessage = ''
+    void run(() => repo.stashPush(message, stashUntracked))
+  }
+
+  function handleStashApply(ref: string): void {
+    void run(() => repo.stashApply(ref))
+  }
+
+  function handleStashPop(ref: string): void {
+    void run(() => repo.stashPop(ref))
+  }
+
+  function handleStashDrop(ref: string): void {
+    void run(() => repo.stashDrop(ref))
+  }
+
+  function handleCreateTag(event: SubmitEvent): void {
+    event.preventDefault()
+    const name = newTagName.trim()
+    if (!name || repo.busy) return
+    const target = tagTarget === 'HEAD' ? undefined : tagTarget
+    const message = newTagMessage.trim()
+    newTagName = ''
+    newTagMessage = ''
+    void run(() => repo.createTag(name, target, message))
+  }
+
+  function handleDeleteTag(name: string): void {
+    void run(() => repo.deleteTag(name))
+  }
+
+  function handlePushTag(name: string): void {
+    const remote = tagPushRemote || remotes[0] || 'origin'
+    void run(() => repo.pushTag(remote, name))
+  }
 
   async function run(action: () => Promise<void>): Promise<void> {
     actionError = null
@@ -188,6 +255,152 @@
                 </li>
               {/each}
             </ul>
+          {/if}
+        </div>
+      {/if}
+    </div>
+
+    <div class="stash-row">
+      <button
+        class="action branch-toggle"
+        onclick={toggleStash}
+        aria-expanded={stashOpen}
+        aria-label="Stashes"
+      >
+        Stash {stashOpen ? '▴' : '▾'}
+      </button>
+      {#if stashOpen}
+        <div class="branch-menu">
+          <form class="create-form" onsubmit={handleStashPush}>
+            <input
+              bind:value={stashMessage}
+              placeholder="Stash message"
+              aria-label="Stash message"
+              spellcheck="false"
+            />
+            <label class="check-label" title="Include untracked files">
+              <input type="checkbox" bind:checked={stashUntracked} aria-label="Include untracked" />
+              untracked
+            </label>
+            <button class="action" type="submit" disabled={repo.busy || !stashMessage.trim()}>
+              Stash
+            </button>
+          </form>
+          <ul class="branch-list">
+            {#each repo.stashes ?? [] as entry (entry.ref)}
+              <li class="branch-item" title={`${entry.branch}: ${entry.message}`}>
+                <span class="stash-label">
+                  <b>{entry.ref}</b> {entry.branch}: {entry.message}
+                </span>
+                <button
+                  class="branch-delete"
+                  onclick={() => handleStashApply(entry.ref)}
+                  disabled={repo.busy}
+                  title="Apply without removing"
+                >
+                  Apply
+                </button>
+                <button
+                  class="branch-delete"
+                  onclick={() => handleStashPop(entry.ref)}
+                  disabled={repo.busy}
+                  title="Apply and remove"
+                >
+                  Pop
+                </button>
+                <button
+                  class="branch-delete"
+                  onclick={() => handleStashDrop(entry.ref)}
+                  disabled={repo.busy}
+                  title="Drop stash"
+                >
+                  ×
+                </button>
+              </li>
+            {:else}
+              <li class="file-note">No stashes</li>
+            {/each}
+          </ul>
+          {#if repo.stashesError}
+            <p class="error" role="alert">{repo.stashesError}</p>
+          {/if}
+        </div>
+      {/if}
+    </div>
+
+    <div class="tags-row">
+      <button
+        class="action branch-toggle"
+        onclick={toggleTags}
+        aria-expanded={tagsOpen}
+        aria-label="Tags"
+      >
+        Tags {tagsOpen ? '▴' : '▾'}
+      </button>
+      {#if tagsOpen}
+        <div class="branch-menu">
+          <form class="create-form" onsubmit={handleCreateTag}>
+            <input
+              bind:value={newTagName}
+              placeholder="Tag name"
+              aria-label="New tag name"
+              spellcheck="false"
+            />
+            <select bind:value={tagTarget} class="publish-remote" aria-label="Tag target">
+              {#each tagTargets as target (target.value + target.label)}
+                <option value={target.value}>{target.label}</option>
+              {/each}
+            </select>
+            <input
+              bind:value={newTagMessage}
+              placeholder="Annotated message (optional)"
+              aria-label="Annotated tag message"
+              spellcheck="false"
+            />
+            <button class="action" type="submit" disabled={repo.busy || !newTagName.trim()}>
+              Create
+            </button>
+          </form>
+          <ul class="branch-list">
+            {#each repo.tags ?? [] as tag (tag.name)}
+              <li class="branch-item" title={tag.oid}>
+                <span class="stash-label">
+                  <b>{tag.name}</b>
+                  {tag.annotated ? ' (annotated)' : ''}
+                </span>
+                <button
+                  class="branch-delete"
+                  onclick={() => handlePushTag(tag.name)}
+                  disabled={repo.busy}
+                  title="Push tag to remote"
+                >
+                  Push
+                </button>
+                <button
+                  class="branch-delete"
+                  onclick={() => handleDeleteTag(tag.name)}
+                  disabled={repo.busy}
+                  title="Delete tag"
+                >
+                  ×
+                </button>
+              </li>
+            {:else}
+              <li class="file-note">No tags</li>
+            {/each}
+          </ul>
+          {#if remotes.length > 1}
+            <div class="tag-push-row">
+              <span class="publish-message">Push tag to:</span>
+              <select bind:value={tagPushRemote} class="publish-remote">
+                {#each remotes as remote}
+                  <option value={remote}>{remote}</option>
+                {/each}
+              </select>
+            </div>
+          {/if}
+          {#if repo.tagsError}
+            <p class="error" role="alert">{repo.tagsError}</p>
           {/if}
         </div>
       {/if}
@@ -403,6 +616,43 @@
 
   .publish-row {
     flex-wrap: wrap;
+  }
+
+  .stash-row,
+  .tags-row {
+    position: relative;
+  }
+
+  .check-label {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    font-size: 10px;
+    color: var(--color-muted);
+    white-space: nowrap;
+  }
+
+  .stash-label {
+    flex: 1;
+    min-width: 0;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .file-note {
+    padding: 4px 8px;
+    font-size: 11px;
+    color: var(--color-muted);
+  }
+
+  .tag-push-row {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    margin-top: 0.4rem;
+    padding-top: 0.4rem;
+    border-top: 1px solid var(--color-border);
   }
 
   .publish-message {

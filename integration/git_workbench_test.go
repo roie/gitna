@@ -83,6 +83,58 @@ func (w *workbenchRepo) PushSetUpstream(ctx context.Context, remote, branch stri
 	return w.queue.Do(ctx, func(ctx context.Context) error { return w.repo.PushSetUpstream(ctx, w.runner, remote, branch) })
 }
 
+func (w *workbenchRepo) Stashes(ctx context.Context) ([]protocol.StashEntry, error) {
+	return w.repo.ListStashes(ctx, w.runner)
+}
+
+func (w *workbenchRepo) StashPush(ctx context.Context, message string, untracked bool) error {
+	return w.queue.Do(ctx, func(ctx context.Context) error { return w.repo.StashPush(ctx, w.runner, message, untracked) })
+}
+
+func (w *workbenchRepo) StashApply(ctx context.Context, ref string) error {
+	return w.queue.Do(ctx, func(ctx context.Context) error { return w.repo.StashApply(ctx, w.runner, ref) })
+}
+
+func (w *workbenchRepo) StashPop(ctx context.Context, ref string) error {
+	return w.queue.Do(ctx, func(ctx context.Context) error { return w.repo.StashPop(ctx, w.runner, ref) })
+}
+
+func (w *workbenchRepo) StashDrop(ctx context.Context, ref string) error {
+	return w.queue.Do(ctx, func(ctx context.Context) error { return w.repo.StashDrop(ctx, w.runner, ref) })
+}
+
+func (w *workbenchRepo) Tags(ctx context.Context) ([]protocol.Tag, error) {
+	return w.repo.ListTags(ctx, w.runner)
+}
+
+func (w *workbenchRepo) CreateTag(ctx context.Context, name, target, message string) error {
+	return w.queue.Do(ctx, func(ctx context.Context) error { return w.repo.CreateTag(ctx, w.runner, name, target, message) })
+}
+
+func (w *workbenchRepo) DeleteTag(ctx context.Context, name string) error {
+	return w.queue.Do(ctx, func(ctx context.Context) error { return w.repo.DeleteTag(ctx, w.runner, name) })
+}
+
+func (w *workbenchRepo) PushTag(ctx context.Context, remote, name string) error {
+	return w.queue.Do(ctx, func(ctx context.Context) error { return w.repo.PushTag(ctx, w.runner, remote, name) })
+}
+
+func (w *workbenchRepo) CherryPick(ctx context.Context, oid string) error {
+	return w.queue.Do(ctx, func(ctx context.Context) error { return w.repo.CherryPick(ctx, w.runner, oid) })
+}
+
+func (w *workbenchRepo) Revert(ctx context.Context, oid string) error {
+	return w.queue.Do(ctx, func(ctx context.Context) error { return w.repo.Revert(ctx, w.runner, oid) })
+}
+
+func (w *workbenchRepo) Reset(ctx context.Context, target, mode string) error {
+	return w.queue.Do(ctx, func(ctx context.Context) error { return w.repo.Reset(ctx, w.runner, target, mode) })
+}
+
+func (w *workbenchRepo) CompareFiles(ctx context.Context, from, to string) ([]protocol.CommitFile, error) {
+	return w.repo.CompareFiles(ctx, w.runner, from, to)
+}
+
 func (w *workbenchRepo) StagePaths(ctx context.Context, paths []string) error {
 	return w.queue.Do(ctx, func(ctx context.Context) error { return w.repo.Stage(ctx, w.runner, paths) })
 }

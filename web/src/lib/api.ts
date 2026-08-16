@@ -1,10 +1,13 @@
-import type { Branch, CommitFiles, DiffScope, FileDiff, GraphPage, RepoSnapshot } from './types'
+import type { Branch, CommitFiles, DiffScope, FileDiff, GraphPage, RepoSnapshot, StashEntry, Tag } from './types'
 
 export interface DiffRequest {
   scope: DiffScope
   path: string
   oldPath?: string
   commit?: string
+  /** Refs for the compare scope; both are required when scope is 'compare'. */
+  from?: string
+  to?: string
 }
 
 /** Mutation operation names accepted by the operations endpoint. */
@@ -21,20 +24,40 @@ export type MutationOp =
   | 'pull'
   | 'push'
   | 'push-upstream'
+  | 'stash-push'
+  | 'stash-apply'
+  | 'stash-pop'
+  | 'stash-drop'
+  | 'create-tag'
+  | 'delete-tag'
+  | 'push-tag'
+  | 'cherry-pick'
+  | 'revert'
+  | 'reset'
 
 export interface MutateRequest {
   op: MutationOp
   paths?: string[]
   patch?: string
   reverse?: boolean
-  /** Branch name for branch operations and the branch for push-upstream. */
+  /** Branch name for branch operations, the branch for push-upstream, or the
+   * tag name for tag operations. */
   name?: string
-  /** Ref or oid a new branch is created at; empty means HEAD. */
+  /** Ref or oid a new branch or tag is created at; empty means HEAD. */
   start?: string
-  /** Remote name for push-upstream. */
+  /** Remote name for push-upstream and push-tag. */
   remote?: string
   /** Force branch delete after explicit confirmation. */
   force?: boolean
+  /** Stash entry ref for stash apply/pop/drop, or the target of a history
+   * mutation (cherry-pick, revert, reset). */
+  ref?: string
+  /** Reset mode: soft, mixed, or hard. */
+  mode?: string
+  /** Carry untracked files with a stash push. */
+  includeUntracked?: boolean
+  /** Message for a stash push or an annotated tag. */
+  message?: string
 }
 
 export interface CommitRequest {
@@ -60,6 +83,9 @@ export interface ApiClient {
   graph(skip?: number): Promise<GraphPage>
   commitFiles(oid: string): Promise<CommitFiles>
   branches(): Promise<Branch[]>
+  stashes(): Promise<StashEntry[]>
+  tags(): Promise<Tag[]>
+  compare(from: string, to: string): Promise<CommitFiles>
 }
 
 /** Error carrying the HTTP status and server message so callers can react to
@@ -92,6 +118,8 @@ export function diffQuery(request: DiffRequest): string {
   const params = new URLSearchParams({ scope: request.scope, path: request.path })
   if (request.oldPath) params.set('oldPath', request.oldPath)
   if (request.commit) params.set('commit', request.commit)
+  if (request.from) params.set('from', request.from)
+  if (request.to) params.set('to', request.to)
   return params.toString()
 }
 
@@ -118,6 +146,10 @@ export function createApi(): ApiClient {
         start: request.start,
         remote: request.remote,
         force: request.force,
+        ref: request.ref,
+        mode: request.mode,
+        includeUntracked: request.includeUntracked,
+        message: request.message,
       }
       const res = await fetch(`api/v1/operations?op=${request.op}`, {
         method: 'POST',
@@ -147,6 +179,18 @@ export function createApi(): ApiClient {
     async branches(): Promise<Branch[]> {
       const res = await expectOK(await fetch('api/v1/branches'))
       return (await res.json()) as Branch[]
+    },
+    async stashes(): Promise<StashEntry[]> {
+      const res = await expectOK(await fetch('api/v1/stashes'))
+      return (await res.json()) as StashEntry[]
+    },
+    async tags(): Promise<Tag[]> {
+      const res = await expectOK(await fetch('api/v1/tags'))
+      return (await res.json()) as Tag[]
+    },
+    async compare(from: string, to: string): Promise<CommitFiles> {
+      const res = await expectOK(await fetch(`api/v1/compare?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`))
+      return (await res.json()) as CommitFiles
     },
   }
 }

@@ -21,6 +21,9 @@ type fakeRepo struct {
 	graphCommits []protocol.GraphCommit
 	graphFiles   []protocol.CommitFile
 	branches     []protocol.Branch
+	stashes      []protocol.StashEntry
+	tags         []protocol.Tag
+	compareFiles []protocol.CommitFile
 
 	mu        sync.Mutex
 	stageOps  []string
@@ -36,6 +39,11 @@ type fakeRepo struct {
 	branchCalls  []string
 	branchForces []bool
 	syncCalls    []string
+	stashCalls   []string
+	tagCalls     []string
+	historyCalls []string
+	resetModes   []string
+	compareCalls []string
 }
 
 // opFail returns the error a mutation method should report. opErr takes
@@ -135,6 +143,105 @@ func (f *fakeRepo) PushSetUpstream(_ context.Context, remote, branch string) err
 	defer f.mu.Unlock()
 	f.syncCalls = append(f.syncCalls, "push-upstream:"+remote+":"+branch)
 	return f.opFail()
+}
+
+func (f *fakeRepo) Stashes(context.Context) ([]protocol.StashEntry, error) {
+	if f.err != nil {
+		return nil, f.err
+	}
+	return f.stashes, nil
+}
+
+func (f *fakeRepo) StashPush(_ context.Context, message string, untracked bool) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.stashCalls = append(f.stashCalls, "push:"+message+":untracked="+boolStr(untracked))
+	return f.opFail()
+}
+
+func (f *fakeRepo) StashApply(_ context.Context, ref string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.stashCalls = append(f.stashCalls, "apply:"+ref)
+	return f.opFail()
+}
+
+func (f *fakeRepo) StashPop(_ context.Context, ref string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.stashCalls = append(f.stashCalls, "pop:"+ref)
+	return f.opFail()
+}
+
+func (f *fakeRepo) StashDrop(_ context.Context, ref string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.stashCalls = append(f.stashCalls, "drop:"+ref)
+	return f.opFail()
+}
+
+func (f *fakeRepo) Tags(context.Context) ([]protocol.Tag, error) {
+	if f.err != nil {
+		return nil, f.err
+	}
+	return f.tags, nil
+}
+
+func (f *fakeRepo) CreateTag(_ context.Context, name, target, message string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.tagCalls = append(f.tagCalls, "create:"+name+":"+target+":"+message)
+	return f.opFail()
+}
+
+func (f *fakeRepo) DeleteTag(_ context.Context, name string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.tagCalls = append(f.tagCalls, "delete:"+name)
+	return f.opFail()
+}
+
+func (f *fakeRepo) PushTag(_ context.Context, remote, name string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.tagCalls = append(f.tagCalls, "push:"+remote+":"+name)
+	return f.opFail()
+}
+
+func (f *fakeRepo) CherryPick(_ context.Context, ref string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.historyCalls = append(f.historyCalls, "cherry-pick:"+ref)
+	return f.opFail()
+}
+
+func (f *fakeRepo) Revert(_ context.Context, ref string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.historyCalls = append(f.historyCalls, "revert:"+ref)
+	return f.opFail()
+}
+
+func (f *fakeRepo) Reset(_ context.Context, target, mode string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.historyCalls = append(f.historyCalls, "reset:"+target)
+	f.resetModes = append(f.resetModes, mode)
+	return f.opFail()
+}
+
+func (f *fakeRepo) CompareFiles(context.Context, string, string) ([]protocol.CommitFile, error) {
+	if f.err != nil {
+		return nil, f.err
+	}
+	return f.compareFiles, nil
+}
+
+func boolStr(b bool) string {
+	if b {
+		return "true"
+	}
+	return "false"
 }
 
 func (f *fakeRepo) StagePaths(_ context.Context, paths []string) error {

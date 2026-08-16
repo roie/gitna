@@ -140,6 +140,78 @@ func (a repoAdapter) PushSetUpstream(ctx context.Context, remote, branch string)
 	})
 }
 
+func (a repoAdapter) Stashes(ctx context.Context) ([]protocol.StashEntry, error) {
+	return a.repo.ListStashes(ctx, a.runner)
+}
+
+func (a repoAdapter) StashPush(ctx context.Context, message string, includeUntracked bool) error {
+	return a.queue.Do(ctx, func(ctx context.Context) error {
+		return a.repo.StashPush(ctx, a.runner, message, includeUntracked)
+	})
+}
+
+func (a repoAdapter) StashApply(ctx context.Context, ref string) error {
+	return a.queue.Do(ctx, func(ctx context.Context) error {
+		return a.repo.StashApply(ctx, a.runner, ref)
+	})
+}
+
+func (a repoAdapter) StashPop(ctx context.Context, ref string) error {
+	return a.queue.Do(ctx, func(ctx context.Context) error {
+		return a.repo.StashPop(ctx, a.runner, ref)
+	})
+}
+
+func (a repoAdapter) StashDrop(ctx context.Context, ref string) error {
+	return a.queue.Do(ctx, func(ctx context.Context) error {
+		return a.repo.StashDrop(ctx, a.runner, ref)
+	})
+}
+
+func (a repoAdapter) Tags(ctx context.Context) ([]protocol.Tag, error) {
+	return a.repo.ListTags(ctx, a.runner)
+}
+
+func (a repoAdapter) CreateTag(ctx context.Context, name, target, message string) error {
+	return a.queue.Do(ctx, func(ctx context.Context) error {
+		return a.repo.CreateTag(ctx, a.runner, name, target, message)
+	})
+}
+
+func (a repoAdapter) DeleteTag(ctx context.Context, name string) error {
+	return a.queue.Do(ctx, func(ctx context.Context) error {
+		return a.repo.DeleteTag(ctx, a.runner, name)
+	})
+}
+
+func (a repoAdapter) PushTag(ctx context.Context, remote, name string) error {
+	return a.queue.Do(ctx, func(ctx context.Context) error {
+		return a.repo.PushTag(ctx, a.runner, remote, name)
+	})
+}
+
+func (a repoAdapter) CherryPick(ctx context.Context, oid string) error {
+	return a.queue.Do(ctx, func(ctx context.Context) error {
+		return a.repo.CherryPick(ctx, a.runner, oid)
+	})
+}
+
+func (a repoAdapter) Revert(ctx context.Context, oid string) error {
+	return a.queue.Do(ctx, func(ctx context.Context) error {
+		return a.repo.Revert(ctx, a.runner, oid)
+	})
+}
+
+func (a repoAdapter) Reset(ctx context.Context, target, mode string) error {
+	return a.queue.Do(ctx, func(ctx context.Context) error {
+		return a.repo.Reset(ctx, a.runner, target, mode)
+	})
+}
+
+func (a repoAdapter) CompareFiles(ctx context.Context, from, to string) ([]protocol.CommitFile, error) {
+	return a.repo.CompareFiles(ctx, a.runner, from, to)
+}
+
 // Run starts the workbench session for path and blocks until ctx is cancelled
 // or the server fails. path must be inside a Git repository; the session binds
 // to a loopback-only OS-assigned port.

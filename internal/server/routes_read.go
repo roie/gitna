@@ -23,6 +23,12 @@ func (s *Server) apiRoutes() http.Handler {
 			s.handleGraph(w, r)
 		case r.Method == http.MethodGet && p == "/branches":
 			s.handleBranches(w, r)
+		case r.Method == http.MethodGet && p == "/stashes":
+			s.handleStashes(w, r)
+		case r.Method == http.MethodGet && p == "/tags":
+			s.handleTags(w, r)
+		case r.Method == http.MethodGet && p == "/compare":
+			s.handleCompare(w, r)
 		case r.Method == http.MethodGet && strings.HasPrefix(p, "/commit/") && strings.HasSuffix(p, "/files"):
 			s.handleCommitFiles(w, r)
 		case r.Method == http.MethodGet && p == "/events":
@@ -138,6 +144,62 @@ func (s *Server) handleCommitFiles(w http.ResponseWriter, r *http.Request) {
 	oid := strings.TrimPrefix(strings.TrimPrefix(r.URL.Path, "/api/v1"), "/commit/")
 	oid = strings.TrimSuffix(oid, "/files")
 	files, err := s.repo.FilesChanged(r.Context(), oid)
+	if err != nil {
+		status := http.StatusInternalServerError
+		if errors.Is(err, protocol.ErrInvalidRef) {
+			status = http.StatusBadRequest
+		}
+		writeJSON(w, status, map[string]string{"error": err.Error()})
+		return
+	}
+	writeJSON(w, http.StatusOK, protocol.CommitFiles{Files: files})
+}
+
+// handleStashes returns the current stash list with display refs, OIDs, and
+// parsed subjects for the stash management UI.
+func (s *Server) handleStashes(w http.ResponseWriter, r *http.Request) {
+	if s.repo == nil {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "repository unavailable"})
+		return
+	}
+	entries, err := s.repo.Stashes(r.Context())
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return
+	}
+	writeJSON(w, http.StatusOK, entries)
+}
+
+// handleTags returns every tag (lightweight and annotated) with its target OID
+// for the tag management UI.
+func (s *Server) handleTags(w http.ResponseWriter, r *http.Request) {
+	if s.repo == nil {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "repository unavailable"})
+		return
+	}
+	tags, err := s.repo.Tags(r.Context())
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return
+	}
+	writeJSON(w, http.StatusOK, tags)
+}
+
+// handleCompare returns the name-status change set between two refs, reusing
+// the diff pipeline so the frontend compare view renders like a commit.
+func (s *Server) handleCompare(w http.ResponseWriter, r *http.Request) {
+	if s.repo == nil {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "repository unavailable"})
+		return
+	}
+	q := r.URL.Query()
+	from := q.Get("from")
+	to := q.Get("to")
+	if from == "" || to == "" {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "compare requires from and to"})
+		return
+	}
+	files, err := s.repo.CompareFiles(r.Context(), from, to)
 	if err != nil {
 		status := http.StatusInternalServerError
 		if errors.Is(err, protocol.ErrInvalidRef) {

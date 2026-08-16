@@ -38,6 +38,19 @@ type Repo interface {
 	Pull(ctx context.Context) error
 	Push(ctx context.Context) error
 	PushSetUpstream(ctx context.Context, remote, branch string) error
+	Stashes(ctx context.Context) ([]protocol.StashEntry, error)
+	StashPush(ctx context.Context, message string, includeUntracked bool) error
+	StashApply(ctx context.Context, ref string) error
+	StashPop(ctx context.Context, ref string) error
+	StashDrop(ctx context.Context, ref string) error
+	Tags(ctx context.Context) ([]protocol.Tag, error)
+	CreateTag(ctx context.Context, name, target, message string) error
+	DeleteTag(ctx context.Context, name string) error
+	PushTag(ctx context.Context, remote, name string) error
+	CherryPick(ctx context.Context, oid string) error
+	Revert(ctx context.Context, oid string) error
+	Reset(ctx context.Context, target, mode string) error
+	CompareFiles(ctx context.Context, from, to string) ([]protocol.CommitFile, error)
 }
 
 // Options carries server configuration.

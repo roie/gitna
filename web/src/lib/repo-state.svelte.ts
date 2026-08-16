@@ -8,6 +8,8 @@ import type {
   FileChange,
   GraphCommit,
   RepoSnapshot,
+  StashEntry,
+  Tag,
 } from './types'
 
 export interface Selection {
@@ -19,6 +21,22 @@ export interface Selection {
 export interface CommitDiffTarget {
   oid: string
   subject: string
+  path: string
+  oldPath?: string
+  kind: ChangeKind
+}
+
+/** Two refs being compared, with a human label for the compare view. */
+export interface CompareTarget {
+  from: string
+  to: string
+  label: string
+}
+
+/** A file in a compare view, selected for display in the diff pane. */
+export interface CompareDiffTarget {
+  from: string
+  to: string
   path: string
   oldPath?: string
   kind: ChangeKind
@@ -110,6 +128,20 @@ export function createRepoState(options: RepoStateOptions = {}) {
   let branches = $state<Branch[]>([])
   let branchesLoading = $state(false)
   let branchesError = $state<string | null>(null)
+
+  let stashes = $state<StashEntry[]>([])
+  let stashesLoading = $state(false)
+  let stashesError = $state<string | null>(null)
+
+  let tags = $state<Tag[]>([])
+  let tagsLoading = $state(false)
+  let tagsError = $state<string | null>(null)
+
+  let compare = $state<CompareTarget | null>(null)
+  let compareFiles = $state<CommitFile[]>([])
+  let compareLoading = $state(false)
+  let compareError = $state<string | null>(null)
+  let compareDiff = $state<CompareDiffTarget | null>(null)
 
   async function refreshSnapshot(): Promise<void> {
     if (refreshRunning) {
@@ -234,12 +266,14 @@ export function createRepoState(options: RepoStateOptions = {}) {
     if (change) {
       selection = { scope, change }
       commitDiff = null
+      compareDiff = null
     }
   }
 
   /** Selects a file changed by a commit for display in the diff pane. */
   function selectCommitFile(oid: string, subject: string, file: CommitFile): void {
     selection = null
+    compareDiff = null
     commitDiff = { oid, subject, path: file.path, oldPath: file.oldPath, kind: file.kind }
   }
 
@@ -256,6 +290,33 @@ export function createRepoState(options: RepoStateOptions = {}) {
       branchesError = e instanceof Error ? e.message : String(e)
     } finally {
       branchesLoading = false
+    }
+  }
+
+  /** Refreshes the stash list after any operation that can create or consume a
+   * stash entry (stash push/apply/pop/drop, or a branch switch). */
+  async function refreshStashes(): Promise<void> {
+    stashesLoading = true
+    stashesError = null
+    try {
+      stashes = await api.stashes()
+    } catch (e) {
+      stashesError = e instanceof Error ? e.message : String(e)
+    } finally {
+      stashesLoading = false
+    }
+  }
+
+  /** Refreshes the tag list; tags also appear as refs on the graph. */
+  async function refreshTags(): Promise<void> {
+    tagsLoading = true
+    tagsError = null
+    try {
+      tags = await api.tags()
+    } catch (e) {
+      tagsError = e instanceof Error ? e.message : String(e)
+    } finally {
+      tagsLoading = false
     }
   }
 
@@ -280,10 +341,11 @@ export function createRepoState(options: RepoStateOptions = {}) {
   }
 
   /**
-   * Applies a branch or sync operation that can move refs (switch, push, pull,
-   * fetch, …), then refreshes every ref-derived view: the snapshot, the graph,
-   * and the branch list. Failures are recorded in mutationError and propagate
-   * so the caller can react to structured classifications such as no-upstream.
+   * Applies a branch, sync, or ref operation that can move refs (switch, push,
+   * pull, fetch, stash, tags, history mutations, …), then refreshes every
+   * ref-derived view: the snapshot, the graph, the branch list, the stash list,
+   * and the tag list. Failures are recorded in mutationError and propagate so
+   * the caller can react to structured classifications such as no-upstream.
    */
   async function operation(request: MutateRequest): Promise<void> {
     busy = true
@@ -298,6 +360,8 @@ export function createRepoState(options: RepoStateOptions = {}) {
       void refreshSnapshot()
       void refreshGraph()
       void refreshBranches()
+      void refreshStashes()
+      void refreshTags()
     }
   }
 
@@ -327,6 +391,88 @@ export function createRepoState(options: RepoStateOptions = {}) {
 
   function pushSetUpstream(remote: string, branch: string): Promise<void> {
     return operation({ op: 'push-upstream', remote, name: branch })
+  }
+
+  function stashPush(message: string, includeUntracked = false): Promise<void> {
+    return operation({ op: 'stash-push', message, includeUntracked })
+  }
+
+  function stashApply(ref: string): Promise<void> {
+    return operation({ op: 'stash-apply', ref })
+  }
+
+  function stashPop(ref: string): Promise<void> {
+    return operation({ op: 'stash-pop', ref })
+  }
+
+  function stashDrop(ref: string): Promise<void> {
+    return operation({ op: 'stash-drop', ref })
+  }
+
+  function createTag(name: string, start: string | undefined, message: string): Promise<void> {
+    return operation({ op: 'create-tag', name, start, message })
+  }
+
+  function deleteTag(name: string): Promise<void> {
+    return operation({ op: 'delete-tag', name })
+  }
+
+  function pushTag(remote: string, name: string): Promise<void> {
+    return operation({ op: 'push-tag', remote, name })
+  }
+
+  function cherryPick(oid: string): Promise<void> {
+    return operation({ op: 'cherry-pick', ref: oid })
+  }
+
+  function revertCommit(oid: string): Promise<void> {
+    return operation({ op: 'revert', ref: oid })
+  }
+
+  function resetTo(target: string, mode: 'soft' | 'mixed' | 'hard'): Promise<void> {
+    return operation({ op: 'reset', ref: target, mode })
+  }
+
+  /**
+   * Opens the compare view between two refs and fetches the change set. The
+   * result reuses the commit-file list shape so the compare pane renders like
+   * an expanded commit.
+   */
+  async function openCompare(from: string, to: string, label: string): Promise<void> {
+    compare = { from, to, label }
+    compareLoading = true
+    compareError = null
+    compareDiff = null
+    try {
+      const { files } = await api.compare(from, to)
+      compareFiles = files
+    } catch (e) {
+      compareError = e instanceof Error ? e.message : String(e)
+      compareFiles = []
+    } finally {
+      compareLoading = false
+    }
+  }
+
+  /** Selects a file from the compare view for display in the diff pane. */
+  function selectCompareFile(file: CommitFile): void {
+    if (!compare) return
+    selection = null
+    commitDiff = null
+    compareDiff = {
+      from: compare.from,
+      to: compare.to,
+      path: file.path,
+      oldPath: file.oldPath,
+      kind: file.kind,
+    }
+  }
+
+  function clearCompare(): void {
+    compare = null
+    compareFiles = []
+    compareDiff = null
+    compareError = null
   }
 
   /**
@@ -419,14 +565,50 @@ export function createRepoState(options: RepoStateOptions = {}) {
     get branchesError() {
       return branchesError
     },
+    get stashes() {
+      return stashes
+    },
+    get stashesLoading() {
+      return stashesLoading
+    },
+    get stashesError() {
+      return stashesError
+    },
+    get tags() {
+      return tags
+    },
+    get tagsLoading() {
+      return tagsLoading
+    },
+    get tagsError() {
+      return tagsError
+    },
+    get compare() {
+      return compare
+    },
+    get compareFiles() {
+      return compareFiles
+    },
+    get compareLoading() {
+      return compareLoading
+    },
+    get compareError() {
+      return compareError
+    },
+    get compareDiff() {
+      return compareDiff
+    },
     refreshSnapshot,
     connectEvents,
     refreshGraph,
     refreshBranches,
+    refreshStashes,
+    refreshTags,
     loadMoreGraph,
     toggleCommit,
     select,
     selectCommitFile,
+    selectCompareFile,
     mutate,
     commit,
     createBranch,
@@ -436,6 +618,18 @@ export function createRepoState(options: RepoStateOptions = {}) {
     pullRemote,
     pushRemote,
     pushSetUpstream,
+    stashPush,
+    stashApply,
+    stashPop,
+    stashDrop,
+    createTag,
+    deleteTag,
+    pushTag,
+    cherryPick,
+    revertCommit,
+    resetTo,
+    openCompare,
+    clearCompare,
   }
 }
 

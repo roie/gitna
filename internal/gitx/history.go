@@ -152,6 +152,25 @@ func (r Repository) ChangedFiles(ctx context.Context, runner Runner, oid string)
 	return ParseDiffTree(res.Stdout)
 }
 
+// CompareFiles returns the name-status change set between two refs in the same
+// shape as ChangedFiles, so the compare view can reuse the diff pipeline.
+func (r Repository) CompareFiles(ctx context.Context, runner Runner, from, to string) ([]protocol.CommitFile, error) {
+	if err := validateRef(from); err != nil {
+		return nil, err
+	}
+	if err := validateRef(to); err != nil {
+		return nil, err
+	}
+	res, err := runner.Run(ctx, r.Root, "diff-tree", "--no-commit-id", "--name-status", "-r", "-z", "--find-renames", from, to)
+	if err != nil {
+		return nil, err
+	}
+	if res.ExitCode != 0 {
+		return nil, fmt.Errorf("gitx: diff-tree failed for %s..%s: %s", from, to, strings.TrimSpace(string(res.Stderr)))
+	}
+	return ParseDiffTree(res.Stdout)
+}
+
 // commitParents resolves the parent OIDs of a commit. The root commit yields
 // an empty slice.
 func (r Repository) commitParents(ctx context.Context, runner Runner, oid string) ([]string, error) {

@@ -189,3 +189,21 @@ type Branch struct {
 	Ahead    int    `json:"ahead"`
 	Behind   int    `json:"behind"`
 }
+
+// StashEntry describes one saved stash. Ref is the current stash@{n} reference
+// used to address the stash in later operations; the list is re-read after
+// every stash mutation so indices stay valid.
+type StashEntry struct {
+	Ref     string `json:"ref"`
+	OID     string `json:"oid"`
+	Message string `json:"message"`
+	Branch  string `json:"branch,omitempty"`
+}
+
+// Tag describes one tag. OID is the commit the tag ultimately points at (the
+// peeled object), so callers can resolve annotated and lightweight tags alike.
+type Tag struct {
+	Name      string `json:"name"`
+	OID       string `json:"oid"`
+	Annotated bool   `json:"annotated"`
+}

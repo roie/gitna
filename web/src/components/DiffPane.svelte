@@ -21,9 +21,22 @@
     kind: ChangeKind
     commit?: string
     subject?: string
+    from?: string
+    to?: string
   }
 
   let active = $derived.by<ActiveDiff | null>(() => {
+    const compareDiff = repo.compareDiff
+    if (compareDiff) {
+      return {
+        scope: 'compare',
+        path: compareDiff.path,
+        oldPath: compareDiff.oldPath,
+        kind: compareDiff.kind,
+        from: compareDiff.from,
+        to: compareDiff.to,
+      }
+    }
     const commitDiff = repo.commitDiff
     if (commitDiff) {
       return {
@@ -71,6 +84,8 @@
         path: change.path,
         oldPath: change.oldPath,
         commit: change.commit,
+        from: change.from,
+        to: change.to,
       })
       if (seq !== fetchSeq) return
       diff = result
@@ -118,7 +133,7 @@
 
   const hunks = $derived.by<HunkPatch[]>(() => {
     const patch = diff?.patch
-    if (!patch || !active || active.scope === 'commit' || active.kind !== 'modified') return []
+    if (!patch || !active || (active.scope !== 'staged' && active.scope !== 'unstaged') || active.kind !== 'modified') return []
     return splitHunkPatches(patch)
   })
 
@@ -176,6 +191,10 @@
       <span class="diff-scope">{active.scope}</span>
       {#if active.scope === 'commit'}
         <span class="diff-commit" title={active.commit}>{active.commit?.slice(0, 8)}</span>
+      {:else if active.scope === 'compare'}
+        <span class="diff-commit" title={`${active.from}..${active.to}`}>
+          {active.from?.slice(0, 8)}..{active.to?.slice(0, 8)}
+        </span>
       {:else if active.scope === 'unstaged'}
         <button class="action" onclick={stageFile} disabled={repo.busy || loading}>Stage</button>
         {#if active.kind === 'untracked'}

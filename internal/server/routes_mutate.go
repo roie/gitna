@@ -11,19 +11,29 @@ import (
 
 // Mutation operation names accepted by POST /api/v1/operations.
 const (
-	OpStage          = "stage"
-	OpUnstage        = "unstage"
-	OpDiscard        = "discard"
-	OpDelete         = "delete"
-	OpPatch          = "patch"
-	OpCommit         = "commit"
-	OpBranchCreate   = "create-branch"
-	OpBranchSwitch   = "switch-branch"
-	OpBranchDelete   = "delete-branch"
-	OpFetch          = "fetch"
-	OpPull           = "pull"
-	OpPush           = "push"
+	OpStage           = "stage"
+	OpUnstage         = "unstage"
+	OpDiscard         = "discard"
+	OpDelete          = "delete"
+	OpPatch           = "patch"
+	OpCommit          = "commit"
+	OpBranchCreate    = "create-branch"
+	OpBranchSwitch    = "switch-branch"
+	OpBranchDelete    = "delete-branch"
+	OpFetch           = "fetch"
+	OpPull            = "pull"
+	OpPush            = "push"
 	OpPushSetUpstream = "push-upstream"
+	OpStashPush       = "stash-push"
+	OpStashApply      = "stash-apply"
+	OpStashPop        = "stash-pop"
+	OpStashDrop       = "stash-drop"
+	OpTagCreate       = "create-tag"
+	OpTagDelete       = "delete-tag"
+	OpTagPush         = "push-tag"
+	OpCherryPick      = "cherry-pick"
+	OpRevert          = "revert"
+	OpReset           = "reset"
 )
 
 // mutationRequest is the JSON body shared by all operations. Only the fields
@@ -48,6 +58,13 @@ type mutationRequest struct {
 	Remote string `json:"remote,omitempty"`
 	// Force requests a force branch delete after explicit confirmation.
 	Force bool `json:"force"`
+	// Ref names the stash entry or history target for stash apply/pop/drop,
+	// cherry-pick, revert, and reset.
+	Ref string `json:"ref,omitempty"`
+	// Mode selects the reset mode (soft, mixed, or hard).
+	Mode string `json:"mode,omitempty"`
+	// IncludeUntracked requests that a stash push carry untracked files too.
+	IncludeUntracked bool `json:"includeUntracked"`
 }
 
 // maxMutationBytes bounds the JSON request body; patches are capped at a lower
@@ -124,6 +141,26 @@ func (s *Server) handleOperation(w http.ResponseWriter, r *http.Request) {
 		err = s.repo.Push(r.Context())
 	case OpPushSetUpstream:
 		err = s.repo.PushSetUpstream(r.Context(), req.Remote, req.Name)
+	case OpStashPush:
+		err = s.repo.StashPush(r.Context(), req.Message, req.IncludeUntracked)
+	case OpStashApply:
+		err = s.repo.StashApply(r.Context(), req.Ref)
+	case OpStashPop:
+		err = s.repo.StashPop(r.Context(), req.Ref)
+	case OpStashDrop:
+		err = s.repo.StashDrop(r.Context(), req.Ref)
+	case OpTagCreate:
+		err = s.repo.CreateTag(r.Context(), req.Name, req.Start, req.Message)
+	case OpTagDelete:
+		err = s.repo.DeleteTag(r.Context(), req.Name)
+	case OpTagPush:
+		err = s.repo.PushTag(r.Context(), req.Remote, req.Name)
+	case OpCherryPick:
+		err = s.repo.CherryPick(r.Context(), req.Ref)
+	case OpRevert:
+		err = s.repo.Revert(r.Context(), req.Ref)
+	case OpReset:
+		err = s.repo.Reset(r.Context(), req.Ref, req.Mode)
 	default:
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "unknown operation"})
 		return
@@ -132,7 +169,7 @@ func (s *Server) handleOperation(w http.ResponseWriter, r *http.Request) {
 		status := http.StatusInternalServerError
 		body := map[string]any{"error": err.Error()}
 		switch {
-		case errors.Is(err, protocol.ErrInvalidPath), errors.Is(err, protocol.ErrNotInRepo), errors.Is(err, protocol.ErrInvalidRef):
+		case errors.Is(err, protocol.ErrInvalidPath), errors.Is(err, protocol.ErrNotInRepo), errors.Is(err, protocol.ErrInvalidRef), errors.Is(err, gitx.ErrInvalidResetMode):
 			status = http.StatusBadRequest
 		case errors.Is(err, gitx.ErrPatchDoesNotApply):
 			status = http.StatusConflict
@@ -147,6 +184,16 @@ func (s *Server) handleOperation(w http.ResponseWriter, r *http.Request) {
 		case errors.Is(err, gitx.ErrBranchNotMerged):
 			status = http.StatusConflict
 			body["code"] = "branch-not-merged"
+		case errors.Is(err, gitx.ErrNoStash):
+			status = http.StatusNotFound
+		case errors.Is(err, gitx.ErrNoTag):
+			status = http.StatusNotFound
+		case errors.Is(err, gitx.ErrStashConflict), errors.Is(err, gitx.ErrConflict):
+			status = http.StatusConflict
+			body["code"] = "conflict"
+		case errors.Is(err, gitx.ErrTagExists):
+			status = http.StatusConflict
+			body["code"] = "tag-exists"
 		}
 		writeJSON(w, status, body)
 		return

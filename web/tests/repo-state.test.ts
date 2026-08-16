@@ -44,6 +44,20 @@ function commitFile(path: string, kind: CommitFile['kind'] = 'modified'): Commit
   return { path, kind }
 }
 
+/** Default no-op implementations for the auxiliary read endpoints so mock API
+ * clients only override the calls a test actually exercises. */
+const auxApi = {
+  async stashes() {
+    return []
+  },
+  async tags() {
+    return []
+  },
+  async compare() {
+    return { files: [] }
+  },
+}
+
 /** API client whose graph pages and commit files are scripted in order. Only
  * the last page is terminal, which is what a paged server signals. */
 function graphApi(
@@ -53,6 +67,7 @@ function graphApi(
 ): ApiClient {
   const queue = [...pages]
   return {
+    ...auxApi,
     async snapshot() {
       return initial ?? snapshot({ generation: 1 })
     },
@@ -81,6 +96,7 @@ function graphApi(
 function queuedApi(snapshots: RepoSnapshot[]): ApiClient {
   let i = 0
   return {
+    ...auxApi,
     async snapshot() {
       const snapshot = snapshots[Math.min(i, snapshots.length - 1)]!
       i += 1
@@ -211,7 +227,7 @@ describe('createRepoState', () => {
 
   it('records an error when the snapshot request fails', async () => {
     const state = createRepoState({
-      api: {
+      api: { ...auxApi,
         async snapshot() {
           throw new Error('boom')
         },
@@ -245,7 +261,7 @@ describe('createRepoState', () => {
     let release = () => {}
     const gate = new Promise<void>((r) => (release = r))
     const state = createRepoState({
-      api: {
+      api: { ...auxApi,
         async snapshot() {
           calls += 1
           if (calls === 1) await gate
@@ -282,7 +298,7 @@ describe('createRepoState', () => {
 
   it('mutates and refreshes the snapshot afterwards', async () => {
     const mutate = vi.fn(async () => {})
-    const api: ApiClient = {
+    const api: ApiClient = { ...auxApi,
       async snapshot() {
         return snapshot({ generation: 2, unstaged: [change('unstaged', 'x.txt')] })
       },
@@ -305,7 +321,7 @@ describe('createRepoState', () => {
 
   it('surfaces a failed mutation and rethrows', async () => {
     const state = createRepoState({
-      api: {
+      api: { ...auxApi,
         async snapshot() {
           return snapshot({ generation: 2 })
         },
@@ -328,7 +344,7 @@ describe('createRepoState', () => {
 
   it('commits staged changes and refreshes the snapshot', async () => {
     const commit = vi.fn(async () => ({ ok: true }))
-    const api: ApiClient = {
+    const api: ApiClient = { ...auxApi,
       async snapshot() {
         return snapshot({ generation: 2, staged: [change('staged', 'x.txt')] })
       },
@@ -352,7 +368,7 @@ describe('createRepoState', () => {
 
   it('surfaces a rejected hook without clearing mutationError', async () => {
     const state = createRepoState({
-      api: {
+      api: { ...auxApi,
         async snapshot() {
           return snapshot({ generation: 2 })
         },
@@ -493,7 +509,7 @@ describe('createRepoState', () => {
 describe('branch and sync operations', () => {
   it('runs a branch op and refreshes snapshot, graph, and branches', async () => {
     const ops: string[] = []
-    const api: ApiClient = {
+    const api: ApiClient = { ...auxApi,
       async snapshot() {
         return snapshot({ generation: 2 })
       },
@@ -528,7 +544,7 @@ describe('branch and sync operations', () => {
 
   it('routes each sync action to the matching operation', async () => {
     const ops: string[] = []
-    const api: ApiClient = {
+    const api: ApiClient = { ...auxApi,
       async snapshot() {
         return snapshot({ generation: 2 })
       },
@@ -571,7 +587,7 @@ describe('branch and sync operations', () => {
   })
 
   it('propagates structured no-upstream state to the caller', async () => {
-    const api: ApiClient = {
+    const api: ApiClient = { ...auxApi,
       async snapshot() {
         return snapshot({ generation: 2 })
       },
@@ -602,7 +618,7 @@ describe('branch and sync operations', () => {
   })
 
   it('refreshes branches with the branch list', async () => {
-    const api: ApiClient = {
+    const api: ApiClient = { ...auxApi,
       async snapshot() {
         return snapshot({ generation: 2 })
       },
@@ -629,6 +645,146 @@ describe('branch and sync operations', () => {
 
     await state.refreshBranches()
     expect(state.branchesError).toMatch(/branch listing failed/)
+  })
+})
+
+describe('stash, tag, compare, and history operations', () => {
+  it('routes stash ops and refreshes the stash list', async () => {
+    const ops: string[] = []
+    const api: ApiClient = {
+      ...auxApi,
+      async snapshot() {
+        return snapshot({ generation: 2 })
+      },
+      async diff() {
+        throw new Error('not used')
+      },
+      async mutate(req) {
+        ops.push(`${req.op}:${req.message ?? ''}:${req.ref ?? ''}:${req.includeUntracked ?? false}`)
+      },
+      async commit() {
+        throw new Error('not used')
+      },
+      async graph() {
+        return { commits: [], hasMore: false }
+      },
+      async commitFiles() {
+        return { files: [] }
+      },
+      async branches() {
+        return []
+      },
+      async stashes() {
+        return [{ ref: 'stash@{0}', oid: 'a', message: 'wip', branch: 'main' }]
+      },
+    }
+    const state = createRepoState({ api })
+
+    await state.stashPush('wip', true)
+    await state.stashApply('stash@{0}')
+    await state.stashPop('stash@{0}')
+    await state.stashDrop('stash@{0}')
+
+    expect(ops).toEqual([
+      'stash-push:wip::true',
+      'stash-apply::stash@{0}:false',
+      'stash-pop::stash@{0}:false',
+      'stash-drop::stash@{0}:false',
+    ])
+    await vi.waitFor(() => expect(state.stashes.length).toBe(1))
+  })
+
+  it('routes tag and history ops', async () => {
+    const ops: string[] = []
+    const api: ApiClient = {
+      ...auxApi,
+      async snapshot() {
+        return snapshot({ generation: 2 })
+      },
+      async diff() {
+        throw new Error('not used')
+      },
+      async mutate(req) {
+        ops.push(
+          `${req.op}:${req.name ?? ''}:${req.start ?? ''}:${req.message ?? ''}:${req.ref ?? ''}:${req.mode ?? ''}:${req.remote ?? ''}`,
+        )
+      },
+      async commit() {
+        throw new Error('not used')
+      },
+      async graph() {
+        return { commits: [], hasMore: false }
+      },
+      async commitFiles() {
+        return { files: [] }
+      },
+      async branches() {
+        return []
+      },
+      async tags() {
+        return [{ name: 'v1', oid: 'a', annotated: true }]
+      },
+    }
+    const state = createRepoState({ api })
+
+    await state.createTag('v1', 'HEAD', 'release one')
+    await state.deleteTag('v1')
+    await state.pushTag('origin', 'v1')
+    await state.cherryPick('abc123')
+    await state.revertCommit('abc123')
+    await state.resetTo('HEAD~2', 'hard')
+
+    expect(ops).toEqual([
+      'create-tag:v1:HEAD:release one:::',
+      'delete-tag:v1:::::',
+      'push-tag:v1:::::origin',
+      'cherry-pick::::abc123::',
+      'revert::::abc123::',
+      'reset::::HEAD~2:hard:',
+    ])
+    await vi.waitFor(() => expect(state.tags.length).toBe(1))
+  })
+
+  it('opens a compare, selects a file, and clears the view', async () => {
+    const api: ApiClient = {
+      ...auxApi,
+      async compare() {
+        return { files: [{ path: 'a.txt', kind: 'modified' }] }
+      },
+    }
+    const state = createRepoState({ api })
+
+    await state.openCompare('main', 'HEAD', 'main..HEAD')
+    expect(state.compare).toEqual({ from: 'main', to: 'HEAD', label: 'main..HEAD' })
+    expect(state.compareFiles).toEqual([{ path: 'a.txt', kind: 'modified' }])
+    expect(state.compareError).toBeNull()
+
+    state.selectCompareFile({ path: 'a.txt', kind: 'modified' })
+    expect(state.compareDiff).toEqual({
+      from: 'main',
+      to: 'HEAD',
+      path: 'a.txt',
+      kind: 'modified',
+    })
+
+    state.clearCompare()
+    expect(state.compare).toBeNull()
+    expect(state.compareFiles).toEqual([])
+    expect(state.compareDiff).toBeNull()
+  })
+
+  it('records a compare error when the refs are invalid', async () => {
+    const api: ApiClient = {
+      ...auxApi,
+      async compare() {
+        throw new ApiError(400, 'invalid ref')
+      },
+    }
+    const state = createRepoState({ api })
+
+    await state.openCompare('bad..ref', 'HEAD', 'bad..ref..HEAD')
+    expect(state.compareError).toMatch(/invalid ref/)
+    expect(state.compareFiles).toEqual([])
   })
 })
 

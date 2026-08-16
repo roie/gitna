@@ -40,7 +40,7 @@ export interface CommitFiles {
 
 export type ChangeScope = 'unstaged' | 'staged'
 
-export type DiffScope = ChangeScope | 'commit'
+export type DiffScope = ChangeScope | 'commit' | 'compare'
 
 export interface FileChange {
   path: string
@@ -86,4 +86,17 @@ export interface Branch {
   upstream?: string
   ahead: number
   behind: number
+}
+
+export interface StashEntry {
+  ref: string
+  oid: string
+  message: string
+  branch: string
+}
+
+export interface Tag {
+  name: string
+  oid: string
+  annotated: boolean
 }
