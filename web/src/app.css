@@ -1,9 +1,12 @@
 :root {
   color-scheme: light dark;
-  --color-bg: #ffffff;
-  --color-fg: #1f2328;
-  --color-muted: #6e7781;
-  --color-border: #d0d7de;
+  --color-bg: light-dark(#ffffff, #1e1e1e);
+  --color-fg: light-dark(#1f2328, #d4d4d4);
+  --color-muted: light-dark(#6e7781, #9d9d9d);
+  --color-border: light-dark(#d0d7de, #454545);
+  --color-accent: light-dark(#0969da, #3794ff);
+  --color-selected-bg: light-dark(#d0e4ff, #264f78);
+  --color-danger: light-dark(#d1242f, #f14c4c);
 }
 
 * {
@@ -23,10 +26,25 @@ body {
     -apple-system,
     'Segoe UI',
     sans-serif;
+  font-size: 13px;
   color: var(--color-fg);
   background: var(--color-bg);
 }
 
 #app {
   height: 100%;
+}
+
+.app {
+  display: flex;
+  height: 100%;
+}
+
+/* Map our palette onto the Pierre Trees theme variables. */
+:where(.source-control) {
+  --trees-bg-override: transparent;
+  --trees-fg-override: var(--color-fg);
+  --trees-fg-muted-override: var(--color-muted);
+  --trees-border-color-override: var(--color-border);
+  --trees-selected-bg-override: var(--color-selected-bg);
 }

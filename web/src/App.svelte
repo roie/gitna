@@ -1,15 +1,15 @@
 <script lang="ts">
-  let message = 'gitna'
+  import { onMount } from 'svelte'
+  import SourceControl from './components/SourceControl.svelte'
+  import { createRepoState } from './lib/repo-state.svelte'
+
+  const state = createRepoState()
+
+  onMount(() => {
+    void state.refreshSnapshot()
+  })
 </script>
 
 <main class="app">
-  <h1>{message}</h1>
+  <SourceControl {state} />
 </main>
-
-<style>
-  .app {
-    font-family: var(--font-sans, sans-serif);
-    color: var(--color-fg, #1f2328);
-    background: var(--color-bg, #ffffff);
-  }
-</style>
