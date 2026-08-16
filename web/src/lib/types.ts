@@ -29,6 +29,7 @@ export interface FileDiff {
   after: FileVersion
   binary: boolean
   tooLarge: boolean
+  patch?: string
 }
 
 export interface RepoSnapshot {

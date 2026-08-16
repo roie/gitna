@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"strings"
 	"testing"
@@ -22,6 +23,13 @@ func TestHelperProcess(t *testing.T) {
 	case "split-output":
 		fmt.Fprint(os.Stderr, "error-out\n")
 		fmt.Fprint(os.Stdout, "stdout-out\n")
+	case "echo-stdin":
+		in, err := io.ReadAll(os.Stdin)
+		if err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(1)
+		}
+		fmt.Printf("stdin:%s", in)
 	case "sleep":
 		time.Sleep(30 * time.Second)
 	case "huge":
@@ -68,6 +76,22 @@ func TestRunPassesArgsDirectly(t *testing.T) {
 	}
 	if strings.Contains(got, "$HOME") {
 		// The marker above asserts literal pass-through; a shell would expand it.
+	}
+}
+
+func TestRunInputFeedsStdin(t *testing.T) {
+	setHelper(t, "echo-stdin")
+	r := helperRunner(t)
+
+	res, err := r.RunInput(context.Background(), t.TempDir(), []byte("patch-body"), "apply", "--cached", "-")
+	if err != nil {
+		t.Fatalf("RunInput: %v", err)
+	}
+	if res.ExitCode != 0 {
+		t.Fatalf("exit code = %d, want 0", res.ExitCode)
+	}
+	if got := strings.TrimSpace(string(res.Stdout)); got != "stdin:patch-body" {
+		t.Fatalf("stdout = %q, want stdin:patch-body", got)
 	}
 }
 

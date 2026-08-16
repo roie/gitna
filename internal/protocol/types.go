@@ -100,10 +100,13 @@ type FileVersion struct {
 }
 
 // FileDiff is the normalized before/after pair for one changed file. Binary and
-// oversized files carry empty content; Binary/TooLarge explain why.
+// oversized files carry empty content; Binary/TooLarge explain why. Patch is
+// the exact unified diff Git shows for this file in its scope, used to apply
+// whole-hunk stages back through git apply; it is empty when unavailable.
 type FileDiff struct {
 	Before   FileVersion `json:"before"`
 	After    FileVersion `json:"after"`
 	Binary   bool        `json:"binary"`
 	TooLarge bool        `json:"tooLarge"`
+	Patch    string      `json:"patch,omitempty"`
 }

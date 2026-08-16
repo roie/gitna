@@ -39,6 +39,9 @@ function queuedApi(snapshots: RepoSnapshot[]): ApiClient {
     async diff() {
       throw new Error('diff not used in repo-state tests')
     },
+    async mutate() {
+      throw new Error('mutate not used in queuedApi tests')
+    },
   }
 }
 
@@ -153,6 +156,9 @@ describe('createRepoState', () => {
         async diff() {
           throw new Error('not used')
         },
+        async mutate() {
+          throw new Error('not used')
+        },
       },
     })
     await state.refreshSnapshot()
@@ -174,6 +180,9 @@ describe('createRepoState', () => {
         async diff() {
           throw new Error('not used')
         },
+        async mutate() {
+          throw new Error('not used')
+        },
       },
     })
 
@@ -183,6 +192,46 @@ describe('createRepoState', () => {
 
     await vi.waitFor(() => expect(state.generation).toBe(3), { timeout: 1000 })
     expect(state.snapshot?.unstaged[0]?.path).toBe('f2.txt')
+  })
+
+  it('mutates and refreshes the snapshot afterwards', async () => {
+    const mutate = vi.fn(async () => {})
+    const api: ApiClient = {
+      async snapshot() {
+        return snapshot({ generation: 2, unstaged: [change('unstaged', 'x.txt')] })
+      },
+      async diff() {
+        throw new Error('not used')
+      },
+      mutate,
+    }
+    const state = createRepoState({ api })
+
+    await state.mutate({ op: 'stage', paths: ['x.txt'] })
+
+    expect(mutate).toHaveBeenCalledWith({ op: 'stage', paths: ['x.txt'] })
+    await vi.waitFor(() => expect(state.snapshot).not.toBeNull())
+    expect(state.busy).toBe(false)
+  })
+
+  it('surfaces a failed mutation and rethrows', async () => {
+    const state = createRepoState({
+      api: {
+        async snapshot() {
+          return snapshot({ generation: 2 })
+        },
+        async diff() {
+          throw new Error('not used')
+        },
+        async mutate() {
+          throw new Error('patch does not apply')
+        },
+      },
+    })
+
+    await expect(state.mutate({ op: 'patch', patch: 'stale' })).rejects.toThrow('patch does not apply')
+    expect(state.mutationError).toMatch(/patch does not apply/)
+    expect(state.busy).toBe(false)
   })
 })
 

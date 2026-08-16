@@ -8,8 +8,7 @@ import (
 	"github.com/roie/gitna/internal/protocol"
 )
 
-// apiRoutes builds the versioned API router. Mutation routes are registered by
-// later tasks.
+// apiRoutes builds the versioned API router.
 func (s *Server) apiRoutes() http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		p := strings.TrimPrefix(r.URL.Path, "/api/v1")
@@ -20,6 +19,8 @@ func (s *Server) apiRoutes() http.Handler {
 			s.handleDiff(w, r)
 		case r.Method == http.MethodGet && p == "/events":
 			s.handleEvents(w, r)
+		case r.Method == http.MethodPost && p == "/operations":
+			s.handleOperation(w, r)
 		default:
 			writeJSON(w, http.StatusNotFound, map[string]string{"error": "not found"})
 		}

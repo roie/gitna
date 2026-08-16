@@ -24,7 +24,7 @@ func startEventsServer(t *testing.T, events <-chan watch.InvalidationKind) *http
 	srv, err := New(newTestFS(), Options{
 		Token:  testToken,
 		Host:   host,
-		Repo:   fakeRepo{},
+		Repo:   &fakeRepo{},
 		Events: events,
 	})
 	if err != nil {

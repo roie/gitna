@@ -58,7 +58,10 @@ func (r Repository) Status(ctx context.Context, runner Runner) (protocol.RepoSna
 // --untracked-files=all` output. Records are NUL-terminated; rename records
 // carry path and original path as two NUL-separated fields.
 func ParseStatus(raw []byte) (StatusResult, error) {
-	var sr StatusResult
+	sr := StatusResult{
+		Staged:   make([]protocol.FileChange, 0),
+		Unstaged: make([]protocol.FileChange, 0),
+	}
 	tokens := bytes.Split(raw, []byte{0})
 
 	for i := 0; i < len(tokens); i++ {

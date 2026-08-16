@@ -6,16 +6,50 @@ export interface DiffRequest {
   oldPath?: string
 }
 
+/** Mutation operation names accepted by the operations endpoint. */
+export type MutationOp = 'stage' | 'unstage' | 'discard' | 'delete' | 'patch'
+
+export interface MutateRequest {
+  op: MutationOp
+  paths?: string[]
+  patch?: string
+  reverse?: boolean
+}
+
 export interface ApiClient {
   snapshot(): Promise<RepoSnapshot>
   diff(request: DiffRequest): Promise<FileDiff>
+  mutate(request: MutateRequest): Promise<void>
+}
+
+/** Error carrying the HTTP status and server message so callers can react to
+ * specific failures such as a stale patch (409). */
+export class ApiError extends Error {
+  constructor(
+    readonly status: number,
+    message: string,
+  ) {
+    super(message)
+    this.name = 'ApiError'
+  }
 }
 
 async function expectOK(res: Response): Promise<Response> {
   if (!res.ok) {
-    throw new Error(`request failed: ${res.status}`)
+    const message = await readError(res)
+    throw new ApiError(res.status, message)
   }
   return res
+}
+
+async function readError(res: Response): Promise<string> {
+  try {
+    const body = (await res.json()) as { error?: string }
+    if (body.error) return body.error
+  } catch {
+    // Fall through to the generic status message when the body is not JSON.
+  }
+  return `request failed: ${res.status}`
 }
 
 export function diffQuery(request: DiffRequest): string {
@@ -37,6 +71,15 @@ export function createApi(): ApiClient {
     async diff(request: DiffRequest): Promise<FileDiff> {
       const res = await expectOK(await fetch(`api/v1/diff?${diffQuery(request)}`))
       return (await res.json()) as FileDiff
+    },
+    async mutate(request: MutateRequest): Promise<void> {
+      const body = { paths: request.paths, patch: request.patch, reverse: request.reverse }
+      const res = await fetch(`api/v1/operations?op=${request.op}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      })
+      await expectOK(res)
     },
   }
 }

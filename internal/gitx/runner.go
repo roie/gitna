@@ -30,6 +30,8 @@ type Result struct {
 // Runner executes Git commands against a repository.
 type Runner interface {
 	Run(ctx context.Context, repoRoot string, args ...string) (Result, error)
+	// RunInput runs a Git command with stdin fed from the provided bytes.
+	RunInput(ctx context.Context, repoRoot string, stdin []byte, args ...string) (Result, error)
 }
 
 // ExecRunner invokes a Git executable directly with exec.CommandContext.
@@ -47,6 +49,16 @@ type ExecRunner struct {
 }
 
 func (r *ExecRunner) Run(ctx context.Context, repoRoot string, args ...string) (Result, error) {
+	return r.run(ctx, repoRoot, nil, args...)
+}
+
+// RunInput runs Git with the given stdin payload, for commands that consume
+// input from standard input (for example git apply or git commit -F -).
+func (r *ExecRunner) RunInput(ctx context.Context, repoRoot string, stdin []byte, args ...string) (Result, error) {
+	return r.run(ctx, repoRoot, stdin, args...)
+}
+
+func (r *ExecRunner) run(ctx context.Context, repoRoot string, stdin []byte, args ...string) (Result, error) {
 	exe := r.Exec
 	if exe == "" {
 		exe = "git"
@@ -66,6 +78,9 @@ func (r *ExecRunner) Run(ctx context.Context, repoRoot string, args ...string) (
 	cmd := exec.CommandContext(ctx, exe, args...)
 	cmd.Dir = repoRoot
 	cmd.Env = envWith(os.Environ(), "GIT_TERMINAL_PROMPT=0")
+	if stdin != nil {
+		cmd.Stdin = bytes.NewReader(stdin)
+	}
 
 	stdout := &cappedBuffer{limit: stdoutLimit, onOverflow: cancel}
 	stderr := &cappedBuffer{limit: stderrLimit, onOverflow: cancel}

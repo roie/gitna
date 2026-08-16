@@ -20,9 +20,12 @@ import (
 )
 
 // repoAdapter bridges the git-backed repository to the server's Repo interface.
+// Mutations are serialized through a shared queue so concurrent requests cannot
+// interleave Git index operations.
 type repoAdapter struct {
 	runner *gitx.ExecRunner
 	repo   gitx.Repository
+	queue  *gitx.MutationQueue
 }
 
 func (a repoAdapter) Snapshot(ctx context.Context) (protocol.RepoSnapshot, error) {
@@ -31,6 +34,42 @@ func (a repoAdapter) Snapshot(ctx context.Context) (protocol.RepoSnapshot, error
 
 func (a repoAdapter) Diff(ctx context.Context, scope protocol.DiffScope, opts protocol.DiffOptions) (protocol.FileDiff, error) {
 	return a.repo.Diff(ctx, a.runner, scope, opts)
+}
+
+func (a repoAdapter) StagePaths(ctx context.Context, paths []string) error {
+	return a.queue.Do(ctx, func(ctx context.Context) error {
+		return a.repo.Stage(ctx, a.runner, paths)
+	})
+}
+
+func (a repoAdapter) UnstagePaths(ctx context.Context, paths []string) error {
+	return a.queue.Do(ctx, func(ctx context.Context) error {
+		return a.repo.Unstage(ctx, a.runner, paths)
+	})
+}
+
+func (a repoAdapter) DiscardTracked(ctx context.Context, paths []string) error {
+	return a.queue.Do(ctx, func(ctx context.Context) error {
+		return a.repo.DiscardTracked(ctx, a.runner, paths)
+	})
+}
+
+func (a repoAdapter) DeleteUntracked(ctx context.Context, paths []string) error {
+	return a.queue.Do(ctx, func(ctx context.Context) error {
+		return a.repo.DeleteUntracked(ctx, a.runner, paths)
+	})
+}
+
+func (a repoAdapter) StagePatch(ctx context.Context, patch []byte) error {
+	return a.queue.Do(ctx, func(ctx context.Context) error {
+		return a.repo.ApplyPatch(ctx, a.runner, patch, false)
+	})
+}
+
+func (a repoAdapter) UnstagePatch(ctx context.Context, patch []byte) error {
+	return a.queue.Do(ctx, func(ctx context.Context) error {
+		return a.repo.ApplyPatch(ctx, a.runner, patch, true)
+	})
 }
 
 // Run starts the workbench session for path and blocks until ctx is cancelled
@@ -73,7 +112,7 @@ func Run(ctx context.Context, path string) error {
 	srv, err := server.New(staticFS, server.Options{
 		Token:  token,
 		Host:   host,
-		Repo:   repoAdapter{runner: runner, repo: repo},
+		Repo:   repoAdapter{runner: runner, repo: repo, queue: gitx.NewMutationQueue()},
 		Events: watcher.Events(),
 	})
 	if err != nil {

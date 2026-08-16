@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/roie/gitna/internal/protocol"
@@ -16,20 +17,74 @@ type fakeRepo struct {
 	snap protocol.RepoSnapshot
 	err  error
 	diff protocol.FileDiff
+
+	mu       sync.Mutex
+	stageOps []string
+	unstages []string
+	discards []string
+	deletes  []string
+	patches  []fakePatchCall
 }
 
-func (f fakeRepo) Snapshot(context.Context) (protocol.RepoSnapshot, error) {
+type fakePatchCall struct {
+	patch   string
+	reverse bool
+}
+
+func (f *fakeRepo) Snapshot(context.Context) (protocol.RepoSnapshot, error) {
 	if f.err != nil {
 		return protocol.RepoSnapshot{}, f.err
 	}
 	return f.snap, nil
 }
 
-func (f fakeRepo) Diff(context.Context, protocol.DiffScope, protocol.DiffOptions) (protocol.FileDiff, error) {
+func (f *fakeRepo) Diff(context.Context, protocol.DiffScope, protocol.DiffOptions) (protocol.FileDiff, error) {
 	if f.err != nil {
 		return protocol.FileDiff{}, f.err
 	}
 	return f.diff, nil
+}
+
+func (f *fakeRepo) StagePaths(_ context.Context, paths []string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.stageOps = append(f.stageOps, paths...)
+	return f.err
+}
+
+func (f *fakeRepo) UnstagePaths(_ context.Context, paths []string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.unstages = append(f.unstages, paths...)
+	return f.err
+}
+
+func (f *fakeRepo) DiscardTracked(_ context.Context, paths []string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.discards = append(f.discards, paths...)
+	return f.err
+}
+
+func (f *fakeRepo) DeleteUntracked(_ context.Context, paths []string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.deletes = append(f.deletes, paths...)
+	return f.err
+}
+
+func (f *fakeRepo) StagePatch(_ context.Context, patch []byte) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.patches = append(f.patches, fakePatchCall{patch: string(patch)})
+	return f.err
+}
+
+func (f *fakeRepo) UnstagePatch(_ context.Context, patch []byte) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.patches = append(f.patches, fakePatchCall{patch: string(patch), reverse: true})
+	return f.err
 }
 
 func newSnapshotServer(repo Repo) http.Handler {
@@ -56,7 +111,7 @@ func TestSnapshotRouteReturnsNormalizedJSON(t *testing.T) {
 			{Path: "dir/file.txt", Kind: protocol.KindModified, Scope: protocol.ScopeUnstaged},
 		},
 	}
-	h := newSnapshotServer(fakeRepo{snap: snap})
+	h := newSnapshotServer(&fakeRepo{snap: snap})
 
 	req := httptest.NewRequest(http.MethodGet, "/s/"+testToken+"/api/v1/snapshot", nil)
 	req.Host = testHost
@@ -90,7 +145,7 @@ func TestSnapshotRouteReturnsNormalizedJSON(t *testing.T) {
 }
 
 func TestSnapshotGenerationIncrements(t *testing.T) {
-	h := newSnapshotServer(fakeRepo{snap: protocol.RepoSnapshot{}})
+	h := newSnapshotServer(&fakeRepo{snap: protocol.RepoSnapshot{}})
 
 	gen := func() uint64 {
 		req := httptest.NewRequest(http.MethodGet, "/s/"+testToken+"/api/v1/snapshot", nil)
@@ -112,7 +167,7 @@ func TestSnapshotGenerationIncrements(t *testing.T) {
 }
 
 func TestSnapshotRouteError(t *testing.T) {
-	h := newSnapshotServer(fakeRepo{err: context.Canceled})
+	h := newSnapshotServer(&fakeRepo{err: context.Canceled})
 
 	req := httptest.NewRequest(http.MethodGet, "/s/"+testToken+"/api/v1/snapshot", nil)
 	req.Host = testHost
@@ -138,7 +193,7 @@ func TestSnapshotUnavailableWithoutRepo(t *testing.T) {
 }
 
 func TestDiffRouteReturnsFileDiff(t *testing.T) {
-	h := newSnapshotServer(fakeRepo{diff: protocol.FileDiff{
+	h := newSnapshotServer(&fakeRepo{diff: protocol.FileDiff{
 		Before: protocol.FileVersion{Path: "a.txt", Language: "text", Content: "one\n"},
 		After:  protocol.FileVersion{Path: "a.txt", Language: "text", Content: "one\ntwo\n"},
 	}})
@@ -162,7 +217,7 @@ func TestDiffRouteReturnsFileDiff(t *testing.T) {
 
 func TestDiffRouteMapsInvalidInputTo400(t *testing.T) {
 	for _, name := range []error{protocol.ErrInvalidPath, protocol.ErrNotInRepo} {
-		h := newSnapshotServer(fakeRepo{err: name})
+		h := newSnapshotServer(&fakeRepo{err: name})
 		req := httptest.NewRequest(http.MethodGet, "/s/"+testToken+"/api/v1/diff?scope=unstaged&path=../escape", nil)
 		req.Host = testHost
 		rec := httptest.NewRecorder()
@@ -174,7 +229,7 @@ func TestDiffRouteMapsInvalidInputTo400(t *testing.T) {
 }
 
 func TestDiffRouteError(t *testing.T) {
-	h := newSnapshotServer(fakeRepo{err: errors.New("boom")})
+	h := newSnapshotServer(&fakeRepo{err: errors.New("boom")})
 
 	req := httptest.NewRequest(http.MethodGet, "/s/"+testToken+"/api/v1/diff?scope=unstaged&path=a.txt", nil)
 	req.Host = testHost

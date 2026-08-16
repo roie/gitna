@@ -15,10 +15,18 @@ import (
 	"github.com/roie/gitna/internal/watch"
 )
 
-// Repo provides repository state to the API handlers.
+// Repo provides repository state and mutations to the API handlers. Mutations
+// are individually atomic; callers that need ordering across requests use the
+// shared mutation queue wired at the app layer.
 type Repo interface {
 	Snapshot(ctx context.Context) (protocol.RepoSnapshot, error)
 	Diff(ctx context.Context, scope protocol.DiffScope, opts protocol.DiffOptions) (protocol.FileDiff, error)
+	StagePaths(ctx context.Context, paths []string) error
+	UnstagePaths(ctx context.Context, paths []string) error
+	DiscardTracked(ctx context.Context, paths []string) error
+	DeleteUntracked(ctx context.Context, paths []string) error
+	StagePatch(ctx context.Context, patch []byte) error
+	UnstagePatch(ctx context.Context, patch []byte) error
 }
 
 // Options carries server configuration.

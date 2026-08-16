@@ -292,3 +292,92 @@ func TestDiffStagedPathWithSpaces(t *testing.T) {
 		t.Fatalf("After = %q, want content", d.After.Content)
 	}
 }
+
+func TestDiffUnstagedCarriesPatch(t *testing.T) {
+	repo, runner := diffRepo(t)
+	writeFile(t, filepath.Join(repo.Root, "a.txt"), "one\ntwo\n")
+
+	d, err := repo.Diff(context.Background(), runner, protocol.DiffUnstaged, protocol.DiffOptions{Path: "a.txt"})
+	if err != nil {
+		t.Fatalf("Diff: %v", err)
+	}
+	if d.Patch == "" {
+		t.Fatal("Patch empty, want unified diff for hunk operations")
+	}
+	if !strings.Contains(d.Patch, "@@") || !strings.Contains(d.Patch, "+two") {
+		t.Fatalf("Patch does not describe the change:\n%s", d.Patch)
+	}
+	if strings.Contains(d.Patch, "\x1b[") {
+		t.Fatalf("Patch contains escape codes (color leaking):\n%q", d.Patch)
+	}
+}
+
+func TestDiffStagedCarriesPatch(t *testing.T) {
+	repo, runner := diffRepo(t)
+	writeFile(t, filepath.Join(repo.Root, "a.txt"), "one\ntwo\n")
+	runGit(t, repo.Root, "add", "a.txt")
+
+	d, err := repo.Diff(context.Background(), runner, protocol.DiffStaged, protocol.DiffOptions{Path: "a.txt"})
+	if err != nil {
+		t.Fatalf("Diff: %v", err)
+	}
+	if !strings.Contains(d.Patch, "@@") || !strings.Contains(d.Patch, "+two") {
+		t.Fatalf("Patch does not describe the staged change:\n%s", d.Patch)
+	}
+}
+
+func TestDiffUntrackedHasNoPatch(t *testing.T) {
+	repo, runner := diffRepo(t)
+	writeFile(t, filepath.Join(repo.Root, "new.txt"), "hello\n")
+
+	d, err := repo.Diff(context.Background(), runner, protocol.DiffUnstaged, protocol.DiffOptions{Path: "new.txt"})
+	if err != nil {
+		t.Fatalf("Diff: %v", err)
+	}
+	if d.Patch != "" {
+		t.Fatalf("Patch = %q, want empty for untracked file", d.Patch)
+	}
+}
+
+func TestDiffCommitScopeHasNoPatch(t *testing.T) {
+	repo, runner := diffRepo(t)
+	writeFile(t, filepath.Join(repo.Root, "a.txt"), "one\ntwo\n")
+	runGit(t, repo.Root, "add", "a.txt")
+	runGit(t, repo.Root, "commit", "-qm", "second")
+	oid := strings.TrimSpace(runGit(t, repo.Root, "rev-parse", "HEAD"))
+
+	d, err := repo.Diff(context.Background(), runner, protocol.DiffCommit, protocol.DiffOptions{Path: "a.txt", Commit: oid})
+	if err != nil {
+		t.Fatalf("Diff: %v", err)
+	}
+	if d.Patch != "" {
+		t.Fatalf("Patch = %q, want empty outside the index surface", d.Patch)
+	}
+}
+
+func TestDiffRenameHasNoPatch(t *testing.T) {
+	repo, runner := diffRepo(t)
+	runGit(t, repo.Root, "mv", "a.txt", "renamed.txt")
+
+	d, err := repo.Diff(context.Background(), runner, protocol.DiffStaged, protocol.DiffOptions{Path: "renamed.txt", OldPath: "a.txt"})
+	if err != nil {
+		t.Fatalf("Diff: %v", err)
+	}
+	if d.Patch != "" {
+		t.Fatalf("Patch = %q, want empty for rename", d.Patch)
+	}
+}
+
+func TestDiffBinaryHasNoPatch(t *testing.T) {
+	repo, runner := diffRepo(t)
+	writeFile(t, filepath.Join(repo.Root, "bin.dat"), "abc\x00def")
+	runGit(t, repo.Root, "add", "bin.dat")
+
+	d, err := repo.Diff(context.Background(), runner, protocol.DiffStaged, protocol.DiffOptions{Path: "bin.dat"})
+	if err != nil {
+		t.Fatalf("Diff: %v", err)
+	}
+	if !d.Binary || d.Patch != "" {
+		t.Fatalf("binary diff = binary %v patch %q, want binary with no patch", d.Binary, d.Patch)
+	}
+}

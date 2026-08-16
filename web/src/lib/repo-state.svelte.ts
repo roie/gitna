@@ -1,4 +1,4 @@
-import { createApi, type ApiClient } from './api'
+import { createApi, type ApiClient, type MutateRequest } from './api'
 import type { ChangeScope, FileChange, RepoSnapshot } from './types'
 
 export interface Selection {
@@ -64,6 +64,8 @@ export function createRepoState(options: RepoStateOptions = {}) {
   let snapshot = $state<RepoSnapshot | null>(null)
   let loading = $state(false)
   let error = $state<string | null>(null)
+  let mutationError = $state<string | null>(null)
+  let busy = $state(false)
   let generation = $state(0)
   let selection = $state<Selection | null>(null)
 
@@ -126,6 +128,26 @@ export function createRepoState(options: RepoStateOptions = {}) {
     if (change) selection = { scope, change }
   }
 
+  /**
+   * Applies a repository mutation, then refreshes the snapshot so the index
+   * and worktree views reflect the change. Failures are recorded in
+   * mutationError (which the follow-up snapshot refresh leaves untouched), and
+   * the rejection propagates to the caller.
+   */
+  async function mutate(request: MutateRequest): Promise<void> {
+    busy = true
+    try {
+      await api.mutate(request)
+      mutationError = null
+    } catch (e) {
+      mutationError = e instanceof Error ? e.message : String(e)
+      throw e
+    } finally {
+      busy = false
+      void refreshSnapshot()
+    }
+  }
+
   return {
     get api() {
       return api
@@ -139,6 +161,12 @@ export function createRepoState(options: RepoStateOptions = {}) {
     get error() {
       return error
     },
+    get mutationError() {
+      return mutationError
+    },
+    get busy() {
+      return busy
+    },
     get generation() {
       return generation
     },
@@ -151,6 +179,7 @@ export function createRepoState(options: RepoStateOptions = {}) {
     refreshSnapshot,
     connectEvents,
     select,
+    mutate,
   }
 }
 

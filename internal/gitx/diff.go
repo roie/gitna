@@ -16,6 +16,11 @@ import (
 // reported as too large instead of being shipped to the browser.
 const DefaultDiffBytes = 512 << 10
 
+// maxPatchOutputBytes bounds the unified diff patch shipped for hunk
+// operations. A patch is roughly the change plus context, so this stays a
+// small multiple of the per-side content cap.
+const maxPatchOutputBytes = 4 * DefaultDiffBytes
+
 // Diff resolves the before/after content for one changed file in the requested
 // scope. Tracked versions come from Git blobs so the comparison is independent
 // of worktree races; the untracked/worktree side is read from disk with an
@@ -109,7 +114,35 @@ func (r Repository) Diff(ctx context.Context, runner Runner, scope protocol.Diff
 	if afterPresent {
 		fd.After.Content = string(afterRaw)
 	}
+	if !fd.TooLarge && (scope == protocol.DiffUnstaged || scope == protocol.DiffStaged) && opts.OldPath == "" {
+		patch, err := r.diffPatch(ctx, runner, scope == protocol.DiffStaged, opts.Path)
+		if err != nil {
+			return protocol.FileDiff{}, err
+		}
+		fd.Patch = patch
+	}
 	return fd, nil
+}
+
+// diffPatch returns the exact unified diff Git shows for the file in the given
+// index surface so partial staging can feed the same patch back through git
+// apply. Color, external diff programs, and pager configuration are disabled;
+// empty or oversized output returns an empty patch (hunk operations
+// unavailable) rather than shipping megabytes to the browser.
+func (r Repository) diffPatch(ctx context.Context, runner Runner, cached bool, path string) (string, error) {
+	args := []string{"-c", "diff.color=never", "diff", "--no-ext-diff"}
+	if cached {
+		args = append(args, "--cached")
+	}
+	args = append(args, "--", path)
+	res, err := runner.Run(ctx, r.Root, args...)
+	if err != nil {
+		return "", err
+	}
+	if res.ExitCode != 0 || len(res.Stdout) == 0 || len(res.Stdout) > maxPatchOutputBytes {
+		return "", nil
+	}
+	return string(res.Stdout), nil
 }
 
 // readBlob returns a blob's content from the given treeish:path expression.
