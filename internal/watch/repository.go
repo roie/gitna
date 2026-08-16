@@ -1,0 +1,372 @@
+// Package watch observes a Git repository and reports invalidation events so
+// the frontend can refresh state without polling every change.
+package watch
+
+import (
+	"context"
+	"crypto/sha256"
+	"errors"
+	"fmt"
+	"io/fs"
+	"os"
+	"path/filepath"
+	"strings"
+	"sync"
+	"time"
+
+	"github.com/fsnotify/fsnotify"
+	"github.com/roie/gitna/internal/gitx"
+)
+
+// InvalidationKind names the events emitted when repository state changes.
+type InvalidationKind string
+
+const (
+	// InvalidateSnapshot means the source-control snapshot may have changed.
+	InvalidateSnapshot InvalidationKind = "snapshot-invalidated"
+	// InvalidateGraph means branch topology may have changed (consumed by the
+	// future graph view).
+	InvalidateGraph InvalidationKind = "graph-invalidated"
+)
+
+// Watcher reports repository state invalidations.
+type Watcher interface {
+	// Events delivers invalidation kinds. The channel is closed by Close.
+	Events() <-chan InvalidationKind
+	Close() error
+}
+
+// Options tunes Repository behavior. Zero values select defaults.
+type Options struct {
+	// Debounce is the quiet period before pending invalidations are emitted.
+	// Zero means 250ms.
+	Debounce time.Duration
+	// FallbackInterval is how often the repository fingerprint is re-checked.
+	// Zero means 10s; a negative value disables the fallback.
+	FallbackInterval time.Duration
+	// OnError receives non-fatal watcher errors. Zero means errors are
+	// silently dropped.
+	OnError func(error)
+	// Fingerprint overrides the repository fingerprint function. Used by
+	// tests; defaults to a hash of porcelain status.
+	Fingerprint func(ctx context.Context) (string, error)
+}
+
+// Repository watches one Git worktree plus its metadata and emits coalesced
+// invalidation kinds. Watching the working tree recursively catches edits,
+// while the index, HEAD, and refs are observed directly. A low-frequency
+// fingerprint re-check covers events fsnotify may miss (for example when
+// inotify watch limits are exceeded).
+type Repository struct {
+	git   gitx.Repository
+	fsw   *fsnotify.Watcher
+	opts  Options
+
+	mu       sync.Mutex
+	closed   bool
+	events   chan InvalidationKind
+	closedCh chan struct{}
+	once     sync.Once
+}
+
+// New creates a watcher for git and starts its background loops. ctx and Close
+// both stop the watcher; Close is idempotent.
+func New(ctx context.Context, git gitx.Repository, runner gitx.Runner, opts Options) (*Repository, error) {
+	fsw, err := fsnotify.NewWatcher()
+	if err != nil {
+		return nil, fmt.Errorf("watch: create watcher: %w", err)
+	}
+	w := &Repository{
+		git:      git,
+		fsw:      fsw,
+		opts:     opts,
+		events:   make(chan InvalidationKind, 32),
+		closedCh: make(chan struct{}),
+	}
+	if err := w.addWorktreeWatches(); err != nil {
+		_ = fsw.Close()
+		return nil, err
+	}
+	if err := w.addGitWatches(); err != nil {
+		_ = fsw.Close()
+		return nil, err
+	}
+	go w.loop(ctx)
+	go w.fallback(ctx, runner)
+	return w, nil
+}
+
+// Events returns the stream of invalidation kinds. It is closed by Close.
+func (w *Repository) Events() <-chan InvalidationKind { return w.events }
+
+// Close stops observation and closes the Events channel. It is safe to call
+// multiple times.
+func (w *Repository) Close() error {
+	var err error
+	w.once.Do(func() {
+		w.mu.Lock()
+		w.closed = true
+		close(w.events)
+		w.mu.Unlock()
+		close(w.closedCh)
+		err = w.fsw.Close()
+	})
+	return err
+}
+
+// emit forwards an invalidation without blocking. Under load events are
+// dropped; the debounce and fingerprint fallback make this safe.
+func (w *Repository) emit(k InvalidationKind) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	if w.closed {
+		return
+	}
+	select {
+	case w.events <- k:
+	default:
+	}
+}
+
+// addWorktreeWatches registers every directory under the worktree root,
+// skipping the Git metadata directory. Missing watches for newly created
+// directories are added from the event loop.
+func (w *Repository) addWorktreeWatches() error {
+	var firstErr error
+	_ = filepath.WalkDir(w.git.Root, func(p string, d fs.DirEntry, err error) error {
+		if err != nil || !d.IsDir() {
+			return nil
+		}
+		if w.isGitDirPath(p) {
+			return filepath.SkipDir
+		}
+		if werr := w.fsw.Add(p); werr != nil && firstErr == nil {
+			firstErr = werr
+		}
+		return nil
+	})
+	return firstErr
+}
+
+// addGitWatches observes the Git metadata that affects status: the metadata
+// directory itself (index, HEAD, packed-refs, config) and the refs tree
+// (branch updates).
+func (w *Repository) addGitWatches() error {
+	firstErr := w.fsw.Add(w.git.GitDir)
+	refs := filepath.Join(w.git.GitDir, "refs")
+	_ = filepath.WalkDir(refs, func(p string, d fs.DirEntry, err error) error {
+		if err != nil || !d.IsDir() {
+			return nil
+		}
+		if werr := w.fsw.Add(p); werr != nil && firstErr == nil {
+			firstErr = werr
+		}
+		return nil
+	})
+	return firstErr
+}
+
+// shouldWatchDir decides whether a newly created directory gets a watch. Git
+// internals are ignored except the refs tree, which holds branch updates.
+func (w *Repository) shouldWatchDir(p string) bool {
+	if !w.isGitDirPath(p) {
+		return true
+	}
+	rel, err := filepath.Rel(w.git.GitDir, p)
+	if err != nil {
+		return false
+	}
+	rel = filepath.ToSlash(rel)
+	return rel == "refs" || strings.HasPrefix(rel, "refs/")
+}
+
+// loop coalesces fsnotify events into debounced invalidation kinds.
+func (w *Repository) loop(ctx context.Context) {
+	debounce := w.opts.Debounce
+	if debounce <= 0 {
+		debounce = 250 * time.Millisecond
+	}
+	// maxWait bounds the quiet window so continuous change still flushes.
+	const maxWait = 2 * time.Second
+
+	var (
+		pending    map[InvalidationKind]bool
+		quietTimer *time.Timer
+		quietC     <-chan time.Time
+		maxTimer   *time.Timer
+		maxC       <-chan time.Time
+	)
+
+	flush := func() {
+		if len(pending) == 0 {
+			return
+		}
+		if quietTimer != nil {
+			quietTimer.Stop()
+		}
+		if maxTimer != nil {
+			maxTimer.Stop()
+		}
+		quietTimer, maxTimer = nil, nil
+		quietC, maxC = nil, nil
+		for k := range pending {
+			w.emit(k)
+		}
+		pending = nil
+	}
+
+	mark := func(k InvalidationKind) {
+		if pending == nil {
+			pending = map[InvalidationKind]bool{}
+		}
+		if len(pending) == 0 {
+			quietTimer = time.NewTimer(debounce)
+			quietC = quietTimer.C
+			maxTimer = time.NewTimer(maxWait)
+			maxC = maxTimer.C
+		} else {
+			quietTimer.Reset(debounce)
+		}
+		pending[k] = true
+	}
+
+	for {
+		select {
+		case <-ctx.Done():
+			flush()
+			return
+		case <-w.closedCh:
+			flush()
+			return
+		case ev, ok := <-w.fsw.Events:
+			if !ok {
+				flush()
+				return
+			}
+			for _, k := range w.classify(ev) {
+				mark(k)
+			}
+			if ev.Op&fsnotify.Create != 0 {
+				if info, err := os.Stat(ev.Name); err == nil && info.IsDir() && w.shouldWatchDir(ev.Name) {
+					_ = w.fsw.Add(ev.Name)
+				}
+			}
+		case err, ok := <-w.fsw.Errors:
+			if !ok {
+				flush()
+				return
+			}
+			if errors.Is(err, fsnotify.ErrEventOverflow) {
+				mark(InvalidateSnapshot)
+				continue
+			}
+			if w.opts.OnError != nil {
+				w.opts.OnError(err)
+			}
+		case <-quietC:
+			flush()
+		case <-maxC:
+			flush()
+		}
+	}
+}
+
+// classify maps a filesystem event to the invalidation kinds it implies.
+func (w *Repository) classify(ev fsnotify.Event) []InvalidationKind {
+	name := filepath.Clean(ev.Name)
+	if strings.HasSuffix(name, ".lock") {
+		return nil
+	}
+	if w.isGitDirPath(name) {
+		rel, err := filepath.Rel(w.git.GitDir, name)
+		if err != nil {
+			return nil
+		}
+		rel = filepath.ToSlash(rel)
+		switch {
+		case rel == "index", rel == "HEAD", rel == "packed-refs":
+			return []InvalidationKind{InvalidateSnapshot}
+		case rel == "refs" || strings.HasPrefix(rel, "refs/"):
+			return []InvalidationKind{InvalidateSnapshot, InvalidateGraph}
+		default:
+			return nil
+		}
+	}
+	if w.isInsideWorktree(name) {
+		return []InvalidationKind{InvalidateSnapshot}
+	}
+	return nil
+}
+
+func (w *Repository) isGitDirPath(p string) bool {
+	git := filepath.Clean(w.git.GitDir)
+	return p == git || strings.HasPrefix(p, git+string(filepath.Separator))
+}
+
+func (w *Repository) isInsideWorktree(p string) bool {
+	if p == w.git.Root {
+		return true
+	}
+	rel, err := filepath.Rel(w.git.Root, p)
+	if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		return false
+	}
+	return true
+}
+
+// fallback periodically compares a cheap repository fingerprint so state is
+// eventually invalidated even when watcher events are lost. The fingerprint is
+// porcelain status output, so a quiet repository does not trigger spurious
+// invalidations.
+func (w *Repository) fallback(ctx context.Context, runner gitx.Runner) {
+	interval := w.opts.FallbackInterval
+	if interval == 0 {
+		interval = 10 * time.Second
+	}
+	if interval < 0 {
+		return
+	}
+	fp := w.opts.Fingerprint
+	if fp == nil {
+		fp = func(ctx context.Context) (string, error) {
+			return fingerprint(ctx, runner, w.git.Root)
+		}
+	}
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+
+	var last string
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-w.closedCh:
+			return
+		case <-ticker.C:
+			current, err := fp(ctx)
+			if err != nil {
+				continue
+			}
+			if last == "" {
+				last = current
+				continue
+			}
+			if current != last {
+				last = current
+				w.emit(InvalidateSnapshot)
+			}
+		}
+	}
+}
+
+func fingerprint(ctx context.Context, runner gitx.Runner, root string) (string, error) {
+	res, err := runner.Run(ctx, root, "status", "--porcelain", "-z")
+	if err != nil {
+		return "", err
+	}
+	if res.ExitCode != 0 {
+		return "", fmt.Errorf("watch: fingerprint status failed: %s", strings.TrimSpace(string(res.Stderr)))
+	}
+	sum := sha256.Sum256(res.Stdout)
+	return fmt.Sprintf("%x", sum), nil
+}

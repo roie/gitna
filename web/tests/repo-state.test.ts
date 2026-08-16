@@ -1,5 +1,5 @@
-import { describe, expect, it } from 'vitest'
-import { createRepoState, reconcileSelection } from '../src/lib/repo-state.svelte'
+import { describe, expect, it, vi } from 'vitest'
+import { coalesce, createRepoState, reconcileSelection } from '../src/lib/repo-state.svelte'
 import type { ApiClient } from '../src/lib/api'
 import type { ChangeScope, FileChange, RepoSnapshot } from '../src/lib/types'
 
@@ -158,5 +158,64 @@ describe('createRepoState', () => {
     await state.refreshSnapshot()
     expect(state.error).toMatch(/boom/)
     expect(state.snapshot).toBeNull()
+  })
+
+  it('reruns a queued refresh when calls overlap', async () => {
+    let calls = 0
+    let release = () => {}
+    const gate = new Promise<void>((r) => (release = r))
+    const state = createRepoState({
+      api: {
+        async snapshot() {
+          calls += 1
+          if (calls === 1) await gate
+          return snapshot({ generation: calls + 1, unstaged: [change('unstaged', `f${calls}.txt`)] })
+        },
+        async diff() {
+          throw new Error('not used')
+        },
+      },
+    })
+
+    void state.refreshSnapshot()
+    void state.refreshSnapshot()
+    release()
+
+    await vi.waitFor(() => expect(state.generation).toBe(3), { timeout: 1000 })
+    expect(state.snapshot?.unstaged[0]?.path).toBe('f2.txt')
+  })
+})
+
+describe('coalesce', () => {
+  it('collapses a burst into a single refresh after the quiet period', () => {
+    vi.useFakeTimers()
+    const refresh = vi.fn()
+    const schedule = coalesce(refresh, 50)
+
+    schedule()
+    schedule()
+    schedule()
+
+    expect(refresh).not.toHaveBeenCalled()
+    vi.advanceTimersByTime(49)
+    expect(refresh).not.toHaveBeenCalled()
+    vi.advanceTimersByTime(2)
+    expect(refresh).toHaveBeenCalledTimes(1)
+    vi.useRealTimers()
+  })
+
+  it('allows a later burst to trigger another refresh', () => {
+    vi.useFakeTimers()
+    const refresh = vi.fn()
+    const schedule = coalesce(refresh, 50)
+
+    schedule()
+    vi.advanceTimersByTime(51)
+    expect(refresh).toHaveBeenCalledTimes(1)
+
+    schedule()
+    vi.advanceTimersByTime(51)
+    expect(refresh).toHaveBeenCalledTimes(2)
+    vi.useRealTimers()
   })
 })

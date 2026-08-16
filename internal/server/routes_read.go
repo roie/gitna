@@ -18,6 +18,8 @@ func (s *Server) apiRoutes() http.Handler {
 			s.handleSnapshot(w, r)
 		case r.Method == http.MethodGet && p == "/diff":
 			s.handleDiff(w, r)
+		case r.Method == http.MethodGet && p == "/events":
+			s.handleEvents(w, r)
 		default:
 			writeJSON(w, http.StatusNotFound, map[string]string{"error": "not found"})
 		}

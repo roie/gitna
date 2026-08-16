@@ -12,6 +12,7 @@ import (
 	"sync/atomic"
 
 	"github.com/roie/gitna/internal/protocol"
+	"github.com/roie/gitna/internal/watch"
 )
 
 // Repo provides repository state to the API handlers.
@@ -29,6 +30,9 @@ type Options struct {
 	Host string
 	// Repo supplies repository state. When nil, snapshot routes return 503.
 	Repo Repo
+	// Events streams repository invalidation kinds. When nil, the events
+	// endpoint closes its stream immediately.
+	Events <-chan watch.InvalidationKind
 }
 
 // Server serves the embedded frontend and the repository API.
@@ -37,6 +41,7 @@ type Server struct {
 	api      http.Handler
 	security Security
 	repo     Repo
+	hub      *eventsHub
 	gen      atomic.Uint64
 }
 
@@ -50,6 +55,7 @@ func New(staticFS fs.FS, opts Options) (*Server, error) {
 	s := &Server{
 		static: staticFS,
 		repo:   opts.Repo,
+		hub:    newEventsHub(opts.Events),
 		security: Security{
 			Token: opts.Token,
 			Host:  opts.Host,

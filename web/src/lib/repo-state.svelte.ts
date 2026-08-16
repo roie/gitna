@@ -15,6 +15,25 @@ function changesIn(snap: RepoSnapshot, scope: ChangeScope): FileChange[] {
 }
 
 /**
+ * Coalesces bursts of trigger() calls into a single invocation of refresh
+ * after a quiet period. Event streams (SSE) can fire in clusters; only the
+ * most recent state matters once the burst settles.
+ */
+export function coalesce(refresh: () => void, delay = 150): () => void {
+  let timer: ReturnType<typeof setTimeout> | undefined
+  let pending = false
+  return () => {
+    if (pending) return
+    pending = true
+    clearTimeout(timer)
+    timer = setTimeout(() => {
+      pending = false
+      refresh()
+    }, delay)
+  }
+}
+
+/**
  * Pure, deterministic selection reconciliation used after every snapshot
  * refresh. Keeps the selection when the path still exists; otherwise selects
  * the nearest remaining changed file by list order (immediate successor, else
@@ -48,7 +67,15 @@ export function createRepoState(options: RepoStateOptions = {}) {
   let generation = $state(0)
   let selection = $state<Selection | null>(null)
 
+  let refreshRunning = false
+  let refreshAgain = false
+
   async function refreshSnapshot(): Promise<void> {
+    if (refreshRunning) {
+      refreshAgain = true
+      return
+    }
+    refreshRunning = true
     loading = true
     error = null
     try {
@@ -61,6 +88,31 @@ export function createRepoState(options: RepoStateOptions = {}) {
       error = e instanceof Error ? e.message : String(e)
     } finally {
       loading = false
+      refreshRunning = false
+      if (refreshAgain) {
+        refreshAgain = false
+        void refreshSnapshot()
+      }
+    }
+  }
+
+  const scheduleRefresh = coalesce(() => void refreshSnapshot())
+
+  let eventSource: EventSource | null = null
+
+  /**
+   * Subscribes to the server's invalidation stream and refreshes the snapshot
+   * after bursts settle. EventSource reconnects automatically after transient
+   * disconnections; the returned cleanup closes the connection.
+   */
+  function connectEvents(): () => void {
+    if (eventSource) return () => {}
+    const source = new EventSource('api/v1/events')
+    eventSource = source
+    source.addEventListener('snapshot-invalidated', () => scheduleRefresh())
+    return () => {
+      source.close()
+      if (eventSource === source) eventSource = null
     }
   }
 
@@ -97,6 +149,7 @@ export function createRepoState(options: RepoStateOptions = {}) {
       return selection?.change ?? null
     },
     refreshSnapshot,
+    connectEvents,
     select,
   }
 }

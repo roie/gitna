@@ -15,6 +15,7 @@ import (
 	"github.com/roie/gitna/internal/protocol"
 	"github.com/roie/gitna/internal/server"
 	"github.com/roie/gitna/internal/session"
+	"github.com/roie/gitna/internal/watch"
 	"github.com/roie/gitna/internal/webui"
 )
 
@@ -63,10 +64,17 @@ func Run(ctx context.Context, path string) error {
 		return fmt.Errorf("app: load embedded assets: %w", err)
 	}
 
+	watcher, err := watch.New(ctx, repo, runner, watch.Options{})
+	if err != nil {
+		return fmt.Errorf("app: create watcher: %w", err)
+	}
+	defer watcher.Close()
+
 	srv, err := server.New(staticFS, server.Options{
-		Token: token,
-		Host:  host,
-		Repo:  repoAdapter{runner: runner, repo: repo},
+		Token:  token,
+		Host:   host,
+		Repo:   repoAdapter{runner: runner, repo: repo},
+		Events: watcher.Events(),
 	})
 	if err != nil {
 		return fmt.Errorf("app: create server: %w", err)
