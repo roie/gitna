@@ -42,6 +42,9 @@ function queuedApi(snapshots: RepoSnapshot[]): ApiClient {
     async mutate() {
       throw new Error('mutate not used in queuedApi tests')
     },
+    async commit() {
+      throw new Error('commit not used in queuedApi tests')
+    },
   }
 }
 
@@ -159,6 +162,9 @@ describe('createRepoState', () => {
         async mutate() {
           throw new Error('not used')
         },
+        async commit() {
+          throw new Error('not used')
+        },
       },
     })
     await state.refreshSnapshot()
@@ -183,6 +189,9 @@ describe('createRepoState', () => {
         async mutate() {
           throw new Error('not used')
         },
+        async commit() {
+          throw new Error('not used')
+        },
       },
     })
 
@@ -204,6 +213,9 @@ describe('createRepoState', () => {
         throw new Error('not used')
       },
       mutate,
+      async commit() {
+        throw new Error('not used')
+      },
     }
     const state = createRepoState({ api })
 
@@ -226,11 +238,61 @@ describe('createRepoState', () => {
         async mutate() {
           throw new Error('patch does not apply')
         },
+        async commit() {
+          throw new Error('not used')
+        },
       },
     })
 
     await expect(state.mutate({ op: 'patch', patch: 'stale' })).rejects.toThrow('patch does not apply')
     expect(state.mutationError).toMatch(/patch does not apply/)
+    expect(state.busy).toBe(false)
+  })
+
+  it('commits staged changes and refreshes the snapshot', async () => {
+    const commit = vi.fn(async () => ({ ok: true }))
+    const api: ApiClient = {
+      async snapshot() {
+        return snapshot({ generation: 2, staged: [change('staged', 'x.txt')] })
+      },
+      async diff() {
+        throw new Error('not used')
+      },
+      async mutate() {
+        throw new Error('not used')
+      },
+      commit,
+    }
+    const state = createRepoState({ api })
+
+    await state.commit('feature work')
+
+    expect(commit).toHaveBeenCalledWith({ message: 'feature work', amend: false })
+    expect(state.mutationError).toBeNull()
+    await vi.waitFor(() => expect(state.snapshot).not.toBeNull())
+    expect(state.busy).toBe(false)
+  })
+
+  it('surfaces a rejected hook without clearing mutationError', async () => {
+    const state = createRepoState({
+      api: {
+        async snapshot() {
+          return snapshot({ generation: 2 })
+        },
+        async diff() {
+          throw new Error('not used')
+        },
+        async mutate() {
+          throw new Error('not used')
+        },
+        async commit() {
+          return { ok: false, exitCode: 1, stderr: 'policy rejects this commit' }
+        },
+      },
+    })
+
+    await expect(state.commit('subject', true)).rejects.toThrow(/policy rejects this commit/)
+    expect(state.mutationError).toMatch(/policy rejects this commit/)
     expect(state.busy).toBe(false)
   })
 })

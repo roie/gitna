@@ -16,10 +16,26 @@ export interface MutateRequest {
   reverse?: boolean
 }
 
+export interface CommitRequest {
+  message: string
+  amend?: boolean
+}
+
+/** Outcome of a commit operation. Hooks run normally; a rejected commit
+ * returns OK=false with git's exit code and output so the UI can show the
+ * hook's reason while preserving the user's text. */
+export interface OperationResult {
+  ok: boolean
+  exitCode?: number
+  stdout?: string
+  stderr?: string
+}
+
 export interface ApiClient {
   snapshot(): Promise<RepoSnapshot>
   diff(request: DiffRequest): Promise<FileDiff>
   mutate(request: MutateRequest): Promise<void>
+  commit(request: CommitRequest): Promise<OperationResult>
 }
 
 /** Error carrying the HTTP status and server message so callers can react to
@@ -80,6 +96,16 @@ export function createApi(): ApiClient {
         body: JSON.stringify(body),
       })
       await expectOK(res)
+    },
+    async commit(request: CommitRequest): Promise<OperationResult> {
+      const res = await expectOK(
+        await fetch('api/v1/operations?op=commit', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ message: request.message, amend: request.amend }),
+        }),
+      )
+      return (await res.json()) as OperationResult
     },
   }
 }

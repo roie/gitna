@@ -110,3 +110,20 @@ type FileDiff struct {
 	TooLarge bool        `json:"tooLarge"`
 	Patch    string      `json:"patch,omitempty"`
 }
+
+// CommitRequest carries the message and amend flag for a commit operation.
+// The message is fed to git on stdin, so shell quoting never applies.
+type CommitRequest struct {
+	Message string `json:"message"`
+	Amend   bool   `json:"amend"`
+}
+
+// OperationResult reports the outcome of a commit. Hooks run normally; when a
+// hook rejects the commit the exit code and git's output are relayed so the
+// browser can show the reason instead of a generic failure.
+type OperationResult struct {
+	OK       bool   `json:"ok"`
+	ExitCode int    `json:"exitCode"`
+	Stdout   string `json:"stdout,omitempty"`
+	Stderr   string `json:"stderr,omitempty"`
+}

@@ -2,6 +2,7 @@
 import type { RepoState } from '../lib/repo-state.svelte'
 import type { ChangeScope } from '../lib/types'
 import ChangesSection from './ChangesSection.svelte'
+import CommitComposer from './CommitComposer.svelte'
 
   interface Props {
     state: RepoState
@@ -49,6 +50,7 @@ import ChangesSection from './ChangesSection.svelte'
     selection={state.selection}
     onSelect={handleSelect}
   />
+  <CommitComposer {state} />
   {#if state.error}
     <p class="error" role="alert">{state.error}</p>
   {/if}

@@ -148,6 +148,31 @@ export function createRepoState(options: RepoStateOptions = {}) {
     }
   }
 
+  /**
+   * Commits the staged changes with the given message, or amends HEAD. Git
+   * hooks run normally: a rejected commit surfaces through mutationError while
+   * the rejection propagates so the composer can keep the user's text.
+   */
+  async function commit(message: string, amend = false): Promise<void> {
+    busy = true
+    try {
+      const result = await api.commit({ message, amend })
+      if (!result.ok) {
+        const detail = [result.stderr, result.stdout].filter(Boolean).join('\n').trim()
+        const why = detail || `commit failed (exit ${result.exitCode ?? 1})`
+        mutationError = why
+        throw new Error(why)
+      }
+      mutationError = null
+    } catch (e) {
+      mutationError ??= e instanceof Error ? e.message : String(e)
+      throw e
+    } finally {
+      busy = false
+      void refreshSnapshot()
+    }
+  }
+
   return {
     get api() {
       return api
@@ -180,6 +205,7 @@ export function createRepoState(options: RepoStateOptions = {}) {
     connectEvents,
     select,
     mutate,
+    commit,
   }
 }
 

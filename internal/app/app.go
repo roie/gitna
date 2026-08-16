@@ -8,6 +8,7 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/roie/gitna/internal/browser"
@@ -70,6 +71,19 @@ func (a repoAdapter) UnstagePatch(ctx context.Context, patch []byte) error {
 	return a.queue.Do(ctx, func(ctx context.Context) error {
 		return a.repo.ApplyPatch(ctx, a.runner, patch, true)
 	})
+}
+
+func (a repoAdapter) Commit(ctx context.Context, req protocol.CommitRequest) (protocol.OperationResult, error) {
+	var result protocol.OperationResult
+	err := a.queue.Do(ctx, func(ctx context.Context) error {
+		res, err := a.repo.Commit(ctx, a.runner, req.Message, req.Amend)
+		result.OK = res.ExitCode == 0
+		result.ExitCode = res.ExitCode
+		result.Stdout = strings.TrimSpace(string(res.Stdout))
+		result.Stderr = strings.TrimSpace(string(res.Stderr))
+		return err
+	})
+	return result, err
 }
 
 // Run starts the workbench session for path and blocks until ctx is cancelled

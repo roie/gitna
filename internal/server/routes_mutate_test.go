@@ -141,3 +141,63 @@ func TestOperationUnavailableWithoutRepo(t *testing.T) {
 		t.Fatalf("status = %d, want %d", rec.Code, http.StatusServiceUnavailable)
 	}
 }
+
+func TestOperationCommitRoutesRequest(t *testing.T) {
+	repo := &fakeRepo{commitRes: protocol.OperationResult{OK: true}}
+	rec := postOperation(t, repo, OpCommit, mutationRequest{Message: "subject\n\nbody", Amend: true})
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d (%s)", rec.Code, http.StatusOK, rec.Body)
+	}
+	repo.mu.Lock()
+	defer repo.mu.Unlock()
+	if len(repo.commits) != 1 {
+		t.Fatalf("commits = %d, want 1", len(repo.commits))
+	}
+	if repo.commits[0].Message != "subject\n\nbody" || !repo.commits[0].Amend {
+		t.Fatalf("commit request = %+v, want message + amend", repo.commits[0])
+	}
+	var got protocol.OperationResult
+	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if !got.OK {
+		t.Fatalf("result = %+v, want OK", got)
+	}
+}
+
+func TestOperationCommitRelaysRejectedHook(t *testing.T) {
+	repo := &fakeRepo{
+		commitRes: protocol.OperationResult{OK: false, ExitCode: 1, Stderr: "pre-commit blocked"},
+		commitErr: &gitx.CommitError{ExitCode: 1, Stderr: "pre-commit blocked"},
+	}
+	rec := postOperation(t, repo, OpCommit, mutationRequest{Message: "subject"})
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d (hook rejection is not an HTTP error)", rec.Code, http.StatusOK)
+	}
+	var got protocol.OperationResult
+	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if got.OK || got.ExitCode != 1 || got.Stderr != "pre-commit blocked" {
+		t.Fatalf("result = %+v, want rejected hook relayed", got)
+	}
+}
+
+func TestOperationCommitMapsErrors(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		err  error
+		want int
+	}{
+		{"message too large", gitx.ErrCommitMessageTooLarge, http.StatusBadRequest},
+		{"infrastructure failure", errors.New("boom"), http.StatusInternalServerError},
+	} {
+		repo := &fakeRepo{commitErr: tc.err, commitRes: protocol.OperationResult{}}
+		rec := postOperation(t, repo, OpCommit, mutationRequest{Message: "subject"})
+		if rec.Code != tc.want {
+			t.Fatalf("%s: status = %d, want %d", tc.name, rec.Code, tc.want)
+		}
+	}
+}

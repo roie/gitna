@@ -67,6 +67,19 @@ func (w *workbenchRepo) UnstagePatch(ctx context.Context, patch []byte) error {
 	return w.queue.Do(ctx, func(ctx context.Context) error { return w.repo.ApplyPatch(ctx, w.runner, patch, true) })
 }
 
+func (w *workbenchRepo) Commit(ctx context.Context, req protocol.CommitRequest) (protocol.OperationResult, error) {
+	var result protocol.OperationResult
+	err := w.queue.Do(ctx, func(ctx context.Context) error {
+		res, err := w.repo.Commit(ctx, w.runner, req.Message, req.Amend)
+		result.OK = res.ExitCode == 0
+		result.ExitCode = res.ExitCode
+		result.Stdout = strings.TrimSpace(string(res.Stdout))
+		result.Stderr = strings.TrimSpace(string(res.Stderr))
+		return err
+	})
+	return result, err
+}
+
 type harness struct {
 	t    *testing.T
 	root string
@@ -380,6 +393,67 @@ func TestDeleteUntrackedDeletesOnlySelectedPath(t *testing.T) {
 	}
 	if got := h.readFile("untracked-two.txt"); got != "two\n" {
 		t.Fatalf("untracked-two.txt = %q, want untouched", got)
+	}
+}
+
+func TestCommitViaAPI(t *testing.T) {
+	h := newHarness(t)
+	h.writeFile("file.txt", "base\n")
+	h.commitAll("base")
+	h.writeFile("file.txt", "changed\n")
+	if got := h.post(server.OpStage, map[string]any{"paths": []string{"file.txt"}}); got.Code != http.StatusOK {
+		t.Fatalf("stage status = %d (%s)", got.Code, got.Body)
+	}
+
+	rec := h.post(server.OpCommit, map[string]any{"message": "feature work\n\nAdd the change.", "amend": false})
+	if rec.Code != http.StatusOK {
+		t.Fatalf("commit status = %d (%s)", rec.Code, rec.Body)
+	}
+	var result protocol.OperationResult
+	if err := json.Unmarshal(rec.Body.Bytes(), &result); err != nil {
+		t.Fatalf("unmarshal commit result: %v", err)
+	}
+	if !result.OK {
+		t.Fatalf("commit result = %+v, want OK", result)
+	}
+	if got := strings.TrimSpace(git(t, h.root, "log", "-1", "--format=%B")); got != "feature work\n\nAdd the change." {
+		t.Fatalf("head message = %q, want committed message", got)
+	}
+	if h.status() != "" {
+		t.Fatalf("status after commit = %q, want clean", h.status())
+	}
+}
+
+func TestCommitHookFailureRelayed(t *testing.T) {
+	h := newHarness(t)
+	h.writeFile("file.txt", "base\n")
+	h.commitAll("base")
+	h.writeFile("file.txt", "changed\n")
+	if got := h.post(server.OpStage, map[string]any{"paths": []string{"file.txt"}}); got.Code != http.StatusOK {
+		t.Fatalf("stage status = %d (%s)", got.Code, got.Body)
+	}
+	hook := filepath.Join(h.root, ".git", "hooks", "pre-commit")
+	if err := os.WriteFile(hook, []byte("#!/bin/sh\necho policy rejects this commit\nexit 1\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	rec := h.post(server.OpCommit, map[string]any{"message": "subject", "amend": false})
+	if rec.Code != http.StatusOK {
+		t.Fatalf("commit status = %d, want %d (hook rejection is not an HTTP error) (%s)", rec.Code, http.StatusOK, rec.Body)
+	}
+	var result protocol.OperationResult
+	if err := json.Unmarshal(rec.Body.Bytes(), &result); err != nil {
+		t.Fatalf("unmarshal commit result: %v", err)
+	}
+	if result.OK {
+		t.Fatal("commit result OK, want rejected")
+	}
+	if !strings.Contains(result.Stderr, "policy rejects this commit") {
+		t.Fatalf("stderr = %q, want hook output relayed", result.Stderr)
+	}
+	// The rejected commit must leave HEAD untouched.
+	if !strings.Contains(h.status(), "M  file.txt") {
+		t.Fatalf("status = %q, want change still staged", h.status())
 	}
 }
 

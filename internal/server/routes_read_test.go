@@ -18,12 +18,15 @@ type fakeRepo struct {
 	err  error
 	diff protocol.FileDiff
 
-	mu       sync.Mutex
-	stageOps []string
-	unstages []string
-	discards []string
-	deletes  []string
-	patches  []fakePatchCall
+	mu        sync.Mutex
+	stageOps  []string
+	unstages  []string
+	discards  []string
+	deletes   []string
+	patches   []fakePatchCall
+	commits   []protocol.CommitRequest
+	commitRes protocol.OperationResult
+	commitErr error
 }
 
 type fakePatchCall struct {
@@ -85,6 +88,16 @@ func (f *fakeRepo) UnstagePatch(_ context.Context, patch []byte) error {
 	defer f.mu.Unlock()
 	f.patches = append(f.patches, fakePatchCall{patch: string(patch), reverse: true})
 	return f.err
+}
+
+func (f *fakeRepo) Commit(_ context.Context, req protocol.CommitRequest) (protocol.OperationResult, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.commits = append(f.commits, req)
+	if f.commitErr != nil {
+		return f.commitRes, f.commitErr
+	}
+	return f.commitRes, f.err
 }
 
 func newSnapshotServer(repo Repo) http.Handler {

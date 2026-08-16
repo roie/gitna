@@ -27,6 +27,7 @@ type Repo interface {
 	DeleteUntracked(ctx context.Context, paths []string) error
 	StagePatch(ctx context.Context, patch []byte) error
 	UnstagePatch(ctx context.Context, patch []byte) error
+	Commit(ctx context.Context, req protocol.CommitRequest) (protocol.OperationResult, error)
 }
 
 // Options carries server configuration.
