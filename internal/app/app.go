@@ -28,6 +28,10 @@ func (a repoAdapter) Snapshot(ctx context.Context) (protocol.RepoSnapshot, error
 	return a.repo.Status(ctx, a.runner)
 }
 
+func (a repoAdapter) Diff(ctx context.Context, scope protocol.DiffScope, opts protocol.DiffOptions) (protocol.FileDiff, error) {
+	return a.repo.Diff(ctx, a.runner, scope, opts)
+}
+
 // Run starts the workbench session for path and blocks until ctx is cancelled
 // or the server fails. path must be inside a Git repository; the session binds
 // to a loopback-only OS-assigned port.

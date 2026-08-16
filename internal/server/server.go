@@ -17,6 +17,7 @@ import (
 // Repo provides repository state to the API handlers.
 type Repo interface {
 	Snapshot(ctx context.Context) (protocol.RepoSnapshot, error)
+	Diff(ctx context.Context, scope protocol.DiffScope, opts protocol.DiffOptions) (protocol.FileDiff, error)
 }
 
 // Options carries server configuration.

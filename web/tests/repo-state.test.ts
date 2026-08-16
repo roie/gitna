@@ -36,6 +36,9 @@ function queuedApi(snapshots: RepoSnapshot[]): ApiClient {
       i += 1
       return snapshot
     },
+    async diff() {
+      throw new Error('diff not used in repo-state tests')
+    },
   }
 }
 
@@ -146,6 +149,9 @@ describe('createRepoState', () => {
       api: {
         async snapshot() {
           throw new Error('boom')
+        },
+        async diff() {
+          throw new Error('not used')
         },
       },
     })

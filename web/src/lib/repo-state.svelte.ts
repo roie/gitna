@@ -75,6 +75,9 @@ export function createRepoState(options: RepoStateOptions = {}) {
   }
 
   return {
+    get api() {
+      return api
+    },
     get snapshot() {
       return snapshot
     },

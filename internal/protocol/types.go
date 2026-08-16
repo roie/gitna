@@ -3,6 +3,16 @@
 // raw Git CLI text never reaches the frontend.
 package protocol
 
+import "errors"
+
+// Sentinel errors returned by repository operations and classified by the API
+// layer into HTTP status codes.
+var (
+	ErrInvalidPath = errors.New("invalid repository path")
+	ErrInvalidRef  = errors.New("invalid ref or oid")
+	ErrNotInRepo   = errors.New("path escapes repository")
+)
+
 // ChangeKind enumerates the change types a file can carry.
 type ChangeKind string
 
@@ -57,3 +67,43 @@ const (
 	OperationCherryPick  = "cherry-pick"
 	OperationRevert      = "revert"
 )
+
+// DiffScope identifies which Git surfaces are compared for a diff.
+type DiffScope string
+
+const (
+	DiffUnstaged DiffScope = "unstaged"
+	DiffStaged   DiffScope = "staged"
+	DiffCommit   DiffScope = "commit"
+	DiffCompare  DiffScope = "compare"
+)
+
+// DiffOptions carries the path and ref inputs for a diff request. Paths are
+// repository-relative and always placed after -- when used with Git.
+type DiffOptions struct {
+	// Path is the canonical change path (the new path for renames).
+	Path string
+	// OldPath is set for renames.
+	OldPath string
+	// Commit is required for DiffCommit scope.
+	Commit string
+	// CompareFrom and CompareTo are required for DiffCompare scope.
+	CompareFrom string
+	CompareTo   string
+}
+
+// FileVersion is one side of a single-file diff.
+type FileVersion struct {
+	Path     string `json:"path"`
+	Language string `json:"language,omitempty"`
+	Content  string `json:"content"`
+}
+
+// FileDiff is the normalized before/after pair for one changed file. Binary and
+// oversized files carry empty content; Binary/TooLarge explain why.
+type FileDiff struct {
+	Before   FileVersion `json:"before"`
+	After    FileVersion `json:"after"`
+	Binary   bool        `json:"binary"`
+	TooLarge bool        `json:"tooLarge"`
+}

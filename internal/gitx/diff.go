@@ -1,0 +1,305 @@
+package gitx
+
+import (
+	"bytes"
+	"context"
+	"fmt"
+	"io"
+	"os"
+	"path/filepath"
+	"strings"
+
+	"github.com/roie/gitna/internal/protocol"
+)
+
+// DefaultDiffBytes caps the content of a single diff side. Anything larger is
+// reported as too large instead of being shipped to the browser.
+const DefaultDiffBytes = 512 << 10
+
+// Diff resolves the before/after content for one changed file in the requested
+// scope. Tracked versions come from Git blobs so the comparison is independent
+// of worktree races; the untracked/worktree side is read from disk with an
+// explicit byte limit after confirming the path stays inside the repository
+// root. No external diff or textconv programs are executed.
+func (r Repository) Diff(ctx context.Context, runner Runner, scope protocol.DiffScope, opts protocol.DiffOptions) (protocol.FileDiff, error) {
+	if err := validatePath(opts.Path); err != nil {
+		return protocol.FileDiff{}, err
+	}
+	if opts.OldPath != "" {
+		if err := validatePath(opts.OldPath); err != nil {
+			return protocol.FileDiff{}, err
+		}
+	}
+
+	fromPath := opts.Path
+	if opts.OldPath != "" {
+		fromPath = opts.OldPath
+	}
+
+	var (
+		beforeRaw, afterRaw   []byte
+		beforePresent         bool
+		afterPresent          bool
+		tooLarge              bool
+		err                   error
+	)
+
+	switch scope {
+	case protocol.DiffUnstaged:
+		beforeRaw, beforePresent, err = r.readBlob(ctx, runner, ":0:"+fromPath)
+		if err != nil {
+			return protocol.FileDiff{}, err
+		}
+		afterRaw, tooLarge, afterPresent, err = r.readWorktree(opts.Path, DefaultDiffBytes)
+		if err != nil {
+			return protocol.FileDiff{}, err
+		}
+	case protocol.DiffStaged:
+		beforeRaw, beforePresent, err = r.readBlob(ctx, runner, "HEAD:"+fromPath)
+		if err != nil {
+			return protocol.FileDiff{}, err
+		}
+		afterRaw, afterPresent, err = r.readBlob(ctx, runner, ":0:"+opts.Path)
+		if err != nil {
+			return protocol.FileDiff{}, err
+		}
+	case protocol.DiffCommit:
+		if err := validateRef(opts.Commit); err != nil {
+			return protocol.FileDiff{}, err
+		}
+		beforeRaw, beforePresent, err = r.readBlob(ctx, runner, opts.Commit+"^:"+fromPath)
+		if err != nil {
+			return protocol.FileDiff{}, err
+		}
+		afterRaw, afterPresent, err = r.readBlob(ctx, runner, opts.Commit+":"+opts.Path)
+		if err != nil {
+			return protocol.FileDiff{}, err
+		}
+	case protocol.DiffCompare:
+		if err := validateRef(opts.CompareFrom); err != nil {
+			return protocol.FileDiff{}, err
+		}
+		if err := validateRef(opts.CompareTo); err != nil {
+			return protocol.FileDiff{}, err
+		}
+		beforeRaw, beforePresent, err = r.readBlob(ctx, runner, opts.CompareFrom+":"+fromPath)
+		if err != nil {
+			return protocol.FileDiff{}, err
+		}
+		afterRaw, afterPresent, err = r.readBlob(ctx, runner, opts.CompareTo+":"+opts.Path)
+		if err != nil {
+			return protocol.FileDiff{}, err
+		}
+	default:
+		return protocol.FileDiff{}, fmt.Errorf("gitx: unknown diff scope %q", scope)
+	}
+
+	fd := protocol.FileDiff{
+		Before:   protocol.FileVersion{Path: fromPath, Language: languageFor(fromPath)},
+		After:    protocol.FileVersion{Path: opts.Path, Language: languageFor(opts.Path)},
+		TooLarge: tooLarge,
+	}
+	if isBinary(beforeRaw) || isBinary(afterRaw) {
+		fd.Binary = true
+		return fd, nil
+	}
+	if beforePresent {
+		fd.Before.Content = string(beforeRaw)
+	}
+	if afterPresent {
+		fd.After.Content = string(afterRaw)
+	}
+	return fd, nil
+}
+
+// readBlob returns a blob's content from the given treeish:path expression.
+// A missing object (the path does not exist in that tree, or the parent of a
+// root commit) reports present=false without an error.
+func (r Repository) readBlob(ctx context.Context, runner Runner, treeish string) ([]byte, bool, error) {
+	res, err := runner.Run(ctx, r.Root, "cat-file", "-s", treeish)
+	if err != nil {
+		return nil, false, err
+	}
+	if res.ExitCode != 0 {
+		return nil, false, nil
+	}
+	res, err = runner.Run(ctx, r.Root, "cat-file", "blob", treeish)
+	if err != nil {
+		return nil, false, err
+	}
+	if res.ExitCode != 0 {
+		return nil, false, nil
+	}
+	return res.Stdout, true, nil
+}
+
+// readWorktree reads a repository-relative worktree file with a byte limit,
+// resolving symlinks first so a link cannot escape the repository root. A
+// missing file reports present=false; an oversized file reports tooLarge=true.
+func (r Repository) readWorktree(path string, maxBytes int) ([]byte, bool, bool, error) {
+	rootReal, err := filepath.EvalSymlinks(r.Root)
+	if err != nil {
+		rootReal = r.Root
+	}
+	full := filepath.Join(rootReal, path)
+	if !withinRoot(rootReal, full) {
+		return nil, false, false, fmt.Errorf("%w: %q", protocol.ErrNotInRepo, path)
+	}
+	real, err := filepath.EvalSymlinks(full)
+	if err != nil {
+		return nil, false, false, nil
+	}
+	if !withinRoot(rootReal, real) {
+		return nil, false, false, fmt.Errorf("%w: %q", protocol.ErrNotInRepo, path)
+	}
+	st, err := os.Stat(real)
+	if err != nil {
+		return nil, false, false, nil
+	}
+	if !st.Mode().IsRegular() {
+		return nil, false, true, nil
+	}
+	if st.Size() > int64(maxBytes) {
+		return nil, true, true, nil
+	}
+	f, err := os.Open(real)
+	if err != nil {
+		return nil, false, false, nil
+	}
+	defer f.Close()
+	data, err := io.ReadAll(io.LimitReader(f, int64(maxBytes+1)))
+	if err != nil {
+		return nil, false, false, fmt.Errorf("gitx: read worktree file %q: %w", path, err)
+	}
+	if len(data) > maxBytes {
+		return nil, true, true, nil
+	}
+	return data, false, true, nil
+}
+
+func withinRoot(root, p string) bool {
+	rel, err := filepath.Rel(root, p)
+	if err != nil {
+		return false
+	}
+	return rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator))
+}
+
+// validatePath rejects anything that is not a canonical repository-relative
+// git path. Paths are produced by git status, but the API must not trust them.
+func validatePath(p string) error {
+	if p == "" {
+		return fmt.Errorf("%w: empty path", protocol.ErrInvalidPath)
+	}
+	if strings.IndexByte(p, 0) >= 0 {
+		return fmt.Errorf("%w: NUL byte", protocol.ErrInvalidPath)
+	}
+	if filepath.IsAbs(p) {
+		return fmt.Errorf("%w: absolute path %q", protocol.ErrInvalidPath, p)
+	}
+	for _, part := range strings.Split(p, "/") {
+		if part == "" || part == "." || part == ".." {
+			return fmt.Errorf("%w: non-canonical path %q", protocol.ErrInvalidPath, p)
+		}
+	}
+	return nil
+}
+
+// validateRef restricts ref/OID input to a conservative character set. The
+// value is always placed in an argument position (never through a shell), but
+// the API layer still refuses anything that could be interpreted as an option.
+func validateRef(s string) error {
+	if s == "" || len(s) > 256 {
+		return fmt.Errorf("%w: empty or too long", protocol.ErrInvalidRef)
+	}
+	if s[0] == '-' {
+		return fmt.Errorf("%w: leading dash", protocol.ErrInvalidRef)
+	}
+	for _, r := range s {
+		switch {
+		case r >= 'a' && r <= 'z', r >= 'A' && r <= 'Z', r >= '0' && r <= '9',
+			r == '.', r == '_', r == '/', r == '-', r == '~', r == '^':
+		default:
+			return fmt.Errorf("%w: disallowed character %q", protocol.ErrInvalidRef, r)
+		}
+	}
+	return nil
+}
+
+func isBinary(data []byte) bool {
+	n := len(data)
+	if n > 8000 {
+		n = 8000
+	}
+	return bytes.IndexByte(data[:n], 0) >= 0
+}
+
+// languageFor maps a file extension to a Shiki-compatible language id. The
+// frontend may also infer the language from the filename; this is provided as
+// an explicit hint for ambiguous extensions.
+func languageFor(path string) string {
+	switch strings.ToLower(filepath.Ext(path)) {
+	case ".ts", ".mts", ".cts":
+		return "typescript"
+	case ".tsx":
+		return "tsx"
+	case ".js", ".mjs", ".cjs":
+		return "javascript"
+	case ".jsx":
+		return "jsx"
+	case ".json":
+		return "json"
+	case ".html", ".htm":
+		return "html"
+	case ".css":
+		return "css"
+	case ".scss", ".sass":
+		return "scss"
+	case ".svelte":
+		return "svelte"
+	case ".vue":
+		return "vue"
+	case ".go":
+		return "go"
+	case ".rs":
+		return "rust"
+	case ".py":
+		return "python"
+	case ".md", ".markdown":
+		return "markdown"
+	case ".yaml", ".yml":
+		return "yaml"
+	case ".toml":
+		return "toml"
+	case ".sh", ".bash", ".zsh":
+		return "shellscript"
+	case ".sql":
+		return "sql"
+	case ".xml":
+		return "xml"
+	case ".java":
+		return "java"
+	case ".kt", ".kts":
+		return "kotlin"
+	case ".swift":
+		return "swift"
+	case ".c", ".h":
+		return "c"
+	case ".cpp", ".hpp", ".cc", ".cxx":
+		return "cpp"
+	case ".cs":
+		return "csharp"
+	case ".rb":
+		return "ruby"
+	case ".php":
+		return "php"
+	case ".dart":
+		return "dart"
+	case ".zig":
+		return "zig"
+	case ".lua":
+		return "lua"
+	default:
+		return ""
+	}
+}

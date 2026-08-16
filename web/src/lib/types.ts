@@ -18,6 +18,19 @@ export interface FileChange {
   conflicted: boolean
 }
 
+export interface FileVersion {
+  path: string
+  language?: string
+  content: string
+}
+
+export interface FileDiff {
+  before: FileVersion
+  after: FileVersion
+  binary: boolean
+  tooLarge: boolean
+}
+
 export interface RepoSnapshot {
   root: string
   headOid?: string
