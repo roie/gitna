@@ -201,3 +201,87 @@ func TestOperationCommitMapsErrors(t *testing.T) {
 		}
 	}
 }
+
+func TestOperationBranchAndSyncOps(t *testing.T) {
+	repo := &fakeRepo{}
+	tests := []struct {
+		op  string
+		req mutationRequest
+	}{
+		{OpBranchCreate, mutationRequest{Name: "topic", Start: "main"}},
+		{OpBranchSwitch, mutationRequest{Name: "topic"}},
+		{OpBranchDelete, mutationRequest{Name: "topic", Force: true}},
+		{OpFetch, mutationRequest{}},
+		{OpPull, mutationRequest{}},
+		{OpPush, mutationRequest{}},
+		{OpPushSetUpstream, mutationRequest{Name: "topic", Remote: "origin"}},
+	}
+	for _, tc := range tests {
+		rec := postOperation(t, repo, tc.op, tc.req)
+		if rec.Code != http.StatusOK {
+			t.Fatalf("%s status = %d, want %d (%s)", tc.op, rec.Code, http.StatusOK, rec.Body)
+		}
+	}
+
+	repo.mu.Lock()
+	defer repo.mu.Unlock()
+	if got := strings.Join(repo.branchCalls, ","); got != "create:topic,switch:topic,delete:topic" {
+		t.Fatalf("branch calls = %q, want create/switch/delete", got)
+	}
+	if len(repo.branchForces) != 1 || !repo.branchForces[0] {
+		t.Fatalf("branch forces = %v, want [true]", repo.branchForces)
+	}
+	if got := strings.Join(repo.syncCalls, ","); got != "fetch,pull,push,push-upstream:origin:topic" {
+		t.Fatalf("sync calls = %q, want fetch/pull/push/upstream", got)
+	}
+}
+
+func TestOperationPushNoUpstreamStructured(t *testing.T) {
+	repo := &fakeRepo{opErr: gitx.ErrNoUpstream, snap: protocol.RepoSnapshot{HeadBranch: "topic"}}
+	rec := postOperation(t, repo, OpPush, mutationRequest{})
+
+	if rec.Code != http.StatusConflict {
+		t.Fatalf("status = %d, want %d (%s)", rec.Code, http.StatusConflict, rec.Body)
+	}
+	var body map[string]any
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if body["code"] != "no-upstream" || body["branch"] != "topic" {
+		t.Fatalf("body = %v, want code no-upstream and branch topic", body)
+	}
+}
+
+func TestOperationBranchDeleteNotMergedStructured(t *testing.T) {
+	repo := &fakeRepo{err: gitx.ErrBranchNotMerged}
+	rec := postOperation(t, repo, OpBranchDelete, mutationRequest{Name: "topic"})
+
+	if rec.Code != http.StatusConflict {
+		t.Fatalf("status = %d, want %d (%s)", rec.Code, http.StatusConflict, rec.Body)
+	}
+	var body map[string]any
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if body["code"] != "branch-not-merged" {
+		t.Fatalf("code = %v, want branch-not-merged", body["code"])
+	}
+}
+
+func TestOperationBranchOpsRejectInvalidRef(t *testing.T) {
+	for _, tc := range []struct {
+		op  string
+		req mutationRequest
+	}{
+		{OpBranchCreate, mutationRequest{Name: "a b"}},
+		{OpBranchSwitch, mutationRequest{Name: ""}},
+		{OpBranchDelete, mutationRequest{Name: "-x"}},
+		{OpPushSetUpstream, mutationRequest{Name: "main", Remote: "bad remote"}},
+	} {
+		repo := &fakeRepo{err: protocol.ErrInvalidRef}
+		rec := postOperation(t, repo, tc.op, tc.req)
+		if rec.Code != http.StatusBadRequest {
+			t.Fatalf("%s: status = %d, want %d", tc.op, rec.Code, http.StatusBadRequest)
+		}
+	}
+}

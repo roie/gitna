@@ -1,4 +1,4 @@
-import type { CommitFiles, DiffScope, FileDiff, GraphPage, RepoSnapshot } from './types'
+import type { Branch, CommitFiles, DiffScope, FileDiff, GraphPage, RepoSnapshot } from './types'
 
 export interface DiffRequest {
   scope: DiffScope
@@ -8,13 +8,33 @@ export interface DiffRequest {
 }
 
 /** Mutation operation names accepted by the operations endpoint. */
-export type MutationOp = 'stage' | 'unstage' | 'discard' | 'delete' | 'patch'
+export type MutationOp =
+  | 'stage'
+  | 'unstage'
+  | 'discard'
+  | 'delete'
+  | 'patch'
+  | 'create-branch'
+  | 'switch-branch'
+  | 'delete-branch'
+  | 'fetch'
+  | 'pull'
+  | 'push'
+  | 'push-upstream'
 
 export interface MutateRequest {
   op: MutationOp
   paths?: string[]
   patch?: string
   reverse?: boolean
+  /** Branch name for branch operations and the branch for push-upstream. */
+  name?: string
+  /** Ref or oid a new branch is created at; empty means HEAD. */
+  start?: string
+  /** Remote name for push-upstream. */
+  remote?: string
+  /** Force branch delete after explicit confirmation. */
+  force?: boolean
 }
 
 export interface CommitRequest {
@@ -39,14 +59,19 @@ export interface ApiClient {
   commit(request: CommitRequest): Promise<OperationResult>
   graph(skip?: number): Promise<GraphPage>
   commitFiles(oid: string): Promise<CommitFiles>
+  branches(): Promise<Branch[]>
 }
 
 /** Error carrying the HTTP status and server message so callers can react to
- * specific failures such as a stale patch (409). */
+ * specific failures. code carries a structured classification when the server
+ * provides one (no-upstream, branch-not-merged), and branch names the current
+ * branch when a push has no upstream. */
 export class ApiError extends Error {
   constructor(
     readonly status: number,
     message: string,
+    readonly code?: string,
+    readonly branch?: string,
   ) {
     super(message)
     this.name = 'ApiError'
@@ -55,20 +80,12 @@ export class ApiError extends Error {
 
 async function expectOK(res: Response): Promise<Response> {
   if (!res.ok) {
-    const message = await readError(res)
-    throw new ApiError(res.status, message)
+    const body = (await res.json().catch(() => null)) as
+      | { error?: string; code?: string; branch?: string }
+      | null
+    throw new ApiError(res.status, body?.error ?? `request failed: ${res.status}`, body?.code, body?.branch)
   }
   return res
-}
-
-async function readError(res: Response): Promise<string> {
-  try {
-    const body = (await res.json()) as { error?: string }
-    if (body.error) return body.error
-  } catch {
-    // Fall through to the generic status message when the body is not JSON.
-  }
-  return `request failed: ${res.status}`
 }
 
 export function diffQuery(request: DiffRequest): string {
@@ -93,7 +110,15 @@ export function createApi(): ApiClient {
       return (await res.json()) as FileDiff
     },
     async mutate(request: MutateRequest): Promise<void> {
-      const body = { paths: request.paths, patch: request.patch, reverse: request.reverse }
+      const body = {
+        paths: request.paths,
+        patch: request.patch,
+        reverse: request.reverse,
+        name: request.name,
+        start: request.start,
+        remote: request.remote,
+        force: request.force,
+      }
       const res = await fetch(`api/v1/operations?op=${request.op}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -118,6 +143,10 @@ export function createApi(): ApiClient {
     async commitFiles(oid: string): Promise<CommitFiles> {
       const res = await expectOK(await fetch(`api/v1/commit/${oid}/files`))
       return (await res.json()) as CommitFiles
+    },
+    async branches(): Promise<Branch[]> {
+      const res = await expectOK(await fetch('api/v1/branches'))
+      return (await res.json()) as Branch[]
     },
   }
 }

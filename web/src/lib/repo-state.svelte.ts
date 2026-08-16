@@ -1,6 +1,7 @@
 import { createApi, type ApiClient, type MutateRequest } from './api'
 import { computeGraph } from './graph-lanes'
 import type {
+  Branch,
   ChangeKind,
   ChangeScope,
   CommitFile,
@@ -105,6 +106,10 @@ export function createRepoState(options: RepoStateOptions = {}) {
   let commitDiff = $state<CommitDiffTarget | null>(null)
 
   const graphRows = $derived(computeGraph(graphCommits))
+
+  let branches = $state<Branch[]>([])
+  let branchesLoading = $state(false)
+  let branchesError = $state<string | null>(null)
 
   async function refreshSnapshot(): Promise<void> {
     if (refreshRunning) {
@@ -239,6 +244,22 @@ export function createRepoState(options: RepoStateOptions = {}) {
   }
 
   /**
+   * Replaces the branch list with the current set of local and remote
+   * branches, used by the branch menu and the push-with-upstream flow.
+   */
+  async function refreshBranches(): Promise<void> {
+    branchesLoading = true
+    branchesError = null
+    try {
+      branches = await api.branches()
+    } catch (e) {
+      branchesError = e instanceof Error ? e.message : String(e)
+    } finally {
+      branchesLoading = false
+    }
+  }
+
+  /**
    * Applies a repository mutation, then refreshes the snapshot so the index
    * and worktree views reflect the change. Failures are recorded in
    * mutationError (which the follow-up snapshot refresh leaves untouched), and
@@ -256,6 +277,56 @@ export function createRepoState(options: RepoStateOptions = {}) {
       busy = false
       void refreshSnapshot()
     }
+  }
+
+  /**
+   * Applies a branch or sync operation that can move refs (switch, push, pull,
+   * fetch, …), then refreshes every ref-derived view: the snapshot, the graph,
+   * and the branch list. Failures are recorded in mutationError and propagate
+   * so the caller can react to structured classifications such as no-upstream.
+   */
+  async function operation(request: MutateRequest): Promise<void> {
+    busy = true
+    try {
+      await api.mutate(request)
+      mutationError = null
+    } catch (e) {
+      mutationError = e instanceof Error ? e.message : String(e)
+      throw e
+    } finally {
+      busy = false
+      void refreshSnapshot()
+      void refreshGraph()
+      void refreshBranches()
+    }
+  }
+
+  function createBranch(name: string, start?: string): Promise<void> {
+    return operation({ op: 'create-branch', name, start })
+  }
+
+  function switchBranch(name: string): Promise<void> {
+    return operation({ op: 'switch-branch', name })
+  }
+
+  function deleteBranch(name: string, force = false): Promise<void> {
+    return operation({ op: 'delete-branch', name, force })
+  }
+
+  function fetchRemote(): Promise<void> {
+    return operation({ op: 'fetch' })
+  }
+
+  function pullRemote(): Promise<void> {
+    return operation({ op: 'pull' })
+  }
+
+  function pushRemote(): Promise<void> {
+    return operation({ op: 'push' })
+  }
+
+  function pushSetUpstream(remote: string, branch: string): Promise<void> {
+    return operation({ op: 'push-upstream', remote, name: branch })
   }
 
   /**
@@ -339,15 +410,32 @@ export function createRepoState(options: RepoStateOptions = {}) {
     get commitDiff() {
       return commitDiff
     },
+    get branches() {
+      return branches
+    },
+    get branchesLoading() {
+      return branchesLoading
+    },
+    get branchesError() {
+      return branchesError
+    },
     refreshSnapshot,
     connectEvents,
     refreshGraph,
+    refreshBranches,
     loadMoreGraph,
     toggleCommit,
     select,
     selectCommitFile,
     mutate,
     commit,
+    createBranch,
+    switchBranch,
+    deleteBranch,
+    fetchRemote,
+    pullRemote,
+    pushRemote,
+    pushSetUpstream,
   }
 }
 

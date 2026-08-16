@@ -21,6 +21,8 @@ func (s *Server) apiRoutes() http.Handler {
 			s.handleDiff(w, r)
 		case r.Method == http.MethodGet && p == "/graph":
 			s.handleGraph(w, r)
+		case r.Method == http.MethodGet && p == "/branches":
+			s.handleBranches(w, r)
 		case r.Method == http.MethodGet && strings.HasPrefix(p, "/commit/") && strings.HasSuffix(p, "/files"):
 			s.handleCommitFiles(w, r)
 		case r.Method == http.MethodGet && p == "/events":
@@ -108,6 +110,21 @@ func (s *Server) handleGraph(w http.ResponseWriter, r *http.Request) {
 		Commits: commits,
 		HasMore: len(commits) == graphPageSize,
 	})
+}
+
+// handleBranches returns every local and remote branch with its upstream
+// relationship, for the branch/switching UI.
+func (s *Server) handleBranches(w http.ResponseWriter, r *http.Request) {
+	if s.repo == nil {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "repository unavailable"})
+		return
+	}
+	branches, err := s.repo.Branches(r.Context())
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return
+	}
+	writeJSON(w, http.StatusOK, branches)
 }
 
 // handleCommitFiles returns the paths changed by one commit. The OID is the

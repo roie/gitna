@@ -23,6 +23,7 @@ type Repo interface {
 	Diff(ctx context.Context, scope protocol.DiffScope, opts protocol.DiffOptions) (protocol.FileDiff, error)
 	History(ctx context.Context, skip, limit int) ([]protocol.GraphCommit, error)
 	FilesChanged(ctx context.Context, oid string) ([]protocol.CommitFile, error)
+	Branches(ctx context.Context) ([]protocol.Branch, error)
 	StagePaths(ctx context.Context, paths []string) error
 	UnstagePaths(ctx context.Context, paths []string) error
 	DiscardTracked(ctx context.Context, paths []string) error
@@ -30,6 +31,13 @@ type Repo interface {
 	StagePatch(ctx context.Context, patch []byte) error
 	UnstagePatch(ctx context.Context, patch []byte) error
 	Commit(ctx context.Context, req protocol.CommitRequest) (protocol.OperationResult, error)
+	CreateBranch(ctx context.Context, name, start string) error
+	SwitchBranch(ctx context.Context, name string) error
+	DeleteBranch(ctx context.Context, name string, force bool) error
+	Fetch(ctx context.Context) error
+	Pull(ctx context.Context) error
+	Push(ctx context.Context) error
+	PushSetUpstream(ctx context.Context, remote, branch string) error
 }
 
 // Options carries server configuration.

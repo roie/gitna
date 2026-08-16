@@ -20,6 +20,7 @@ type fakeRepo struct {
 
 	graphCommits []protocol.GraphCommit
 	graphFiles   []protocol.CommitFile
+	branches     []protocol.Branch
 
 	mu        sync.Mutex
 	stageOps  []string
@@ -30,6 +31,20 @@ type fakeRepo struct {
 	commits   []protocol.CommitRequest
 	commitRes protocol.OperationResult
 	commitErr error
+	opErr     error
+
+	branchCalls  []string
+	branchForces []bool
+	syncCalls    []string
+}
+
+// opFail returns the error a mutation method should report. opErr takes
+// precedence so a test can fail one operation while snapshot reads succeed.
+func (f *fakeRepo) opFail() error {
+	if f.opErr != nil {
+		return f.opErr
+	}
+	return f.err
 }
 
 type fakePatchCall struct {
@@ -65,46 +80,103 @@ func (f *fakeRepo) FilesChanged(context.Context, string) ([]protocol.CommitFile,
 	return f.graphFiles, nil
 }
 
+func (f *fakeRepo) Branches(context.Context) ([]protocol.Branch, error) {
+	if f.err != nil {
+		return nil, f.err
+	}
+	return f.branches, nil
+}
+
+func (f *fakeRepo) CreateBranch(_ context.Context, name, _ string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.branchCalls = append(f.branchCalls, "create:"+name)
+	return f.opFail()
+}
+
+func (f *fakeRepo) SwitchBranch(_ context.Context, name string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.branchCalls = append(f.branchCalls, "switch:"+name)
+	return f.opFail()
+}
+
+func (f *fakeRepo) DeleteBranch(_ context.Context, name string, force bool) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.branchCalls = append(f.branchCalls, "delete:"+name)
+	f.branchForces = append(f.branchForces, force)
+	return f.opFail()
+}
+
+func (f *fakeRepo) Fetch(context.Context) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.syncCalls = append(f.syncCalls, "fetch")
+	return f.opFail()
+}
+
+func (f *fakeRepo) Pull(context.Context) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.syncCalls = append(f.syncCalls, "pull")
+	return f.opFail()
+}
+
+func (f *fakeRepo) Push(context.Context) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.syncCalls = append(f.syncCalls, "push")
+	return f.opFail()
+}
+
+func (f *fakeRepo) PushSetUpstream(_ context.Context, remote, branch string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.syncCalls = append(f.syncCalls, "push-upstream:"+remote+":"+branch)
+	return f.opFail()
+}
+
 func (f *fakeRepo) StagePaths(_ context.Context, paths []string) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.stageOps = append(f.stageOps, paths...)
-	return f.err
+	return f.opFail()
 }
 
 func (f *fakeRepo) UnstagePaths(_ context.Context, paths []string) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.unstages = append(f.unstages, paths...)
-	return f.err
+	return f.opFail()
 }
 
 func (f *fakeRepo) DiscardTracked(_ context.Context, paths []string) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.discards = append(f.discards, paths...)
-	return f.err
+	return f.opFail()
 }
 
 func (f *fakeRepo) DeleteUntracked(_ context.Context, paths []string) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.deletes = append(f.deletes, paths...)
-	return f.err
+	return f.opFail()
 }
 
 func (f *fakeRepo) StagePatch(_ context.Context, patch []byte) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.patches = append(f.patches, fakePatchCall{patch: string(patch)})
-	return f.err
+	return f.opFail()
 }
 
 func (f *fakeRepo) UnstagePatch(_ context.Context, patch []byte) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.patches = append(f.patches, fakePatchCall{patch: string(patch), reverse: true})
-	return f.err
+	return f.opFail()
 }
 
 func (f *fakeRepo) Commit(_ context.Context, req protocol.CommitRequest) (protocol.OperationResult, error) {
@@ -385,5 +457,58 @@ func TestCommitFilesRouteError(t *testing.T) {
 
 	if rec.Code != http.StatusInternalServerError {
 		t.Fatalf("status = %d, want %d", rec.Code, http.StatusInternalServerError)
+	}
+}
+
+func TestBranchesRouteReturnsList(t *testing.T) {
+	repo := &fakeRepo{branches: []protocol.Branch{
+		{Name: "main", OID: "abc", Current: true, Upstream: "origin/main", Ahead: 1},
+		{Name: "origin/main", OID: "abc", Remote: true},
+	}}
+	h := newSnapshotServer(repo)
+	req := httptest.NewRequest(http.MethodGet, "/s/"+testToken+"/api/v1/branches", nil)
+	req.Host = testHost
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusOK)
+	}
+	var got []protocol.Branch
+	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if len(got) != 2 {
+		t.Fatalf("branches = %+v, want 2", got)
+	}
+	if got[0].Name != "main" || !got[0].Current || got[0].Upstream != "origin/main" || got[0].Ahead != 1 {
+		t.Fatalf("branches[0] = %+v", got[0])
+	}
+	if got[1].Name != "origin/main" || !got[1].Remote {
+		t.Fatalf("branches[1] = %+v", got[1])
+	}
+}
+
+func TestBranchesRouteError(t *testing.T) {
+	h := newSnapshotServer(&fakeRepo{err: errors.New("boom")})
+	req := httptest.NewRequest(http.MethodGet, "/s/"+testToken+"/api/v1/branches", nil)
+	req.Host = testHost
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusInternalServerError {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusInternalServerError)
+	}
+}
+
+func TestBranchesRouteUnavailableWithoutRepo(t *testing.T) {
+	h := newSnapshotServer(nil)
+	req := httptest.NewRequest(http.MethodGet, "/s/"+testToken+"/api/v1/branches", nil)
+	req.Host = testHost
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusServiceUnavailable {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusServiceUnavailable)
 	}
 }

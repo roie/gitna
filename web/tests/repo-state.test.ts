@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
+import { ApiError } from '../src/lib/api'
 import { coalesce, createRepoState, reconcileSelection } from '../src/lib/repo-state.svelte'
 import type { ApiClient } from '../src/lib/api'
 import type { ChangeScope, CommitFile, FileChange, GraphCommit, RepoSnapshot } from '../src/lib/types'
@@ -71,6 +72,9 @@ function graphApi(
     async commitFiles(oid) {
       return { files: filesByOid[oid] ?? [] }
     },
+    async branches() {
+      return []
+    },
   }
 }
 
@@ -96,6 +100,9 @@ function queuedApi(snapshots: RepoSnapshot[]): ApiClient {
     },
     async commitFiles() {
       throw new Error('commitFiles not used in queuedApi tests')
+    },
+    async branches() {
+      return []
     },
   }
 }
@@ -223,6 +230,9 @@ describe('createRepoState', () => {
         async commitFiles() {
           throw new Error('not used')
         },
+        async branches() {
+          return []
+        },
       },
     })
     await state.refreshSnapshot()
@@ -255,6 +265,9 @@ describe('createRepoState', () => {
         },
         async commitFiles() {
           throw new Error('not used')
+        },
+        async branches() {
+          return []
         },
       },
     })
@@ -357,6 +370,9 @@ describe('createRepoState', () => {
         },
         async commitFiles() {
           throw new Error('not used')
+        },
+        async branches() {
+          return []
         },
       },
     })
@@ -471,6 +487,148 @@ describe('createRepoState', () => {
 
     state.select('unstaged', 'x.txt')
     expect(state.commitDiff).toBeNull()
+  })
+})
+
+describe('branch and sync operations', () => {
+  it('runs a branch op and refreshes snapshot, graph, and branches', async () => {
+    const ops: string[] = []
+    const api: ApiClient = {
+      async snapshot() {
+        return snapshot({ generation: 2 })
+      },
+      async diff() {
+        throw new Error('not used')
+      },
+      async mutate(req) {
+        ops.push(req.op)
+      },
+      async commit() {
+        throw new Error('not used')
+      },
+      async graph() {
+        return { commits: [], hasMore: false }
+      },
+      async commitFiles() {
+        return { files: [] }
+      },
+      async branches() {
+        return [{ name: 'main', oid: 'x', current: true, remote: false, ahead: 0, behind: 0 }]
+      },
+    }
+    const state = createRepoState({ api })
+
+    await state.switchBranch('main')
+
+    expect(ops).toEqual(['switch-branch'])
+    await vi.waitFor(() => expect(state.branches.length).toBe(1))
+    expect(state.branches[0]?.name).toBe('main')
+    expect(state.busy).toBe(false)
+  })
+
+  it('routes each sync action to the matching operation', async () => {
+    const ops: string[] = []
+    const api: ApiClient = {
+      async snapshot() {
+        return snapshot({ generation: 2 })
+      },
+      async diff() {
+        throw new Error('not used')
+      },
+      async mutate(req) {
+        ops.push(`${req.op}:${req.name ?? ''}:${req.remote ?? ''}:${req.force ?? false}`)
+      },
+      async commit() {
+        throw new Error('not used')
+      },
+      async graph() {
+        return { commits: [], hasMore: false }
+      },
+      async commitFiles() {
+        return { files: [] }
+      },
+      async branches() {
+        return []
+      },
+    }
+    const state = createRepoState({ api })
+
+    await state.createBranch('topic', 'main')
+    await state.fetchRemote()
+    await state.pullRemote()
+    await state.pushRemote()
+    await state.deleteBranch('topic', true)
+    await state.pushSetUpstream('origin', 'topic')
+
+    expect(ops).toEqual([
+      'create-branch:topic::false',
+      'fetch:::false',
+      'pull:::false',
+      'push:::false',
+      'delete-branch:topic::true',
+      'push-upstream:topic:origin:false',
+    ])
+  })
+
+  it('propagates structured no-upstream state to the caller', async () => {
+    const api: ApiClient = {
+      async snapshot() {
+        return snapshot({ generation: 2 })
+      },
+      async diff() {
+        throw new Error('not used')
+      },
+      async mutate() {
+        throw new ApiError(409, 'no upstream branch', 'no-upstream', 'topic')
+      },
+      async commit() {
+        throw new Error('not used')
+      },
+      async graph() {
+        return { commits: [], hasMore: false }
+      },
+      async commitFiles() {
+        return { files: [] }
+      },
+      async branches() {
+        return []
+      },
+    }
+    const state = createRepoState({ api })
+
+    await expect(state.pushRemote()).rejects.toMatchObject({ code: 'no-upstream', branch: 'topic' })
+    expect(state.mutationError).toMatch(/no upstream/)
+    expect(state.busy).toBe(false)
+  })
+
+  it('refreshes branches with the branch list', async () => {
+    const api: ApiClient = {
+      async snapshot() {
+        return snapshot({ generation: 2 })
+      },
+      async diff() {
+        throw new Error('not used')
+      },
+      async mutate() {
+        throw new Error('not used')
+      },
+      async commit() {
+        throw new Error('not used')
+      },
+      async graph() {
+        return { commits: [], hasMore: false }
+      },
+      async commitFiles() {
+        return { files: [] }
+      },
+      async branches() {
+        throw new Error('branch listing failed')
+      },
+    }
+    const state = createRepoState({ api })
+
+    await state.refreshBranches()
+    expect(state.branchesError).toMatch(/branch listing failed/)
   })
 })
 

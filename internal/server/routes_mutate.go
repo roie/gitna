@@ -11,12 +11,19 @@ import (
 
 // Mutation operation names accepted by POST /api/v1/operations.
 const (
-	OpStage   = "stage"
-	OpUnstage = "unstage"
-	OpDiscard = "discard"
-	OpDelete  = "delete"
-	OpPatch   = "patch"
-	OpCommit  = "commit"
+	OpStage          = "stage"
+	OpUnstage        = "unstage"
+	OpDiscard        = "discard"
+	OpDelete         = "delete"
+	OpPatch          = "patch"
+	OpCommit         = "commit"
+	OpBranchCreate   = "create-branch"
+	OpBranchSwitch   = "switch-branch"
+	OpBranchDelete   = "delete-branch"
+	OpFetch          = "fetch"
+	OpPull           = "pull"
+	OpPush           = "push"
+	OpPushSetUpstream = "push-upstream"
 )
 
 // mutationRequest is the JSON body shared by all operations. Only the fields
@@ -32,6 +39,15 @@ type mutationRequest struct {
 	// Message and Amend carry the commit request for the commit operation.
 	Message string `json:"message"`
 	Amend   bool   `json:"amend"`
+	// Name selects a branch for branch operations and names the branch for
+	// create-branch and push-upstream.
+	Name string `json:"name"`
+	// Start is the ref or oid a new branch is created at; empty means HEAD.
+	Start string `json:"start,omitempty"`
+	// Remote names the remote for push-upstream.
+	Remote string `json:"remote,omitempty"`
+	// Force requests a force branch delete after explicit confirmation.
+	Force bool `json:"force"`
 }
 
 // maxMutationBytes bounds the JSON request body; patches are capped at a lower
@@ -94,19 +110,45 @@ func (s *Server) handleOperation(w http.ResponseWriter, r *http.Request) {
 	case OpCommit:
 		handleCommit(w, r, s.repo, req)
 		return
+	case OpBranchCreate:
+		err = s.repo.CreateBranch(r.Context(), req.Name, req.Start)
+	case OpBranchSwitch:
+		err = s.repo.SwitchBranch(r.Context(), req.Name)
+	case OpBranchDelete:
+		err = s.repo.DeleteBranch(r.Context(), req.Name, req.Force)
+	case OpFetch:
+		err = s.repo.Fetch(r.Context())
+	case OpPull:
+		err = s.repo.Pull(r.Context())
+	case OpPush:
+		err = s.repo.Push(r.Context())
+	case OpPushSetUpstream:
+		err = s.repo.PushSetUpstream(r.Context(), req.Remote, req.Name)
 	default:
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "unknown operation"})
 		return
 	}
 	if err != nil {
 		status := http.StatusInternalServerError
+		body := map[string]any{"error": err.Error()}
 		switch {
-		case errors.Is(err, protocol.ErrInvalidPath), errors.Is(err, protocol.ErrNotInRepo):
+		case errors.Is(err, protocol.ErrInvalidPath), errors.Is(err, protocol.ErrNotInRepo), errors.Is(err, protocol.ErrInvalidRef):
 			status = http.StatusBadRequest
 		case errors.Is(err, gitx.ErrPatchDoesNotApply):
 			status = http.StatusConflict
+		case errors.Is(err, gitx.ErrPushRejected):
+			status = http.StatusConflict
+		case errors.Is(err, gitx.ErrNoUpstream):
+			status = http.StatusConflict
+			body["code"] = "no-upstream"
+			if snap, serr := s.repo.Snapshot(r.Context()); serr == nil {
+				body["branch"] = snap.HeadBranch
+			}
+		case errors.Is(err, gitx.ErrBranchNotMerged):
+			status = http.StatusConflict
+			body["code"] = "branch-not-merged"
 		}
-		writeJSON(w, status, map[string]string{"error": err.Error()})
+		writeJSON(w, status, body)
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})

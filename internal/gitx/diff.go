@@ -245,8 +245,8 @@ func validateRef(s string) error {
 	if s == "" || len(s) > 256 {
 		return fmt.Errorf("%w: empty or too long", protocol.ErrInvalidRef)
 	}
-	if s[0] == '-' {
-		return fmt.Errorf("%w: leading dash", protocol.ErrInvalidRef)
+	if s[0] == '-' || strings.Contains(s, "..") {
+		return fmt.Errorf("%w: leading dash or double dot", protocol.ErrInvalidRef)
 	}
 	for _, r := range s {
 		switch {

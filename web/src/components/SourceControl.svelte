@@ -3,6 +3,7 @@ import type { RepoState } from '../lib/repo-state.svelte'
 import type { ChangeScope } from '../lib/types'
 import ChangesSection from './ChangesSection.svelte'
 import CommitComposer from './CommitComposer.svelte'
+import OperationBar from './OperationBar.svelte'
 
   interface Props {
     state: RepoState
@@ -36,6 +37,7 @@ import CommitComposer from './CommitComposer.svelte'
       Refresh
     </button>
   </header>
+  <OperationBar repo={state} />
   <ChangesSection
     title="Changes"
     scope="unstaged"

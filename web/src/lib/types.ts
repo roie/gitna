@@ -77,3 +77,13 @@ export interface RepoSnapshot {
   unstaged: FileChange[]
   generation: number
 }
+
+export interface Branch {
+  name: string
+  oid: string
+  current: boolean
+  remote: boolean
+  upstream?: string
+  ahead: number
+  behind: number
+}

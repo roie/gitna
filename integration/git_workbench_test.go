@@ -51,6 +51,38 @@ func (w *workbenchRepo) FilesChanged(ctx context.Context, oid string) ([]protoco
 	return w.repo.ChangedFiles(ctx, w.runner, oid)
 }
 
+func (w *workbenchRepo) Branches(ctx context.Context) ([]protocol.Branch, error) {
+	return w.repo.ListBranches(ctx, w.runner)
+}
+
+func (w *workbenchRepo) CreateBranch(ctx context.Context, name, start string) error {
+	return w.queue.Do(ctx, func(ctx context.Context) error { return w.repo.CreateBranch(ctx, w.runner, name, start) })
+}
+
+func (w *workbenchRepo) SwitchBranch(ctx context.Context, name string) error {
+	return w.queue.Do(ctx, func(ctx context.Context) error { return w.repo.SwitchBranch(ctx, w.runner, name) })
+}
+
+func (w *workbenchRepo) DeleteBranch(ctx context.Context, name string, force bool) error {
+	return w.queue.Do(ctx, func(ctx context.Context) error { return w.repo.DeleteBranch(ctx, w.runner, name, force) })
+}
+
+func (w *workbenchRepo) Fetch(ctx context.Context) error {
+	return w.queue.Do(ctx, func(ctx context.Context) error { return w.repo.Fetch(ctx, w.runner) })
+}
+
+func (w *workbenchRepo) Pull(ctx context.Context) error {
+	return w.queue.Do(ctx, func(ctx context.Context) error { return w.repo.Pull(ctx, w.runner) })
+}
+
+func (w *workbenchRepo) Push(ctx context.Context) error {
+	return w.queue.Do(ctx, func(ctx context.Context) error { return w.repo.Push(ctx, w.runner) })
+}
+
+func (w *workbenchRepo) PushSetUpstream(ctx context.Context, remote, branch string) error {
+	return w.queue.Do(ctx, func(ctx context.Context) error { return w.repo.PushSetUpstream(ctx, w.runner, remote, branch) })
+}
+
 func (w *workbenchRepo) StagePaths(ctx context.Context, paths []string) error {
 	return w.queue.Do(ctx, func(ctx context.Context) error { return w.repo.Stage(ctx, w.runner, paths) })
 }

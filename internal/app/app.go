@@ -45,6 +45,10 @@ func (a repoAdapter) FilesChanged(ctx context.Context, oid string) ([]protocol.C
 	return a.repo.ChangedFiles(ctx, a.runner, oid)
 }
 
+func (a repoAdapter) Branches(ctx context.Context) ([]protocol.Branch, error) {
+	return a.repo.ListBranches(ctx, a.runner)
+}
+
 func (a repoAdapter) StagePaths(ctx context.Context, paths []string) error {
 	return a.queue.Do(ctx, func(ctx context.Context) error {
 		return a.repo.Stage(ctx, a.runner, paths)
@@ -92,6 +96,48 @@ func (a repoAdapter) Commit(ctx context.Context, req protocol.CommitRequest) (pr
 		return err
 	})
 	return result, err
+}
+
+func (a repoAdapter) CreateBranch(ctx context.Context, name, start string) error {
+	return a.queue.Do(ctx, func(ctx context.Context) error {
+		return a.repo.CreateBranch(ctx, a.runner, name, start)
+	})
+}
+
+func (a repoAdapter) SwitchBranch(ctx context.Context, name string) error {
+	return a.queue.Do(ctx, func(ctx context.Context) error {
+		return a.repo.SwitchBranch(ctx, a.runner, name)
+	})
+}
+
+func (a repoAdapter) DeleteBranch(ctx context.Context, name string, force bool) error {
+	return a.queue.Do(ctx, func(ctx context.Context) error {
+		return a.repo.DeleteBranch(ctx, a.runner, name, force)
+	})
+}
+
+func (a repoAdapter) Fetch(ctx context.Context) error {
+	return a.queue.Do(ctx, func(ctx context.Context) error {
+		return a.repo.Fetch(ctx, a.runner)
+	})
+}
+
+func (a repoAdapter) Pull(ctx context.Context) error {
+	return a.queue.Do(ctx, func(ctx context.Context) error {
+		return a.repo.Pull(ctx, a.runner)
+	})
+}
+
+func (a repoAdapter) Push(ctx context.Context) error {
+	return a.queue.Do(ctx, func(ctx context.Context) error {
+		return a.repo.Push(ctx, a.runner)
+	})
+}
+
+func (a repoAdapter) PushSetUpstream(ctx context.Context, remote, branch string) error {
+	return a.queue.Do(ctx, func(ctx context.Context) error {
+		return a.repo.PushSetUpstream(ctx, a.runner, remote, branch)
+	})
 }
 
 // Run starts the workbench session for path and blocks until ctx is cancelled

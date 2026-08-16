@@ -177,3 +177,15 @@ type GraphPage struct {
 type CommitFiles struct {
 	Files []CommitFile `json:"files"`
 }
+
+// Branch describes one local or remote branch with its upstream relationship.
+// Ahead/Behind are only meaningful for local branches with an upstream.
+type Branch struct {
+	Name     string `json:"name"`
+	OID      string `json:"oid"`
+	Current  bool   `json:"current"`
+	Remote   bool   `json:"remote"`
+	Upstream string `json:"upstream,omitempty"`
+	Ahead    int    `json:"ahead"`
+	Behind   int    `json:"behind"`
+}
