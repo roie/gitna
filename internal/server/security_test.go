@@ -109,7 +109,7 @@ func TestSecurityValidSameOriginPOST(t *testing.T) {
 
 func TestSecurityOversizedBody(t *testing.T) {
 	h := newSecuredTestHandler()
-	body := strings.Repeat("a", maxRequestBody+1)
+	body := strings.Repeat("a", int(MaxRequestBody)+1)
 	req := httptest.NewRequest(http.MethodPost, "/s/"+testToken+"/api/v1/commit", strings.NewReader(body))
 	req.Host = testHost
 	req.Header.Set("Origin", "http://"+testHost)

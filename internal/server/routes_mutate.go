@@ -1,9 +1,11 @@
 package server
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"net/http"
+	"time"
 
 	"github.com/roie/gitna/internal/gitx"
 	"github.com/roie/gitna/internal/protocol"
@@ -75,16 +77,37 @@ type mutationRequest struct {
 	IncludeUntracked bool `json:"includeUntracked"`
 }
 
-// maxMutationBytes bounds the JSON request body; patches are capped at a lower
-// limit by the gitx layer anyway.
-const maxMutationBytes = 1 << 20
+// mutationTimeout returns the per-operation timeout. Network operations get a
+// longer deadline; local mutations and commits get shorter ones.
+func mutationTimeout(op string) time.Duration {
+	switch op {
+	case OpFetch, OpPull, OpPush, OpPushSetUpstream, OpTagPush:
+		return NetworkTimeout
+	case OpCommit:
+		return CommitTimeout
+	default:
+		return LocalMutationTimeout
+	}
+}
+
+// withTimeout creates a context with the given deadline, derived from the
+// request context so client disconnection still propagates.
+func withTimeout(ctx context.Context, d time.Duration) (context.Context, context.CancelFunc) {
+	return context.WithTimeout(ctx, d)
+}
 
 // handleCommit runs a commit/amend. Hooks run normally; a rejected commit is
 // not an HTTP error — git's exit code and output are relayed in the body so the
 // composer can show the hook's reason while preserving the user's text.
 func handleCommit(w http.ResponseWriter, r *http.Request, repo Repo, req mutationRequest) {
-	result, err := repo.Commit(r.Context(), protocol.CommitRequest{Message: req.Message, Amend: req.Amend})
+	ctx, cancel := withTimeout(r.Context(), CommitTimeout)
+	defer cancel()
+	result, err := repo.Commit(ctx, protocol.CommitRequest{Message: req.Message, Amend: req.Amend})
 	if err != nil {
+		if ctx.Err() == context.DeadlineExceeded {
+			writeJSON(w, http.StatusGatewayTimeout, map[string]string{"error": "commit timed out"})
+			return
+		}
 		var commitErr *gitx.CommitError
 		switch {
 		case errors.As(err, &commitErr):
@@ -108,122 +131,139 @@ func (s *Server) handleOperation(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var req mutationRequest
-	dec := json.NewDecoder(http.MaxBytesReader(w, r.Body, maxMutationBytes))
+	dec := json.NewDecoder(http.MaxBytesReader(w, r.Body, MaxRequestBody))
 	if err := dec.Decode(&req); err != nil {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid request body"})
 		return
 	}
 
 	op := r.URL.Query().Get("op")
+	ctx, cancel := withTimeout(r.Context(), mutationTimeout(op))
+	defer cancel()
 	var err error
 	switch op {
 	case OpStage:
-		err = s.repo.StagePaths(r.Context(), req.Paths)
+		err = s.repo.StagePaths(ctx, req.Paths)
 	case OpUnstage:
-		err = s.repo.UnstagePaths(r.Context(), req.Paths)
+		err = s.repo.UnstagePaths(ctx, req.Paths)
 	case OpDiscard:
-		err = s.repo.DiscardTracked(r.Context(), req.Paths)
+		err = s.repo.DiscardTracked(ctx, req.Paths)
 	case OpDelete:
-		err = s.repo.DeleteUntracked(r.Context(), req.Paths)
+		err = s.repo.DeleteUntracked(ctx, req.Paths)
 	case OpPatch:
 		patch := []byte(req.Patch)
 		if req.Reverse {
-			err = s.repo.UnstagePatch(r.Context(), patch)
+			err = s.repo.UnstagePatch(ctx, patch)
 		} else {
-			err = s.repo.StagePatch(r.Context(), patch)
+			err = s.repo.StagePatch(ctx, patch)
 		}
 	case OpCommit:
 		handleCommit(w, r, s.repo, req)
 		return
 	case OpBranchCreate:
-		err = s.repo.CreateBranch(r.Context(), req.Name, req.Start)
+		err = s.repo.CreateBranch(ctx, req.Name, req.Start)
 	case OpBranchSwitch:
-		err = s.repo.SwitchBranch(r.Context(), req.Name)
+		err = s.repo.SwitchBranch(ctx, req.Name)
 	case OpBranchDelete:
-		err = s.repo.DeleteBranch(r.Context(), req.Name, req.Force)
+		err = s.repo.DeleteBranch(ctx, req.Name, req.Force)
 	case OpFetch:
-		err = s.repo.Fetch(r.Context())
+		err = s.repo.Fetch(ctx)
 	case OpPull:
-		err = s.repo.Pull(r.Context())
+		err = s.repo.Pull(ctx)
 	case OpPush:
-		err = s.repo.Push(r.Context())
+		err = s.repo.Push(ctx)
 	case OpPushSetUpstream:
-		err = s.repo.PushSetUpstream(r.Context(), req.Remote, req.Name)
+		err = s.repo.PushSetUpstream(ctx, req.Remote, req.Name)
 	case OpStashPush:
-		err = s.repo.StashPush(r.Context(), req.Message, req.IncludeUntracked)
+		err = s.repo.StashPush(ctx, req.Message, req.IncludeUntracked)
 	case OpStashApply:
-		err = s.repo.StashApply(r.Context(), req.Ref)
+		err = s.repo.StashApply(ctx, req.Ref)
 	case OpStashPop:
-		err = s.repo.StashPop(r.Context(), req.Ref)
+		err = s.repo.StashPop(ctx, req.Ref)
 	case OpStashDrop:
-		err = s.repo.StashDrop(r.Context(), req.Ref)
+		err = s.repo.StashDrop(ctx, req.Ref)
 	case OpTagCreate:
-		err = s.repo.CreateTag(r.Context(), req.Name, req.Start, req.Message)
+		err = s.repo.CreateTag(ctx, req.Name, req.Start, req.Message)
 	case OpTagDelete:
-		err = s.repo.DeleteTag(r.Context(), req.Name)
+		err = s.repo.DeleteTag(ctx, req.Name)
 	case OpTagPush:
-		err = s.repo.PushTag(r.Context(), req.Remote, req.Name)
+		err = s.repo.PushTag(ctx, req.Remote, req.Name)
 	case OpCherryPick:
-		err = s.repo.CherryPick(r.Context(), req.Ref)
+		err = s.repo.CherryPick(ctx, req.Ref)
 	case OpRevert:
-		err = s.repo.Revert(r.Context(), req.Ref)
+		err = s.repo.Revert(ctx, req.Ref)
 	case OpReset:
-		err = s.repo.Reset(r.Context(), req.Ref, req.Mode)
+		err = s.repo.Reset(ctx, req.Ref, req.Mode)
 	case OpMerge:
-		err = s.repo.Merge(r.Context(), req.Name)
+		err = s.repo.Merge(ctx, req.Name)
 	case OpMergeAbort:
-		err = s.repo.MergeAbort(r.Context())
+		err = s.repo.MergeAbort(ctx)
 	case OpMergeContinue:
-		err = s.repo.MergeContinue(r.Context())
+		err = s.repo.MergeContinue(ctx)
 	case OpRebase:
-		err = s.repo.Rebase(r.Context(), req.Name)
+		err = s.repo.Rebase(ctx, req.Name)
 	case OpRebaseAbort:
-		err = s.repo.RebaseAbort(r.Context())
+		err = s.repo.RebaseAbort(ctx)
 	case OpRebaseContinue:
-		err = s.repo.RebaseContinue(r.Context())
+		err = s.repo.RebaseContinue(ctx)
 	case OpResolveOurs:
-		err = s.repo.ResolveConflict(r.Context(), req.Paths[0], false)
+		err = s.repo.ResolveConflict(ctx, req.Paths[0], false)
 	case OpResolveTheirs:
-		err = s.repo.ResolveConflict(r.Context(), req.Paths[0], true)
+		err = s.repo.ResolveConflict(ctx, req.Paths[0], true)
 	default:
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "unknown operation"})
 		return
 	}
 	if err != nil {
-		status := http.StatusInternalServerError
-		body := map[string]any{"error": err.Error()}
-		switch {
-		case errors.Is(err, protocol.ErrInvalidPath), errors.Is(err, protocol.ErrNotInRepo), errors.Is(err, protocol.ErrInvalidRef), errors.Is(err, gitx.ErrInvalidResetMode):
-			status = http.StatusBadRequest
-		case errors.Is(err, gitx.ErrAlreadyInProgress):
-			status = http.StatusConflict
-			body["code"] = "already-in-progress"
-		case errors.Is(err, gitx.ErrPatchDoesNotApply):
-			status = http.StatusConflict
-		case errors.Is(err, gitx.ErrPushRejected):
-			status = http.StatusConflict
-		case errors.Is(err, gitx.ErrNoUpstream):
-			status = http.StatusConflict
-			body["code"] = "no-upstream"
-			if snap, serr := s.repo.Snapshot(r.Context()); serr == nil {
-				body["branch"] = snap.HeadBranch
-			}
-		case errors.Is(err, gitx.ErrBranchNotMerged):
-			status = http.StatusConflict
-			body["code"] = "branch-not-merged"
-		case errors.Is(err, gitx.ErrNoStash):
-			status = http.StatusNotFound
-		case errors.Is(err, gitx.ErrNoTag):
-			status = http.StatusNotFound
-		case errors.Is(err, gitx.ErrStashConflict), errors.Is(err, gitx.ErrConflict):
-			status = http.StatusConflict
-			body["code"] = "conflict"
-		case errors.Is(err, gitx.ErrTagExists):
-			status = http.StatusConflict
-			body["code"] = "tag-exists"
-		}
-		writeJSON(w, status, body)
+		writeMutationError(w, r, s, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
+}
+
+// writeMutationError maps a mutation error to an HTTP status and JSON body.
+// It handles context cancellation, output limits, and all gitx sentinel errors.
+func writeMutationError(w http.ResponseWriter, r *http.Request, s *Server, err error) {
+	// Check both the request context and whether the error itself is a
+	// context error (the repo may have returned ctx.Err() directly).
+	if ctxErr := r.Context().Err(); ctxErr != nil || errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+		writeJSON(w, http.StatusGatewayTimeout, map[string]string{"error": "operation timed out"})
+		return
+	}
+	status := http.StatusInternalServerError
+	body := map[string]any{"error": err.Error()}
+	switch {
+	case errors.Is(err, gitx.ErrOutputLimit):
+		status = http.StatusRequestEntityTooLarge
+		body["code"] = "output-too-large"
+	case errors.Is(err, protocol.ErrInvalidPath), errors.Is(err, protocol.ErrNotInRepo), errors.Is(err, protocol.ErrInvalidRef), errors.Is(err, gitx.ErrInvalidResetMode):
+		status = http.StatusBadRequest
+	case errors.Is(err, gitx.ErrAlreadyInProgress):
+		status = http.StatusConflict
+		body["code"] = "already-in-progress"
+	case errors.Is(err, gitx.ErrPatchDoesNotApply):
+		status = http.StatusConflict
+	case errors.Is(err, gitx.ErrPushRejected):
+		status = http.StatusConflict
+	case errors.Is(err, gitx.ErrNoUpstream):
+		status = http.StatusConflict
+		body["code"] = "no-upstream"
+		if snap, serr := s.repo.Snapshot(r.Context()); serr == nil {
+			body["branch"] = snap.HeadBranch
+		}
+	case errors.Is(err, gitx.ErrBranchNotMerged):
+		status = http.StatusConflict
+		body["code"] = "branch-not-merged"
+	case errors.Is(err, gitx.ErrNoStash):
+		status = http.StatusNotFound
+	case errors.Is(err, gitx.ErrNoTag):
+		status = http.StatusNotFound
+	case errors.Is(err, gitx.ErrStashConflict), errors.Is(err, gitx.ErrConflict):
+		status = http.StatusConflict
+		body["code"] = "conflict"
+	case errors.Is(err, gitx.ErrTagExists):
+		status = http.StatusConflict
+		body["code"] = "tag-exists"
+	}
+	writeJSON(w, status, body)
 }

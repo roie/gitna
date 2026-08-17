@@ -7,9 +7,7 @@ import (
 	"strings"
 )
 
-// maxRequestBody bounds ordinary mutation bodies. Consolidated with other
-// limits in a later hardening task.
-const maxRequestBody = 1 << 20 // 1 MiB
+
 
 // Security enforces the loopback session boundary: capability URL, Host
 // validation, mutation origin/content-type checks, request size limits, and
@@ -63,11 +61,11 @@ func (s Security) Wrap(next http.Handler) http.Handler {
 				http.Error(w, "unsupported media type", http.StatusUnsupportedMediaType)
 				return
 			}
-			if r.ContentLength > maxRequestBody {
+			if r.ContentLength > MaxRequestBody {
 				http.Error(w, "request body too large", http.StatusRequestEntityTooLarge)
 				return
 			}
-			r.Body = http.MaxBytesReader(w, r.Body, maxRequestBody)
+			r.Body = http.MaxBytesReader(w, r.Body, MaxRequestBody)
 		}
 
 		http.StripPrefix(prefix, next).ServeHTTP(w, r)

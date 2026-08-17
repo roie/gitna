@@ -184,6 +184,13 @@
 
 {#if repo.snapshot}
   <div class="operation-bar">
+    {#if repo.activeOpLabel}
+      <div class="active-op" role="status">
+        <span class="spinner" aria-hidden="true"></span>
+        <span>{repo.activeOpLabel}…</span>
+      </div>
+    {/if}
+
     <div class="sync-row">
       <span class="sync-label" title="upstream">{upstreamLabel}</span>
       <button class="action" onclick={handleFetch} disabled={repo.busy}>Fetch</button>
@@ -676,5 +683,29 @@
     margin: 0;
     color: var(--color-danger);
     word-break: break-word;
+  }
+
+  .active-op {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    padding: 2px 0;
+    color: var(--color-muted);
+    font-size: 11px;
+  }
+
+  .spinner {
+    width: 10px;
+    height: 10px;
+    border: 2px solid var(--color-border);
+    border-top-color: var(--color-accent);
+    border-radius: 50%;
+    animation: spin 0.6s linear infinite;
+  }
+
+  @keyframes spin {
+    to {
+      transform: rotate(360deg);
+    }
   }
 </style>

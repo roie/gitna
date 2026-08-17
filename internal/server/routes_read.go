@@ -1,6 +1,7 @@
 package server
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"net/http"
@@ -9,6 +10,13 @@ import (
 
 	"github.com/roie/gitna/internal/protocol"
 )
+
+// timeoutReached checks whether a handler should return 504: either the
+// context deadline actually expired, or the repo returned a context error
+// directly (which our slowRepo tests do).
+func timeoutReached(ctx context.Context, err error) bool {
+	return ctx.Err() == context.DeadlineExceeded || errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled)
+}
 
 // apiRoutes builds the versioned API router.
 func (s *Server) apiRoutes() http.Handler {
@@ -52,6 +60,8 @@ func (s *Server) handleDiff(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "repository unavailable"})
 		return
 	}
+	ctx, cancel := context.WithTimeout(r.Context(), DiffTimeout)
+	defer cancel()
 	q := r.URL.Query()
 	opts := protocol.DiffOptions{
 		Path:        q.Get("path"),
@@ -60,8 +70,12 @@ func (s *Server) handleDiff(w http.ResponseWriter, r *http.Request) {
 		CompareFrom: q.Get("from"),
 		CompareTo:   q.Get("to"),
 	}
-	d, err := s.repo.Diff(r.Context(), protocol.DiffScope(q.Get("scope")), opts)
+	d, err := s.repo.Diff(ctx, protocol.DiffScope(q.Get("scope")), opts)
 	if err != nil {
+		if timeoutReached(ctx, err) {
+			writeJSON(w, http.StatusGatewayTimeout, map[string]string{"error": "diff timed out"})
+			return
+		}
 		status := http.StatusInternalServerError
 		switch {
 		case errors.Is(err, protocol.ErrInvalidPath), errors.Is(err, protocol.ErrInvalidRef):
@@ -83,8 +97,14 @@ func (s *Server) handleSnapshot(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "repository unavailable"})
 		return
 	}
-	snap, err := s.repo.Snapshot(r.Context())
+	ctx, cancel := context.WithTimeout(r.Context(), SnapshotTimeout)
+	defer cancel()
+	snap, err := s.repo.Snapshot(ctx)
 	if err != nil {
+		if timeoutReached(ctx, err) {
+			writeJSON(w, http.StatusGatewayTimeout, map[string]string{"error": "snapshot timed out"})
+			return
+		}
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 		return
 	}
@@ -109,14 +129,32 @@ func (s *Server) handleGraph(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
 		return
 	}
-	commits, err := s.repo.History(r.Context(), skip, graphPageSize)
+	limit := graphPageSize
+	if v := r.URL.Query().Get("limit"); v != "" {
+		n, err := strconv.Atoi(v)
+		if err != nil || n < 1 {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid limit value"})
+			return
+		}
+		if n > graphMaxPage {
+			n = graphMaxPage
+		}
+		limit = n
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), GraphTimeout)
+	defer cancel()
+	commits, err := s.repo.History(ctx, skip, limit)
 	if err != nil {
+		if timeoutReached(ctx, err) {
+			writeJSON(w, http.StatusGatewayTimeout, map[string]string{"error": "history timed out"})
+			return
+		}
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 		return
 	}
 	writeJSON(w, http.StatusOK, protocol.GraphPage{
 		Commits: commits,
-		HasMore: len(commits) == graphPageSize,
+		HasMore: len(commits) == limit,
 	})
 }
 
@@ -127,8 +165,14 @@ func (s *Server) handleBranches(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "repository unavailable"})
 		return
 	}
-	branches, err := s.repo.Branches(r.Context())
+	ctx, cancel := context.WithTimeout(r.Context(), ReadTimeout)
+	defer cancel()
+	branches, err := s.repo.Branches(ctx)
 	if err != nil {
+		if timeoutReached(ctx, err) {
+			writeJSON(w, http.StatusGatewayTimeout, map[string]string{"error": "branches timed out"})
+			return
+		}
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 		return
 	}
@@ -143,10 +187,16 @@ func (s *Server) handleCommitFiles(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "repository unavailable"})
 		return
 	}
+	ctx, cancel := context.WithTimeout(r.Context(), ReadTimeout)
+	defer cancel()
 	oid := strings.TrimPrefix(strings.TrimPrefix(r.URL.Path, "/api/v1"), "/commit/")
 	oid = strings.TrimSuffix(oid, "/files")
-	files, err := s.repo.FilesChanged(r.Context(), oid)
+	files, err := s.repo.FilesChanged(ctx, oid)
 	if err != nil {
+		if timeoutReached(ctx, err) {
+			writeJSON(w, http.StatusGatewayTimeout, map[string]string{"error": "commit files timed out"})
+			return
+		}
 		status := http.StatusInternalServerError
 		if errors.Is(err, protocol.ErrInvalidRef) {
 			status = http.StatusBadRequest
@@ -164,8 +214,14 @@ func (s *Server) handleStashes(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "repository unavailable"})
 		return
 	}
-	entries, err := s.repo.Stashes(r.Context())
+	ctx, cancel := context.WithTimeout(r.Context(), ReadTimeout)
+	defer cancel()
+	entries, err := s.repo.Stashes(ctx)
 	if err != nil {
+		if timeoutReached(ctx, err) {
+			writeJSON(w, http.StatusGatewayTimeout, map[string]string{"error": "stashes timed out"})
+			return
+		}
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 		return
 	}
@@ -179,8 +235,14 @@ func (s *Server) handleTags(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "repository unavailable"})
 		return
 	}
-	tags, err := s.repo.Tags(r.Context())
+	ctx, cancel := context.WithTimeout(r.Context(), ReadTimeout)
+	defer cancel()
+	tags, err := s.repo.Tags(ctx)
 	if err != nil {
+		if timeoutReached(ctx, err) {
+			writeJSON(w, http.StatusGatewayTimeout, map[string]string{"error": "tags timed out"})
+			return
+		}
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 		return
 	}
@@ -201,8 +263,14 @@ func (s *Server) handleCompare(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "compare requires from and to"})
 		return
 	}
-	files, err := s.repo.CompareFiles(r.Context(), from, to)
+	ctx, cancel := context.WithTimeout(r.Context(), ReadTimeout)
+	defer cancel()
+	files, err := s.repo.CompareFiles(ctx, from, to)
 	if err != nil {
+		if timeoutReached(ctx, err) {
+			writeJSON(w, http.StatusGatewayTimeout, map[string]string{"error": "compare timed out"})
+			return
+		}
 		status := http.StatusInternalServerError
 		if errors.Is(err, protocol.ErrInvalidRef) {
 			status = http.StatusBadRequest
@@ -233,8 +301,14 @@ func (s *Server) handleConflicts(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "repository unavailable"})
 		return
 	}
-	conflicts, err := s.repo.Conflicts(r.Context())
+	ctx, cancel := context.WithTimeout(r.Context(), ReadTimeout)
+	defer cancel()
+	conflicts, err := s.repo.Conflicts(ctx)
 	if err != nil {
+		if timeoutReached(ctx, err) {
+			writeJSON(w, http.StatusGatewayTimeout, map[string]string{"error": "conflicts timed out"})
+			return
+		}
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 		return
 	}

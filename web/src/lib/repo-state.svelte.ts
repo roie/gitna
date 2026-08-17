@@ -13,6 +13,41 @@ import type {
   Tag,
 } from './types'
 
+/** Human-readable labels for operation names. */
+const opLabels: Record<string, string> = {
+  stage: 'Staging',
+  unstage: 'Unstaging',
+  discard: 'Discarding',
+  delete: 'Deleting',
+  patch: 'Applying patch',
+  commit: 'Committing',
+  'create-branch': 'Creating branch',
+  'switch-branch': 'Switching branch',
+  'delete-branch': 'Deleting branch',
+  fetch: 'Fetching',
+  pull: 'Pulling',
+  push: 'Pushing',
+  'push-upstream': 'Publishing',
+  'stash-push': 'Stashing',
+  'stash-apply': 'Applying stash',
+  'stash-pop': 'Popping stash',
+  'stash-drop': 'Dropping stash',
+  'create-tag': 'Creating tag',
+  'delete-tag': 'Deleting tag',
+  'push-tag': 'Pushing tag',
+  'cherry-pick': 'Cherry-picking',
+  revert: 'Reverting',
+  reset: 'Resetting',
+  merge: 'Merging',
+  'merge-abort': 'Aborting merge',
+  'merge-continue': 'Continuing merge',
+  rebase: 'Rebasing',
+  'rebase-abort': 'Aborting rebase',
+  'rebase-continue': 'Continuing rebase',
+  'resolve-ours': 'Resolving conflict',
+  'resolve-theirs': 'Resolving conflict',
+}
+
 export interface Selection {
   scope: ChangeScope
   change: FileChange
@@ -110,6 +145,7 @@ export function createRepoState(options: RepoStateOptions = {}) {
   let busy = $state(false)
   let generation = $state(0)
   let selection = $state<Selection | null>(null)
+  let activeOp = $state<string | null>(null)
 
   let refreshRunning = false
   let refreshAgain = false
@@ -352,14 +388,20 @@ export function createRepoState(options: RepoStateOptions = {}) {
    */
   async function mutate(request: MutateRequest): Promise<void> {
     busy = true
+    activeOp = request.op
     try {
       await api.mutate(request)
       mutationError = null
     } catch (e) {
-      mutationError = e instanceof Error ? e.message : String(e)
+      if (e instanceof DOMException && e.name === 'TimeoutError') {
+        mutationError = 'Operation timed out'
+      } else {
+        mutationError = e instanceof Error ? e.message : String(e)
+      }
       throw e
     } finally {
       busy = false
+      activeOp = null
       void refreshSnapshot()
     }
   }
@@ -373,14 +415,20 @@ export function createRepoState(options: RepoStateOptions = {}) {
    */
   async function operation(request: MutateRequest): Promise<void> {
     busy = true
+    activeOp = request.op
     try {
       await api.mutate(request)
       mutationError = null
     } catch (e) {
-      mutationError = e instanceof Error ? e.message : String(e)
+      if (e instanceof DOMException && e.name === 'TimeoutError') {
+        mutationError = 'Operation timed out'
+      } else {
+        mutationError = e instanceof Error ? e.message : String(e)
+      }
       throw e
     } finally {
       busy = false
+      activeOp = null
       void refreshSnapshot()
       void refreshGraph()
       void refreshBranches()
@@ -538,6 +586,7 @@ export function createRepoState(options: RepoStateOptions = {}) {
    */
   async function commit(message: string, amend = false): Promise<void> {
     busy = true
+    activeOp = 'commit'
     try {
       const result = await api.commit({ message, amend })
       if (!result.ok) {
@@ -548,10 +597,15 @@ export function createRepoState(options: RepoStateOptions = {}) {
       }
       mutationError = null
     } catch (e) {
-      mutationError ??= e instanceof Error ? e.message : String(e)
+      if (e instanceof DOMException && e.name === 'TimeoutError') {
+        mutationError ??= 'Commit timed out'
+      } else {
+        mutationError ??= e instanceof Error ? e.message : String(e)
+      }
       throw e
     } finally {
       busy = false
+      activeOp = null
       void refreshSnapshot()
       void refreshGraph()
     }
@@ -575,6 +629,12 @@ export function createRepoState(options: RepoStateOptions = {}) {
     },
     get busy() {
       return busy
+    },
+    get activeOp() {
+      return activeOp
+    },
+    get activeOpLabel() {
+      return activeOp ? (opLabels[activeOp] ?? activeOp) : null
     },
     get generation() {
       return generation

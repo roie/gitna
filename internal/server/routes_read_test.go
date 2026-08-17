@@ -432,7 +432,7 @@ func TestSnapshotGenerationIncrements(t *testing.T) {
 }
 
 func TestSnapshotRouteError(t *testing.T) {
-	h := newSnapshotServer(&fakeRepo{err: context.Canceled})
+	h := newSnapshotServer(&fakeRepo{err: errors.New("disk failure")})
 
 	req := httptest.NewRequest(http.MethodGet, "/s/"+testToken+"/api/v1/snapshot", nil)
 	req.Host = testHost
