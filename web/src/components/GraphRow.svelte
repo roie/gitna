@@ -1,4 +1,6 @@
 <script lang="ts">
+  import { onDestroy } from 'svelte'
+  import { CommitFileTree } from '../lib/pierre-commit-tree'
   import type { CommitRef, CommitFile } from '../lib/types'
   import type { GraphRow } from '../lib/graph-lanes'
   import type { RepoState } from '../lib/repo-state.svelte'
@@ -33,42 +35,24 @@
     [...row.commit.refs].sort((a, b) => rank(a) - rank(b) || a.name.localeCompare(b.name)),
   )
 
+  let menuOpen = $state(false)
   let resetMode = $state<'soft' | 'mixed' | 'hard'>('mixed')
   let pendingReset = $state<boolean>(false)
 
+  let treeHost: HTMLElement | undefined = $state()
+  let commitTree: CommitFileTree | undefined
+
   function rank(ref: CommitRef): number {
     switch (ref.kind) {
-      case 'head':
-        return 0
-      case 'local-branch':
-        return 1
-      case 'remote-branch':
-        return 2
-      case 'tag':
-        return 3
+      case 'head': return 0
+      case 'local-branch': return 1
+      case 'remote-branch': return 2
+      case 'tag': return 3
     }
-  }
-
-  function kindGlyph(kind: CommitFile['kind']): string {
-    switch (kind) {
-      case 'added':
-        return 'A'
-      case 'deleted':
-        return 'D'
-      case 'renamed':
-        return 'R'
-      case 'modified':
-        return 'M'
-      default:
-        return '?'
-    }
-  }
-
-  function fileLabel(file: CommitFile): string {
-    return file.kind === 'renamed' && file.oldPath ? `${file.oldPath} → ${file.path}` : file.path
   }
 
   function handleReset(): void {
+    menuOpen = false
     if (resetMode === 'hard') {
       pendingReset = true
       return
@@ -80,6 +64,40 @@
     pendingReset = false
     void repo.resetTo(row.commit.oid, 'hard')
   }
+
+  $effect(() => {
+    if (!treeHost || !expanded) {
+      commitTree?.destroy()
+      commitTree = undefined
+      return
+    }
+    const tree = new CommitFileTree(treeHost, {
+      onSelect: (path) => {
+        if (path) {
+          const files = repo.commitFiles[row.commit.oid] ?? []
+          const file = files.find((f) => f.path === path)
+          if (file) repo.selectCommitFile(row.commit.oid, row.commit.subject, file)
+        }
+      },
+    })
+    commitTree = tree
+    const files = repo.commitFiles[row.commit.oid]
+    if (files) tree.update(files)
+    return () => {
+      tree.destroy()
+      commitTree = undefined
+    }
+  })
+
+  $effect(() => {
+    if (!commitTree) return
+    const files = repo.commitFiles[row.commit.oid]
+    if (files) commitTree.update(files)
+  })
+
+  onDestroy(() => {
+    commitTree?.destroy()
+  })
 </script>
 
 <li class="graph-row" class:expanded>
@@ -135,52 +153,41 @@
       <span class="time">{date}</span>
     </div>
     {#if expanded}
-      <ul class="files">
+      <div class="tree-container">
         {#if repo.filesError[row.commit.oid]}
-          <li class="file-note" role="alert">{repo.filesError[row.commit.oid]}</li>
+          <p class="file-note" role="alert">{repo.filesError[row.commit.oid]}</p>
         {:else if repo.filesLoading[row.commit.oid] && !repo.commitFiles[row.commit.oid]}
-          <li class="file-note">Loading…</li>
+          <p class="file-note">Loading…</p>
         {:else if (repo.commitFiles[row.commit.oid] ?? []).length === 0}
-          <li class="file-note">No files changed</li>
+          <p class="file-note">No files changed</p>
         {:else}
-          {#each repo.commitFiles[row.commit.oid] ?? [] as file}
-            <li>
-              <button
-                class="file"
-                onclick={() => repo.selectCommitFile(row.commit.oid, row.commit.subject, file)}
-              >
-                <span class="file-kind">{kindGlyph(file.kind)}</span>
-                <span class="file-path" title={fileLabel(file)}>{fileLabel(file)}</span>
-              </button>
-            </li>
-          {/each}
+          <div class="tree-host" bind:this={treeHost}></div>
         {/if}
-      </ul>
-      <div class="actions">
-        <button
-          class="action"
-          onclick={() => void repo.cherryPick(row.commit.oid)}
-          disabled={repo.busy}
-          title="Apply this commit's changes onto the current branch"
-        >
-          Cherry-pick
+      </div>
+      <div class="row-actions">
+        <button class="row-menu-toggle" onclick={() => (menuOpen = !menuOpen)} aria-expanded={menuOpen} title="Actions">
+          ⋯
         </button>
-        <button
-          class="action"
-          onclick={() => void repo.revertCommit(row.commit.oid)}
-          disabled={repo.busy}
-          title="Apply the inverse of this commit"
-        >
-          Revert
-        </button>
-        <select bind:value={resetMode} class="action-select" aria-label="Reset mode">
-          <option value="soft">soft</option>
-          <option value="mixed">mixed</option>
-          <option value="hard">hard</option>
-        </select>
-        <button class="action action-danger" onclick={handleReset} disabled={repo.busy} title={`Reset current branch to ${short}`}>
-          Reset here
-        </button>
+        {#if menuOpen}
+          <div class="row-menu" role="menu">
+            <button class="row-menu-item" role="menuitem" onclick={() => { menuOpen = false; void repo.cherryPick(row.commit.oid) }} disabled={repo.busy}>
+              Cherry-pick
+            </button>
+            <button class="row-menu-item" role="menuitem" onclick={() => { menuOpen = false; void repo.revertCommit(row.commit.oid) }} disabled={repo.busy}>
+              Revert
+            </button>
+            <div class="row-menu-sep"></div>
+            <button class="row-menu-item" role="menuitem" onclick={() => { resetMode = 'soft'; handleReset() }} disabled={repo.busy}>
+              Reset (soft)
+            </button>
+            <button class="row-menu-item" role="menuitem" onclick={() => { resetMode = 'mixed'; handleReset() }} disabled={repo.busy}>
+              Reset (mixed)
+            </button>
+            <button class="row-menu-item row-menu-danger" role="menuitem" onclick={() => { resetMode = 'hard'; handleReset() }} disabled={repo.busy}>
+              Reset (hard)…
+            </button>
+          </div>
+        {/if}
       </div>
     {/if}
   </div>
@@ -312,103 +319,102 @@
     white-space: nowrap;
   }
 
-  .files {
+  .tree-container {
     margin: 4px 0 2px;
-    padding: 0;
-    list-style: none;
-    border: 1px solid var(--color-border);
-    border-radius: 4px;
-    overflow: hidden;
   }
 
-  .file {
-    display: flex;
-    align-items: center;
-    gap: 6px;
-    width: 100%;
-    padding: 3px 8px;
-    border: none;
-    border-bottom: 1px solid var(--color-border);
-    background: transparent;
-    color: var(--color-fg);
-    font-size: 11px;
-    text-align: left;
-    cursor: pointer;
+  .tree-host {
+    min-height: 32px;
+    max-height: 200px;
+    overflow: auto;
   }
 
-  .file:last-child {
-    border-bottom: none;
-  }
-
-  .file:hover {
-    background: var(--color-selected-bg);
-  }
-
-  .file-kind {
-    flex: 0 0 auto;
-    width: 14px;
-    font-size: 10px;
-    font-weight: 700;
-    color: var(--color-muted);
-    text-align: center;
-  }
-
-  .file-path {
-    min-width: 0;
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
+  .tree-host :global([data-file-tree-container]) {
+    height: 100%;
   }
 
   .file-note {
     padding: 4px 8px;
     font-size: 11px;
     color: var(--color-muted);
+    margin: 0;
   }
 
   .file-note[role='alert'] {
     color: var(--color-danger);
   }
 
-  .actions {
-    display: flex;
-    align-items: center;
-    gap: 4px;
-    margin: 4px 0 2px;
-    padding: 3px 6px;
-    border: 1px solid var(--color-border);
-    border-radius: 4px;
-    flex-wrap: wrap;
+  .row-actions {
+    position: relative;
+    margin: 2px 0;
   }
 
-  .action {
-    font-size: 10px;
-    padding: 1px 6px;
+  .row-menu-toggle {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 22px;
+    height: 20px;
+    padding: 0;
+    border: 1px solid transparent;
+    border-radius: 3px;
+    background: transparent;
+    color: var(--color-muted);
+    font-size: 14px;
+    font-weight: 700;
+    letter-spacing: -1px;
+    cursor: pointer;
+  }
+
+  .row-menu-toggle:hover {
+    background: var(--color-selected-bg);
+    border-color: var(--color-border);
+    color: var(--color-fg);
+  }
+
+  .row-menu {
+    position: absolute;
+    top: 100%;
+    left: 0;
+    z-index: 20;
+    min-width: 140px;
+    padding: 0.25rem 0;
     border: 1px solid var(--color-border);
-    border-radius: 4px;
+    border-radius: 6px;
+    background: var(--color-bg);
+    box-shadow: 0 8px 24px rgb(0 0 0 / 0.25);
+  }
+
+  .row-menu-item {
+    display: block;
+    width: 100%;
+    padding: 4px 0.75rem;
+    border: none;
     background: transparent;
     color: var(--color-fg);
+    font-size: 12px;
+    text-align: left;
     cursor: pointer;
     white-space: nowrap;
   }
 
-  .action-danger {
-    color: var(--color-danger);
-    border-color: var(--color-danger);
+  .row-menu-item:hover:not(:disabled) {
+    background: var(--color-selected-bg);
   }
 
-  .action:disabled {
+  .row-menu-item:disabled {
     opacity: 0.5;
     cursor: default;
   }
 
-  .action-select {
-    font-size: 10px;
-    padding: 1px 4px;
-    border: 1px solid var(--color-border);
-    border-radius: 4px;
-    background: var(--color-bg);
-    color: var(--color-fg);
+  .row-menu-danger {
+    color: var(--color-danger);
+  }
+
+  .row-menu-sep {
+    height: 1px;
+    margin: 0.25rem 0;
+    background: var(--color-border);
   }
 </style>
 

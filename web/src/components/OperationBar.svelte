@@ -10,7 +10,8 @@
 
   let { repo }: Props = $props()
 
-  let menuOpen = $state(false)
+  let branchOpen = $state(false)
+  let overflowOpen = $state(false)
   let newBranchName = $state('')
   let actionError = $state<string | null>(null)
   let pendingDelete = $state<string | null>(null)
@@ -26,6 +27,10 @@
   let newTagMessage = $state('')
   let tagTarget = $state('HEAD')
   let tagPushRemote = $state('origin')
+
+  let compareOpen = $state(false)
+  let compareFrom = $state('HEAD')
+  let compareTo = $state('HEAD')
 
   const localBranches = $derived((repo.branches ?? []).filter((b) => !b.remote))
   const remoteBranches = $derived((repo.branches ?? []).filter((b) => b.remote))
@@ -54,14 +59,55 @@
     return opts
   })
 
+  const compareRefOptions = $derived.by(() => {
+    const options: Array<{ value: string; label: string }> = [{ value: 'HEAD', label: 'HEAD' }]
+    for (const branch of repo.branches ?? []) {
+      options.push({ value: branch.name, label: `${branch.name}${branch.remote ? ' (remote)' : ''}` })
+    }
+    for (const tag of repo.tags ?? []) {
+      options.push({ value: tag.name, label: `tag: ${tag.name}` })
+    }
+    return options
+  })
+
+  function toggleBranch(): void {
+    branchOpen = !branchOpen
+    overflowOpen = false
+    if (branchOpen) void repo.refreshBranches()
+  }
+
+  function toggleOverflow(): void {
+    overflowOpen = !overflowOpen
+    branchOpen = false
+    if (overflowOpen) {
+      void repo.refreshBranches()
+      void repo.refreshStashes()
+      void repo.refreshTags()
+    }
+  }
+
+  function closeAll(): void {
+    branchOpen = false
+    overflowOpen = false
+    stashOpen = false
+    tagsOpen = false
+    compareOpen = false
+  }
+
   function toggleStash(): void {
     stashOpen = !stashOpen
-    if (stashOpen) void repo.refreshStashes()
   }
 
   function toggleTags(): void {
     tagsOpen = !tagsOpen
-    if (tagsOpen) void repo.refreshTags()
+  }
+
+  function toggleCompare(): void {
+    compareOpen = !compareOpen
+    if (compareOpen) {
+      void repo.refreshBranches()
+      void repo.refreshTags()
+    }
   }
 
   function handleStashPush(event: SubmitEvent): void {
@@ -147,7 +193,7 @@
 
   function handleSwitch(branch: Branch): void {
     if (branch.current) return
-    menuOpen = false
+    branchOpen = false
     void run(() => repo.switchBranch(branch.name))
   }
 
@@ -180,104 +226,142 @@
       publishBranch = null
     })
   }
+
+  function handleCompare(): void {
+    if (compareFrom === compareTo) return
+    void repo.openCompare(compareFrom, compareTo, `${compareFrom}..${compareTo}`)
+  }
 </script>
 
 {#if repo.snapshot}
-  <div class="operation-bar">
+  <div class="toolbar">
+    <button class="branch-button" onclick={toggleBranch} aria-expanded={branchOpen}>
+      <span class="branch-name">{repo.snapshot?.headBranch ?? repo.snapshot?.headOid?.slice(0, 8) ?? '—'}</span>
+      <span class="branch-chevron">{branchOpen ? '▴' : '▾'}</span>
+    </button>
+    <span class="toolbar-spacer"></span>
     {#if repo.activeOpLabel}
-      <div class="active-op" role="status">
+      <span class="active-op" role="status">
         <span class="spinner" aria-hidden="true"></span>
-        <span>{repo.activeOpLabel}…</span>
-      </div>
+        <span class="active-op-text">{repo.activeOpLabel}</span>
+      </span>
     {/if}
+    <button class="icon-button" onclick={handleFetch} disabled={repo.busy} title="Fetch">
+      <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor"><path d="M8 1a.75.75 0 0 1 .75.75v5.59l1.72-1.72a.75.75 0 1 1 1.06 1.06l-3 3a.75.75 0 0 1-1.06 0l-3-3a.75.75 0 0 1 1.06-1.06l1.72 1.72V1.75A.75.75 0 0 1 8 1ZM2.5 12a.75.75 0 0 1 .75.75v1.5A1.75 1.75 0 0 0 5 16h6a1.75 1.75 0 0 0 1.75-1.75v-1.5a.75.75 0 0 1 1.5 0v1.5A3.25 3.25 0 0 1 11.25 18.5h-6.5A3.25 3.25 0 0 1 1.5 15.25v-1.5A.75.75 0 0 1 2.5 12Z"/></svg>
+    </button>
+    <button class="icon-button" onclick={handlePull} disabled={repo.busy} title="Pull">
+      <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor"><path d="M8.75 1.75a.75.75 0 0 0-1.5 0V5H4.75a.75.75 0 0 0 0 1.5h3.5V5a.75.75 0 0 1 1.5 0v3h2.25a.75.75 0 0 0 0-1.5H8.75V1.75ZM2.5 12a.75.75 0 0 1 .75.75v1.5A1.75 1.75 0 0 0 5 16h6a1.75 1.75 0 0 0 1.75-1.75v-1.5a.75.75 0 0 1 1.5 0v1.5A3.25 3.25 0 0 1 11.25 18.5h-6.5A3.25 3.25 0 0 1 1.5 15.25v-1.5A.75.75 0 0 1 2.5 12Z"/></svg>
+    </button>
+    <button class="icon-button" onclick={handlePush} disabled={repo.busy} title="Push">
+      <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor"><path d="M7.47 5.28a.75.75 0 0 1 1.06 0l3 3a.75.75 0 0 1-1.06 1.06L8.75 7.51v5.74a.75.75 0 0 1-1.5 0V7.51L5.53 9.34a.75.75 0 0 1-1.06-1.06l3-3ZM2.5 12a.75.75 0 0 1 .75.75v1.5A1.75 1.75 0 0 0 5 16h6a1.75 1.75 0 0 0 1.75-1.75v-1.5a.75.75 0 0 1 1.5 0v1.5A3.25 3.25 0 0 1 11.25 18.5h-6.5A3.25 3.25 0 0 1 1.5 15.25v-1.5A.75.75 0 0 1 2.5 12Z"/></svg>
+    </button>
+    <button class="icon-button overflow-toggle" onclick={toggleOverflow} aria-expanded={overflowOpen} title="More actions">
+      ⋯
+    </button>
+  </div>
 
-    <div class="sync-row">
-      <span class="sync-label" title="upstream">{upstreamLabel}</span>
-      <button class="action" onclick={handleFetch} disabled={repo.busy}>Fetch</button>
-      <button class="action" onclick={handlePull} disabled={repo.busy}>Pull</button>
-      <button class="action" onclick={handlePush} disabled={repo.busy}>Push</button>
-    </div>
-
-    <div class="branch-row">
-      <button
-        class="action branch-toggle"
-        onclick={() => {
-          menuOpen = !menuOpen
-          if (menuOpen) void repo.refreshBranches()
-        }}
-        aria-expanded={menuOpen}
-        aria-label="Branches"
-      >
-        Branches {menuOpen ? '▴' : '▾'}
-      </button>
-      {#if menuOpen}
-        <div class="branch-menu" role="menu">
-          <form class="create-form" onsubmit={handleCreate}>
-            <input
-              bind:value={newBranchName}
-              placeholder="New branch name"
-              aria-label="New branch name"
-              spellcheck="false"
-            />
-            <button class="action" type="submit" disabled={repo.busy || !newBranchName.trim()}>New</button>
-          </form>
-          <ul class="branch-list">
-            {#each localBranches as branch (branch.name)}
-              <li class="branch-item">
-                <button
-                  class="branch-name"
-                  class:current={branch.current}
-                  onclick={() => handleSwitch(branch)}
-                  disabled={branch.current || repo.busy}
-                  title={branch.current ? 'current branch' : `switch to ${branch.name}`}
+  {#if branchOpen}
+    <div class="dropdown branch-dropdown">
+      <form class="create-form" onsubmit={handleCreate}>
+        <input
+          bind:value={newBranchName}
+          placeholder="New branch name"
+          aria-label="New branch name"
+          spellcheck="false"
+        />
+        <button class="action" type="submit" disabled={repo.busy || !newBranchName.trim()}>New</button>
+      </form>
+      <ul class="branch-list">
+        {#each localBranches as branch (branch.name)}
+          <li class="branch-item">
+            <button
+              class="branch-name"
+              class:current={branch.current}
+              onclick={() => handleSwitch(branch)}
+              disabled={branch.current || repo.busy}
+              title={branch.current ? 'current branch' : `switch to ${branch.name}`}
+            >
+              <span class="branch-marker">{branch.current ? '●' : ''}</span>
+              <span class="branch-name-label">{branch.name}</span>
+              {#if branch.upstream}
+                <span class="branch-track"
+                  >{branch.upstream}{branch.ahead > 0 ? ` ↑${branch.ahead}` : ''}{branch.behind > 0 ? ` ↓${branch.behind}` : ''}</span
                 >
-                  <span class="branch-marker">{branch.current ? '●' : ''}</span>
-                  <span class="branch-name-label">{branch.name}</span>
-                  {#if branch.upstream}
-                    <span class="branch-track"
-                      >{branch.upstream}{branch.ahead > 0 ? ` ↑${branch.ahead}` : ''}{branch.behind > 0 ? ` ↓${branch.behind}` : ''}</span
-                    >
-                  {/if}
-                </button>
-                {#if !branch.current}
-                  <button
-                    class="branch-delete"
-                    onclick={() => handleDelete(branch)}
-                    disabled={repo.busy}
-                    aria-label={`delete ${branch.name}`}
-                    title="Delete branch"
-                  >
-                    ×
-                  </button>
-                {/if}
-              </li>
-            {/each}
-          </ul>
-          {#if remoteBranches.length}
-            <ul class="branch-list remote">
-              {#each remoteBranches as branch (branch.name)}
-                <li class="branch-item" title={branch.name}>
-                  <span class="branch-marker"></span>
-                  <span class="branch-name-label">{branch.name}</span>
-                </li>
-              {/each}
-            </ul>
-          {/if}
-        </div>
+              {/if}
+            </button>
+            {#if !branch.current}
+              <button
+                class="branch-delete"
+                onclick={() => handleDelete(branch)}
+                disabled={repo.busy}
+                aria-label={`delete ${branch.name}`}
+                title="Delete branch"
+              >
+                ×
+              </button>
+            {/if}
+          </li>
+        {/each}
+      </ul>
+      {#if remoteBranches.length}
+        <ul class="branch-list remote">
+          {#each remoteBranches as branch (branch.name)}
+            <li class="branch-item" title={branch.name}>
+              <span class="branch-marker"></span>
+              <span class="branch-name-label">{branch.name}</span>
+            </li>
+          {/each}
+        </ul>
       {/if}
     </div>
+  {/if}
 
-    <div class="stash-row">
-      <button
-        class="action branch-toggle"
-        onclick={toggleStash}
-        aria-expanded={stashOpen}
-        aria-label="Stashes"
-      >
+  {#if overflowOpen}
+    <div class="dropdown overflow-dropdown">
+      <button class="overflow-item" onclick={() => { void repo.refreshGraph(); overflowOpen = false }}>
+        Refresh Graph
+      </button>
+
+      <button class="overflow-item" onclick={toggleCompare} aria-expanded={compareOpen}>
+        Compare refs {compareOpen ? '▴' : '▾'}
+      </button>
+      {#if compareOpen}
+        <div class="compare-panel">
+          <select bind:value={compareFrom} class="compare-select" aria-label="Compare from">
+            {#each compareRefOptions as option (option.value + option.label)}
+              <option value={option.value}>{option.label}</option>
+            {/each}
+          </select>
+          <span class="compare-sep">..</span>
+          <select bind:value={compareTo} class="compare-select" aria-label="Compare to">
+            {#each compareRefOptions as option (option.value + option.label)}
+              <option value={option.value}>{option.label}</option>
+            {/each}
+          </select>
+          <button class="action" onclick={handleCompare} disabled={repo.busy || compareFrom === compareTo}>
+            Compare
+          </button>
+        </div>
+        {#if repo.compare}
+          <div class="compare-result">
+            <span class="compare-title" title={repo.compare.label}>{repo.compare.label}</span>
+            <button class="compare-close" onclick={() => repo.clearCompare()} aria-label="Close compare">×</button>
+            {#if repo.compareError}
+              <p class="overflow-error" role="alert">{repo.compareError}</p>
+            {:else if repo.compareLoading}
+              <p class="overflow-note">Loading…</p>
+            {:else if repo.compareFiles.length === 0}
+              <p class="overflow-note">No differences</p>
+            {/if}
+          </div>
+        {/if}
+      {/if}
+
+      <button class="overflow-item" onclick={toggleStash} aria-expanded={stashOpen}>
         Stash {stashOpen ? '▴' : '▾'}
       </button>
       {#if stashOpen}
-        <div class="branch-menu">
+        <div class="overflow-panel">
           <form class="create-form" onsubmit={handleStashPush}>
             <input
               bind:value={stashMessage}
@@ -293,59 +377,28 @@
               Stash
             </button>
           </form>
-          <ul class="branch-list">
+          <ul class="item-list">
             {#each repo.stashes ?? [] as entry (entry.ref)}
-              <li class="branch-item" title={`${entry.branch}: ${entry.message}`}>
-                <span class="stash-label">
+              <li class="item-row" title={`${entry.branch}: ${entry.message}`}>
+                <span class="item-label">
                   <b>{entry.ref}</b> {entry.branch}: {entry.message}
                 </span>
-                <button
-                  class="branch-delete"
-                  onclick={() => handleStashApply(entry.ref)}
-                  disabled={repo.busy}
-                  title="Apply without removing"
-                >
-                  Apply
-                </button>
-                <button
-                  class="branch-delete"
-                  onclick={() => handleStashPop(entry.ref)}
-                  disabled={repo.busy}
-                  title="Apply and remove"
-                >
-                  Pop
-                </button>
-                <button
-                  class="branch-delete"
-                  onclick={() => handleStashDrop(entry.ref)}
-                  disabled={repo.busy}
-                  title="Drop stash"
-                >
-                  ×
-                </button>
+                <button class="item-action" onclick={() => handleStashApply(entry.ref)} disabled={repo.busy} title="Apply without removing">Apply</button>
+                <button class="item-action" onclick={() => handleStashPop(entry.ref)} disabled={repo.busy} title="Apply and remove">Pop</button>
+                <button class="item-action" onclick={() => handleStashDrop(entry.ref)} disabled={repo.busy} title="Drop stash">×</button>
               </li>
             {:else}
-              <li class="file-note">No stashes</li>
+              <li class="overflow-note">No stashes</li>
             {/each}
           </ul>
-          {#if repo.stashesError}
-            <p class="error" role="alert">{repo.stashesError}</p>
-          {/if}
         </div>
       {/if}
-    </div>
 
-    <div class="tags-row">
-      <button
-        class="action branch-toggle"
-        onclick={toggleTags}
-        aria-expanded={tagsOpen}
-        aria-label="Tags"
-      >
+      <button class="overflow-item" onclick={toggleTags} aria-expanded={tagsOpen}>
         Tags {tagsOpen ? '▴' : '▾'}
       </button>
       {#if tagsOpen}
-        <div class="branch-menu">
+        <div class="overflow-panel">
           <form class="create-form" onsubmit={handleCreateTag}>
             <input
               bind:value={newTagName}
@@ -353,14 +406,14 @@
               aria-label="New tag name"
               spellcheck="false"
             />
-            <select bind:value={tagTarget} class="publish-remote" aria-label="Tag target">
+            <select bind:value={tagTarget} class="compare-select" aria-label="Tag target">
               {#each tagTargets as target (target.value + target.label)}
                 <option value={target.value}>{target.label}</option>
               {/each}
             </select>
             <input
               bind:value={newTagMessage}
-              placeholder="Annotated message (optional)"
+              placeholder="Message (optional)"
               aria-label="Annotated tag message"
               spellcheck="false"
             />
@@ -368,73 +421,54 @@
               Create
             </button>
           </form>
-          <ul class="branch-list">
+          <ul class="item-list">
             {#each repo.tags ?? [] as tag (tag.name)}
-              <li class="branch-item" title={tag.oid}>
-                <span class="stash-label">
+              <li class="item-row" title={tag.oid}>
+                <span class="item-label">
                   <b>{tag.name}</b>
                   {tag.annotated ? ' (annotated)' : ''}
                 </span>
-                <button
-                  class="branch-delete"
-                  onclick={() => handlePushTag(tag.name)}
-                  disabled={repo.busy}
-                  title="Push tag to remote"
-                >
-                  Push
-                </button>
-                <button
-                  class="branch-delete"
-                  onclick={() => handleDeleteTag(tag.name)}
-                  disabled={repo.busy}
-                  title="Delete tag"
-                >
-                  ×
-                </button>
+                <button class="item-action" onclick={() => handlePushTag(tag.name)} disabled={repo.busy} title="Push tag to remote">Push</button>
+                <button class="item-action" onclick={() => handleDeleteTag(tag.name)} disabled={repo.busy} title="Delete tag">×</button>
               </li>
             {:else}
-              <li class="file-note">No tags</li>
+              <li class="overflow-note">No tags</li>
             {/each}
           </ul>
           {#if remotes.length > 1}
             <div class="tag-push-row">
-              <span class="publish-message">Push tag to:</span>
-              <select bind:value={tagPushRemote} class="publish-remote">
+              <span class="overflow-note">Push tag to:</span>
+              <select bind:value={tagPushRemote} class="compare-select">
                 {#each remotes as remote}
                   <option value={remote}>{remote}</option>
                 {/each}
               </select>
             </div>
           {/if}
-          {#if repo.tagsError}
-            <p class="error" role="alert">{repo.tagsError}</p>
-          {/if}
         </div>
       {/if}
     </div>
+  {/if}
 
-    {#if publishBranch}
-      <div class="publish-row" role="status">
-        <span class="publish-message"
-          >Branch <b>{publishBranch}</b> has no upstream — publish to:</span
-        >
-        {#if remotes.length}
-          <select bind:value={publishRemote} class="publish-remote">
-            {#each remotes as remote}
-              <option value={remote}>{remote}</option>
-            {/each}
-          </select>
-        {:else}
-          <span class="publish-remote-empty">origin</span>
-        {/if}
-        <button class="action" onclick={handlePublish} disabled={repo.busy}>Publish</button>
-      </div>
-    {/if}
+  {#if publishBranch}
+    <div class="publish-bar" role="status">
+      <span class="publish-message">Branch <b>{publishBranch}</b> has no upstream — publish to:</span>
+      {#if remotes.length}
+        <select bind:value={publishRemote} class="compare-select">
+          {#each remotes as remote}
+            <option value={remote}>{remote}</option>
+          {/each}
+        </select>
+      {:else}
+        <span class="overflow-note">origin</span>
+      {/if}
+      <button class="action" onclick={handlePublish} disabled={repo.busy}>Publish</button>
+    </div>
+  {/if}
 
-    {#if actionError}
-      <p class="error" role="alert">{actionError}</p>
-    {/if}
-  </div>
+  {#if actionError}
+    <p class="overflow-error" role="alert">{actionError}</p>
+  {/if}
 {/if}
 
 {#if pendingDelete}
@@ -448,30 +482,155 @@
 {/if}
 
 <style>
-  .operation-bar {
-    display: flex;
-    flex-direction: column;
-    gap: 0.35rem;
-    padding: 0.4rem 0.75rem 0.55rem;
-    border-bottom: 1px solid var(--color-border);
-    font-size: 12px;
-  }
-
-  .sync-row,
-  .branch-row,
-  .publish-row {
+  .toolbar {
     display: flex;
     align-items: center;
-    gap: 0.4rem;
+    gap: 4px;
+    padding: 0.4rem 0.75rem;
+    border-bottom: 1px solid var(--color-border);
   }
 
-  .sync-label {
-    flex: 1;
+  .branch-button {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 2px 8px;
+    border: 1px solid var(--color-border);
+    border-radius: 4px;
+    background: transparent;
+    color: var(--color-fg);
+    font-size: 12px;
+    font-weight: 600;
+    cursor: pointer;
     min-width: 0;
-    color: var(--color-muted);
+  }
+
+  .branch-button:hover {
+    border-color: var(--color-accent);
+    color: var(--color-accent);
+  }
+
+  .branch-name {
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
+  }
+
+  .branch-chevron {
+    font-size: 10px;
+    color: var(--color-muted);
+  }
+
+  .toolbar-spacer {
+    flex: 1;
+  }
+
+  .active-op {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    margin-right: 4px;
+    color: var(--color-muted);
+    font-size: 11px;
+  }
+
+  .active-op-text {
+    max-width: 80px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .icon-button {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 26px;
+    height: 26px;
+    padding: 0;
+    border: 1px solid transparent;
+    border-radius: 4px;
+    background: transparent;
+    color: var(--color-fg);
+    cursor: pointer;
+    font-size: 14px;
+    line-height: 1;
+  }
+
+  .icon-button:hover {
+    background: var(--color-selected-bg);
+    border-color: var(--color-border);
+  }
+
+  .icon-button:disabled {
+    opacity: 0.4;
+    cursor: default;
+  }
+
+  .icon-button:disabled:hover {
+    background: transparent;
+    border-color: transparent;
+  }
+
+  .overflow-toggle {
+    font-size: 16px;
+    font-weight: 700;
+    letter-spacing: -1px;
+  }
+
+  .dropdown {
+    position: relative;
+    z-index: 20;
+    padding: 0.4rem;
+    border-bottom: 1px solid var(--color-border);
+    background: var(--color-bg);
+    max-height: 400px;
+    overflow-y: auto;
+  }
+
+  .branch-dropdown {
+    padding: 0.5rem 0.75rem;
+  }
+
+  .overflow-dropdown {
+    padding: 0.25rem 0;
+  }
+
+  .overflow-item {
+    display: block;
+    width: 100%;
+    padding: 4px 0.75rem;
+    border: none;
+    background: transparent;
+    color: var(--color-fg);
+    font-size: 12px;
+    text-align: left;
+    cursor: pointer;
+  }
+
+  .overflow-item:hover {
+    background: var(--color-selected-bg);
+  }
+
+  .overflow-panel {
+    padding: 0.25rem 0.75rem 0.5rem;
+  }
+
+  .create-form {
+    display: flex;
+    gap: 0.35rem;
+    margin-bottom: 0.35rem;
+  }
+
+  .create-form input {
+    flex: 1;
+    min-width: 0;
+    padding: 2px 6px;
+    border: 1px solid var(--color-border);
+    border-radius: 4px;
+    background: var(--color-bg);
+    color: var(--color-fg);
+    font-size: 11px;
   }
 
   .action {
@@ -490,46 +649,6 @@
     cursor: default;
   }
 
-  .branch-row {
-    position: relative;
-  }
-
-  .branch-toggle {
-    width: 100%;
-  }
-
-  .branch-menu {
-    position: absolute;
-    top: calc(100% + 4px);
-    left: 0;
-    right: 0;
-    z-index: 20;
-    padding: 0.4rem;
-    border: 1px solid var(--color-border);
-    border-radius: 6px;
-    background: var(--color-bg);
-    box-shadow: 0 8px 24px rgb(0 0 0 / 0.25);
-    max-height: 320px;
-    overflow-y: auto;
-  }
-
-  .create-form {
-    display: flex;
-    gap: 0.4rem;
-    margin-bottom: 0.4rem;
-  }
-
-  .create-form input {
-    flex: 1;
-    min-width: 0;
-    padding: 2px 6px;
-    border: 1px solid var(--color-border);
-    border-radius: 4px;
-    background: var(--color-bg);
-    color: var(--color-fg);
-    font-size: 11px;
-  }
-
   .branch-list {
     list-style: none;
     margin: 0;
@@ -537,8 +656,8 @@
   }
 
   .branch-list.remote {
-    margin-top: 0.4rem;
-    padding-top: 0.4rem;
+    margin-top: 0.35rem;
+    padding-top: 0.35rem;
     border-top: 1px solid var(--color-border);
   }
 
@@ -549,7 +668,7 @@
   }
 
   .branch-item + .branch-item {
-    margin-top: 2px;
+    margin-top: 1px;
   }
 
   .branch-name {
@@ -597,10 +716,6 @@
     white-space: nowrap;
   }
 
-  .branch-list.remote {
-    color: var(--color-muted);
-  }
-
   .branch-delete {
     padding: 0 6px;
     border: none;
@@ -621,13 +736,55 @@
     cursor: default;
   }
 
-  .publish-row {
-    flex-wrap: wrap;
+  .compare-panel {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    padding: 0.25rem 0.75rem 0.35rem;
   }
 
-  .stash-row,
-  .tags-row {
-    position: relative;
+  .compare-select {
+    flex: 1;
+    min-width: 0;
+    padding: 2px 4px;
+    border: 1px solid var(--color-border);
+    border-radius: 4px;
+    background: var(--color-bg);
+    color: var(--color-fg);
+    font-size: 11px;
+  }
+
+  .compare-sep {
+    color: var(--color-muted);
+    font-size: 11px;
+  }
+
+  .compare-result {
+    padding: 0 0.75rem 0.35rem;
+  }
+
+  .compare-title {
+    display: inline-block;
+    max-width: calc(100% - 24px);
+    font-size: 11px;
+    font-weight: 600;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .compare-close {
+    float: right;
+    padding: 0 4px;
+    border: none;
+    background: transparent;
+    color: var(--color-muted);
+    font-size: 14px;
+    cursor: pointer;
+  }
+
+  .compare-close:hover {
+    color: var(--color-danger);
   }
 
   .check-label {
@@ -639,62 +796,91 @@
     white-space: nowrap;
   }
 
-  .stash-label {
+  .item-list {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+  }
+
+  .item-row {
+    display: flex;
+    align-items: center;
+    gap: 0.25rem;
+    padding: 2px 0;
+  }
+
+  .item-row + .item-row {
+    border-top: 1px solid var(--color-border);
+  }
+
+  .item-label {
     flex: 1;
     min-width: 0;
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
+    font-size: 11px;
   }
 
-  .file-note {
-    padding: 4px 8px;
+  .item-action {
+    padding: 0 6px;
+    border: none;
+    background: transparent;
+    color: var(--color-muted);
+    font-size: 11px;
+    cursor: pointer;
+    border-radius: 4px;
+  }
+
+  .item-action:hover:not(:disabled) {
+    color: var(--color-danger);
+  }
+
+  .item-action:disabled {
+    opacity: 0.5;
+    cursor: default;
+  }
+
+  .overflow-note {
+    padding: 2px 0;
     font-size: 11px;
     color: var(--color-muted);
+    margin: 0;
   }
 
-  .tag-push-row {
+  .overflow-error {
+    padding: 2px 0.75rem;
+    font-size: 11px;
+    color: var(--color-danger);
+    margin: 0;
+    word-break: break-word;
+  }
+
+  .publish-bar {
     display: flex;
     align-items: center;
-    gap: 0.4rem;
-    margin-top: 0.4rem;
-    padding-top: 0.4rem;
-    border-top: 1px solid var(--color-border);
+    gap: 0.35rem;
+    padding: 0.35rem 0.75rem;
+    border-bottom: 1px solid var(--color-border);
+    font-size: 11px;
+    flex-wrap: wrap;
   }
 
   .publish-message {
     color: var(--color-muted);
   }
 
-  .publish-remote {
-    padding: 2px 4px;
-    border: 1px solid var(--color-border);
-    border-radius: 4px;
-    background: var(--color-bg);
-    color: var(--color-fg);
-    font-size: 11px;
-  }
-
-  .publish-remote-empty {
-    color: var(--color-muted);
-  }
-
-  .error {
-    margin: 0;
-    color: var(--color-danger);
-    word-break: break-word;
-  }
-
-  .active-op {
+  .tag-push-row {
     display: flex;
     align-items: center;
-    gap: 0.4rem;
-    padding: 2px 0;
-    color: var(--color-muted);
-    font-size: 11px;
+    gap: 0.35rem;
+    margin-top: 0.35rem;
+    padding-top: 0.35rem;
+    border-top: 1px solid var(--color-border);
   }
 
   .spinner {
+    display: inline-block;
     width: 10px;
     height: 10px;
     border: 2px solid var(--color-border);
