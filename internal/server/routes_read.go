@@ -27,6 +27,8 @@ func (s *Server) apiRoutes() http.Handler {
 			s.handleStashes(w, r)
 		case r.Method == http.MethodGet && p == "/tags":
 			s.handleTags(w, r)
+		case r.Method == http.MethodGet && p == "/conflicts":
+			s.handleConflicts(w, r)
 		case r.Method == http.MethodGet && p == "/compare":
 			s.handleCompare(w, r)
 		case r.Method == http.MethodGet && strings.HasPrefix(p, "/commit/") && strings.HasSuffix(p, "/files"):
@@ -221,4 +223,20 @@ func parseNonNegInt(s string) (int, error) {
 		return 0, fmt.Errorf("invalid skip value %q", s)
 	}
 	return n, nil
+}
+
+// handleConflicts returns the unmerged files from the index. Each entry
+// carries the path and per-side OIDs for base/ours/theirs so the frontend
+// can show a3-way conflict view and offer explicit resolution actions.
+func (s *Server) handleConflicts(w http.ResponseWriter, r *http.Request) {
+	if s.repo == nil {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "repository unavailable"})
+		return
+	}
+	conflicts, err := s.repo.Conflicts(r.Context())
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return
+	}
+	writeJSON(w, http.StatusOK, conflicts)
 }

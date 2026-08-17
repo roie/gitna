@@ -1,4 +1,4 @@
-import type { Branch, CommitFiles, DiffScope, FileDiff, GraphPage, RepoSnapshot, StashEntry, Tag } from './types'
+import type { Branch, CommitFiles, ConflictEntry, DiffScope, FileDiff, GraphPage, RepoSnapshot, StashEntry, Tag } from './types'
 
 export interface DiffRequest {
   scope: DiffScope
@@ -34,6 +34,14 @@ export type MutationOp =
   | 'cherry-pick'
   | 'revert'
   | 'reset'
+  | 'merge'
+  | 'merge-abort'
+  | 'merge-continue'
+  | 'rebase'
+  | 'rebase-abort'
+  | 'rebase-continue'
+  | 'resolve-ours'
+  | 'resolve-theirs'
 
 export interface MutateRequest {
   op: MutationOp
@@ -86,6 +94,7 @@ export interface ApiClient {
   stashes(): Promise<StashEntry[]>
   tags(): Promise<Tag[]>
   compare(from: string, to: string): Promise<CommitFiles>
+  conflicts(): Promise<ConflictEntry[]>
 }
 
 /** Error carrying the HTTP status and server message so callers can react to
@@ -191,6 +200,10 @@ export function createApi(): ApiClient {
     async compare(from: string, to: string): Promise<CommitFiles> {
       const res = await expectOK(await fetch(`api/v1/compare?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`))
       return (await res.json()) as CommitFiles
+    },
+    async conflicts(): Promise<ConflictEntry[]> {
+      const res = await expectOK(await fetch('api/v1/conflicts'))
+      return (await res.json()) as ConflictEntry[]
     },
   }
 }

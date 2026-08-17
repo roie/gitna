@@ -100,3 +100,10 @@ export interface Tag {
   oid: string
   annotated: boolean
 }
+
+export interface ConflictEntry {
+  path: string
+  baseOid: string
+  oursOid: string
+  theirsOid: string
+}

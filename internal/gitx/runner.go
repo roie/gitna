@@ -42,6 +42,9 @@ type ExecRunner struct {
 	// Exec is the git binary. Empty means "git" from PATH. Overridable for
 	// tests.
 	Exec string
+	// Env provides extra environment variables appended to the caller's
+	// environment (after GIT_TERMINAL_PROMPT=0). Nil means none.
+	Env []string
 	// StdoutLimit caps captured stdout. Zero means DefaultStdoutLimit.
 	StdoutLimit int
 	// StderrLimit caps captured stderr. Zero means DefaultStderrLimit.
@@ -78,6 +81,9 @@ func (r *ExecRunner) run(ctx context.Context, repoRoot string, stdin []byte, arg
 	cmd := exec.CommandContext(ctx, exe, args...)
 	cmd.Dir = repoRoot
 	cmd.Env = envWith(os.Environ(), "GIT_TERMINAL_PROMPT=0")
+	if len(r.Env) > 0 {
+		cmd.Env = envWith(cmd.Env, r.Env...)
+	}
 	if stdin != nil {
 		cmd.Stdin = bytes.NewReader(stdin)
 	}

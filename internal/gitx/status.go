@@ -41,6 +41,12 @@ func (r Repository) Status(ctx context.Context, runner Runner) (protocol.RepoSna
 		return protocol.RepoSnapshot{}, err
 	}
 
+	op := DetectOperation(r)
+	var conflicts []protocol.ConflictEntry
+	if op != protocol.OperationNone {
+		conflicts, _ = r.ListConflicts(ctx, runner)
+	}
+
 	return protocol.RepoSnapshot{
 		Root:       r.Root,
 		HeadOID:    sr.HeadOID,
@@ -48,9 +54,10 @@ func (r Repository) Status(ctx context.Context, runner Runner) (protocol.RepoSna
 		Upstream:   sr.Upstream,
 		Ahead:      sr.Ahead,
 		Behind:     sr.Behind,
-		Operation:  DetectOperation(r),
+		Operation:  op,
 		Staged:     sr.Staged,
 		Unstaged:   sr.Unstaged,
+		Conflicts:  conflicts,
 	}, nil
 }
 

@@ -95,6 +95,19 @@ func (r Repository) Diff(ctx context.Context, runner Runner, scope protocol.Diff
 		if err != nil {
 			return protocol.FileDiff{}, err
 		}
+	case protocol.DiffConflict:
+		// Conflict diff shows ours (stage 2) vs theirs (stage 3).
+		if err := validatePath(opts.Path); err != nil {
+			return protocol.FileDiff{}, err
+		}
+		beforeRaw, beforePresent, err = r.readBlob(ctx, runner, ":2:"+fromPath)
+		if err != nil {
+			return protocol.FileDiff{}, err
+		}
+		afterRaw, afterPresent, err = r.readBlob(ctx, runner, ":3:"+opts.Path)
+		if err != nil {
+			return protocol.FileDiff{}, err
+		}
 	default:
 		return protocol.FileDiff{}, fmt.Errorf("gitx: unknown diff scope %q", scope)
 	}

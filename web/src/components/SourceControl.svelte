@@ -3,6 +3,7 @@ import type { RepoState } from '../lib/repo-state.svelte'
 import type { ChangeScope } from '../lib/types'
 import ChangesSection from './ChangesSection.svelte'
 import CommitComposer from './CommitComposer.svelte'
+import ConflictView from './ConflictView.svelte'
 import OperationBar from './OperationBar.svelte'
 
   interface Props {
@@ -13,6 +14,10 @@ import OperationBar from './OperationBar.svelte'
 
   let branchLabel = $derived(
     state.snapshot?.headBranch ?? state.snapshot?.headOid?.slice(0, 8) ?? 'no repository',
+  )
+
+  const isMergeOrRebase = $derived(
+    state.snapshot?.operation === 'merge' || state.snapshot?.operation === 'rebase',
   )
 
   function handleSelect(scope: ChangeScope, path: string | null): void {
@@ -38,6 +43,7 @@ import OperationBar from './OperationBar.svelte'
     </button>
   </header>
   <OperationBar repo={state} />
+  <ConflictView state={state} />
   <ChangesSection
     title="Changes"
     scope="unstaged"

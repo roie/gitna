@@ -57,9 +57,10 @@ type RepoSnapshot struct {
 	Ahead      int          `json:"ahead"`
 	Behind     int          `json:"behind"`
 	Operation  string       `json:"operation"`
-	Staged     []FileChange `json:"staged"`
-	Unstaged   []FileChange `json:"unstaged"`
-	Generation uint64       `json:"generation"`
+	Staged     []FileChange    `json:"staged"`
+	Unstaged   []FileChange    `json:"unstaged"`
+	Conflicts  []ConflictEntry `json:"conflicts,omitempty"`
+	Generation uint64          `json:"generation"`
 }
 
 // Operation names reported in RepoSnapshot.Operation.
@@ -75,10 +76,11 @@ const (
 type DiffScope string
 
 const (
-	DiffUnstaged DiffScope = "unstaged"
-	DiffStaged   DiffScope = "staged"
-	DiffCommit   DiffScope = "commit"
-	DiffCompare  DiffScope = "compare"
+	DiffUnstaged  DiffScope = "unstaged"
+	DiffStaged    DiffScope = "staged"
+	DiffCommit    DiffScope = "commit"
+	DiffCompare   DiffScope = "compare"
+	DiffConflict  DiffScope = "conflict"
 )
 
 // DiffOptions carries the path and ref inputs for a diff request. Paths are
@@ -206,4 +208,14 @@ type Tag struct {
 	Name      string `json:"name"`
 	OID       string `json:"oid"`
 	Annotated bool   `json:"annotated"`
+}
+
+// ConflictEntry describes one unmerged file during a merge, rebase, cherry-pick,
+// or revert. Stages 1–3 carry the base, ours, and theirs OIDs from the index;
+// empty means that side has no blob (e.g. an added file).
+type ConflictEntry struct {
+	Path      string `json:"path"`
+	BaseOID   string `json:"baseOid,omitempty"`
+	OursOID   string `json:"oursOid,omitempty"`
+	TheirsOID string `json:"theirsOid,omitempty"`
 }

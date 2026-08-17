@@ -2,6 +2,7 @@ package gitx
 
 import (
 	"context"
+	"errors"
 	"sync"
 )
 
@@ -60,3 +61,7 @@ func (q *MutationQueue) Do(ctx context.Context, fn func(context.Context) error) 
 		return ctx.Err()
 	}
 }
+
+// ErrAlreadyInProgress is returned when a new merge or rebase is attempted
+// while another operation is already in progress.
+var ErrAlreadyInProgress = errors.New("gitx: another operation is already in progress")

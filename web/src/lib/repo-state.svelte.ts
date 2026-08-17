@@ -5,6 +5,7 @@ import type {
   ChangeKind,
   ChangeScope,
   CommitFile,
+  ConflictEntry,
   FileChange,
   GraphCommit,
   RepoSnapshot,
@@ -143,6 +144,10 @@ export function createRepoState(options: RepoStateOptions = {}) {
   let compareError = $state<string | null>(null)
   let compareDiff = $state<CompareDiffTarget | null>(null)
 
+  let conflicts = $state<ConflictEntry[]>([])
+  let conflictsLoading = $state(false)
+  let conflictsError = $state<string | null>(null)
+
   async function refreshSnapshot(): Promise<void> {
     if (refreshRunning) {
       refreshAgain = true
@@ -157,6 +162,12 @@ export function createRepoState(options: RepoStateOptions = {}) {
       generation = snap.generation
       snapshot = snap
       selection = reconcileSelection(selection, snap.staged, snap.unstaged)
+      const op = snap.operation
+      if (op === 'merge' || op === 'rebase') {
+        void refreshConflicts()
+      } else if (conflicts.length > 0) {
+        conflicts = []
+      }
     } catch (e) {
       error = e instanceof Error ? e.message : String(e)
     } finally {
@@ -320,6 +331,19 @@ export function createRepoState(options: RepoStateOptions = {}) {
     }
   }
 
+  /** Refreshes the conflict list when a merge or rebase is in progress. */
+  async function refreshConflicts(): Promise<void> {
+    conflictsLoading = true
+    conflictsError = null
+    try {
+      conflicts = await api.conflicts()
+    } catch (e) {
+      conflictsError = e instanceof Error ? e.message : String(e)
+    } finally {
+      conflictsLoading = false
+    }
+  }
+
   /**
    * Applies a repository mutation, then refreshes the snapshot so the index
    * and worktree views reflect the change. Failures are recorded in
@@ -431,6 +455,38 @@ export function createRepoState(options: RepoStateOptions = {}) {
 
   function resetTo(target: string, mode: 'soft' | 'mixed' | 'hard'): Promise<void> {
     return operation({ op: 'reset', ref: target, mode })
+  }
+
+  function mergeBranch(branch: string): Promise<void> {
+    return operation({ op: 'merge', name: branch })
+  }
+
+  function mergeAbort(): Promise<void> {
+    return operation({ op: 'merge-abort' })
+  }
+
+  function mergeContinue(): Promise<void> {
+    return operation({ op: 'merge-continue' })
+  }
+
+  function rebaseBranch(upstream: string): Promise<void> {
+    return operation({ op: 'rebase', name: upstream })
+  }
+
+  function rebaseAbort(): Promise<void> {
+    return operation({ op: 'rebase-abort' })
+  }
+
+  function rebaseContinue(): Promise<void> {
+    return operation({ op: 'rebase-continue' })
+  }
+
+  function resolveOurs(path: string): Promise<void> {
+    return operation({ op: 'resolve-ours', paths: [path] })
+  }
+
+  function resolveTheirs(path: string): Promise<void> {
+    return operation({ op: 'resolve-theirs', paths: [path] })
   }
 
   /**
@@ -598,6 +654,15 @@ export function createRepoState(options: RepoStateOptions = {}) {
     get compareDiff() {
       return compareDiff
     },
+    get conflicts() {
+      return conflicts
+    },
+    get conflictsLoading() {
+      return conflictsLoading
+    },
+    get conflictsError() {
+      return conflictsError
+    },
     refreshSnapshot,
     connectEvents,
     refreshGraph,
@@ -630,6 +695,15 @@ export function createRepoState(options: RepoStateOptions = {}) {
     resetTo,
     openCompare,
     clearCompare,
+    refreshConflicts,
+    mergeBranch,
+    mergeAbort,
+    mergeContinue,
+    rebaseBranch,
+    rebaseAbort,
+    rebaseContinue,
+    resolveOurs,
+    resolveTheirs,
   }
 }
 

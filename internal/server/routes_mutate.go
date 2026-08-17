@@ -34,6 +34,14 @@ const (
 	OpCherryPick      = "cherry-pick"
 	OpRevert          = "revert"
 	OpReset           = "reset"
+	OpMerge           = "merge"
+	OpMergeAbort      = "merge-abort"
+	OpMergeContinue   = "merge-continue"
+	OpRebase          = "rebase"
+	OpRebaseAbort     = "rebase-abort"
+	OpRebaseContinue  = "rebase-continue"
+	OpResolveOurs     = "resolve-ours"
+	OpResolveTheirs   = "resolve-theirs"
 )
 
 // mutationRequest is the JSON body shared by all operations. Only the fields
@@ -161,6 +169,22 @@ func (s *Server) handleOperation(w http.ResponseWriter, r *http.Request) {
 		err = s.repo.Revert(r.Context(), req.Ref)
 	case OpReset:
 		err = s.repo.Reset(r.Context(), req.Ref, req.Mode)
+	case OpMerge:
+		err = s.repo.Merge(r.Context(), req.Name)
+	case OpMergeAbort:
+		err = s.repo.MergeAbort(r.Context())
+	case OpMergeContinue:
+		err = s.repo.MergeContinue(r.Context())
+	case OpRebase:
+		err = s.repo.Rebase(r.Context(), req.Name)
+	case OpRebaseAbort:
+		err = s.repo.RebaseAbort(r.Context())
+	case OpRebaseContinue:
+		err = s.repo.RebaseContinue(r.Context())
+	case OpResolveOurs:
+		err = s.repo.ResolveConflict(r.Context(), req.Paths[0], false)
+	case OpResolveTheirs:
+		err = s.repo.ResolveConflict(r.Context(), req.Paths[0], true)
 	default:
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "unknown operation"})
 		return
@@ -171,6 +195,9 @@ func (s *Server) handleOperation(w http.ResponseWriter, r *http.Request) {
 		switch {
 		case errors.Is(err, protocol.ErrInvalidPath), errors.Is(err, protocol.ErrNotInRepo), errors.Is(err, protocol.ErrInvalidRef), errors.Is(err, gitx.ErrInvalidResetMode):
 			status = http.StatusBadRequest
+		case errors.Is(err, gitx.ErrAlreadyInProgress):
+			status = http.StatusConflict
+			body["code"] = "already-in-progress"
 		case errors.Is(err, gitx.ErrPatchDoesNotApply):
 			status = http.StatusConflict
 		case errors.Is(err, gitx.ErrPushRejected):

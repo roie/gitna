@@ -135,6 +135,38 @@ func (w *workbenchRepo) CompareFiles(ctx context.Context, from, to string) ([]pr
 	return w.repo.CompareFiles(ctx, w.runner, from, to)
 }
 
+func (w *workbenchRepo) Conflicts(ctx context.Context) ([]protocol.ConflictEntry, error) {
+	return w.repo.ListConflicts(ctx, w.runner)
+}
+
+func (w *workbenchRepo) Merge(ctx context.Context, branch string) error {
+	return w.queue.Do(ctx, func(ctx context.Context) error { return w.repo.Merge(ctx, w.runner, branch) })
+}
+
+func (w *workbenchRepo) MergeAbort(ctx context.Context) error {
+	return w.queue.Do(ctx, func(ctx context.Context) error { return w.repo.MergeAbort(ctx, w.runner) })
+}
+
+func (w *workbenchRepo) MergeContinue(ctx context.Context) error {
+	return w.queue.Do(ctx, func(ctx context.Context) error { return w.repo.MergeContinue(ctx, w.runner) })
+}
+
+func (w *workbenchRepo) Rebase(ctx context.Context, upstream string) error {
+	return w.queue.Do(ctx, func(ctx context.Context) error { return w.repo.Rebase(ctx, w.runner, upstream) })
+}
+
+func (w *workbenchRepo) RebaseAbort(ctx context.Context) error {
+	return w.queue.Do(ctx, func(ctx context.Context) error { return w.repo.RebaseAbort(ctx, w.runner) })
+}
+
+func (w *workbenchRepo) RebaseContinue(ctx context.Context) error {
+	return w.queue.Do(ctx, func(ctx context.Context) error { return w.repo.RebaseContinue(ctx, w.runner) })
+}
+
+func (w *workbenchRepo) ResolveConflict(ctx context.Context, path string, theirs bool) error {
+	return w.queue.Do(ctx, func(ctx context.Context) error { return w.repo.ResolveConflictSide(ctx, w.runner, path, theirs) })
+}
+
 func (w *workbenchRepo) StagePaths(ctx context.Context, paths []string) error {
 	return w.queue.Do(ctx, func(ctx context.Context) error { return w.repo.Stage(ctx, w.runner, paths) })
 }

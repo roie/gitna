@@ -51,6 +51,14 @@ type Repo interface {
 	Revert(ctx context.Context, oid string) error
 	Reset(ctx context.Context, target, mode string) error
 	CompareFiles(ctx context.Context, from, to string) ([]protocol.CommitFile, error)
+	Conflicts(ctx context.Context) ([]protocol.ConflictEntry, error)
+	Merge(ctx context.Context, branch string) error
+	MergeAbort(ctx context.Context) error
+	MergeContinue(ctx context.Context) error
+	Rebase(ctx context.Context, upstream string) error
+	RebaseAbort(ctx context.Context) error
+	RebaseContinue(ctx context.Context) error
+	ResolveConflict(ctx context.Context, path string, theirs bool) error
 }
 
 // Options carries server configuration.

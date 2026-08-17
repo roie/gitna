@@ -6,3 +6,4 @@ release/
 *.zip
 *.tar.gz
 .DS_Store
+/gitna

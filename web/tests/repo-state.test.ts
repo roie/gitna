@@ -56,6 +56,9 @@ const auxApi = {
   async compare() {
     return { files: [] }
   },
+  async conflicts() {
+    return []
+  },
 }
 
 /** API client whose graph pages and commit files are scripted in order. Only
@@ -785,6 +788,185 @@ describe('stash, tag, compare, and history operations', () => {
     await state.openCompare('bad..ref', 'HEAD', 'bad..ref..HEAD')
     expect(state.compareError).toMatch(/invalid ref/)
     expect(state.compareFiles).toEqual([])
+  })
+})
+
+describe('merge, rebase, and conflict operations', () => {
+  it('calls merge and refreshes conflicts when snapshot shows merge operation', async () => {
+    const mutate = vi.fn().mockResolvedValue(undefined)
+    let snapGen = 1
+    const api: ApiClient = {
+      ...auxApi,
+      async snapshot() {
+        return snapshot({ generation: snapGen++ })
+      },
+      async mutate(req) {
+        return mutate(req)
+      },
+      async diff() {
+        return { before: { path: '', content: '' }, after: { path: '', content: '' }, binary: false, tooLarge: false }
+      },
+      async conflicts() {
+        return [{ path: 'a.txt', baseOid: 'b1', oursOid: 'o1', theirsOid: 't1' }]
+      },
+    }
+    const state = createRepoState({ api })
+    await state.refreshSnapshot()
+
+    await state.mergeBranch('feature')
+    expect(mutate).toHaveBeenCalledWith({ op: 'merge', name: 'feature' })
+  })
+
+  it('calls merge-abort', async () => {
+    const mutate = vi.fn().mockResolvedValue(undefined)
+    const api: ApiClient = {
+      ...auxApi,
+      async snapshot() { return snapshot({ generation: 1 }) },
+      async mutate(req) { return mutate(req) },
+      async diff() { throw new Error('not used') },
+    }
+    const state = createRepoState({ api })
+    await state.refreshSnapshot()
+
+    await state.mergeAbort()
+    expect(mutate).toHaveBeenCalledWith({ op: 'merge-abort' })
+  })
+
+  it('calls merge-continue', async () => {
+    const mutate = vi.fn().mockResolvedValue(undefined)
+    const api: ApiClient = {
+      ...auxApi,
+      async snapshot() { return snapshot({ generation: 1 }) },
+      async mutate(req) { return mutate(req) },
+      async diff() { throw new Error('not used') },
+    }
+    const state = createRepoState({ api })
+    await state.refreshSnapshot()
+
+    await state.mergeContinue()
+    expect(mutate).toHaveBeenCalledWith({ op: 'merge-continue' })
+  })
+
+  it('calls rebase', async () => {
+    const mutate = vi.fn().mockResolvedValue(undefined)
+    const api: ApiClient = {
+      ...auxApi,
+      async snapshot() { return snapshot({ generation: 1 }) },
+      async mutate(req) { return mutate(req) },
+      async diff() { throw new Error('not used') },
+    }
+    const state = createRepoState({ api })
+    await state.refreshSnapshot()
+
+    await state.rebaseBranch('main')
+    expect(mutate).toHaveBeenCalledWith({ op: 'rebase', name: 'main' })
+  })
+
+  it('calls rebase-abort', async () => {
+    const mutate = vi.fn().mockResolvedValue(undefined)
+    const api: ApiClient = {
+      ...auxApi,
+      async snapshot() { return snapshot({ generation: 1 }) },
+      async mutate(req) { return mutate(req) },
+      async diff() { throw new Error('not used') },
+    }
+    const state = createRepoState({ api })
+    await state.refreshSnapshot()
+
+    await state.rebaseAbort()
+    expect(mutate).toHaveBeenCalledWith({ op: 'rebase-abort' })
+  })
+
+  it('calls rebase-continue', async () => {
+    const mutate = vi.fn().mockResolvedValue(undefined)
+    const api: ApiClient = {
+      ...auxApi,
+      async snapshot() { return snapshot({ generation: 1 }) },
+      async mutate(req) { return mutate(req) },
+      async diff() { throw new Error('not used') },
+    }
+    const state = createRepoState({ api })
+    await state.refreshSnapshot()
+
+    await state.rebaseContinue()
+    expect(mutate).toHaveBeenCalledWith({ op: 'rebase-continue' })
+  })
+
+  it('calls resolve-ours and resolve-theirs', async () => {
+    const mutate = vi.fn().mockResolvedValue(undefined)
+    const api: ApiClient = {
+      ...auxApi,
+      async snapshot() { return snapshot({ generation: 1 }) },
+      async mutate(req) { return mutate(req) },
+      async diff() { throw new Error('not used') },
+    }
+    const state = createRepoState({ api })
+    await state.refreshSnapshot()
+
+    await state.resolveOurs('a.txt')
+    expect(mutate).toHaveBeenCalledWith({ op: 'resolve-ours', paths: ['a.txt'] })
+
+    await state.resolveTheirs('b.txt')
+    expect(mutate).toHaveBeenCalledWith({ op: 'resolve-theirs', paths: ['b.txt'] })
+  })
+
+  it('refreshes conflicts when snapshot shows merge operation', async () => {
+    let snapGen = 1
+    const api: ApiClient = {
+      ...auxApi,
+      async snapshot() {
+        return snapshot({ generation: snapGen++, operation: 'merge' })
+      },
+      async diff() { throw new Error('not used') },
+      async conflicts() {
+        return [{ path: 'a.txt', baseOid: 'b1', oursOid: 'o1', theirsOid: 't1' }]
+      },
+    }
+    const state = createRepoState({ api })
+    await state.refreshSnapshot()
+
+    expect(state.snapshot?.operation).toBe('merge')
+    await vi.waitFor(() => {
+      expect(state.conflicts).toHaveLength(1)
+      expect(state.conflicts[0].path).toBe('a.txt')
+    })
+  })
+
+  it('clears conflicts when snapshot returns to none', async () => {
+    let snapGen = 1
+    const api: ApiClient = {
+      ...auxApi,
+      async snapshot() {
+        const gen = snapGen++
+        if (gen === 1) return snapshot({ generation: gen, operation: 'merge' })
+        return snapshot({ generation: gen, operation: 'none' })
+      },
+      async diff() { throw new Error('not used') },
+      async conflicts() {
+        return [{ path: 'a.txt', baseOid: 'b1', oursOid: 'o1', theirsOid: 't1' }]
+      },
+    }
+    const state = createRepoState({ api })
+    await state.refreshSnapshot()
+    await vi.waitFor(() => expect(state.conflicts).toHaveLength(1))
+
+    await state.refreshSnapshot()
+    await vi.waitFor(() => expect(state.conflicts).toEqual([]))
+  })
+
+  it('records conflict fetch errors', async () => {
+    const api: ApiClient = {
+      ...auxApi,
+      async snapshot() { return snapshot({ generation: 1, operation: 'merge' }) },
+      async diff() { throw new Error('not used') },
+      async conflicts() { throw new Error('network error') },
+    }
+    const state = createRepoState({ api })
+    await state.refreshSnapshot()
+
+    await vi.waitFor(() => {
+      expect(state.conflictsError).toMatch(/network error/)
+    })
   })
 })
 

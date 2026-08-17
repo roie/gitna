@@ -237,6 +237,62 @@ func (f *fakeRepo) CompareFiles(context.Context, string, string) ([]protocol.Com
 	return f.compareFiles, nil
 }
 
+func (f *fakeRepo) Conflicts(context.Context) ([]protocol.ConflictEntry, error) {
+	if f.err != nil {
+		return nil, f.err
+	}
+	return nil, nil
+}
+
+func (f *fakeRepo) Merge(_ context.Context, branch string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.historyCalls = append(f.historyCalls, "merge:"+branch)
+	return f.opFail()
+}
+
+func (f *fakeRepo) MergeAbort(context.Context) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.historyCalls = append(f.historyCalls, "merge-abort")
+	return f.opFail()
+}
+
+func (f *fakeRepo) MergeContinue(context.Context) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.historyCalls = append(f.historyCalls, "merge-continue")
+	return f.opFail()
+}
+
+func (f *fakeRepo) Rebase(_ context.Context, upstream string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.historyCalls = append(f.historyCalls, "rebase:"+upstream)
+	return f.opFail()
+}
+
+func (f *fakeRepo) RebaseAbort(context.Context) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.historyCalls = append(f.historyCalls, "rebase-abort")
+	return f.opFail()
+}
+
+func (f *fakeRepo) RebaseContinue(context.Context) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.historyCalls = append(f.historyCalls, "rebase-continue")
+	return f.opFail()
+}
+
+func (f *fakeRepo) ResolveConflict(_ context.Context, path string, theirs bool) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.historyCalls = append(f.historyCalls, "resolve:"+path+":theirs="+boolStr(theirs))
+	return f.opFail()
+}
+
 func boolStr(b bool) string {
 	if b {
 		return "true"

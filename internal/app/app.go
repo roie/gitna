@@ -212,6 +212,52 @@ func (a repoAdapter) CompareFiles(ctx context.Context, from, to string) ([]proto
 	return a.repo.CompareFiles(ctx, a.runner, from, to)
 }
 
+func (a repoAdapter) Conflicts(ctx context.Context) ([]protocol.ConflictEntry, error) {
+	return a.repo.ListConflicts(ctx, a.runner)
+}
+
+func (a repoAdapter) Merge(ctx context.Context, branch string) error {
+	return a.queue.Do(ctx, func(ctx context.Context) error {
+		return a.repo.Merge(ctx, a.runner, branch)
+	})
+}
+
+func (a repoAdapter) MergeAbort(ctx context.Context) error {
+	return a.queue.Do(ctx, func(ctx context.Context) error {
+		return a.repo.MergeAbort(ctx, a.runner)
+	})
+}
+
+func (a repoAdapter) MergeContinue(ctx context.Context) error {
+	return a.queue.Do(ctx, func(ctx context.Context) error {
+		return a.repo.MergeContinue(ctx, a.runner)
+	})
+}
+
+func (a repoAdapter) Rebase(ctx context.Context, upstream string) error {
+	return a.queue.Do(ctx, func(ctx context.Context) error {
+		return a.repo.Rebase(ctx, a.runner, upstream)
+	})
+}
+
+func (a repoAdapter) RebaseAbort(ctx context.Context) error {
+	return a.queue.Do(ctx, func(ctx context.Context) error {
+		return a.repo.RebaseAbort(ctx, a.runner)
+	})
+}
+
+func (a repoAdapter) RebaseContinue(ctx context.Context) error {
+	return a.queue.Do(ctx, func(ctx context.Context) error {
+		return a.repo.RebaseContinue(ctx, a.runner)
+	})
+}
+
+func (a repoAdapter) ResolveConflict(ctx context.Context, path string, theirs bool) error {
+	return a.queue.Do(ctx, func(ctx context.Context) error {
+		return a.repo.ResolveConflictSide(ctx, a.runner, path, theirs)
+	})
+}
+
 // Run starts the workbench session for path and blocks until ctx is cancelled
 // or the server fails. path must be inside a Git repository; the session binds
 // to a loopback-only OS-assigned port.
