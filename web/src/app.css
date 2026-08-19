@@ -1,12 +1,121 @@
+/* DiffsHub chrome fallback variables (Apache-2.0, Copyright 2025 Pierre Computer Company).
+   These are overridden at runtime by applyChromeTheme() from the active Shiki theme. */
 :root {
   color-scheme: light dark;
-  --color-bg: light-dark(#ffffff, #1e1e1e);
-  --color-fg: light-dark(#1f2328, #d4d4d4);
-  --color-muted: light-dark(#6e7781, #9d9d9d);
-  --color-border: light-dark(#d0d7de, #454545);
-  --color-accent: light-dark(#0969da, #3794ff);
-  --color-selected-bg: light-dark(#d0e4ff, #264f78);
-  --color-danger: light-dark(#d1242f, #f14c4c);
+  --radius: 0.625rem;
+
+  /* DiffsHub light defaults */
+  --background: #ffffff;
+  --foreground: #0a0a0a;
+  --primary: #0a0a0a;
+  --primary-foreground: #ffffff;
+  --secondary: #f5f5f5;
+  --secondary-foreground: #0a0a0a;
+  --muted: #f5f5f5;
+  --muted-foreground: #737373;
+  --accent: #f5f5f5;
+  --accent-foreground: #0a0a0a;
+  --destructive: #d52c36;
+  --border: #e5e5e5;
+  --border-opaque: #e5e5e5;
+  --input: #e5e5e5;
+  --ring: #0a0a0a;
+  --popover: #ffffff;
+  --popover-foreground: #0a0a0a;
+  --card: #ffffff;
+  --card-foreground: #0a0a0a;
+
+  /* Gitna-specific tokens derived from DiffsHub vocabulary */
+  --color-bg: var(--background);
+  --color-fg: var(--foreground);
+  --color-muted: var(--muted-foreground);
+  --color-border: var(--border);
+  --color-accent: #009fff;
+  --color-selected-bg: color-mix(in srgb, var(--foreground) 12%, var(--background));
+  --color-danger: var(--destructive);
+
+  /* Pierre tree overrides: use chrome tokens instead of manual mapping */
+  --trees-bg-override: transparent;
+  --trees-fg-override: var(--foreground);
+  --trees-fg-muted-override: var(--muted-foreground);
+  --trees-border-color-override: var(--border);
+  --trees-selected-bg-override: color-mix(in srgb, var(--foreground) 12%, var(--background));
+
+  -webkit-font-smoothing: antialiased;
+}
+
+:root.dark {
+  --background: #0a0a0a;
+  --foreground: #fafafa;
+  --primary: #fafafa;
+  --primary-foreground: #0a0a0a;
+  --secondary: #1d1d1d;
+  --secondary-foreground: #fafafa;
+  --muted: #1d1d1d;
+  --muted-foreground: #737373;
+  --accent: #1d1d1d;
+  --accent-foreground: #fafafa;
+  --destructive: #ff6762;
+  --border: #1d1d1d;
+  --border-opaque: #1d1d1d;
+  --input: #1d1d1d;
+  --ring: #fafafa;
+  --popover: #101010;
+  --popover-foreground: #fafafa;
+  --card: #101010;
+  --card-foreground: #fafafa;
+
+  --color-bg: var(--background);
+  --color-fg: var(--foreground);
+  --color-muted: var(--muted-foreground);
+  --color-border: var(--border);
+  --color-accent: #009fff;
+  --color-selected-bg: color-mix(in srgb, var(--foreground) 15%, var(--background));
+  --color-danger: var(--destructive);
+
+  --trees-bg-override: transparent;
+  --trees-fg-override: var(--foreground);
+  --trees-fg-muted-override: var(--muted-foreground);
+  --trees-border-color-override: var(--border);
+  --trees-selected-bg-override: color-mix(in srgb, var(--foreground) 15%, var(--background));
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not(.light) {
+    --background: #0a0a0a;
+    --foreground: #fafafa;
+    --primary: #fafafa;
+    --primary-foreground: #0a0a0a;
+    --secondary: #1d1d1d;
+    --secondary-foreground: #fafafa;
+    --muted: #1d1d1d;
+    --muted-foreground: #737373;
+    --accent: #1d1d1d;
+    --accent-foreground: #fafafa;
+    --destructive: #ff6762;
+    --border: #1d1d1d;
+    --border-opaque: #1d1d1d;
+    --input: #1d1d1d;
+    --ring: #fafafa;
+    --popover: #101010;
+    --popover-foreground: #fafafa;
+    --card: #101010;
+    --card-foreground: #fafafa;
+
+    --color-bg: var(--background);
+    --color-fg: var(--foreground);
+    --color-muted: var(--muted-foreground);
+    --color-border: var(--border);
+    --color-accent: #009fff;
+    --color-selected-bg: color-mix(in srgb, var(--foreground) 15%, var(--background));
+    --color-danger: var(--destructive);
+
+    --trees-bg-override: transparent;
+    --trees-fg-override: var(--foreground);
+    --trees-fg-muted-override: var(--muted-foreground);
+    --trees-border-color-override: var(--border);
+    --trees-selected-bg-override: color-mix(in srgb, var(--foreground) 15%, var(--background));
+  }
 }
 
 * {
@@ -21,14 +130,10 @@ body {
 }
 
 body {
-  font-family:
-    system-ui,
-    -apple-system,
-    'Segoe UI',
-    sans-serif;
+  font-family: system-ui, -apple-system, 'Segoe UI', sans-serif;
   font-size: 13px;
-  color: var(--color-fg);
-  background: var(--color-bg);
+  color: var(--foreground);
+  background: var(--background);
 }
 
 #app {
@@ -38,13 +143,4 @@ body {
 .app {
   display: flex;
   height: 100%;
-}
-
-/* Map our palette onto the Pierre Trees theme variables. */
-:where(.source-control) {
-  --trees-bg-override: transparent;
-  --trees-fg-override: var(--color-fg);
-  --trees-fg-muted-override: var(--color-muted);
-  --trees-border-color-override: var(--color-border);
-  --trees-selected-bg-override: var(--color-selected-bg);
 }

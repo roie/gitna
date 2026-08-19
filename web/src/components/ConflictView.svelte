@@ -1,6 +1,6 @@
 <script lang="ts">
   import type { RepoState } from '../lib/repo-state.svelte'
-  import type { ConflictEntry } from '../lib/types'
+  import Button from './Button.svelte'
 
   interface Props {
     state: RepoState
@@ -55,9 +55,9 @@
       <span class="conflict-label">
         {isMerge ? 'Merge' : 'Rebase'} in progress
       </span>
-      <button class="conflict-action" onclick={handleAbort} disabled={repo.busy}>
+      <Button variant="destructive" size="xs" onclick={handleAbort} disabled={repo.busy}>
         Abort
-      </button>
+      </Button>
     </div>
     {#if repo.conflicts.length > 0}
       <ul class="conflict-list">
@@ -65,33 +65,36 @@
           <li class="conflict-item">
             <span class="conflict-path" title={entry.path}>{entry.path}</span>
             <span class="conflict-buttons">
-              <button
-                class="conflict-resolve"
+              <Button
+                variant="outline"
+                size="xs"
                 onclick={() => handleResolveOurs(entry.path)}
                 disabled={repo.busy}
                 title="Keep our version"
               >
                 Ours
-              </button>
-              <button
-                class="conflict-resolve"
+              </Button>
+              <Button
+                variant="outline"
+                size="xs"
                 onclick={() => handleResolveTheirs(entry.path)}
                 disabled={repo.busy}
                 title="Keep their version"
               >
                 Theirs
-              </button>
+              </Button>
             </span>
           </li>
         {/each}
       </ul>
-      <button
-        class="conflict-continue"
+      <Button
+        variant="outline"
+        size="sm"
         onclick={handleContinue}
         disabled={repo.busy || repo.conflictsLoading}
       >
         Continue
-      </button>
+      </Button>
     {:else if repo.conflictsLoading}
       <p class="conflict-note">Loading conflicts…</p>
     {:else}
@@ -105,41 +108,26 @@
 
 <style>
   .conflict-bar {
-    padding: 0.4rem 0.75rem 0.55rem;
-    border-bottom: 1px solid var(--color-border);
-    background: color-mix(in srgb, var(--color-danger) 8%, transparent);
-    font-size: 12px;
+    padding: 4px 8px 8px;
+    border-bottom: 1px solid var(--border);
+    background: color-mix(in srgb, var(--destructive, #ef4444) 8%, transparent);
+    font-size: 13px;
   }
 
   .conflict-header {
     display: flex;
     align-items: center;
-    gap: 0.4rem;
-    margin-bottom: 0.35rem;
+    gap: 4px;
+    margin-bottom: 4px;
   }
 
   .conflict-label {
     flex: 1;
     font-weight: 600;
-    color: var(--color-danger);
+    color: var(--destructive, #ef4444);
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
-  }
-
-  .conflict-action {
-    padding: 2px 8px;
-    border: 1px solid var(--color-border);
-    border-radius: 4px;
-    background: transparent;
-    color: var(--color-danger);
-    font-size: 11px;
-    cursor: pointer;
-  }
-
-  .conflict-action:disabled {
-    opacity: 0.5;
-    cursor: default;
   }
 
   .conflict-list {
@@ -151,12 +139,12 @@
   .conflict-item {
     display: flex;
     align-items: center;
-    gap: 0.4rem;
+    gap: 4px;
     padding: 3px 0;
   }
 
   .conflict-item + .conflict-item {
-    border-top: 1px solid color-mix(in srgb, var(--color-border) 50%, transparent);
+    border-top: 1px solid color-mix(in srgb, var(--border) 50%, transparent);
   }
 
   .conflict-path {
@@ -165,61 +153,25 @@
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
-    font-size: 11px;
+    font-size: 12px;
     font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   }
 
   .conflict-buttons {
     display: flex;
-    gap: 0.25rem;
+    gap: 4px;
     flex-shrink: 0;
-  }
-
-  .conflict-resolve {
-    padding: 1px 6px;
-    border: 1px solid var(--color-border);
-    border-radius: 3px;
-    background: transparent;
-    color: var(--color-fg);
-    font-size: 10px;
-    cursor: pointer;
-  }
-
-  .conflict-resolve:hover:not(:disabled) {
-    background: var(--color-selected-bg);
-  }
-
-  .conflict-resolve:disabled {
-    opacity: 0.5;
-    cursor: default;
-  }
-
-  .conflict-continue {
-    width: 100%;
-    margin-top: 0.35rem;
-    padding: 3px 8px;
-    border: 1px solid var(--color-border);
-    border-radius: 4px;
-    background: var(--color-selected-bg);
-    color: var(--color-fg);
-    font-size: 11px;
-    cursor: pointer;
-  }
-
-  .conflict-continue:disabled {
-    opacity: 0.5;
-    cursor: default;
   }
 
   .conflict-note {
     margin: 0;
-    font-size: 11px;
-    color: var(--color-muted);
+    font-size: 12px;
+    color: var(--muted-foreground);
   }
 
   .conflict-error {
-    margin: 0.35rem 0 0;
-    color: var(--color-danger);
+    margin: 4px 0 0;
+    color: var(--destructive, #ef4444);
     word-break: break-word;
   }
 </style>

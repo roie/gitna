@@ -4,14 +4,13 @@
   import { splitHunkPatches, type HunkPatch } from '../lib/hunk-patches'
   import type { RepoState } from '../lib/repo-state.svelte'
   import type { ChangeKind, DiffScope, FileDiff } from '../lib/types'
+  import Button from './Button.svelte'
   import ConfirmDialog from './ConfirmDialog.svelte'
 
   interface Props {
     state: RepoState
   }
 
-  // Destructured as `repo` so the local binding does not shadow the `$state`
-  // rune name.
   let { state: repo }: Props = $props()
 
   interface ActiveDiff {
@@ -109,9 +108,6 @@
     void load(change)
   })
 
-  // The view's lifecycle is tied to the current host div. The template can
-  // replace the host (loading/error/binary states unmount it), so a new
-  // ChangeDiff is created whenever the host element is (re)bound.
   $effect(() => {
     const mount = host
     if (!mount) return
@@ -196,18 +192,18 @@
           {active.from?.slice(0, 8)}..{active.to?.slice(0, 8)}
         </span>
       {:else if active.scope === 'unstaged'}
-        <button class="action" onclick={stageFile} disabled={repo.busy || loading}>Stage</button>
+        <Button variant="outline" size="sm" onclick={stageFile} disabled={repo.busy || loading}>Stage</Button>
         {#if active.kind === 'untracked'}
-          <button class="action action-danger" onclick={confirmDelete} disabled={repo.busy}>
+          <Button variant="destructive" size="sm" onclick={confirmDelete} disabled={repo.busy}>
             Delete
-          </button>
+          </Button>
         {:else}
-          <button class="action action-danger" onclick={confirmDiscard} disabled={repo.busy}>
+          <Button variant="destructive" size="sm" onclick={confirmDiscard} disabled={repo.busy}>
             Discard
-          </button>
+          </Button>
         {/if}
       {:else}
-        <button class="action" onclick={unstageFile} disabled={repo.busy || loading}>Unstage</button>
+        <Button variant="outline" size="sm" onclick={unstageFile} disabled={repo.busy || loading}>Unstage</Button>
       {/if}
     {:else}
       <span class="diff-empty">Select a change to see its diff</span>
@@ -232,21 +228,23 @@
           <span class="hunk-chip">
             <code class="hunk-range" title={hunk.range}>#{i + 1}</code>
             {#if active?.scope === 'staged'}
-              <button
-                class="hunk-button"
+              <Button
+                variant="ghost"
+                size="xs"
                 onclick={() => applyHunk(hunk, true)}
                 disabled={repo.busy}
               >
                 Unstage
-              </button>
+              </Button>
             {:else}
-              <button
-                class="hunk-button"
+              <Button
+                variant="ghost"
+                size="xs"
                 onclick={() => applyHunk(hunk, false)}
                 disabled={repo.busy}
               >
                 Stage
-              </button>
+              </Button>
             {/if}
           </span>
         {/each}
@@ -272,21 +270,21 @@
     flex: 1;
     min-width: 0;
     height: 100%;
-    background: var(--color-bg);
+    background: var(--background);
   }
 
   .diff-header {
     display: flex;
     align-items: center;
-    gap: 0.5rem;
-    padding: 0.5rem 0.75rem;
-    border-bottom: 1px solid var(--color-border);
+    gap: 8px;
+    padding: 8px;
+    border-bottom: 1px solid var(--border);
   }
 
   .diff-path {
     flex: 1;
     min-width: 0;
-    font-size: 12px;
+    font-size: 13px;
     font-weight: 600;
     white-space: nowrap;
     overflow: hidden;
@@ -294,8 +292,8 @@
   }
 
   .diff-scope {
-    font-size: 11px;
-    color: var(--color-muted);
+    font-size: 12px;
+    color: var(--muted-foreground);
     text-transform: capitalize;
   }
 
@@ -305,48 +303,28 @@
 
   .diff-subject::after {
     content: ' · ';
-    color: var(--color-muted);
+    color: var(--muted-foreground);
   }
 
   .diff-commit {
-    font-size: 11px;
+    font-size: 12px;
     font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-    color: var(--color-muted);
+    color: var(--muted-foreground);
   }
 
   .diff-empty {
-    font-size: 12px;
-    color: var(--color-muted);
+    font-size: 13px;
+    color: var(--muted-foreground);
   }
 
   .diff-message {
-    margin: 1rem 0.75rem;
-    font-size: 12px;
-    color: var(--color-muted);
+    margin: 16px 8px;
+    font-size: 13px;
+    color: var(--muted-foreground);
   }
 
   .diff-message[role='alert'] {
-    color: var(--color-danger);
-  }
-
-  .action {
-    font-size: 11px;
-    padding: 2px 8px;
-    border: 1px solid var(--color-border);
-    border-radius: 4px;
-    background: transparent;
-    color: var(--color-fg);
-    cursor: pointer;
-  }
-
-  .action-danger {
-    color: var(--color-danger);
-    border-color: var(--color-danger);
-  }
-
-  .action:disabled {
-    opacity: 0.5;
-    cursor: default;
+    color: var(--destructive, #ef4444);
   }
 
   .diff-host {
@@ -359,45 +337,28 @@
     display: flex;
     align-items: center;
     flex-wrap: wrap;
-    gap: 0.5rem;
-    padding: 0.5rem 0.75rem;
-    border-top: 1px solid var(--color-border);
+    gap: 8px;
+    padding: 8px;
+    border-top: 1px solid var(--border);
   }
 
   .hunk-label {
-    font-size: 11px;
+    font-size: 12px;
     font-weight: 600;
-    text-transform: uppercase;
-    letter-spacing: 0.04em;
-    color: var(--color-muted);
+    color: var(--muted-foreground);
   }
 
   .hunk-chip {
     display: inline-flex;
     align-items: center;
-    gap: 0.35rem;
+    gap: 4px;
     padding: 2px 8px;
-    border: 1px solid var(--color-border);
+    border: 1px solid var(--border);
     border-radius: 999px;
   }
 
   .hunk-range {
-    font-size: 11px;
-    color: var(--color-muted);
-  }
-
-  .hunk-button {
-    font-size: 11px;
-    padding: 1px 8px;
-    border: 1px solid var(--color-border);
-    border-radius: 4px;
-    background: transparent;
-    color: var(--color-fg);
-    cursor: pointer;
-  }
-
-  .hunk-button:disabled {
-    opacity: 0.5;
-    cursor: default;
+    font-size: 12px;
+    color: var(--muted-foreground);
   }
 </style>

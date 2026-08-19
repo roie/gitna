@@ -11,6 +11,12 @@ importers:
       '@pierre/diffs':
         specifier: 1.3.5
         version: 1.3.5(@shikijs/themes@4.4.3)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
+      '@pierre/theme':
+        specifier: ^2.0.0
+        version: 2.0.0
+      '@pierre/theming':
+        specifier: ^1.0.1
+        version: 1.0.1(@pierre/theme@2.0.0)(@shikijs/themes@4.4.3)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(shiki@4.4.3)
       '@pierre/trees':
         specifier: 1.0.0-beta.6
         version: 1.0.0-beta.6(@pierre/theme@2.0.0)(@shikijs/themes@4.4.3)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(shiki@4.4.3)

@@ -1,12 +1,11 @@
 <script lang="ts">
   import type { RepoState } from '../lib/repo-state.svelte'
+  import Button from './Button.svelte'
 
   interface Props {
     state: RepoState
   }
 
-  // Destructured as `repo` so the local binding does not shadow the `$state`
-  // rune name.
   let { state: repo }: Props = $props()
 
   let message = $state('')
@@ -36,17 +35,18 @@
     }}
   ></textarea>
   <div class="actions">
-    <button class="action primary" onclick={() => submit(false)} disabled={!canCommit}>
+    <Button variant="default" size="sm" onclick={() => submit(false)} disabled={!canCommit}>
       Commit
-    </button>
-    <button
-      class="action"
+    </Button>
+    <Button
+      variant="outline"
+      size="sm"
       onclick={() => submit(true)}
       disabled={!canCommit}
       title="Replace the last commit with these changes"
     >
       Amend
-    </button>
+    </Button>
   </div>
   {#if repo.mutationError}
     <p class="error" role="alert">{repo.mutationError}</p>
@@ -57,9 +57,9 @@
   .composer {
     display: flex;
     flex-direction: column;
-    gap: 0.5rem;
-    padding: 0.75rem;
-    border-top: 1px solid var(--color-border);
+    gap: 8px;
+    padding: 8px;
+    border-top: 1px solid var(--border);
   }
 
   .message {
@@ -67,47 +67,33 @@
     box-sizing: border-box;
     resize: none;
     font: inherit;
-    font-size: 12px;
+    font-size: 13px;
     line-height: 1.4;
-    padding: 0.375rem 0.5rem;
-    border: 1px solid var(--color-border);
-    border-radius: 4px;
-    background: var(--color-bg);
-    color: var(--color-fg);
+    padding: 6px 8px;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    background: var(--background);
+    color: var(--foreground);
+    outline: none;
+  }
+
+  .message:focus-visible {
+    border-color: var(--ring);
+    box-shadow: 0 0 0 2px var(--background), 0 0 0 4px var(--ring);
   }
 
   .message::placeholder {
-    color: var(--color-muted);
+    color: var(--muted-foreground);
   }
 
   .actions {
     display: flex;
-    gap: 0.5rem;
-  }
-
-  .action {
-    font-size: 11px;
-    padding: 3px 10px;
-    border: 1px solid var(--color-border);
-    border-radius: 4px;
-    background: transparent;
-    color: var(--color-fg);
-    cursor: pointer;
-  }
-
-  .action.primary {
-    border-color: var(--color-accent);
-    color: var(--color-accent);
-  }
-
-  .action:disabled {
-    opacity: 0.5;
-    cursor: default;
+    gap: 8px;
   }
 
   .error {
     margin: 0;
     font-size: 12px;
-    color: var(--color-danger);
+    color: var(--destructive, #ef4444);
   }
 </style>

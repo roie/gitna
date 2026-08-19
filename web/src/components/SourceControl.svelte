@@ -1,6 +1,7 @@
 <script lang="ts">
 import type { RepoState } from '../lib/repo-state.svelte'
 import type { ChangeScope, CommitFile } from '../lib/types'
+import Button from './Button.svelte'
 import ChangesSection from './ChangesSection.svelte'
 import CommitComposer from './CommitComposer.svelte'
 import ConflictView from './ConflictView.svelte'
@@ -100,7 +101,7 @@ import OperationBar from './OperationBar.svelte'
       {#if repo.compare}
         <div class="compare-result">
           <span class="compare-title" title={repo.compare.label}>{repo.compare.label}</span>
-          <button class="compare-close" onclick={() => repo.clearCompare()} aria-label="Close compare">×</button>
+          <Button variant="ghost" size="icon-sm" onclick={() => repo.clearCompare()} aria-label="Close compare">×</Button>
           {#if repo.compareError}
             <p class="section-note" role="alert">{repo.compareError}</p>
           {:else if repo.compareLoading}
@@ -133,9 +134,9 @@ import OperationBar from './OperationBar.svelte'
           {/each}
         </ul>
         {#if repo.graphHasMore}
-          <button class="load-more" onclick={() => void repo.loadMoreGraph()} disabled={repo.graphLoading}>
+          <Button variant="outline" size="sm" onclick={() => void repo.loadMoreGraph()} disabled={repo.graphLoading}>
             Load more
-          </button>
+          </Button>
         {/if}
       {/if}
     {/if}
@@ -153,8 +154,8 @@ import OperationBar from './OperationBar.svelte'
     width: 360px;
     min-width: 240px;
     height: 100%;
-    border-right: 1px solid var(--color-border);
-    background: var(--color-bg);
+    border-right: 1px solid var(--border);
+    background: var(--background);
     overflow-y: auto;
   }
 
@@ -169,22 +170,21 @@ import OperationBar from './OperationBar.svelte'
     align-items: center;
     gap: 4px;
     width: 100%;
-    padding: 0.4rem 0.75rem;
+    padding: 4px 8px;
     border: none;
-    border-top: 1px solid var(--color-border);
+    border-top: 1px solid var(--border);
     background: transparent;
-    color: var(--color-muted);
-    font-size: 11px;
+    color: var(--muted-foreground);
+    font-size: 13px;
     font-weight: 600;
-    text-transform: uppercase;
-    letter-spacing: 0.04em;
     cursor: pointer;
     text-align: left;
+    font-family: inherit;
   }
 
   .section-header:hover {
-    background: var(--color-selected-bg);
-    color: var(--color-fg);
+    background: var(--accent);
+    color: var(--foreground);
   }
 
   .section-chevron {
@@ -221,55 +221,24 @@ import OperationBar from './OperationBar.svelte'
     overflow-y: auto;
   }
 
-  .load-more {
-    margin: 0.5rem 0.75rem;
-    font-size: 11px;
-    padding: 3px 10px;
-    border: 1px solid var(--color-border);
-    border-radius: 4px;
-    background: transparent;
-    color: var(--color-fg);
-    cursor: pointer;
-    flex: 0 0 auto;
-  }
-
-  .load-more:disabled {
-    opacity: 0.5;
-    cursor: default;
-  }
-
   .compare-result {
-    padding: 0 0.75rem 0.35rem;
-    border-bottom: 1px solid var(--color-border);
+    padding: 0 8px 4px;
+    border-bottom: 1px solid var(--border);
   }
 
   .compare-title {
     display: inline-block;
     max-width: calc(100% - 24px);
-    font-size: 11px;
+    font-size: 12px;
     font-weight: 600;
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
   }
 
-  .compare-close {
-    float: right;
-    padding: 0 4px;
-    border: none;
-    background: transparent;
-    color: var(--color-muted);
-    font-size: 14px;
-    cursor: pointer;
-  }
-
-  .compare-close:hover {
-    color: var(--color-danger);
-  }
-
   .compare-files {
     margin: 0;
-    padding: 0 0 0.35rem;
+    padding: 0 0 4px;
     list-style: none;
   }
 
@@ -281,22 +250,24 @@ import OperationBar from './OperationBar.svelte'
     padding: 2px 0;
     border: none;
     background: transparent;
-    color: var(--color-fg);
-    font-size: 11px;
+    color: var(--foreground);
+    font-size: 12px;
+    font-family: inherit;
     text-align: left;
     cursor: pointer;
+    border-radius: 6px;
   }
 
   .compare-file:hover {
-    background: var(--color-selected-bg);
+    background: var(--accent);
   }
 
   .compare-kind {
     flex: 0 0 auto;
     width: 14px;
-    font-size: 10px;
+    font-size: 11px;
     font-weight: 700;
-    color: var(--color-muted);
+    color: var(--muted-foreground);
     text-align: center;
   }
 
@@ -308,19 +279,19 @@ import OperationBar from './OperationBar.svelte'
   }
 
   .section-note {
-    padding: 0.35rem 0.75rem;
-    font-size: 11px;
-    color: var(--color-muted);
+    padding: 4px 8px;
+    font-size: 12px;
+    color: var(--muted-foreground);
     margin: 0;
   }
 
   .section-note[role='alert'] {
-    color: var(--color-danger);
+    color: var(--destructive, #ef4444);
   }
 
   .error {
-    margin: 0.5rem 0.75rem;
+    margin: 8px;
     font-size: 12px;
-    color: var(--color-danger);
+    color: var(--destructive, #ef4444);
   }
 </style>

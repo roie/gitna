@@ -4,6 +4,7 @@
   import type { CommitRef, CommitFile } from '../lib/types'
   import type { GraphRow } from '../lib/graph-lanes'
   import type { RepoState } from '../lib/repo-state.svelte'
+  import Button from './Button.svelte'
   import ConfirmDialog from './ConfirmDialog.svelte'
 
   interface Props {
@@ -165,9 +166,9 @@
         {/if}
       </div>
       <div class="row-actions">
-        <button class="row-menu-toggle" onclick={() => (menuOpen = !menuOpen)} aria-expanded={menuOpen} title="Actions">
+        <Button variant="ghost" size="icon-sm" onclick={() => (menuOpen = !menuOpen)} aria-expanded={menuOpen} title="Actions">
           ⋯
-        </button>
+        </Button>
         {#if menuOpen}
           <div class="row-menu" role="menu">
             <button class="row-menu-item" role="menuitem" onclick={() => { menuOpen = false; void repo.cherryPick(row.commit.oid) }} disabled={repo.busy}>
@@ -205,14 +206,14 @@
   }
 
   .lane-line {
-    stroke: var(--color-muted);
+    stroke: var(--muted-foreground);
     stroke-width: 1.2;
     fill: none;
   }
 
   .lane-node {
-    fill: var(--color-accent);
-    stroke: var(--color-bg);
+    fill: #009fff;
+    stroke: var(--background);
     stroke-width: 1;
   }
 
@@ -238,15 +239,15 @@
     height: 14px;
     padding: 0;
     border: none;
-    border-radius: 3px;
+    border-radius: 4px;
     background: transparent;
-    color: var(--color-muted);
+    color: var(--muted-foreground);
     cursor: pointer;
   }
 
   .chevron:hover {
-    background: var(--color-border);
-    color: var(--color-fg);
+    background: var(--accent);
+    color: var(--foreground);
   }
 
   .chevron svg {
@@ -262,7 +263,7 @@
   .subject {
     flex: 1;
     min-width: 0;
-    font-size: 12px;
+    font-size: 13px;
     font-weight: 500;
     white-space: nowrap;
     overflow: hidden;
@@ -275,8 +276,8 @@
     gap: 6px;
     min-width: 0;
     margin-top: 1px;
-    font-size: 11px;
-    color: var(--color-muted);
+    font-size: 12px;
+    color: var(--muted-foreground);
   }
 
   .refs {
@@ -289,17 +290,17 @@
 
   .ref {
     padding: 0 5px;
-    border-radius: 3px;
-    font-size: 10px;
-    line-height: 14px;
+    border-radius: 4px;
+    font-size: 11px;
+    line-height: 16px;
     white-space: nowrap;
-    border: 1px solid var(--color-border);
-    color: var(--color-muted);
+    border: 1px solid var(--border);
+    color: var(--muted-foreground);
   }
 
   .ref-head {
-    border-color: var(--color-accent);
-    color: var(--color-accent);
+    border-color: #009fff;
+    color: #009fff;
     font-weight: 600;
   }
 
@@ -335,41 +336,18 @@
 
   .file-note {
     padding: 4px 8px;
-    font-size: 11px;
-    color: var(--color-muted);
+    font-size: 12px;
+    color: var(--muted-foreground);
     margin: 0;
   }
 
   .file-note[role='alert'] {
-    color: var(--color-danger);
+    color: var(--destructive, #ef4444);
   }
 
   .row-actions {
     position: relative;
     margin: 2px 0;
-  }
-
-  .row-menu-toggle {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    width: 22px;
-    height: 20px;
-    padding: 0;
-    border: 1px solid transparent;
-    border-radius: 3px;
-    background: transparent;
-    color: var(--color-muted);
-    font-size: 14px;
-    font-weight: 700;
-    letter-spacing: -1px;
-    cursor: pointer;
-  }
-
-  .row-menu-toggle:hover {
-    background: var(--color-selected-bg);
-    border-color: var(--color-border);
-    color: var(--color-fg);
   }
 
   .row-menu {
@@ -378,28 +356,30 @@
     left: 0;
     z-index: 20;
     min-width: 140px;
-    padding: 0.25rem 0;
-    border: 1px solid var(--color-border);
-    border-radius: 6px;
-    background: var(--color-bg);
-    box-shadow: 0 8px 24px rgb(0 0 0 / 0.25);
+    padding: 4px;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    background: var(--popover, var(--background));
+    box-shadow: var(--diffshub-popover-shadow, 0 8px 24px rgb(0 0 0 / 0.25));
   }
 
   .row-menu-item {
     display: block;
     width: 100%;
-    padding: 4px 0.75rem;
+    padding: 4px 8px;
     border: none;
+    border-radius: 6px;
     background: transparent;
-    color: var(--color-fg);
-    font-size: 12px;
+    color: var(--foreground);
+    font-size: 13px;
+    font-family: inherit;
     text-align: left;
     cursor: pointer;
     white-space: nowrap;
   }
 
   .row-menu-item:hover:not(:disabled) {
-    background: var(--color-selected-bg);
+    background: var(--accent);
   }
 
   .row-menu-item:disabled {
@@ -408,13 +388,13 @@
   }
 
   .row-menu-danger {
-    color: var(--color-danger);
+    color: var(--destructive, #ef4444);
   }
 
   .row-menu-sep {
     height: 1px;
-    margin: 0.25rem 0;
-    background: var(--color-border);
+    margin: 4px 0;
+    background: var(--border);
   }
 </style>
 
