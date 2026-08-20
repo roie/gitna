@@ -136,7 +136,11 @@ body {
 
 body {
   overflow: hidden;
-  font-family: system-ui, -apple-system, 'Segoe UI', sans-serif;
+  font-family:
+    system-ui,
+    -apple-system,
+    "Segoe UI",
+    sans-serif;
   font-size: 13px;
   color: var(--foreground);
   background: var(--background);
@@ -174,7 +178,9 @@ body {
   background: transparent;
   color: var(--muted-foreground);
   cursor: pointer;
-  transition: color 140ms ease, background-color 140ms ease;
+  transition:
+    color 140ms ease,
+    background-color 140ms ease;
 }
 
 .review-collapse-button:hover,
