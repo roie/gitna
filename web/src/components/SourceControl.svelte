@@ -15,6 +15,7 @@
   import ConflictView from './ConflictView.svelte'
   import GraphRow from './GraphRow.svelte'
   import OperationBar from './OperationBar.svelte'
+  import PierreIcon from './PierreIcon.svelte'
 
   interface Props {
     state: RepoState
@@ -76,6 +77,16 @@
   }
 
   onMount(() => {
+    const mobile = window.matchMedia('(max-width: 767px)')
+    if (mobile.matches) graphOpen = false
+
+    const handleFunctionKey = (event: KeyboardEvent): void => {
+      if (event.key !== 'F3') return
+      event.preventDefault()
+      graphOpen = !graphOpen
+    }
+    window.addEventListener('keydown', handleFunctionKey)
+
     const unregister = [
       actions.register('focus-changes', () => {
         changesOpen = true
@@ -94,14 +105,18 @@
         root?.querySelector<HTMLButtonElement>('[title="More actions"]')?.click()
       }),
     ]
-    return () => unregister.forEach((dispose) => dispose())
+    return () => {
+      window.removeEventListener('keydown', handleFunctionKey)
+      unregister.forEach((dispose) => dispose())
+    }
   })
 </script>
 
 <section class="source-control" bind:this={root}>
   <OperationBar {repo} {onClose} />
 
-  <CommitComposer state={repo} {actions} />
+  <div class="workflow-scroll">
+    <CommitComposer state={repo} {actions} />
 
   <ConflictView state={repo} />
 
@@ -109,7 +124,7 @@
     <section class="section">
       <div class="section-heading">
         <button class="section-header" data-section="staged" onclick={toggleStaged} aria-expanded={stagedOpen}>
-          <span class="section-chevron">{stagedOpen ? '▾' : '▸'}</span>
+          <span class="status-icon"><PierreIcon name="symbol-diffstat-fill" size={12} /></span>
           <span class="section-title">Staged Changes</span>
           <span class="section-count">{stagedCount}</span>
         </button>
@@ -120,7 +135,7 @@
             aria-label="Search Staged Changes"
             aria-pressed={stagedSearchOpen}
             onclick={() => (stagedSearchOpen = !stagedSearchOpen)}
-          >⌕</button>
+          ><PierreIcon name="search" size={12} /></button>
         {/if}
       </div>
       {#if stagedOpen}
@@ -144,7 +159,7 @@
         onclick={toggleChanges}
         aria-expanded={changesOpen}
       >
-        <span class="section-chevron">{changesOpen ? '▾' : '▸'}</span>
+        <span class="status-icon"><PierreIcon name={changesOpen ? 'file-tree-fill' : 'file-tree'} size={12} /></span>
         <span class="section-title">Changes</span>
         <span class="section-count">{unstagedCount}</span>
       </button>
@@ -155,7 +170,7 @@
           aria-label="Search Changes"
           aria-pressed={changesSearchOpen}
           onclick={() => (changesSearchOpen = !changesSearchOpen)}
-        >⌕</button>
+        ><PierreIcon name="search" size={12} /></button>
       {/if}
     </div>
     {#if changesOpen && unstagedCount > 0}
@@ -170,11 +185,13 @@
       <p class="section-note">No changes</p>
     {/if}
   </section>
+  </div>
 
-  <section class="section graph-section">
+  <section class="section graph-section" class:open={graphOpen}>
     <button class="section-header" data-section="graph" bind:this={graphHeader} onclick={() => (graphOpen = !graphOpen)} aria-expanded={graphOpen}>
-      <span class="section-chevron">{graphOpen ? '▾' : '▸'}</span>
+      <span class="status-icon"><PierreIcon name="line-graph" size={12} /></span>
       <span class="section-title">Graph</span>
+      <span class="section-shortcut">(F3)</span>
       <span class="section-count">{graphCount}</span>
     </button>
     {#if graphOpen}
@@ -235,9 +252,20 @@
     width: 100%;
     min-width: 0;
     height: 100%;
-    border-right: 1px solid var(--border);
-    background: var(--background);
+    border-right: 1px solid var(--color-border-opaque, var(--border));
+    background: var(--diffshub-sidebar-bg, var(--background));
+    color: var(--foreground);
     overflow: hidden;
+    contain: strict;
+  }
+
+  .workflow-scroll {
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    scrollbar-color: color-mix(in srgb, var(--foreground) 22%, transparent) transparent;
+    scrollbar-width: thin;
   }
 
   .section {
@@ -249,88 +277,110 @@
   .section-heading {
     display: flex;
     align-items: center;
-    min-height: 27px;
-    border-top: 1px solid var(--border);
+    min-height: 33px;
+    margin: 0 12px;
+    border-top: 1px solid var(--color-border-opaque, var(--border));
   }
 
   .section-header {
     display: flex;
     flex: 1;
     align-items: center;
-    gap: 4px;
+    gap: 8px;
     min-width: 0;
-    padding: 4px 8px;
+    min-height: 32px;
+    padding: 8px;
     border: none;
     background: transparent;
     color: var(--muted-foreground);
-    font-size: 13px;
-    font-weight: 600;
-    cursor: pointer;
-    text-align: left;
     font-family: inherit;
+    font-size: 14px;
+    font-weight: 400;
+    text-align: left;
+    cursor: pointer;
   }
 
-  .section-header:hover {
-    background: var(--accent);
+  .section-header:hover,
+  .section-header:focus-visible {
+    background: transparent;
     color: var(--foreground);
+    outline: none;
   }
 
-  .section-chevron {
-    flex: 0 0 auto;
-    font-size: 10px;
+  .status-icon {
+    display: inline-grid;
+    flex: 0 0 12px;
     width: 12px;
-    text-align: center;
+    place-items: center;
+    opacity: 0.5;
   }
 
   .section-title {
     flex: 1;
+    font-weight: 400;
+  }
+
+  .section-shortcut {
+    color: color-mix(in srgb, var(--muted-foreground) 50%, transparent);
   }
 
   .section-count {
+    font-variant-numeric: tabular-nums;
     font-weight: 400;
   }
 
   .section-search {
     display: grid;
+    width: 20px;
+    height: 20px;
+    margin-right: 8px;
     place-items: center;
-    width: 28px;
-    height: 26px;
-    margin-right: 3px;
     padding: 0;
     border: 0;
     border-radius: 5px;
     background: transparent;
     color: var(--muted-foreground);
-    font: inherit;
-    font-size: 16px;
     cursor: pointer;
   }
 
   .section-search:hover,
+  .section-search:focus-visible,
   .section-search.active {
-    background: var(--accent);
+    background: transparent;
     color: var(--foreground);
+    outline: none;
   }
 
   .graph-section {
-    flex: 1;
-    min-height: 0;
     display: flex;
+    flex: 0 0 33px;
     flex-direction: column;
+    min-height: 0;
+    max-height: 33px;
+    overflow: hidden;
+    border-bottom: 1px solid var(--color-border-opaque, var(--border));
+  }
+
+  .graph-section.open {
+    flex: 0 1 46%;
+    max-height: 46%;
   }
 
   .graph-section > .section-header {
     flex: 0 0 auto;
-    width: 100%;
-    border-top: 1px solid var(--border);
+    width: calc(100% - 24px);
+    margin: 0 12px;
+    border-top: 1px solid var(--color-border-opaque, var(--border));
   }
 
   .graph-list {
     flex: 1;
+    min-height: 0;
     margin: 0;
-    padding: 4px 0;
-    list-style: none;
+    padding: 6px 0;
     overflow-y: auto;
+    overscroll-behavior: contain;
+    list-style: none;
   }
 
   .compare-result {
@@ -402,8 +452,15 @@
   }
 
   .error {
-    margin: 8px;
+    margin: 8px 12px;
     font-size: 12px;
     color: var(--destructive, #ef4444);
+  }
+
+  @media (width <= 767px) {
+    .source-control {
+      border-right: 0;
+      border-radius: 14px 14px 0 0;
+    }
   }
 </style>

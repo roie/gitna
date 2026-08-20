@@ -5,6 +5,7 @@
   import Button from './Button.svelte'
   import ConfirmDialog from './ConfirmDialog.svelte'
   import Input from './Input.svelte'
+  import PierreIcon from './PierreIcon.svelte'
 
   interface Props {
     repo: RepoState
@@ -218,24 +219,21 @@
     void repo.openCompare(compareFrom, compareTo, `${compareFrom}..${compareTo}`)
   }
 
-  function repositoryName(root: string): string {
-    return root.replace(/[\\/]+$/, '').split(/[\\/]/).pop() || root
-  }
 </script>
 
 {#if repo.snapshot}
   <div class="toolbar">
+    <span class="sidebar-mode" title="Source Control"><PierreIcon name="file-tree" size={12} /></span>
     <Button
-      variant="outline"
-      size="sm"
+      variant="ghost"
+      size="icon-sm"
+      class="branch-trigger"
       onclick={toggleBranch}
+      aria-label={`Switch branch · ${repo.snapshot?.headBranch ?? repo.snapshot?.headOid?.slice(0, 8) ?? 'detached'}`}
       aria-expanded={branchOpen}
-      title={`${repo.snapshot.root} · ${repo.snapshot.headBranch ?? repo.snapshot.headOid?.slice(0, 8) ?? 'detached'}`}
+      title={`Switch branch · ${repo.snapshot.root}`}
     >
-      <span class="repository-name">{repositoryName(repo.snapshot.root)}</span>
-      <span class="identity-separator">/</span>
-      <span class="branch-name">{repo.snapshot?.headBranch ?? repo.snapshot?.headOid?.slice(0, 8) ?? '—'}</span>
-      <span class="branch-chevron">{branchOpen ? '▴' : '▾'}</span>
+      <PierreIcon name="branch" size={12} />
     </Button>
     <span class="toolbar-spacer"></span>
     {#if repo.activeOpLabel}
@@ -244,21 +242,15 @@
         <span class="active-op-text">{repo.activeOpLabel}</span>
       </span>
     {/if}
-    <Button variant="ghost" size="icon-sm" onclick={handleFetch} disabled={repo.busy} title="Fetch">
-      <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor"><path d="M8 1a.75.75 0 0 1 .75.75v5.59l1.72-1.72a.75.75 0 1 1 1.06 1.06l-3 3a.75.75 0 0 1-1.06 0l-3-3a.75.75 0 0 1 1.06-1.06l1.72 1.72V1.75A.75.75 0 0 1 8 1ZM2.5 12a.75.75 0 0 1 .75.75v1.5A1.75 1.75 0 0 0 5 16h6a1.75 1.75 0 0 0 1.75-1.75v-1.5a.75.75 0 0 1 1.5 0v1.5A3.25 3.25 0 0 1 11.25 18.5h-6.5A3.25 3.25 0 0 1 1.5 15.25v-1.5A.75.75 0 0 1 2.5 12Z"/></svg>
+    <Button variant="ghost" size="icon-sm" onclick={handleFetch} disabled={repo.busy} title="Fetch" aria-label="Fetch">
+      <PierreIcon name="refresh" size={12} />
     </Button>
-    <Button variant="ghost" size="icon-sm" onclick={handlePull} disabled={repo.busy} title="Pull">
-      <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor"><path d="M8.75 1.75a.75.75 0 0 0-1.5 0V5H4.75a.75.75 0 0 0 0 1.5h3.5V5a.75.75 0 0 1 1.5 0v3h2.25a.75.75 0 0 0 0-1.5H8.75V1.75ZM2.5 12a.75.75 0 0 1 .75.75v1.5A1.75 1.75 0 0 0 5 16h6a1.75 1.75 0 0 0 1.75-1.75v-1.5a.75.75 0 0 1 1.5 0v1.5A3.25 3.25 0 0 1 11.25 18.5h-6.5A3.25 3.25 0 0 1 1.5 15.25v-1.5A.75.75 0 0 1 2.5 12Z"/></svg>
-    </Button>
-    <Button variant="ghost" size="icon-sm" onclick={handlePush} disabled={repo.busy} title="Push">
-      <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor"><path d="M7.47 5.28a.75.75 0 0 1 1.06 0l3 3a.75.75 0 0 1-1.06 1.06L8.75 7.51v5.74a.75.75 0 0 1-1.5 0V7.51L5.53 9.34a.75.75 0 0 1-1.06-1.06l3-3ZM2.5 12a.75.75 0 0 1 .75.75v1.5A1.75 1.75 0 0 0 5 16h6a1.75 1.75 0 0 0 1.75-1.75v-1.5a.75.75 0 0 1 1.5 0v1.5A3.25 3.25 0 0 1 11.25 18.5h-6.5A3.25 3.25 0 0 1 1.5 15.25v-1.5A.75.75 0 0 1 2.5 12Z"/></svg>
-    </Button>
-    <Button variant="ghost" size="icon-sm" onclick={toggleOverflow} aria-expanded={overflowOpen} title="More actions">
-      ⋯
+    <Button variant="ghost" size="icon-sm" onclick={toggleOverflow} aria-expanded={overflowOpen} title="More actions" aria-label="More actions">
+      <PierreIcon name="ellipsis" size={12} />
     </Button>
     {#if onClose}
       <Button variant="ghost" size="icon-sm" class="mobile-close" onclick={onClose} aria-label="Close Source Control" title="Close Source Control">
-        ×
+        <PierreIcon name="close" size={12} />
       </Button>
     {/if}
   </div>
@@ -323,6 +315,13 @@
 
   {#if overflowOpen}
     <div class="dropdown overflow-dropdown">
+      <button class="overflow-item" onclick={() => { handlePull(); overflowOpen = false }} disabled={repo.busy}>
+        Pull
+      </button>
+      <button class="overflow-item" onclick={() => { handlePush(); overflowOpen = false }} disabled={repo.busy}>
+        Push
+      </button>
+      <div class="overflow-separator"></div>
       <button class="overflow-item" onclick={() => { void repo.refreshGraph(); overflowOpen = false }}>
         Refresh Graph
       </button>
@@ -492,31 +491,39 @@
 <style>
   .toolbar {
     display: flex;
+    flex: 0 0 44px;
     align-items: center;
-    gap: 4px;
-    padding: 4px 8px;
-    border-bottom: 1px solid var(--border);
+    gap: 2px;
+    padding: 4px 10px 4px 12px;
+    border-bottom: 1px solid var(--color-border-opaque, var(--border));
+    background: var(--diffshub-sidebar-bg, var(--background));
   }
 
-  .repository-name,
-  .branch-name {
-    max-width: 80px;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
+  .toolbar :global(.btn) {
+    color: var(--foreground);
   }
 
-  .identity-separator {
+  .toolbar :global(.btn:hover),
+  .toolbar :global(.btn:focus-visible) {
+    background: transparent;
+    color: var(--muted-foreground);
+    box-shadow: none;
+  }
+
+  .sidebar-mode {
+    display: inline-grid;
+    width: 16px;
+    height: 20px;
+    place-items: center;
+    color: var(--foreground);
+  }
+
+  .toolbar :global(.branch-trigger) {
     color: var(--muted-foreground);
   }
 
   :global(.mobile-close) {
     display: none;
-  }
-
-  .branch-chevron {
-    font-size: 10px;
-    color: var(--muted-foreground);
   }
 
   .toolbar-spacer {
@@ -578,6 +585,12 @@
 
   .overflow-panel {
     padding: 0 8px 8px;
+  }
+
+  .overflow-separator {
+    height: 1px;
+    margin: 4px 8px;
+    background: var(--border);
   }
 
   .create-form {

@@ -22,7 +22,7 @@ test('staging loop preserves VS Code section order and visibility', async ({ pag
   const order = await page.locator('.section-title').allTextContents()
   expect(order.indexOf('Staged Changes')).toBeLessThan(order.indexOf('Changes'))
   expect(order.indexOf('Changes')).toBeLessThan(order.indexOf('Graph'))
-  await expect(page.getByRole('button', { name: /repo \/ main/ })).toBeVisible()
+  await expect(page.locator('.review-header .identity')).toContainText('repo / main')
   if (process.env.GITNA_CAPTURE_M4) {
     await page.screenshot({ path: '/tmp/gitna-m4-desktop.png', fullPage: true })
   }

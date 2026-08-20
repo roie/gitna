@@ -9,14 +9,35 @@ import type { Selection } from './repo-state.svelte'
 const TREE_CSS = `
   [data-file-tree-search-container][data-open='false'] { display: none; }
   [data-file-tree-search-container] {
-    margin: 0 6px 6px;
-    padding: 0 0 6px;
+    padding-bottom: 12px;
+    margin-bottom: 12px;
+    margin-right: 4px;
     border-bottom: 1px solid var(--color-border);
+    padding-inline-start: 1px;
+    padding-inline-end: 5px;
   }
-  [data-file-tree-virtualized-scroll='true'] { padding-inline: 0 2px; }
+  [data-file-tree-virtualized-scroll='true'] {
+    padding-inline-start: 0;
+    padding-inline-end: 2px;
+    margin-inline-end: 2px;
+  }
   [data-item-contains-git-change='true'] > [data-item-section='git'] { display: none; }
-  [data-item-type='folder'] { font-weight: 500; }
-  [data-file-tree-sticky-overlay-content] { box-shadow: 0 3px 3px -4px rgb(0 0 0 / .8); }
+  [data-item-type='folder'] {
+    color: color-mix(in lab, light-dark(#000, #fff) 25%, var(--trees-fg));
+    font-weight: 500;
+  }
+  [data-file-tree-sticky-overlay-content] { box-shadow: 0 2px 3px -4px rgb(0 0 0 / 1); }
+  @media (width <= 767px) {
+    [data-file-tree-search-container='true'],
+    [data-file-tree-virtualized-scroll='true'] { padding-inline-start: 14px; }
+    [data-file-tree-search-container='true'] {
+      margin-right: 0;
+      padding-inline-end: 14px;
+    }
+    [data-file-tree-virtualized-scroll='true'] {
+      padding-inline-end: max(0px, calc(14px - var(--trees-scrollbar-gutter)));
+    }
+  }
 `
 
 const STATUS_BY_KIND: Partial<Record<FileChange['kind'], GitStatus>> = {
@@ -72,6 +93,7 @@ export class ChangeTree {
       flattenEmptyDirectories: true,
       initialExpansion: 'open',
       density: 0.8,
+      itemHeight: 24,
       search: true,
       searchBlurBehavior: 'retain',
       stickyFolders: true,

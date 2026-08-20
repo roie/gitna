@@ -16,7 +16,7 @@
 
   let host: HTMLElement | undefined = $state()
   let tree: ChangeTree | undefined
-  const treeHeight = $derived(Math.min(240, Math.max(28, changes.length * 28 + (searchOpen ? 48 : 0))))
+  const treeHeight = $derived(Math.min(288, Math.max(24, changes.length * 24 + (searchOpen ? 52 : 0))))
 
   $effect(() => {
     if (!host || tree) return
@@ -42,12 +42,22 @@
   .tree-host {
     flex: 0 1 auto;
     min-height: 0;
-    max-height: min(240px, 28vh);
+    max-width: calc(100% - 24px);
+    max-height: min(288px, 36vh);
+    margin-left: 12px;
+    margin-right: 12px;
     overflow: auto;
     overscroll-behavior: contain;
   }
 
   .tree-host :global([data-file-tree-container]) {
     height: 100%;
+  }
+
+  @media (width <= 767px) {
+    .tree-host {
+      max-width: 100%;
+      margin-left: 0;
+    }
   }
 </style>

@@ -70,9 +70,10 @@
   .composer {
     display: flex;
     flex-direction: column;
-    gap: 8px;
-    padding: 8px;
-    border-top: 1px solid var(--border);
+    gap: 6px;
+    padding: 8px 12px 10px;
+    border-bottom: 1px solid var(--color-border-opaque, var(--border));
+    background: var(--diffshub-sidebar-bg, var(--background));
   }
 
   .message {
@@ -81,11 +82,12 @@
     resize: none;
     font: inherit;
     font-size: 13px;
+    min-height: 48px;
     line-height: 1.4;
-    padding: 6px 8px;
+    padding: 7px 9px;
     border: 1px solid var(--border);
     border-radius: 6px;
-    background: var(--background);
+    background: color-mix(in srgb, var(--background) 58%, transparent);
     color: var(--foreground);
     outline: none;
   }
@@ -101,7 +103,12 @@
 
   .actions {
     display: flex;
-    gap: 8px;
+    gap: 6px;
+  }
+
+  .actions :global(.btn) {
+    min-height: 28px;
+    font-size: 12px;
   }
 
   .error {

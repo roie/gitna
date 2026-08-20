@@ -24,11 +24,13 @@ repository. Each local source file carries a prominent modified-file notice.
 | `apps/diffshub/components/Button.tsx` | `web/src/components/Button.svelte` | Ported the React/Tailwind/CVA button contract to Svelte and component-scoped CSS while retaining variants, sizes, and interaction states. |
 | `apps/diffshub/components/Input.tsx` | `web/src/components/Input.svelte` | Ported the React/Tailwind input contract to Svelte and component-scoped CSS. |
 | `apps/diffshub/components/Switch.tsx` | `web/src/components/Switch.svelte` | Replaced React/Radix wiring with a native Svelte switch while retaining the donor sizing and visual states. |
-| `apps/diffshub/app/globals.css` | `web/src/app.css` | Adapted the DiffsHub chrome variable vocabulary, review layout, scrollbars, responsive behavior, and system dark/light surfaces to Gitna. |
-| `apps/diffshub/components/DiffsHubHeader.tsx`; `apps/diffshub/components/chromeButtonStyles.ts` | `web/src/components/review/ReviewHeader.svelte` | Ported the review controls, compact themed chrome, split/unified and collapse-all actions, theme selection, and display settings from React/Tailwind to Svelte/CSS. |
+| `apps/diffshub/app/globals.css` | `web/src/app.css` | Adapted the DiffsHub chrome variable vocabulary, exact Geist/Berkeley font assignments and metrics, review layout, scrollbars, responsive behavior, and system dark/light surfaces to Gitna. |
+| `apps/diffshub/public/fonts/BerkeleyMonoVariable.woff2` | `web/src/assets/BerkeleyMonoVariable.woff2` | Copied the pinned donor's CodeView font asset byte-for-byte so Gitna uses the same diff typography. |
+| `apps/diffshub/components/DiffsHubHeader.tsx`; `apps/diffshub/components/DiffsHubLogo.tsx`; `apps/diffshub/components/chromeButtonStyles.ts` | `web/src/components/review/ReviewHeader.svelte` | Ported the spanning responsive header, logo artwork, review controls, compact themed chrome, split/unified and collapse-all actions, theme selection, and display settings from React/Tailwind to Svelte/CSS. |
 | `apps/diffshub/components/ReviewUI.tsx`; `apps/diffshub/components/DiffsHubViewer.tsx`; `apps/diffshub/components/ThemedCodeView.tsx`; `apps/diffshub/lib/constants.ts` | `web/src/components/review/ReviewViewer.svelte`; `web/src/lib/code-view.ts` | Replaced React hooks and wrappers with one long-lived vanilla `CodeView`; retained multi-file items, one-pixel gaps, sticky headers, collapse behavior, responsive unified mode, supported lifecycle APIs, and header-extension Git actions. |
 | `apps/diffshub/components/DiffsHubFileTree.tsx`; `apps/diffshub/lib/constants.ts` | `web/src/lib/pierre-tree.ts`; `web/src/components/ChangesSection.svelte` | Ported compact density, built-in search, sticky folders, unique model IDs, bounded tree geometry, and vanilla Trees lifecycle to independent staged and unstaged models. |
-| `apps/diffshub/components/DiffsHubSidebar.tsx`; `apps/diffshub/components/ReviewUI.tsx` | `web/src/App.svelte`; `web/src/components/SourceControl.svelte` | Ported the narrow scrim, off-canvas transition, dismissal, focus handoff, scroll containment, and cleanup while retaining VS Code Source Control ordering. |
+| `apps/diffshub/components/DiffsHubSidebar.tsx`; `apps/diffshub/components/DiffsHubDiffStats.tsx`; `apps/diffshub/components/StatusRow.tsx`; `apps/diffshub/components/ReviewUI.tsx` | `web/src/App.svelte`; `web/src/components/SourceControl.svelte` | Ported the sidebar toolbar density, inset status rows, panel collapse behavior, narrow scrim, rounded bottom-sheet transition, dismissal, focus handoff, scroll containment, and cleanup while retaining VS Code Source Control ordering. |
+| `@pierre/icons@0.7.1/dist/icons` | `web/src/components/PierreIcon.svelte` | Ported the exact SVG paths used by DiffsHub from generated React wrappers into a Svelte icon primitive; no React runtime retained. |
 | `apps/diffshub/components/DiffsHubStatusPanel.tsx` | `web/src/components/review/ReviewStatus.svelte` | Ported loading, error, retry, and empty review states to Svelte and local repository language. |
 | `apps/diffshub/components/DropdownMenu.tsx`; `apps/diffshub/lib/theme/dropdownChromeStyle.ts` | `web/src/components/DropdownMenu.svelte` | Replaced Radix/React with a Svelte popover while preserving themed elevated surfaces, geometry, dismissal, and keyboard focus behavior. |
 | `apps/diffshub/components/ThemedSurface.tsx` | `web/src/components/ThemedSurface.svelte` | Replaced the React polymorphic wrapper with a Svelte chrome host driven by the shared document theme. |
@@ -74,11 +76,17 @@ was copied into Gitna.
 | `@pierre/theme` | `2.0.0` | `web/node_modules/@pierre/theme/LICENSE`; package metadata declares `apache-2.0` | `LICENSES/Apache-2.0.txt` and the `@pierre/theme` notice below. |
 | `@pierre/theming` | `1.0.1` | `web/node_modules/@pierre/theming/LICENSE.md`; package metadata declares `apache-2.0` | `LICENSES/Apache-2.0.txt`; the package contains no NOTICE file. |
 
-The Apache-2.0 text shipped by the pinned DiffsHub app and all four installed
-Pierre packages is byte-identical, so Gitna keeps one verbatim shared copy at
-`LICENSES/Apache-2.0.txt`. The Trees and Theme notices are reproduced verbatim
-below because they contain distinct upstream attribution. Their shared MIT
-license text is also available at `LICENSES/MIT.txt`.
+The Apache-2.0 text shipped by the pinned DiffsHub app, `@pierre/icons`, and all
+four installed Pierre packages is byte-identical, so Gitna keeps one verbatim
+shared copy at `LICENSES/Apache-2.0.txt`. The Trees and Theme notices are
+reproduced verbatim below because they contain distinct upstream attribution.
+Their shared MIT license text is also available at `LICENSES/MIT.txt`.
+
+## Geist font
+
+Gitna incorporates `Geist-Variable.woff2` from `geist@1.5.1`, Copyright 2023
+Vercel in collaboration with basement.studio. Geist is licensed under the SIL
+Open Font License 1.1; the verbatim license is at `LICENSES/OFL-1.1.txt`.
 
 ## Distribution requirement
 

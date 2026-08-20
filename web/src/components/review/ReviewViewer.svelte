@@ -103,8 +103,8 @@
       if (version !== requestVersion) return
       review = response
       controller?.setReview(response)
+      if (collapsed) controller?.collapseAll(true)
       fileCount = (response.patch.match(/^diff --git /gm)?.length ?? 0) + response.supplements.length
-      collapsed = false
       if (next.path) queueMicrotask(() => controller?.scrollToPath(next.path!))
     } catch (caught) {
       if (version !== requestVersion) return
@@ -222,7 +222,9 @@
 <ThemedSurface class="review-surface">
   <section class="review" aria-label="Review">
     <ReviewHeader
-      title={target?.title ?? 'Repository review'}
+      repository={repo.snapshot?.root ?? 'Repository'}
+      branch={repo.snapshot?.headBranch ?? repo.snapshot?.headOid?.slice(0, 8)}
+      context={target?.title ?? 'Repository review'}
       {fileCount}
       {collapsed}
       {narrow}
@@ -264,8 +266,8 @@
     overflow: hidden;
     background: var(--background);
   }
-  .review { display: grid; grid-template-rows: auto minmax(0, 1fr); min-width: 0; height: 100%; overflow: hidden; }
-  .viewer-shell { position: relative; min-width: 0; min-height: 0; overflow: hidden; background: var(--background); }
+  .review { display: grid; grid-template-rows: 49px minmax(0, 1fr); min-width: 0; height: 100%; overflow: hidden; }
+  .viewer-shell { position: relative; grid-row: 2; min-width: 0; min-height: 0; overflow: hidden; background: var(--background); }
   .viewer-shell.is-loading::before { position: absolute; z-index: 20; inset: 0 auto auto 0; width: 100%; height: 2px; content: ''; background: var(--color-accent); animation: loading 1.2s ease-in-out infinite; transform-origin: left; }
   .code-view { position: relative; width: 100%; height: 100%; min-width: 0; min-height: 0; overflow: auto hidden; overscroll-behavior: contain; contain: strict; scrollbar-gutter: stable; }
   .code-view :global(> *) { min-width: 0; }
@@ -273,5 +275,6 @@
   .status-layer { position: absolute; z-index: 10; inset: 0; background: var(--background); }
   .action-error { position: absolute; z-index: 24; inset: 8px 12px auto; margin: 0; padding: 7px 10px; border: 1px solid color-mix(in srgb, var(--destructive) 45%, var(--border)); border-radius: 6px; background: var(--background); color: var(--destructive); box-shadow: var(--diffshub-popover-shadow); font-size: 12px; }
   @keyframes loading { 0% { transform: scaleX(.08); opacity: .4; } 50% { transform: scaleX(.62); opacity: 1; } 100% { transform: translateX(100%) scaleX(.18); opacity: .2; } }
+  @media (width <= 767px) { .review { grid-template-rows: 110px minmax(0, 1fr); } }
   @media (prefers-reduced-motion: reduce) { .viewer-shell.is-loading::before { animation: none; } }
 </style>

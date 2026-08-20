@@ -228,8 +228,10 @@ export class ReviewCodeView {
     button.type = "button";
     button.className = "review-git-action";
     button.dataset.action = action;
-    button.textContent = action[0]!.toUpperCase() + action.slice(1);
-    button.ariaLabel = `${button.textContent} file ${path}`;
+    const label = action[0]!.toUpperCase() + action.slice(1);
+    button.ariaLabel = `${label} file ${path}`;
+    button.title = `${label} file`;
+    this.appendActionIcon(button, action);
     button.addEventListener("click", (event) => {
       event.preventDefault();
       event.stopPropagation();
@@ -252,8 +254,9 @@ export class ReviewCodeView {
     const button = document.createElement("button");
     button.type = "button";
     button.className = "review-git-action";
-    button.textContent = "Hunks";
     button.ariaLabel = `Show hunk actions for ${path}`;
+    button.title = "Hunk actions";
+    this.appendActionIcon(button, "hunks");
     button.addEventListener("click", (event) => {
       event.preventDefault();
       event.stopPropagation();
@@ -313,6 +316,28 @@ export class ReviewCodeView {
     }
   }
 
+  private appendActionIcon(button: HTMLButtonElement, action: ReviewFileAction | "hunks"): void {
+    const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+    svg.setAttribute("viewBox", "0 0 16 16");
+    svg.setAttribute("aria-hidden", "true");
+    const icon = document.createElementNS("http://www.w3.org/2000/svg", "path");
+    const paths: Record<ReviewFileAction | "hunks", string> = {
+      stage: "M3.5 2.5h6l3 3v8h-9zM8 7v4M6 9h4",
+      unstage: "M3.5 2.5h6l3 3v8h-9zM6 9h4",
+      discard: "M5.3 5.2H2.5V2.4M2.8 5a5.4 5.4 0 1 1-.1 5.8",
+      delete: "M3.5 4.5h9M6 4.5V2.8h4v1.7M5 6.5l.6 6h4.8l.6-6",
+      hunks: "M3 3.5h4M3 7.8h7M3 12h4M11.5 10v4M9.5 12h4",
+    };
+    icon.setAttribute("d", paths[action]);
+    icon.setAttribute("fill", "none");
+    icon.setAttribute("stroke", "currentColor");
+    icon.setAttribute("stroke-width", "1.25");
+    icon.setAttribute("stroke-linecap", "round");
+    icon.setAttribute("stroke-linejoin", "round");
+    svg.append(icon);
+    button.append(svg);
+  }
+
   private reportError(error: unknown): void {
     this.actions?.onActionError(error instanceof Error ? error.message : String(error));
   }
@@ -329,15 +354,14 @@ export class ReviewCodeView {
     button.ariaLabel = disabled ? "Empty diff" : item.collapsed ? "Expand diff" : "Collapse diff";
 
     const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
-    svg.setAttribute("viewBox", "0 0 16 16");
+    svg.setAttribute("viewBox", "0 0 10 16");
     svg.setAttribute("aria-hidden", "true");
     const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
-    path.setAttribute("d", "M4.75 6.25 8 9.5l3.25-3.25");
-    path.setAttribute("fill", "none");
-    path.setAttribute("stroke", "currentColor");
-    path.setAttribute("stroke-width", "1.5");
-    path.setAttribute("stroke-linecap", "round");
-    path.setAttribute("stroke-linejoin", "round");
+    path.setAttribute(
+      "d",
+      "M.47 5.47a.75.75 0 0 1 1.06 0L5 8.94l3.47-3.47a.75.75 0 0 1 1.06 1.06l-4 4a.75.75 0 0 1-1.06 0l-4-4a.75.75 0 0 1 0-1.06",
+    );
+    path.setAttribute("fill", "currentColor");
     svg.append(path);
     button.append(svg);
     button.classList.toggle("is-collapsed", disabled || !!item.collapsed);
