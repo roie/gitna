@@ -1,3 +1,9 @@
+<!--
+  Modified from Pierre DiffsHub apps/diffshub/components/Switch.tsx at
+  diffs-v1.3.5 (59ec35ffac97abccef4c69f8d58d3747cbfbc6cb).
+  Ported from React/Radix/Tailwind to a native Svelte switch and scoped CSS.
+  Apache-2.0; Copyright 2025 Pierre Computer Company.
+-->
 <script lang="ts">
   interface Props {
     checked?: boolean

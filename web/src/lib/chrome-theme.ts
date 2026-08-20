@@ -1,12 +1,14 @@
 /**
- * deriveChromeTokens + diffshubChromeMapping ported from DiffsHub.
+ * Modified from Pierre DiffsHub at diffs-v1.3.5
+ * (59ec35ffac97abccef4c69f8d58d3747cbfbc6cb).
  *
- * Source: apps/diffshub/lib/theme/deriveChromeTokens.ts
- *         apps/diffshub/lib/theme/diffshubChromeMapping.ts
- * License: Apache-2.0 (Copyright 2025 Pierre Computer Company)
+ * Sources:
+ * - apps/diffshub/lib/theme/deriveChromeTokens.ts
+ * - apps/diffshub/lib/theme/diffshubChromeMapping.ts
  *
  * Adapted for Svelte: returns a Record<string, string> of CSS custom
  * properties instead of React CSSProperties.
+ * Apache-2.0; Copyright 2025 Pierre Computer Company.
  */
 import type { ThemeLike } from '@pierre/theming'
 import { colorUtils, normalizeThemeColors } from '@pierre/theming/color'

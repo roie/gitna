@@ -1,3 +1,9 @@
+<!--
+  Modified from Pierre DiffsHub apps/diffshub/components/Input.tsx at
+  diffs-v1.3.5 (59ec35ffac97abccef4c69f8d58d3747cbfbc6cb).
+  Ported from React/Tailwind to Svelte and component-scoped CSS.
+  Apache-2.0; Copyright 2025 Pierre Computer Company.
+-->
 <script lang="ts">
   interface Props {
     size?: 'default' | 'lg' | 'sm'
