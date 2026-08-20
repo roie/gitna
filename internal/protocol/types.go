@@ -1,6 +1,7 @@
 // Package protocol defines the JSON contract between the Go backend and the
-// browser. All repository data crosses the wire as these typed structures;
-// raw Git CLI text never reaches the frontend.
+// browser. Repository data crosses the wire as typed structures; the only raw
+// Git output exposed is an explicitly bounded, sanitized patch for Pierre's
+// review parser.
 package protocol
 
 import (
@@ -11,9 +12,10 @@ import (
 // Sentinel errors returned by repository operations and classified by the API
 // layer into HTTP status codes.
 var (
-	ErrInvalidPath = errors.New("invalid repository path")
-	ErrInvalidRef  = errors.New("invalid ref or oid")
-	ErrNotInRepo   = errors.New("path escapes repository")
+	ErrInvalidPath    = errors.New("invalid repository path")
+	ErrInvalidRef     = errors.New("invalid ref or oid")
+	ErrNotInRepo      = errors.New("path escapes repository")
+	ErrReviewTooLarge = errors.New("review exceeds bounded response limits")
 )
 
 // ChangeKind enumerates the change types a file can carry.
@@ -50,13 +52,13 @@ type FileChange struct {
 // RepoSnapshot is a point-in-time view of the repository's source-control
 // state, produced from git status and the worktree metadata.
 type RepoSnapshot struct {
-	Root       string       `json:"root"`
-	HeadOID    string       `json:"headOid,omitempty"`
-	HeadBranch string       `json:"headBranch,omitempty"`
-	Upstream   string       `json:"upstream,omitempty"`
-	Ahead      int          `json:"ahead"`
-	Behind     int          `json:"behind"`
-	Operation  string       `json:"operation"`
+	Root       string          `json:"root"`
+	HeadOID    string          `json:"headOid,omitempty"`
+	HeadBranch string          `json:"headBranch,omitempty"`
+	Upstream   string          `json:"upstream,omitempty"`
+	Ahead      int             `json:"ahead"`
+	Behind     int             `json:"behind"`
+	Operation  string          `json:"operation"`
 	Staged     []FileChange    `json:"staged"`
 	Unstaged   []FileChange    `json:"unstaged"`
 	Conflicts  []ConflictEntry `json:"conflicts,omitempty"`
@@ -65,22 +67,22 @@ type RepoSnapshot struct {
 
 // Operation names reported in RepoSnapshot.Operation.
 const (
-	OperationNone        = "none"
-	OperationMerge       = "merge"
-	OperationRebase      = "rebase"
-	OperationCherryPick  = "cherry-pick"
-	OperationRevert      = "revert"
+	OperationNone       = "none"
+	OperationMerge      = "merge"
+	OperationRebase     = "rebase"
+	OperationCherryPick = "cherry-pick"
+	OperationRevert     = "revert"
 )
 
 // DiffScope identifies which Git surfaces are compared for a diff.
 type DiffScope string
 
 const (
-	DiffUnstaged  DiffScope = "unstaged"
-	DiffStaged    DiffScope = "staged"
-	DiffCommit    DiffScope = "commit"
-	DiffCompare   DiffScope = "compare"
-	DiffConflict  DiffScope = "conflict"
+	DiffUnstaged DiffScope = "unstaged"
+	DiffStaged   DiffScope = "staged"
+	DiffCommit   DiffScope = "commit"
+	DiffCompare  DiffScope = "compare"
+	DiffConflict DiffScope = "conflict"
 )
 
 // DiffOptions carries the path and ref inputs for a diff request. Paths are
@@ -95,6 +97,35 @@ type DiffOptions struct {
 	// CompareFrom and CompareTo are required for DiffCompare scope.
 	CompareFrom string
 	CompareTo   string
+}
+
+// ReviewIdentity identifies the repository surface represented by a bounded
+// multi-file review. Commit and compare refs are populated only for their
+// corresponding scope.
+type ReviewIdentity struct {
+	Scope       DiffScope `json:"scope"`
+	Commit      string    `json:"commit,omitempty"`
+	CompareFrom string    `json:"from,omitempty"`
+	CompareTo   string    `json:"to,omitempty"`
+}
+
+// ReviewSupplement carries content that is not represented by the tracked Git
+// patch, currently untracked worktree files. Binary and oversized entries keep
+// empty content and are explained by FileDiff's flags.
+type ReviewSupplement struct {
+	Path string     `json:"path"`
+	Kind ChangeKind `json:"kind"`
+	Diff FileDiff   `json:"diff"`
+}
+
+// ReviewResponse is the bounded read model consumed by the continuous review
+// surface. Patch contains tracked changes only; supplements complete the scope
+// without issuing one HTTP request per untracked file.
+type ReviewResponse struct {
+	Generation  uint64             `json:"generation"`
+	Identity    ReviewIdentity     `json:"identity"`
+	Patch       string             `json:"patch"`
+	Supplements []ReviewSupplement `json:"supplements"`
 }
 
 // FileVersion is one side of a single-file diff.
@@ -114,6 +145,7 @@ type FileDiff struct {
 	Binary   bool        `json:"binary"`
 	TooLarge bool        `json:"tooLarge"`
 	Patch    string      `json:"patch,omitempty"`
+	PatchID  string      `json:"patchId,omitempty"`
 }
 
 // CommitRequest carries the message and amend flag for a commit operation.

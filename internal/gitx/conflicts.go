@@ -97,7 +97,7 @@ func (r Repository) ConflictBlob(ctx context.Context, runner Runner, path string
 	if stage < 1 || stage > 3 {
 		return nil, fmt.Errorf("gitx: invalid conflict stage %d", stage)
 	}
-	if err := validateRef(path); err != nil {
+	if err := validatePath(path); err != nil {
 		return nil, err
 	}
 	stageRef := fmt.Sprintf(":%d:%s", stage, path)
@@ -115,7 +115,7 @@ func (r Repository) ConflictBlob(ctx context.Context, runner Runner, path string
 // worktree and stages it, marking the conflict as resolved. The side is
 // "ours" (2) or "theirs" (3).
 func (r Repository) ResolveConflictSide(ctx context.Context, runner Runner, path string, theirs bool) error {
-	if err := validateRef(path); err != nil {
+	if err := validatePath(path); err != nil {
 		return err
 	}
 	side := "ours"

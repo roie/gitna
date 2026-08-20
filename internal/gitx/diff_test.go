@@ -5,6 +5,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -323,6 +324,64 @@ func TestDiffStagedCarriesPatch(t *testing.T) {
 	}
 	if !strings.Contains(d.Patch, "@@") || !strings.Contains(d.Patch, "+two") {
 		t.Fatalf("Patch does not describe the staged change:\n%s", d.Patch)
+	}
+}
+
+func TestDiffPatchDoesNotExecuteTextconv(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("textconv marker fixture uses a POSIX shell script")
+	}
+	for _, tc := range []struct {
+		name  string
+		scope protocol.DiffScope
+	}{
+		{name: "unstaged", scope: protocol.DiffUnstaged},
+		{name: "staged", scope: protocol.DiffStaged},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			root := initTestRepo(t)
+			writeFile(t, filepath.Join(root, ".gitattributes"), "*.tc diff=gitna-marker\n")
+			writeFile(t, filepath.Join(root, "file.tc"), "base\n")
+			runGit(t, root, "add", ".gitattributes", "file.tc")
+			runGit(t, root, "commit", "-qm", "base")
+
+			fixtureDir := t.TempDir()
+			marker := filepath.Join(fixtureDir, "invoked")
+			script := filepath.Join(fixtureDir, "textconv.sh")
+			if err := os.WriteFile(script, []byte("#!/bin/sh\nprintf invoked > \"$1\"\ncat \"$2\"\n"), 0o755); err != nil {
+				t.Fatal(err)
+			}
+			runGit(t, root, "config", "diff.gitna-marker.textconv", script+" "+marker)
+			writeFile(t, filepath.Join(root, "file.tc"), "changed\n")
+			if tc.scope == protocol.DiffStaged {
+				runGit(t, root, "add", "file.tc")
+			}
+
+			repo := Repository{Root: root, GitDir: filepath.Join(root, ".git")}
+			d, err := repo.Diff(context.Background(), &ExecRunner{}, tc.scope, protocol.DiffOptions{Path: "file.tc"})
+			if err != nil {
+				t.Fatalf("Diff: %v", err)
+			}
+			if d.Before.Content != "base\n" || d.After.Content != "changed\n" {
+				t.Fatalf("contents = %q -> %q, want raw blob contents", d.Before.Content, d.After.Content)
+			}
+			if !strings.Contains(d.Patch, "@@") || !strings.Contains(d.Patch, "+changed") {
+				t.Fatalf("Patch does not describe the raw change:\n%s", d.Patch)
+			}
+			if _, err := os.Stat(marker); !errors.Is(err, os.ErrNotExist) {
+				t.Fatalf("textconv marker exists after Diff: %v", err)
+			}
+
+			args := []string{"diff", "--textconv"}
+			if tc.scope == protocol.DiffStaged {
+				args = append(args, "--cached")
+			}
+			args = append(args, "--", "file.tc")
+			runGit(t, root, args...)
+			if _, err := os.Stat(marker); err != nil {
+				t.Fatalf("textconv fixture did not execute under explicit --textconv: %v", err)
+			}
+		})
 	}
 }
 

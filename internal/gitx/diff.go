@@ -42,11 +42,11 @@ func (r Repository) Diff(ctx context.Context, runner Runner, scope protocol.Diff
 	}
 
 	var (
-		beforeRaw, afterRaw   []byte
-		beforePresent         bool
-		afterPresent          bool
-		tooLarge              bool
-		err                   error
+		beforeRaw, afterRaw []byte
+		beforePresent       bool
+		afterPresent        bool
+		tooLarge            bool
+		err                 error
 	)
 
 	switch scope {
@@ -143,7 +143,7 @@ func (r Repository) Diff(ctx context.Context, runner Runner, scope protocol.Diff
 // empty or oversized output returns an empty patch (hunk operations
 // unavailable) rather than shipping megabytes to the browser.
 func (r Repository) diffPatch(ctx context.Context, runner Runner, cached bool, path string) (string, error) {
-	args := []string{"-c", "diff.color=never", "diff", "--no-ext-diff"}
+	args := []string{"-c", "diff.color=never", "diff", "--no-ext-diff", "--no-textconv"}
 	if cached {
 		args = append(args, "--cached")
 	}

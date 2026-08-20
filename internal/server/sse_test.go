@@ -94,6 +94,25 @@ func TestEventsStreamsInvalidationKinds(t *testing.T) {
 	readUntil(t, br, "event: graph-invalidated")
 }
 
+func TestInvalidationAdvancesGeneration(t *testing.T) {
+	src := make(chan watch.InvalidationKind, 1)
+	srv, err := New(newTestFS(), Options{Token: testToken, Host: testHost, Repo: &fakeRepo{}, Events: src})
+	if err != nil {
+		t.Fatal(err)
+	}
+	before := srv.gen.Load()
+	src <- watch.InvalidateSnapshot
+
+	deadline := time.Now().Add(time.Second)
+	for srv.gen.Load() == before && time.Now().Before(deadline) {
+		time.Sleep(time.Millisecond)
+	}
+	if got := srv.gen.Load(); got <= before {
+		t.Fatalf("generation = %d, want greater than %d after invalidation", got, before)
+	}
+	close(src)
+}
+
 func TestEventsStreamClosesWithoutSource(t *testing.T) {
 	ts := startEventsServer(t, nil)
 	res, err := http.Get(eventsURL(ts))

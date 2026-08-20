@@ -7,8 +7,6 @@ import (
 	"strings"
 )
 
-
-
 // Security enforces the loopback session boundary: capability URL, Host
 // validation, mutation origin/content-type checks, request size limits, and
 // strict response headers.
@@ -31,13 +29,13 @@ func (s Security) Wrap(next http.Handler) http.Handler {
 			return
 		}
 
-		if r.URL.Path == "/" {
-			http.Redirect(w, r, "/s/"+s.Token+"/", http.StatusFound)
+		if r.Host != s.Host {
+			http.Error(w, "forbidden", http.StatusForbidden)
 			return
 		}
 
-		if r.Host != s.Host {
-			http.Error(w, "forbidden", http.StatusForbidden)
+		if r.URL.Path == "/" {
+			http.Redirect(w, r, "/s/"+s.Token+"/", http.StatusFound)
 			return
 		}
 
@@ -61,11 +59,15 @@ func (s Security) Wrap(next http.Handler) http.Handler {
 				http.Error(w, "unsupported media type", http.StatusUnsupportedMediaType)
 				return
 			}
-			if r.ContentLength > MaxRequestBody {
+			bodyLimit := MaxRequestBody
+			if r.URL.Path == prefix+"/api/v1/operations" {
+				bodyLimit = operationRequestBodyLimit(r.URL.Query().Get("op"))
+			}
+			if r.ContentLength > bodyLimit {
 				http.Error(w, "request body too large", http.StatusRequestEntityTooLarge)
 				return
 			}
-			r.Body = http.MaxBytesReader(w, r.Body, MaxRequestBody)
+			r.Body = http.MaxBytesReader(w, r.Body, bodyLimit)
 		}
 
 		http.StripPrefix(prefix, next).ServeHTTP(w, r)

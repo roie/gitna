@@ -14,9 +14,10 @@ import (
 )
 
 type fakeRepo struct {
-	snap protocol.RepoSnapshot
-	err  error
-	diff protocol.FileDiff
+	snap   protocol.RepoSnapshot
+	err    error
+	diff   protocol.FileDiff
+	review protocol.ReviewResponse
 
 	graphCommits []protocol.GraphCommit
 	graphFiles   []protocol.CommitFile
@@ -44,6 +45,7 @@ type fakeRepo struct {
 	historyCalls []string
 	resetModes   []string
 	compareCalls []string
+	reviewCalls  []protocol.ReviewIdentity
 }
 
 // opFail returns the error a mutation method should report. opErr takes
@@ -72,6 +74,21 @@ func (f *fakeRepo) Diff(context.Context, protocol.DiffScope, protocol.DiffOption
 		return protocol.FileDiff{}, f.err
 	}
 	return f.diff, nil
+}
+
+func (f *fakeRepo) Review(_ context.Context, scope protocol.DiffScope, opts protocol.DiffOptions) (protocol.ReviewResponse, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.reviewCalls = append(f.reviewCalls, protocol.ReviewIdentity{
+		Scope:       scope,
+		Commit:      opts.Commit,
+		CompareFrom: opts.CompareFrom,
+		CompareTo:   opts.CompareTo,
+	})
+	if f.err != nil {
+		return protocol.ReviewResponse{}, f.err
+	}
+	return f.review, nil
 }
 
 func (f *fakeRepo) History(context.Context, int, int) ([]protocol.GraphCommit, error) {
@@ -409,7 +426,55 @@ func TestSnapshotRouteReturnsNormalizedJSON(t *testing.T) {
 	}
 }
 
-func TestSnapshotGenerationIncrements(t *testing.T) {
+func TestSnapshotFileLimit(t *testing.T) {
+	request := func(snap protocol.RepoSnapshot) *httptest.ResponseRecorder {
+		h := newSnapshotServer(&fakeRepo{snap: snap})
+		req := httptest.NewRequest(http.MethodGet, "/s/"+testToken+"/api/v1/snapshot", nil)
+		req.Host = testHost
+		rec := httptest.NewRecorder()
+		h.ServeHTTP(rec, req)
+		return rec
+	}
+
+	exact := protocol.RepoSnapshot{Staged: make([]protocol.FileChange, snapshotFileLimit)}
+	if rec := request(exact); rec.Code != http.StatusOK {
+		t.Fatalf("exact limit status = %d, want 200 (%s)", rec.Code, rec.Body)
+	}
+
+	over := protocol.RepoSnapshot{
+		Staged:    make([]protocol.FileChange, 4_000),
+		Unstaged:  make([]protocol.FileChange, 4_000),
+		Conflicts: make([]protocol.ConflictEntry, 2_001),
+	}
+	rec := request(over)
+	if rec.Code != http.StatusRequestEntityTooLarge {
+		t.Fatalf("over limit status = %d, want 413 (%s)", rec.Code, rec.Body)
+	}
+	var body map[string]any
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatal(err)
+	}
+	if body["code"] != "snapshot-too-large" || body["limit"] != float64(snapshotFileLimit) || body["count"] != float64(snapshotFileLimit+1) {
+		t.Fatalf("body = %#v, want snapshot-too-large with limit/count", body)
+	}
+}
+
+type snapshotRaceRepo struct {
+	*fakeRepo
+	onFirstSnapshot func()
+	calls           int
+}
+
+func (r *snapshotRaceRepo) Snapshot(context.Context) (protocol.RepoSnapshot, error) {
+	r.calls++
+	if r.calls == 1 {
+		r.onFirstSnapshot()
+		return protocol.RepoSnapshot{HeadBranch: "stale"}, nil
+	}
+	return protocol.RepoSnapshot{HeadBranch: "fresh"}, nil
+}
+
+func TestSnapshotGenerationStableWithoutInvalidation(t *testing.T) {
 	h := newSnapshotServer(&fakeRepo{snap: protocol.RepoSnapshot{}})
 
 	gen := func() uint64 {
@@ -426,8 +491,32 @@ func TestSnapshotGenerationIncrements(t *testing.T) {
 
 	g1 := gen()
 	g2 := gen()
-	if g2 <= g1 {
-		t.Fatalf("generation did not advance: g1=%d g2=%d", g1, g2)
+	if g2 != g1 {
+		t.Fatalf("unchanged reads advanced generation: g1=%d g2=%d", g1, g2)
+	}
+}
+
+func TestSnapshotRetriesWhenGenerationChangesDuringRead(t *testing.T) {
+	repo := &snapshotRaceRepo{fakeRepo: &fakeRepo{}}
+	srv, err := New(newTestFS(), Options{Token: testToken, Host: testHost, Repo: repo})
+	if err != nil {
+		t.Fatal(err)
+	}
+	repo.onFirstSnapshot = func() { srv.gen.Add(1) }
+
+	req := httptest.NewRequest(http.MethodGet, "/s/"+testToken+"/api/v1/snapshot", nil)
+	req.Host = testHost
+	rec := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200 (%s)", rec.Code, rec.Body)
+	}
+	var got protocol.RepoSnapshot
+	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
+		t.Fatal(err)
+	}
+	if repo.calls != 2 || got.HeadBranch != "fresh" || got.Generation != 2 {
+		t.Fatalf("calls=%d snapshot=%+v, want retried fresh generation 2", repo.calls, got)
 	}
 }
 
@@ -461,6 +550,7 @@ func TestDiffRouteReturnsFileDiff(t *testing.T) {
 	h := newSnapshotServer(&fakeRepo{diff: protocol.FileDiff{
 		Before: protocol.FileVersion{Path: "a.txt", Language: "text", Content: "one\n"},
 		After:  protocol.FileVersion{Path: "a.txt", Language: "text", Content: "one\ntwo\n"},
+		Patch:  "full patch",
 	}})
 
 	req := httptest.NewRequest(http.MethodGet, "/s/"+testToken+"/api/v1/diff?scope=unstaged&path=a.txt", nil)
@@ -477,6 +567,9 @@ func TestDiffRouteReturnsFileDiff(t *testing.T) {
 	}
 	if got.Before.Content != "one\n" || got.After.Content != "one\ntwo\n" {
 		t.Fatalf("got %+v, want before one\\n after one\\ntwo\\n", got)
+	}
+	if got.PatchID == "" {
+		t.Fatal("mutable diff did not receive a patch identity")
 	}
 }
 
@@ -673,5 +766,101 @@ func TestBranchesRouteUnavailableWithoutRepo(t *testing.T) {
 
 	if rec.Code != http.StatusServiceUnavailable {
 		t.Fatalf("status = %d, want %d", rec.Code, http.StatusServiceUnavailable)
+	}
+}
+
+func TestReviewRouteScopes(t *testing.T) {
+	tests := []struct {
+		name string
+		path string
+		want protocol.ReviewIdentity
+	}{
+		{name: "unstaged", path: "/api/v1/review?scope=unstaged", want: protocol.ReviewIdentity{Scope: protocol.DiffUnstaged}},
+		{name: "staged", path: "/api/v1/review?scope=staged", want: protocol.ReviewIdentity{Scope: protocol.DiffStaged}},
+		{name: "commit", path: "/api/v1/review?scope=commit&commit=abc123", want: protocol.ReviewIdentity{Scope: protocol.DiffCommit, Commit: "abc123"}},
+		{name: "compare", path: "/api/v1/review?scope=compare&from=main&to=topic", want: protocol.ReviewIdentity{Scope: protocol.DiffCompare, CompareFrom: "main", CompareTo: "topic"}},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			repo := &fakeRepo{review: protocol.ReviewResponse{Identity: tc.want, Patch: "patch"}}
+			h := newSnapshotServer(repo)
+			req := httptest.NewRequest(http.MethodGet, "/s/"+testToken+tc.path, nil)
+			req.Host = testHost
+			rec := httptest.NewRecorder()
+			h.ServeHTTP(rec, req)
+			if rec.Code != http.StatusOK {
+				t.Fatalf("status = %d, want 200 (%s)", rec.Code, rec.Body)
+			}
+			var got protocol.ReviewResponse
+			if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
+				t.Fatal(err)
+			}
+			if len(repo.reviewCalls) != 1 || repo.reviewCalls[0] != tc.want {
+				t.Fatalf("review calls = %+v, want %+v", repo.reviewCalls, tc.want)
+			}
+			if got.Generation != 1 || got.Patch != "patch" || got.Identity != tc.want {
+				t.Fatalf("review = %+v", got)
+			}
+		})
+	}
+}
+
+func TestReviewRouteRejectsInvalidAndOversizedRequests(t *testing.T) {
+	invalidRepo := &fakeRepo{}
+	h := newSnapshotServer(invalidRepo)
+	req := httptest.NewRequest(http.MethodGet, "/s/"+testToken+"/api/v1/review?scope=conflict", nil)
+	req.Host = testHost
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	if rec.Code != http.StatusBadRequest || len(invalidRepo.reviewCalls) != 0 {
+		t.Fatalf("invalid status=%d calls=%d", rec.Code, len(invalidRepo.reviewCalls))
+	}
+
+	h = newSnapshotServer(&fakeRepo{err: protocol.ErrReviewTooLarge})
+	req = httptest.NewRequest(http.MethodGet, "/s/"+testToken+"/api/v1/review?scope=staged", nil)
+	req.Host = testHost
+	rec = httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	if rec.Code != http.StatusRequestEntityTooLarge || !strings.Contains(rec.Body.String(), "review-too-large") {
+		t.Fatalf("oversized status=%d body=%s", rec.Code, rec.Body)
+	}
+}
+
+type reviewRaceRepo struct {
+	*fakeRepo
+	onFirstReview func()
+	calls         int
+}
+
+func (r *reviewRaceRepo) Review(context.Context, protocol.DiffScope, protocol.DiffOptions) (protocol.ReviewResponse, error) {
+	r.calls++
+	if r.calls == 1 {
+		r.onFirstReview()
+		return protocol.ReviewResponse{Patch: "stale"}, nil
+	}
+	return protocol.ReviewResponse{Patch: "fresh"}, nil
+}
+
+func TestReviewRetriesWhenGenerationChangesDuringRead(t *testing.T) {
+	repo := &reviewRaceRepo{fakeRepo: &fakeRepo{}}
+	srv, err := New(newTestFS(), Options{Token: testToken, Host: testHost, Repo: repo})
+	if err != nil {
+		t.Fatal(err)
+	}
+	repo.onFirstReview = func() { srv.gen.Add(1) }
+
+	req := httptest.NewRequest(http.MethodGet, "/s/"+testToken+"/api/v1/review?scope=unstaged", nil)
+	req.Host = testHost
+	rec := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200 (%s)", rec.Code, rec.Body)
+	}
+	var got protocol.ReviewResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
+		t.Fatal(err)
+	}
+	if repo.calls != 2 || got.Patch != "fresh" || got.Generation != 2 {
+		t.Fatalf("calls=%d review=%+v, want retried fresh generation 2", repo.calls, got)
 	}
 }

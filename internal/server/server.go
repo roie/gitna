@@ -21,6 +21,7 @@ import (
 type Repo interface {
 	Snapshot(ctx context.Context) (protocol.RepoSnapshot, error)
 	Diff(ctx context.Context, scope protocol.DiffScope, opts protocol.DiffOptions) (protocol.FileDiff, error)
+	Review(ctx context.Context, scope protocol.DiffScope, opts protocol.DiffOptions) (protocol.ReviewResponse, error)
 	History(ctx context.Context, skip, limit int) ([]protocol.GraphCommit, error)
 	FilesChanged(ctx context.Context, oid string) ([]protocol.CommitFile, error)
 	Branches(ctx context.Context) ([]protocol.Branch, error)
@@ -95,12 +96,18 @@ func New(staticFS fs.FS, opts Options) (*Server, error) {
 	s := &Server{
 		static: staticFS,
 		repo:   opts.Repo,
-		hub:    newEventsHub(opts.Events),
 		security: Security{
 			Token: opts.Token,
 			Host:  opts.Host,
 		},
 	}
+	// Generation identifies known repository state. Reads keep it stable;
+	// successful mutations and watcher invalidations advance it.
+	s.gen.Store(1)
+	s.hub = newEventsHub(opts.Events)
+	s.hub.start(func(watch.InvalidationKind) {
+		s.gen.Add(1)
+	})
 	s.api = s.apiRoutes()
 	return s, nil
 }

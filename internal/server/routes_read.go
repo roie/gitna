@@ -27,6 +27,8 @@ func (s *Server) apiRoutes() http.Handler {
 			s.handleSnapshot(w, r)
 		case r.Method == http.MethodGet && p == "/diff":
 			s.handleDiff(w, r)
+		case r.Method == http.MethodGet && p == "/review":
+			s.handleReview(w, r)
 		case r.Method == http.MethodGet && p == "/graph":
 			s.handleGraph(w, r)
 		case r.Method == http.MethodGet && p == "/branches":
@@ -51,10 +53,9 @@ func (s *Server) apiRoutes() http.Handler {
 	})
 }
 
-// handleDiff returns the before/after content of one changed file in the
-// requested scope. Scope comes from the scope query parameter; Path, OldPath,
-// and commit/compare refs are validated by the gitx layer, and the protocol
-// sentinel errors are mapped to client-friendly status codes.
+// handleDiff returns one file diff from a stable repository generation. Mutable
+// staged/unstaged patches receive an opaque identity that is verified before a
+// later partial-patch mutation is allowed.
 func (s *Server) handleDiff(w http.ResponseWriter, r *http.Request) {
 	if s.repo == nil {
 		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "repository unavailable"})
@@ -63,6 +64,7 @@ func (s *Server) handleDiff(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), DiffTimeout)
 	defer cancel()
 	q := r.URL.Query()
+	scope := protocol.DiffScope(q.Get("scope"))
 	opts := protocol.DiffOptions{
 		Path:        q.Get("path"),
 		OldPath:     q.Get("oldPath"),
@@ -70,28 +72,106 @@ func (s *Server) handleDiff(w http.ResponseWriter, r *http.Request) {
 		CompareFrom: q.Get("from"),
 		CompareTo:   q.Get("to"),
 	}
-	d, err := s.repo.Diff(ctx, protocol.DiffScope(q.Get("scope")), opts)
-	if err != nil {
-		if timeoutReached(ctx, err) {
-			writeJSON(w, http.StatusGatewayTimeout, map[string]string{"error": "diff timed out"})
+
+	const maxDiffAttempts = 3
+	for range maxDiffAttempts {
+		generation := s.gen.Load()
+		d, err := s.repo.Diff(ctx, scope, opts)
+		if err != nil {
+			if timeoutReached(ctx, err) {
+				writeJSON(w, http.StatusGatewayTimeout, map[string]string{"error": "diff timed out"})
+				return
+			}
+			status := http.StatusInternalServerError
+			switch {
+			case errors.Is(err, protocol.ErrInvalidPath), errors.Is(err, protocol.ErrInvalidRef), errors.Is(err, protocol.ErrNotInRepo):
+				status = http.StatusBadRequest
+			}
+			writeJSON(w, status, map[string]string{"error": err.Error()})
 			return
 		}
-		status := http.StatusInternalServerError
-		switch {
-		case errors.Is(err, protocol.ErrInvalidPath), errors.Is(err, protocol.ErrInvalidRef):
-			status = http.StatusBadRequest
-		case errors.Is(err, protocol.ErrNotInRepo):
-			status = http.StatusBadRequest
+		if generation != s.gen.Load() {
+			continue
 		}
-		writeJSON(w, status, map[string]string{"error": err.Error()})
+		if d.Patch != "" && (scope == protocol.DiffUnstaged || scope == protocol.DiffStaged) {
+			patchID, err := s.issuePatchIdentity(generation, scope, opts.Path, d.Patch)
+			if err != nil {
+				writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+				return
+			}
+			d.PatchID = patchID
+		}
+		writeJSON(w, http.StatusOK, d)
 		return
 	}
-	writeJSON(w, http.StatusOK, d)
+
+	writeJSON(w, http.StatusConflict, map[string]string{
+		"error": "repository changed while diff was loading",
+		"code":  "diff-invalidated",
+	})
 }
 
-// handleSnapshot returns the normalized repository state. The generation
-// counter advances per response so the browser can discard stale reads that
-// race a newer refresh.
+// handleReview returns one bounded multi-file patch from a stable repository
+// generation. A raced invalidation retries the complete read so patch and
+// supplements always carry the same generation identity.
+func (s *Server) handleReview(w http.ResponseWriter, r *http.Request) {
+	if s.repo == nil {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "repository unavailable"})
+		return
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), ReviewTimeout)
+	defer cancel()
+	q := r.URL.Query()
+	scope := protocol.DiffScope(q.Get("scope"))
+	if scope != protocol.DiffUnstaged && scope != protocol.DiffStaged && scope != protocol.DiffCommit && scope != protocol.DiffCompare {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid review scope", "code": "invalid-review"})
+		return
+	}
+	opts := protocol.DiffOptions{
+		Commit:      q.Get("commit"),
+		CompareFrom: q.Get("from"),
+		CompareTo:   q.Get("to"),
+	}
+
+	const maxReviewAttempts = 3
+	for range maxReviewAttempts {
+		generation := s.gen.Load()
+		review, err := s.repo.Review(ctx, scope, opts)
+		if err != nil {
+			if timeoutReached(ctx, err) {
+				writeJSON(w, http.StatusGatewayTimeout, map[string]string{"error": "review timed out"})
+				return
+			}
+			status := http.StatusInternalServerError
+			code := "review-failed"
+			switch {
+			case errors.Is(err, protocol.ErrInvalidRef), errors.Is(err, protocol.ErrInvalidPath), errors.Is(err, protocol.ErrNotInRepo):
+				status = http.StatusBadRequest
+				code = "invalid-review"
+			case errors.Is(err, protocol.ErrReviewTooLarge):
+				status = http.StatusRequestEntityTooLarge
+				code = "review-too-large"
+			}
+			writeJSON(w, status, map[string]string{"error": err.Error(), "code": code})
+			return
+		}
+		if generation != s.gen.Load() {
+			continue
+		}
+		review.Generation = generation
+		writeJSON(w, http.StatusOK, review)
+		return
+	}
+
+	writeJSON(w, http.StatusConflict, map[string]string{
+		"error": "repository changed while review was loading",
+		"code":  "review-invalidated",
+	})
+}
+
+// handleSnapshot returns normalized repository state stamped with the stable
+// generation observed while it was read. If an invalidation races the read,
+// the snapshot is retried instead of publishing old state under a new identity.
 func (s *Server) handleSnapshot(w http.ResponseWriter, r *http.Request) {
 	if s.repo == nil {
 		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "repository unavailable"})
@@ -99,17 +179,42 @@ func (s *Server) handleSnapshot(w http.ResponseWriter, r *http.Request) {
 	}
 	ctx, cancel := context.WithTimeout(r.Context(), SnapshotTimeout)
 	defer cancel()
-	snap, err := s.repo.Snapshot(ctx)
-	if err != nil {
-		if timeoutReached(ctx, err) {
-			writeJSON(w, http.StatusGatewayTimeout, map[string]string{"error": "snapshot timed out"})
+
+	const maxSnapshotAttempts = 3
+	for range maxSnapshotAttempts {
+		generation := s.gen.Load()
+		snap, err := s.repo.Snapshot(ctx)
+		if err != nil {
+			if timeoutReached(ctx, err) {
+				writeJSON(w, http.StatusGatewayTimeout, map[string]string{"error": "snapshot timed out"})
+				return
+			}
+			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 			return
 		}
-		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		if generation != s.gen.Load() {
+			continue
+		}
+
+		fileCount := len(snap.Staged) + len(snap.Unstaged) + len(snap.Conflicts)
+		if fileCount > snapshotFileLimit {
+			writeJSON(w, http.StatusRequestEntityTooLarge, map[string]any{
+				"error": "snapshot file limit exceeded",
+				"code":  "snapshot-too-large",
+				"limit": snapshotFileLimit,
+				"count": fileCount,
+			})
+			return
+		}
+		snap.Generation = generation
+		writeJSON(w, http.StatusOK, snap)
 		return
 	}
-	snap.Generation = s.gen.Add(1)
-	writeJSON(w, http.StatusOK, snap)
+
+	writeJSON(w, http.StatusConflict, map[string]string{
+		"error": "repository changed while snapshot was loading",
+		"code":  "snapshot-invalidated",
+	})
 }
 
 // graphPageSize bounds a single history page; the frontend appends pages until

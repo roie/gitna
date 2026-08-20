@@ -48,6 +48,31 @@ func TestOperationMergeAndRebaseOps(t *testing.T) {
 	}
 }
 
+func TestOperationConflictResolutionRequiresOnePath(t *testing.T) {
+	for _, op := range []string{OpResolveOurs, OpResolveTheirs} {
+		for _, paths := range [][]string{nil, {}, {"a.txt", "b.txt"}} {
+			repo := &fakeRepo{}
+			rec := postOperation(t, repo, op, mutationRequest{Paths: paths})
+			if rec.Code != http.StatusBadRequest {
+				t.Fatalf("%s paths=%v: status = %d, want 400 (%s)", op, paths, rec.Code, rec.Body)
+			}
+			var body map[string]any
+			if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+				t.Fatal(err)
+			}
+			if body["code"] != "invalid-path-count" {
+				t.Fatalf("%s paths=%v: code = %v, want invalid-path-count", op, paths, body["code"])
+			}
+			repo.mu.Lock()
+			calls := append([]string(nil), repo.historyCalls...)
+			repo.mu.Unlock()
+			if len(calls) != 0 {
+				t.Fatalf("%s paths=%v: repository calls = %v, want none", op, paths, calls)
+			}
+		}
+	}
+}
+
 func TestOperationMergeAndRebaseErrors(t *testing.T) {
 	for _, tc := range []struct {
 		name string

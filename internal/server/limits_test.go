@@ -3,6 +3,7 @@ package server
 import (
 	"context"
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -15,8 +16,17 @@ import (
 // --- Limit constant boundary tests ---
 
 func TestLimitConstantsPositive(t *testing.T) {
-	if MaxRequestBody <= 0 {
-		t.Fatalf("MaxRequestBody = %d, want > 0", MaxRequestBody)
+	if MaxRequestBody != 1<<20 {
+		t.Fatalf("MaxRequestBody = %d, want 1 MiB", MaxRequestBody)
+	}
+	if MaxPatchRequestBody != 20<<20 {
+		t.Fatalf("MaxPatchRequestBody = %d, want 20 MiB", MaxPatchRequestBody)
+	}
+	if pathBatchLimit <= 0 {
+		t.Fatalf("pathBatchLimit = %d, want > 0", pathBatchLimit)
+	}
+	if snapshotFileLimit <= 0 {
+		t.Fatalf("snapshotFileLimit = %d, want > 0", snapshotFileLimit)
 	}
 	if SnapshotTimeout <= 0 {
 		t.Fatalf("SnapshotTimeout = %v, want > 0", SnapshotTimeout)
@@ -134,6 +144,8 @@ func TestReadHandlerTimeouts(t *testing.T) {
 		{"snapshot deadline", http.MethodGet, "/api/v1/snapshot", context.DeadlineExceeded, http.StatusGatewayTimeout},
 		{"diff canceled", http.MethodGet, "/api/v1/diff?scope=unstaged&path=a.txt", context.Canceled, http.StatusGatewayTimeout},
 		{"diff deadline", http.MethodGet, "/api/v1/diff?scope=unstaged&path=a.txt", context.DeadlineExceeded, http.StatusGatewayTimeout},
+		{"review canceled", http.MethodGet, "/api/v1/review?scope=unstaged", context.Canceled, http.StatusGatewayTimeout},
+		{"review deadline", http.MethodGet, "/api/v1/review?scope=unstaged", context.DeadlineExceeded, http.StatusGatewayTimeout},
 		{"graph canceled", http.MethodGet, "/api/v1/graph", context.Canceled, http.StatusGatewayTimeout},
 		{"graph deadline", http.MethodGet, "/api/v1/graph", context.DeadlineExceeded, http.StatusGatewayTimeout},
 		{"branches canceled", http.MethodGet, "/api/v1/branches", context.Canceled, http.StatusGatewayTimeout},
@@ -183,8 +195,8 @@ func TestOperationMapsOutputLimitError(t *testing.T) {
 
 func TestMutationTimeoutRouting(t *testing.T) {
 	tests := []struct {
-		op    string
-		want  time.Duration
+		op   string
+		want time.Duration
 	}{
 		{"fetch", NetworkTimeout},
 		{"pull", NetworkTimeout},
@@ -216,7 +228,7 @@ type dummyReader struct {
 
 func (d *dummyReader) Read(p []byte) (int, error) {
 	if d.off >= len(d.data) {
-		return 0, nil // EOF
+		return 0, io.EOF
 	}
 	n := copy(p, d.data[d.off:])
 	d.off += n
@@ -248,6 +260,9 @@ func (s *slowRepo) Snapshot(ctx context.Context) (protocol.RepoSnapshot, error) 
 }
 func (s *slowRepo) Diff(ctx context.Context, _ protocol.DiffScope, _ protocol.DiffOptions) (protocol.FileDiff, error) {
 	return protocol.FileDiff{}, s.block(ctx)
+}
+func (s *slowRepo) Review(ctx context.Context, _ protocol.DiffScope, _ protocol.DiffOptions) (protocol.ReviewResponse, error) {
+	return protocol.ReviewResponse{}, s.block(ctx)
 }
 func (s *slowRepo) History(ctx context.Context, _, _ int) ([]protocol.GraphCommit, error) {
 	return nil, s.block(ctx)

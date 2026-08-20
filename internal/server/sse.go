@@ -22,24 +22,31 @@ const (
 // connected subscriber. Slow or disconnected clients never block the source:
 // per-subscriber buffers drop events under pressure.
 type eventsHub struct {
-	src  <-chan watch.InvalidationKind
-	mu   sync.Mutex
-	subs map[chan watch.InvalidationKind]struct{}
+	src     <-chan watch.InvalidationKind
+	onEvent func(watch.InvalidationKind)
+	mu      sync.Mutex
+	subs    map[chan watch.InvalidationKind]struct{}
 }
 
 func newEventsHub(src <-chan watch.InvalidationKind) *eventsHub {
-	h := &eventsHub{
+	return &eventsHub{
 		src:  src,
 		subs: make(map[chan watch.InvalidationKind]struct{}),
 	}
-	if src != nil {
+}
+
+func (h *eventsHub) start(onEvent func(watch.InvalidationKind)) {
+	h.onEvent = onEvent
+	if h.src != nil {
 		go h.dispatch()
 	}
-	return h
 }
 
 func (h *eventsHub) dispatch() {
 	for k := range h.src {
+		if h.onEvent != nil {
+			h.onEvent(k)
+		}
 		h.mu.Lock()
 		for ch := range h.subs {
 			select {

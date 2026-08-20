@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"io"
 	"net/http"
 	"time"
 
@@ -52,8 +53,12 @@ type mutationRequest struct {
 	// Paths selects files for path-level operations (stage, unstage, discard,
 	// delete).
 	Paths []string `json:"paths"`
-	// Patch is a unified diff for whole-hunk staging/unstaging.
-	Patch string `json:"patch"`
+	// Patch is a unified diff for whole-hunk staging/unstaging. PatchID binds it
+	// to the full diff, path, scope, and repository generation issued by /diff.
+	Patch      string             `json:"patch"`
+	PatchID    string             `json:"patchId"`
+	PatchScope protocol.DiffScope `json:"scope"`
+	PatchPath  string             `json:"path"`
 	// Reverse applies the patch to the index in reverse (unstage).
 	Reverse bool `json:"reverse"`
 	// Message and Amend carry the commit request for the commit operation.
@@ -99,10 +104,10 @@ func withTimeout(ctx context.Context, d time.Duration) (context.Context, context
 // handleCommit runs a commit/amend. Hooks run normally; a rejected commit is
 // not an HTTP error — git's exit code and output are relayed in the body so the
 // composer can show the hook's reason while preserving the user's text.
-func handleCommit(w http.ResponseWriter, r *http.Request, repo Repo, req mutationRequest) {
+func (s *Server) handleCommit(w http.ResponseWriter, r *http.Request, req mutationRequest) {
 	ctx, cancel := withTimeout(r.Context(), CommitTimeout)
 	defer cancel()
-	result, err := repo.Commit(ctx, protocol.CommitRequest{Message: req.Message, Amend: req.Amend})
+	result, err := s.repo.Commit(ctx, protocol.CommitRequest{Message: req.Message, Amend: req.Amend})
 	if err != nil {
 		if ctx.Err() == context.DeadlineExceeded {
 			writeJSON(w, http.StatusGatewayTimeout, map[string]string{"error": "commit timed out"})
@@ -119,7 +124,19 @@ func handleCommit(w http.ResponseWriter, r *http.Request, repo Repo, req mutatio
 		}
 		return
 	}
+	if result.OK {
+		s.gen.Add(1)
+	}
 	writeJSON(w, http.StatusOK, result)
+}
+
+func writeMutationDecodeError(w http.ResponseWriter, err error) {
+	var maxBytesErr *http.MaxBytesError
+	if errors.As(err, &maxBytesErr) {
+		writeJSON(w, http.StatusRequestEntityTooLarge, map[string]string{"error": "request body too large"})
+		return
+	}
+	writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid request body"})
 }
 
 // handleOperation runs one repository mutation. Sentinel errors from the gitx
@@ -130,14 +147,39 @@ func (s *Server) handleOperation(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "repository unavailable"})
 		return
 	}
+	op := r.URL.Query().Get("op")
 	var req mutationRequest
-	dec := json.NewDecoder(http.MaxBytesReader(w, r.Body, MaxRequestBody))
+	dec := json.NewDecoder(http.MaxBytesReader(w, r.Body, operationRequestBodyLimit(op)))
 	if err := dec.Decode(&req); err != nil {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid request body"})
+		writeMutationDecodeError(w, err)
+		return
+	}
+	var trailing json.RawMessage
+	if err := dec.Decode(&trailing); err != io.EOF {
+		writeMutationDecodeError(w, err)
 		return
 	}
 
-	op := r.URL.Query().Get("op")
+	switch op {
+	case OpStage, OpUnstage, OpDiscard, OpDelete:
+		if len(req.Paths) > pathBatchLimit {
+			writeJSON(w, http.StatusBadRequest, map[string]any{
+				"error": "too many paths",
+				"code":  "too-many-paths",
+				"limit": pathBatchLimit,
+			})
+			return
+		}
+	case OpResolveOurs, OpResolveTheirs:
+		if len(req.Paths) != 1 {
+			writeJSON(w, http.StatusBadRequest, map[string]any{
+				"error": "conflict resolution requires exactly one path",
+				"code":  "invalid-path-count",
+			})
+			return
+		}
+	}
+
 	ctx, cancel := withTimeout(r.Context(), mutationTimeout(op))
 	defer cancel()
 	var err error
@@ -151,14 +193,17 @@ func (s *Server) handleOperation(w http.ResponseWriter, r *http.Request) {
 	case OpDelete:
 		err = s.repo.DeleteUntracked(ctx, req.Paths)
 	case OpPatch:
-		patch := []byte(req.Patch)
-		if req.Reverse {
-			err = s.repo.UnstagePatch(ctx, patch)
-		} else {
-			err = s.repo.StagePatch(ctx, patch)
+		err = s.validatePatchMutation(ctx, req)
+		if err == nil {
+			patch := []byte(req.Patch)
+			if req.Reverse {
+				err = s.repo.UnstagePatch(ctx, patch)
+			} else {
+				err = s.repo.StagePatch(ctx, patch)
+			}
 		}
 	case OpCommit:
-		handleCommit(w, r, s.repo, req)
+		s.handleCommit(w, r, req)
 		return
 	case OpBranchCreate:
 		err = s.repo.CreateBranch(ctx, req.Name, req.Start)
@@ -218,6 +263,7 @@ func (s *Server) handleOperation(w http.ResponseWriter, r *http.Request) {
 		writeMutationError(w, r, s, err)
 		return
 	}
+	s.gen.Add(1)
 	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
 }
 
@@ -233,6 +279,9 @@ func writeMutationError(w http.ResponseWriter, r *http.Request, s *Server, err e
 	status := http.StatusInternalServerError
 	body := map[string]any{"error": err.Error()}
 	switch {
+	case errors.Is(err, gitx.ErrPatchTooLarge):
+		status = http.StatusRequestEntityTooLarge
+		body["code"] = "patch-too-large"
 	case errors.Is(err, gitx.ErrOutputLimit):
 		status = http.StatusRequestEntityTooLarge
 		body["code"] = "output-too-large"
@@ -241,8 +290,12 @@ func writeMutationError(w http.ResponseWriter, r *http.Request, s *Server, err e
 	case errors.Is(err, gitx.ErrAlreadyInProgress):
 		status = http.StatusConflict
 		body["code"] = "already-in-progress"
+	case errors.Is(err, errStalePatchIdentity):
+		status = http.StatusConflict
+		body["code"] = "stale-patch"
 	case errors.Is(err, gitx.ErrPatchDoesNotApply):
 		status = http.StatusConflict
+		body["code"] = "patch-does-not-apply"
 	case errors.Is(err, gitx.ErrPushRejected):
 		status = http.StatusConflict
 	case errors.Is(err, gitx.ErrNoUpstream):

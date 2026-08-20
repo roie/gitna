@@ -7,6 +7,8 @@ const (
 	// MaxRequestBody bounds ordinary mutation bodies (stage, unstage,
 	// discard, delete, commit, branch, stash, tag operations).
 	MaxRequestBody int64 = 1 << 20 // 1 MiB
+	// MaxPatchRequestBody allows bounded unified patches carried in JSON.
+	MaxPatchRequestBody int64 = 20 << 20 // 20 MiB
 )
 
 // Per-route timeouts applied via context.WithTimeout on the server side.
@@ -15,6 +17,7 @@ const (
 	// Read timeouts.
 	SnapshotTimeout = 30 * time.Second
 	DiffTimeout     = 10 * time.Second
+	ReviewTimeout   = 30 * time.Second
 	GraphTimeout    = 15 * time.Second
 	ReadTimeout     = 15 * time.Second // branches, stashes, tags, conflicts, compare, commit-files
 
@@ -26,10 +29,18 @@ const (
 	CommitTimeout = 60 * time.Second
 )
 
-// snapshotFileLimit bounds the number of files returned in a snapshot to avoid
-// shipping enormous payloads. This is a soft limit enforced by the gitx layer;
-// the server returns an error if it is exceeded.
+// pathBatchLimit bounds one path-level mutation before it reaches Git.
+const pathBatchLimit = 1_000
+
+// snapshotFileLimit bounds serialized entries returned in one snapshot.
 const snapshotFileLimit = 10_000
+
+func operationRequestBodyLimit(op string) int64 {
+	if op == OpPatch {
+		return MaxPatchRequestBody
+	}
+	return MaxRequestBody
+}
 
 // graphMaxPage is the hard maximum for a single history page. The default
 // page size is 100; this caps pathological skip values.

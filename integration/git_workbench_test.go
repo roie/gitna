@@ -43,6 +43,10 @@ func (w *workbenchRepo) Diff(ctx context.Context, scope protocol.DiffScope, opts
 	return w.repo.Diff(ctx, w.runner, scope, opts)
 }
 
+func (w *workbenchRepo) Review(ctx context.Context, scope protocol.DiffScope, opts protocol.DiffOptions) (protocol.ReviewResponse, error) {
+	return w.repo.Review(ctx, w.runner, scope, opts)
+}
+
 func (w *workbenchRepo) History(ctx context.Context, skip, limit int) ([]protocol.GraphCommit, error) {
 	return w.repo.History(ctx, w.runner, skip, limit)
 }
@@ -265,6 +269,29 @@ func (h *harness) get(path string) *httptest.ResponseRecorder {
 	return rec
 }
 
+func (h *harness) diff(scope protocol.DiffScope, path string) protocol.FileDiff {
+	h.t.Helper()
+	rec := h.get("/api/v1/diff?scope=" + string(scope) + "&path=" + path)
+	if rec.Code != http.StatusOK {
+		h.t.Fatalf("diff status = %d (%s)", rec.Code, rec.Body)
+	}
+	var diff protocol.FileDiff
+	if err := json.Unmarshal(rec.Body.Bytes(), &diff); err != nil {
+		h.t.Fatal(err)
+	}
+	if diff.Patch == "" || diff.PatchID == "" {
+		h.t.Fatalf("mutable diff missing patch identity: %+v", diff)
+	}
+	return diff
+}
+
+func (h *harness) postPatch(scope protocol.DiffScope, path, patch, patchID string, reverse bool) *httptest.ResponseRecorder {
+	h.t.Helper()
+	return h.post(server.OpPatch, map[string]any{
+		"patch": patch, "patchId": patchID, "scope": scope, "path": path, "reverse": reverse,
+	})
+}
+
 // status returns `git status --porcelain -z` for the harness repository with
 // NUL separators turned into newlines so paths containing spaces stay raw.
 func (h *harness) status() string {
@@ -400,13 +427,13 @@ func TestPartialHunkStageThenUnstage(t *testing.T) {
 	h.commitAll("base")
 
 	h.writeFile("file.txt", numberedContent(map[int]string{2: "TWO", 30: "THIRTY"}))
-	diff := git(t, h.root, "diff", "--", "file.txt")
-	hunks := splitHunkPatches(t, diff)
+	unstagedDiff := h.diff(protocol.DiffUnstaged, "file.txt")
+	hunks := splitHunkPatches(t, unstagedDiff.Patch)
 	if len(hunks) < 2 {
-		t.Fatalf("expected >=2 hunks, got %d:\n%s", len(hunks), diff)
+		t.Fatalf("expected >=2 hunks, got %d:\n%s", len(hunks), unstagedDiff.Patch)
 	}
 
-	if got := h.post(server.OpPatch, map[string]any{"patch": hunks[0]}); got.Code != http.StatusOK {
+	if got := h.postPatch(protocol.DiffUnstaged, "file.txt", hunks[0], unstagedDiff.PatchID, false); got.Code != http.StatusOK {
 		t.Fatalf("stage hunk status = %d (%s)", got.Code, got.Body)
 	}
 	if h.status() != "MM file.txt\n" {
@@ -417,7 +444,12 @@ func TestPartialHunkStageThenUnstage(t *testing.T) {
 		t.Fatalf("staged diff wrong:\n%s", staged)
 	}
 
-	if got := h.post(server.OpPatch, map[string]any{"patch": hunks[0], "reverse": true}); got.Code != http.StatusOK {
+	stagedDiff := h.diff(protocol.DiffStaged, "file.txt")
+	stagedHunks := splitHunkPatches(t, stagedDiff.Patch)
+	if len(stagedHunks) != 1 {
+		t.Fatalf("staged hunks = %d, want 1", len(stagedHunks))
+	}
+	if got := h.postPatch(protocol.DiffStaged, "file.txt", stagedHunks[0], stagedDiff.PatchID, true); got.Code != http.StatusOK {
 		t.Fatalf("unstage hunk status = %d (%s)", got.Code, got.Body)
 	}
 	if h.status() != " M file.txt\n" {
@@ -477,15 +509,14 @@ func TestStaleHunkFailsWithoutCorruptingIndex(t *testing.T) {
 	h.commitAll("base")
 
 	h.writeFile("file.txt", "ONE\ntwo\nthree\n")
-	patch := []byte(git(t, h.root, "diff", "--", "file.txt"))
+	diff := h.diff(protocol.DiffUnstaged, "file.txt")
 
-	// Stage the hunk once, then try to apply the same patch again. The index no
-	// longer matches the patch context, so git must reject it and leave the
-	// staged state intact rather than silently re-applying.
-	if got := h.post(server.OpPatch, map[string]any{"patch": string(patch)}); got.Code != http.StatusOK {
+	// Stage the hunk once, then retry the same server-issued identity. The
+	// generation is stale even though the patch text could still be submitted.
+	if got := h.postPatch(protocol.DiffUnstaged, "file.txt", diff.Patch, diff.PatchID, false); got.Code != http.StatusOK {
 		t.Fatalf("first patch status = %d (%s)", got.Code, got.Body)
 	}
-	if got := h.post(server.OpPatch, map[string]any{"patch": string(patch)}); got.Code != http.StatusConflict {
+	if got := h.postPatch(protocol.DiffUnstaged, "file.txt", diff.Patch, diff.PatchID, false); got.Code != http.StatusConflict {
 		t.Fatalf("stale patch status = %d, want %d (%s)", got.Code, http.StatusConflict, got.Body)
 	}
 	if h.status() != "M  file.txt\n" {
@@ -526,6 +557,56 @@ func TestDeleteUntrackedDeletesOnlySelectedPath(t *testing.T) {
 	}
 	if got := h.readFile("untracked-two.txt"); got != "two\n" {
 		t.Fatalf("untracked-two.txt = %q, want untouched", got)
+	}
+}
+
+func TestDeleteUntrackedSymlinkPreservesTarget(t *testing.T) {
+	h := newHarness(t)
+	h.writeFile("target.txt", "keep\n")
+	h.commitAll("target")
+	link := filepath.Join(h.root, "link.txt")
+	if err := os.Symlink("target.txt", link); err != nil {
+		t.Skipf("symlink unavailable: %v", err)
+	}
+
+	if got := h.post(server.OpDelete, map[string]any{"paths": []string{"link.txt"}}); got.Code != http.StatusOK {
+		t.Fatalf("delete status = %d (%s)", got.Code, got.Body)
+	}
+	if _, err := os.Lstat(link); !os.IsNotExist(err) {
+		t.Fatalf("link still exists: %v", err)
+	}
+	if got := h.readFile("target.txt"); got != "keep\n" {
+		t.Fatalf("target = %q, want preserved", got)
+	}
+}
+
+func TestDeleteUntrackedRejectsStaleSelection(t *testing.T) {
+	h := newHarness(t)
+	h.writeFile("stale.txt", "keep\n")
+
+	snapshotRec := h.get("/api/v1/snapshot")
+	if snapshotRec.Code != http.StatusOK {
+		t.Fatalf("snapshot status = %d (%s)", snapshotRec.Code, snapshotRec.Body)
+	}
+	var snapshot protocol.RepoSnapshot
+	if err := json.Unmarshal(snapshotRec.Body.Bytes(), &snapshot); err != nil {
+		t.Fatal(err)
+	}
+	if len(snapshot.Unstaged) != 1 || snapshot.Unstaged[0].Path != "stale.txt" {
+		t.Fatalf("unstaged = %+v, want stale.txt selected as untracked", snapshot.Unstaged)
+	}
+
+	if got := h.post(server.OpStage, map[string]any{"paths": []string{"stale.txt"}}); got.Code != http.StatusOK {
+		t.Fatalf("stage status = %d (%s)", got.Code, got.Body)
+	}
+	if got := h.post(server.OpDelete, map[string]any{"paths": []string{"stale.txt"}}); got.Code != http.StatusBadRequest {
+		t.Fatalf("delete stale selection status = %d, want 400 (%s)", got.Code, got.Body)
+	}
+	if got := h.readFile("stale.txt"); got != "keep\n" {
+		t.Fatalf("stale.txt = %q, want preserved", got)
+	}
+	if got := h.status(); got != "A  stale.txt\n" {
+		t.Fatalf("status = %q, want staged file preserved", got)
 	}
 }
 

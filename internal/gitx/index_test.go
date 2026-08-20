@@ -161,6 +161,115 @@ func TestDeleteUntrackedRefusesDirectories(t *testing.T) {
 	}
 }
 
+func TestDeleteUntrackedSymlinkRemovesLinkNotTarget(t *testing.T) {
+	root := initTestRepo(t)
+	writeFile(t, filepath.Join(root, "target.txt"), "keep\n")
+	runGit(t, root, "add", "target.txt")
+	runGit(t, root, "commit", "-qm", "target")
+	link := filepath.Join(root, "link.txt")
+	if err := os.Symlink("target.txt", link); err != nil {
+		t.Skipf("symlink unavailable: %v", err)
+	}
+	repo, err := Discover(context.Background(), &ExecRunner{}, root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := repo.DeleteUntracked(context.Background(), &ExecRunner{}, []string{"link.txt"}); err != nil {
+		t.Fatalf("DeleteUntracked: %v", err)
+	}
+	if _, err := os.Lstat(link); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("link still exists after delete: %v", err)
+	}
+	if got, err := os.ReadFile(filepath.Join(root, "target.txt")); err != nil || string(got) != "keep\n" {
+		t.Fatalf("target = %q, %v; want preserved", got, err)
+	}
+}
+
+func TestDeleteUntrackedSymlinkAllowsExternalAndDanglingTargets(t *testing.T) {
+	root := initTestRepo(t)
+	external := filepath.Join(t.TempDir(), "external.txt")
+	writeFile(t, external, "outside\n")
+	links := map[string]string{
+		"external-link": external,
+		"dangling-link": filepath.Join(t.TempDir(), "missing.txt"),
+	}
+	for name, target := range links {
+		if err := os.Symlink(target, filepath.Join(root, name)); err != nil {
+			t.Skipf("symlink unavailable: %v", err)
+		}
+	}
+	repo, err := Discover(context.Background(), &ExecRunner{}, root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := repo.DeleteUntracked(context.Background(), &ExecRunner{}, []string{"external-link", "dangling-link"}); err != nil {
+		t.Fatalf("DeleteUntracked: %v", err)
+	}
+	for name := range links {
+		if _, err := os.Lstat(filepath.Join(root, name)); !errors.Is(err, os.ErrNotExist) {
+			t.Fatalf("%s still exists after delete: %v", name, err)
+		}
+	}
+	if got, err := os.ReadFile(external); err != nil || string(got) != "outside\n" {
+		t.Fatalf("external target = %q, %v; want preserved", got, err)
+	}
+}
+
+func TestDeleteUntrackedRefusesEscapeThroughSymlinkedParent(t *testing.T) {
+	root := initTestRepo(t)
+	outside := t.TempDir()
+	victim := filepath.Join(outside, "victim.txt")
+	writeFile(t, victim, "outside\n")
+	if err := os.Symlink(outside, filepath.Join(root, "parent")); err != nil {
+		t.Skipf("symlink unavailable: %v", err)
+	}
+	repo, err := Discover(context.Background(), &ExecRunner{}, root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := repo.DeleteUntracked(context.Background(), &ExecRunner{}, []string{"parent/victim.txt"}); err == nil {
+		t.Fatal("DeleteUntracked through symlinked parent = nil error, want refusal")
+	}
+	if got, err := os.ReadFile(victim); err != nil || string(got) != "outside\n" {
+		t.Fatalf("outside victim = %q, %v; want preserved", got, err)
+	}
+}
+
+func TestDeleteUntrackedRejectsPathThatBecameTracked(t *testing.T) {
+	root := initTestRepo(t)
+	writeFile(t, filepath.Join(root, "new.txt"), "new\n")
+	repo, err := Discover(context.Background(), &ExecRunner{}, root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	runGit(t, root, "add", "new.txt")
+	if err := repo.DeleteUntracked(context.Background(), &ExecRunner{}, []string{"new.txt"}); !errors.Is(err, protocol.ErrInvalidPath) {
+		t.Fatalf("DeleteUntracked error = %v, want ErrInvalidPath", err)
+	}
+	if got, err := os.ReadFile(filepath.Join(root, "new.txt")); err != nil || string(got) != "new\n" {
+		t.Fatalf("tracked file = %q, %v; want preserved", got, err)
+	}
+}
+
+func TestDeleteUntrackedPreflightsWholeBatch(t *testing.T) {
+	root := initTestRepo(t)
+	writeFile(t, filepath.Join(root, "untracked.txt"), "untracked\n")
+	writeFile(t, filepath.Join(root, "tracked.txt"), "tracked\n")
+	runGit(t, root, "add", "tracked.txt")
+	repo, err := Discover(context.Background(), &ExecRunner{}, root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := repo.DeleteUntracked(context.Background(), &ExecRunner{}, []string{"untracked.txt", "tracked.txt"}); !errors.Is(err, protocol.ErrInvalidPath) {
+		t.Fatalf("DeleteUntracked error = %v, want ErrInvalidPath", err)
+	}
+	for path, want := range map[string]string{"untracked.txt": "untracked\n", "tracked.txt": "tracked\n"} {
+		if got, err := os.ReadFile(filepath.Join(root, path)); err != nil || string(got) != want {
+			t.Fatalf("%s = %q, %v; want preserved", path, got, err)
+		}
+	}
+}
+
 func TestMutationsRejectInvalidPaths(t *testing.T) {
 	root := initTestRepo(t)
 	repo, err := Discover(context.Background(), &ExecRunner{}, root)
@@ -299,6 +408,39 @@ func TestApplyPatchRejectsEmpty(t *testing.T) {
 	}
 	if err := repo.ApplyPatch(context.Background(), &ExecRunner{}, nil, false); !errors.Is(err, protocol.ErrInvalidPath) {
 		t.Fatalf("empty ApplyPatch error = %v, want protocol.ErrInvalidPath", err)
+	}
+}
+
+type patchBoundaryRunner struct {
+	inputCalls int
+}
+
+func (r *patchBoundaryRunner) Run(context.Context, string, ...string) (Result, error) {
+	return Result{}, nil
+}
+
+func (r *patchBoundaryRunner) RunInput(context.Context, string, []byte, ...string) (Result, error) {
+	r.inputCalls++
+	return Result{}, nil
+}
+
+func TestApplyPatchSizeBoundary(t *testing.T) {
+	repo := Repository{Root: t.TempDir()}
+	runner := &patchBoundaryRunner{}
+
+	if err := repo.ApplyPatch(context.Background(), runner, make([]byte, maxPatchBytes), false); err != nil {
+		t.Fatalf("exact-limit ApplyPatch error = %v, want nil", err)
+	}
+	if runner.inputCalls != 1 {
+		t.Fatalf("exact-limit RunInput calls = %d, want 1", runner.inputCalls)
+	}
+
+	err := repo.ApplyPatch(context.Background(), runner, make([]byte, maxPatchBytes+1), false)
+	if !errors.Is(err, ErrPatchTooLarge) {
+		t.Fatalf("over-limit ApplyPatch error = %v, want ErrPatchTooLarge", err)
+	}
+	if runner.inputCalls != 1 {
+		t.Fatalf("over-limit RunInput calls = %d, want unchanged 1", runner.inputCalls)
 	}
 }
 

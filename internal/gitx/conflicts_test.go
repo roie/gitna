@@ -2,6 +2,7 @@ package gitx
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"testing"
@@ -73,6 +74,67 @@ func TestConflictBlobOursAndTheirs(t *testing.T) {
 	}
 	if string(theirs) != "feature version\n" {
 		t.Fatalf("theirs = %q, want feature version", theirs)
+	}
+}
+
+func TestConflictPathsAllowSpacesAndUnicode(t *testing.T) {
+	root := initTestRepo(t)
+	runner := &ExecRunner{}
+	repo, err := Discover(context.Background(), runner, root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	path := "d i r/ünïcode file.txt"
+	writeFile(t, filepath.Join(root, filepath.FromSlash(path)), "base\n")
+	runGit(t, root, "add", "--", path)
+	runGit(t, root, "commit", "-qm", "base")
+	runGit(t, root, "checkout", "-qb", "feature")
+	writeFile(t, filepath.Join(root, filepath.FromSlash(path)), "feature version\n")
+	runGit(t, root, "add", "--", path)
+	runGit(t, root, "commit", "-qm", "feature")
+	runGit(t, root, "checkout", "-q", "main")
+	writeFile(t, filepath.Join(root, filepath.FromSlash(path)), "main version\n")
+	runGit(t, root, "add", "--", path)
+	runGit(t, root, "commit", "-qm", "main")
+	runGitErr(t, root, "merge", "--no-edit", "feature")
+
+	ours, err := repo.ConflictBlob(context.Background(), runner, path, 2)
+	if err != nil {
+		t.Fatalf("ConflictBlob ours: %v", err)
+	}
+	if string(ours) != "main version\n" {
+		t.Fatalf("ours = %q, want main version", ours)
+	}
+	theirs, err := repo.ConflictBlob(context.Background(), runner, path, 3)
+	if err != nil {
+		t.Fatalf("ConflictBlob theirs: %v", err)
+	}
+	if string(theirs) != "feature version\n" {
+		t.Fatalf("theirs = %q, want feature version", theirs)
+	}
+	if err := repo.ResolveConflictSide(context.Background(), runner, path, true); err != nil {
+		t.Fatalf("ResolveConflictSide: %v", err)
+	}
+	if got, err := readFile(t, filepath.Join(root, filepath.FromSlash(path))); err != nil || got != "feature version\n" {
+		t.Fatalf("resolved content = %q, %v; want theirs", got, err)
+	}
+}
+
+func TestConflictOperationsRejectInvalidPaths(t *testing.T) {
+	root := initTestRepo(t)
+	repo, err := Discover(context.Background(), &ExecRunner{}, root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, path := range []string{"", "../escape", "a/../escape", filepath.Join(root, "absolute"), "nul\x00path"} {
+		t.Run(path, func(t *testing.T) {
+			if _, err := repo.ConflictBlob(context.Background(), &ExecRunner{}, path, 2); !errors.Is(err, protocol.ErrInvalidPath) {
+				t.Fatalf("ConflictBlob(%q) error = %v, want ErrInvalidPath", path, err)
+			}
+			if err := repo.ResolveConflictSide(context.Background(), &ExecRunner{}, path, false); !errors.Is(err, protocol.ErrInvalidPath) {
+				t.Fatalf("ResolveConflictSide(%q) error = %v, want ErrInvalidPath", path, err)
+			}
+		})
 	}
 }
 

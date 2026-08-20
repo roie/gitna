@@ -56,6 +56,25 @@ func TestSecurityUnexpectedHost(t *testing.T) {
 	}
 }
 
+func TestSecurityUnexpectedHostRootDoesNotExposeToken(t *testing.T) {
+	h := newSecuredTestHandler()
+	rec := doReq(t, h, http.MethodGet, "/", "evil.example", nil)
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusForbidden)
+	}
+	if location := rec.Header().Get("Location"); location != "" {
+		t.Fatalf("Location = %q, want empty", location)
+	}
+	for name, values := range rec.Header() {
+		if strings.Contains(strings.Join(values, ","), testToken) {
+			t.Fatalf("header %s exposes capability token", name)
+		}
+	}
+	if strings.Contains(rec.Body.String(), testToken) {
+		t.Fatal("response body exposes capability token")
+	}
+}
+
 func TestSecurityValidSameOriginGET(t *testing.T) {
 	h := newSecuredTestHandler()
 	rec := doReq(t, h, http.MethodGet, "/s/"+testToken+"/api/v1/snapshot", testHost, nil)
@@ -118,6 +137,37 @@ func TestSecurityOversizedBody(t *testing.T) {
 	h.ServeHTTP(rec, req)
 	if rec.Code != http.StatusRequestEntityTooLarge {
 		t.Fatalf("status = %d, want %d", rec.Code, http.StatusRequestEntityTooLarge)
+	}
+}
+
+func TestSecurityPatchBodyUsesPatchLimit(t *testing.T) {
+	h := newSecuredTestHandler()
+	request := func(contentLength int64) *httptest.ResponseRecorder {
+		req := httptest.NewRequest(http.MethodPost, "/s/"+testToken+"/api/v1/operations?op=patch", strings.NewReader("{}"))
+		req.Host = testHost
+		req.ContentLength = contentLength
+		req.Header.Set("Origin", "http://"+testHost)
+		req.Header.Set("Content-Type", "application/json")
+		rec := httptest.NewRecorder()
+		h.ServeHTTP(rec, req)
+		return rec
+	}
+	if rec := request(MaxRequestBody + 1); rec.Code != http.StatusOK {
+		t.Fatalf("body above ordinary limit status = %d, want 200", rec.Code)
+	}
+	if rec := request(MaxPatchRequestBody + 1); rec.Code != http.StatusRequestEntityTooLarge {
+		t.Fatalf("body above patch limit status = %d, want 413", rec.Code)
+	}
+
+	req := httptest.NewRequest(http.MethodPost, "/s/"+testToken+"/api/v1/commit?op=patch", strings.NewReader("{}"))
+	req.Host = testHost
+	req.ContentLength = MaxRequestBody + 1
+	req.Header.Set("Origin", "http://"+testHost)
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	if rec.Code != http.StatusRequestEntityTooLarge {
+		t.Fatalf("non-operation route with op=patch status = %d, want 413", rec.Code)
 	}
 }
 

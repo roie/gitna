@@ -37,6 +37,10 @@ func (a repoAdapter) Diff(ctx context.Context, scope protocol.DiffScope, opts pr
 	return a.repo.Diff(ctx, a.runner, scope, opts)
 }
 
+func (a repoAdapter) Review(ctx context.Context, scope protocol.DiffScope, opts protocol.DiffOptions) (protocol.ReviewResponse, error) {
+	return a.repo.Review(ctx, a.runner, scope, opts)
+}
+
 func (a repoAdapter) History(ctx context.Context, skip, limit int) ([]protocol.GraphCommit, error) {
 	return a.repo.History(ctx, a.runner, skip, limit)
 }
@@ -309,8 +313,12 @@ func Run(ctx context.Context, path string) error {
 	fmt.Printf("gitna: %s\n", repo.Root)
 	fmt.Printf("gitna: serving %s\n", url)
 
-	if err := browser.Open(url); err != nil {
-		fmt.Fprintf(os.Stderr, "gitna: could not open browser: %v\n", err)
+	// Full-process browser tests drive the emitted capability URL themselves.
+	// Production sessions retain the normal default-browser launch.
+	if os.Getenv("GITNA_NO_BROWSER") != "1" {
+		if err := browser.Open(url); err != nil {
+			fmt.Fprintf(os.Stderr, "gitna: could not open browser: %v\n", err)
+		}
 	}
 
 	httpSrv := &http.Server{Handler: srv.Handler()}

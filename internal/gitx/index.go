@@ -14,9 +14,14 @@ import (
 // maxPatchBytes bounds patches accepted for index application.
 const maxPatchBytes = 8 << 20 // 8 MiB
 
-// ErrPatchDoesNotApply is returned when git apply rejects a patch because the
-// index or worktree no longer matches what the patch was generated against.
-var ErrPatchDoesNotApply = errors.New("gitx: patch does not apply")
+var (
+	// ErrPatchDoesNotApply is returned when git apply rejects a patch because
+	// the index or worktree no longer matches what the patch was generated against.
+	ErrPatchDoesNotApply = errors.New("gitx: patch does not apply")
+	// ErrPatchTooLarge is returned before invoking Git when an index patch
+	// exceeds maxPatchBytes.
+	ErrPatchTooLarge = errors.New("gitx: patch too large")
+)
 
 // validatePaths rejects empty path lists and every invalid path in them.
 func validatePaths(paths []string) error {
@@ -67,38 +72,75 @@ func (r Repository) DiscardTracked(ctx context.Context, runner Runner, paths []s
 	return r.runIndex(ctx, runner, append([]string{"restore", "--worktree", "--"}, paths...)...)
 }
 
-// DeleteUntracked removes the given untracked files from disk. Only regular
-// files inside the repository root are removed; directories and symlinks that
-// escape the root are refused.
+// DeleteUntracked removes selected untracked filesystem entries. Regular files
+// and symlinks are removed without following the selected entry; directories,
+// special files, and paths escaping through a symlinked parent are refused.
 func (r Repository) DeleteUntracked(ctx context.Context, runner Runner, paths []string) error {
 	if err := validatePaths(paths); err != nil {
 		return err
 	}
+
+	unique := make([]string, 0, len(paths))
+	seen := make(map[string]struct{}, len(paths))
+	for _, path := range paths {
+		if _, ok := seen[path]; ok {
+			continue
+		}
+		seen[path] = struct{}{}
+		unique = append(unique, path)
+	}
+
+	args := append([]string{"ls-files", "--others", "--exclude-standard", "-z", "--"}, unique...)
+	res, err := runner.Run(ctx, r.Root, args...)
+	if err != nil {
+		return err
+	}
+	if res.ExitCode != 0 {
+		return opError("list untracked files", res)
+	}
+	untracked := make(map[string]struct{})
+	for _, path := range strings.Split(string(res.Stdout), "\x00") {
+		if path != "" {
+			untracked[path] = struct{}{}
+		}
+	}
+	for _, path := range unique {
+		if _, ok := untracked[path]; !ok {
+			return fmt.Errorf("%w: %q is no longer untracked", protocol.ErrInvalidPath, path)
+		}
+	}
+
 	rootReal, err := filepath.EvalSymlinks(r.Root)
 	if err != nil {
-		rootReal = r.Root
+		return fmt.Errorf("gitx: resolve repository root: %w", err)
 	}
-	for _, p := range paths {
-		full := filepath.Join(rootReal, filepath.FromSlash(p))
+	targets := make([]string, 0, len(unique))
+	for _, path := range unique {
+		full := filepath.Join(rootReal, filepath.FromSlash(path))
 		if !withinRoot(rootReal, full) {
-			return fmt.Errorf("%w: %q", protocol.ErrNotInRepo, p)
+			return fmt.Errorf("%w: %q", protocol.ErrNotInRepo, path)
 		}
-		real, err := filepath.EvalSymlinks(full)
+		parentReal, err := filepath.EvalSymlinks(filepath.Dir(full))
 		if err != nil {
-			continue
+			return fmt.Errorf("%w: resolve parent for %q: %v", protocol.ErrInvalidPath, path, err)
 		}
-		if !withinRoot(rootReal, real) {
-			return fmt.Errorf("%w: %q", protocol.ErrNotInRepo, p)
+		if !withinRoot(rootReal, parentReal) {
+			return fmt.Errorf("%w: %q", protocol.ErrNotInRepo, path)
 		}
-		st, err := os.Stat(real)
+		target := filepath.Join(parentReal, filepath.Base(full))
+		st, err := os.Lstat(target)
 		if err != nil {
-			continue
+			return fmt.Errorf("%w: inspect %q: %v", protocol.ErrInvalidPath, path, err)
 		}
-		if !st.Mode().IsRegular() {
-			return fmt.Errorf("%w: %q is not a regular file", protocol.ErrInvalidPath, p)
+		if !st.Mode().IsRegular() && st.Mode()&os.ModeSymlink == 0 {
+			return fmt.Errorf("%w: %q is not a regular file or symlink", protocol.ErrInvalidPath, path)
 		}
-		if err := os.Remove(real); err != nil {
-			return fmt.Errorf("gitx: remove %q: %w", p, err)
+		targets = append(targets, target)
+	}
+
+	for i, target := range targets {
+		if err := os.Remove(target); err != nil {
+			return fmt.Errorf("gitx: remove %q: %w", unique[i], err)
 		}
 	}
 	return nil
@@ -113,7 +155,7 @@ func (r Repository) ApplyPatch(ctx context.Context, runner Runner, patch []byte,
 		return fmt.Errorf("%w: empty patch", protocol.ErrInvalidPath)
 	}
 	if len(patch) > maxPatchBytes {
-		return fmt.Errorf("gitx: patch exceeds %d bytes", maxPatchBytes)
+		return fmt.Errorf("%w: exceeds %d bytes", ErrPatchTooLarge, maxPatchBytes)
 	}
 	args := []string{"apply", "--cached", "--whitespace=nowarn"}
 	if reverse {
