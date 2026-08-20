@@ -24,7 +24,13 @@ repository. Each local source file carries a prominent modified-file notice.
 | `apps/diffshub/components/Button.tsx` | `web/src/components/Button.svelte` | Ported the React/Tailwind/CVA button contract to Svelte and component-scoped CSS while retaining variants, sizes, and interaction states. |
 | `apps/diffshub/components/Input.tsx` | `web/src/components/Input.svelte` | Ported the React/Tailwind input contract to Svelte and component-scoped CSS. |
 | `apps/diffshub/components/Switch.tsx` | `web/src/components/Switch.svelte` | Replaced React/Radix wiring with a native Svelte switch while retaining the donor sizing and visual states. |
-| `apps/diffshub/app/globals.css` | `web/src/app.css` | Adapted the DiffsHub chrome variable vocabulary into Gitna fallback values and system dark/light behavior. |
+| `apps/diffshub/app/globals.css` | `web/src/app.css` | Adapted the DiffsHub chrome variable vocabulary, review layout, scrollbars, responsive behavior, and system dark/light surfaces to Gitna. |
+| `apps/diffshub/components/DiffsHubHeader.tsx`; `apps/diffshub/components/chromeButtonStyles.ts` | `web/src/components/review/ReviewHeader.svelte` | Ported the review controls, compact themed chrome, split/unified and collapse-all actions, theme selection, and display settings from React/Tailwind to Svelte/CSS. |
+| `apps/diffshub/components/ReviewUI.tsx`; `apps/diffshub/components/DiffsHubViewer.tsx`; `apps/diffshub/components/ThemedCodeView.tsx`; `apps/diffshub/lib/constants.ts` | `web/src/components/review/ReviewViewer.svelte`; `web/src/lib/code-view.ts` | Replaced React hooks and wrappers with one long-lived vanilla `CodeView`; retained multi-file items, one-pixel gaps, sticky headers, collapse behavior, responsive unified mode, and supported lifecycle APIs. |
+| `apps/diffshub/components/DiffsHubStatusPanel.tsx` | `web/src/components/review/ReviewStatus.svelte` | Ported loading, error, retry, and empty review states to Svelte and local repository language. |
+| `apps/diffshub/components/DropdownMenu.tsx`; `apps/diffshub/lib/theme/dropdownChromeStyle.ts` | `web/src/components/DropdownMenu.svelte` | Replaced Radix/React with a Svelte popover while preserving themed elevated surfaces, geometry, dismissal, and keyboard focus behavior. |
+| `apps/diffshub/components/ThemedSurface.tsx` | `web/src/components/ThemedSurface.svelte` | Replaced the React polymorphic wrapper with a Svelte chrome host driven by the shared document theme. |
+| `apps/diffshub/components/themeCatalog.ts`; `apps/diffshub/components/themeController.ts`; `apps/diffshub/components/useChromeThemeProps.ts` | `web/src/lib/review-preferences.svelte.ts` | Ported the catalog, persistence, system/light/dark resolution, and shared chrome synchronization to a controller-backed Svelte store. |
 
 ## Pinned DiffsHub donor inventory
 
@@ -38,15 +44,15 @@ notice must be added to the source-adaptation table above.
 | --- | --- | --- |
 | Button | `apps/diffshub/components/Button.tsx` | Adapted as recorded above; Milestone 3 must reconcile it mechanically with the pinned donor. |
 | Input | `apps/diffshub/components/Input.tsx` | Adapted as recorded above; Milestone 3 must reconcile it mechanically with the pinned donor. |
-| Dropdown menu | `apps/diffshub/components/DropdownMenu.tsx` | Planned; do not import its React/Radix runtime. |
-| Switch | `apps/diffshub/components/Switch.tsx` | Adapted as recorded above; Milestone 3 must reconcile it mechanically with the pinned donor. |
-| Themed surface | `apps/diffshub/components/ThemedSurface.tsx` | Planned Svelte adaptation. |
-| Chrome icon-button styles | `apps/diffshub/components/chromeButtonStyles.ts` | Planned Svelte/CSS adaptation. |
-| Theme catalog and persistence controller | `apps/diffshub/components/themeCatalog.ts`; `apps/diffshub/components/themeController.ts` | Planned framework-neutral adaptation. |
-| Chrome theme hook behavior | `apps/diffshub/components/useChromeThemeProps.ts` | Planned behavior port without React hooks. |
-| Active theme source contract | `apps/diffshub/lib/theme/ThemeSource.ts` | Planned framework-neutral adaptation. |
-| Chrome mapping helpers | `apps/diffshub/lib/theme/chromeThemeProps.ts`; `apps/diffshub/lib/theme/deriveChromeTokens.ts`; `apps/diffshub/lib/theme/diffshubChromeMapping.ts`; `apps/diffshub/lib/theme/dropdownChromeStyle.ts` | Token derivation and DiffsHub mapping are adapted as recorded above; remaining helper behavior is planned. |
-| Global chrome CSS | `apps/diffshub/app/globals.css` | Partially adapted as recorded above; Milestone 3 must mechanically reconcile applicable review chrome, surfaces, scrollbars, and responsive rules. |
+| Dropdown menu | `apps/diffshub/components/DropdownMenu.tsx` | Adapted to Svelte without the React/Radix runtime as recorded above. |
+| Switch | `apps/diffshub/components/Switch.tsx` | Adapted as recorded above. |
+| Themed surface | `apps/diffshub/components/ThemedSurface.tsx` | Adapted to a Svelte theme host as recorded above. |
+| Chrome icon-button styles | `apps/diffshub/components/chromeButtonStyles.ts` | Adapted into the review header's flush themed icon actions. |
+| Theme catalog and persistence controller | `apps/diffshub/components/themeCatalog.ts`; `apps/diffshub/components/themeController.ts` | Adapted to a framework-neutral controller-backed Svelte store. |
+| Chrome theme hook behavior | `apps/diffshub/components/useChromeThemeProps.ts` | Adapted through shared controller state and document-level chrome variables. |
+| Active theme source contract | `apps/diffshub/lib/theme/ThemeSource.ts` | Supplied by the shared controller and resolved theme state without React context. |
+| Chrome mapping helpers | `apps/diffshub/lib/theme/chromeThemeProps.ts`; `apps/diffshub/lib/theme/deriveChromeTokens.ts`; `apps/diffshub/lib/theme/diffshubChromeMapping.ts`; `apps/diffshub/lib/theme/dropdownChromeStyle.ts` | Token derivation, DiffsHub mapping, and elevated dropdown behavior are adapted as recorded above. |
+| Global chrome CSS | `apps/diffshub/app/globals.css` | Adapted for review surfaces, scrollbars, sticky separators, and responsive behavior as recorded above. |
 
 The broader review composition donor paths are enumerated in
 `docs/superpowers/plans/2026-08-20-gitna-recovery-plan.md`. This inventory is
