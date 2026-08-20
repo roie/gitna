@@ -63,6 +63,27 @@ export interface FileDiff {
   binary: boolean
   tooLarge: boolean
   patch?: string
+  patchId?: string
+}
+
+export interface ReviewIdentity {
+  scope: DiffScope
+  commit?: string
+  from?: string
+  to?: string
+}
+
+export interface ReviewSupplement {
+  path: string
+  kind: ChangeKind
+  diff: FileDiff
+}
+
+export interface ReviewResponse {
+  generation: number
+  identity: ReviewIdentity
+  patch: string
+  supplements: ReviewSupplement[]
 }
 
 export interface RepoSnapshot {

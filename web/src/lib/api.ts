@@ -1,4 +1,4 @@
-import type { Branch, CommitFiles, ConflictEntry, DiffScope, FileDiff, GraphPage, RepoSnapshot, StashEntry, Tag } from './types'
+import type { Branch, CommitFiles, ConflictEntry, DiffScope, FileDiff, GraphPage, RepoSnapshot, ReviewResponse, StashEntry, Tag } from './types'
 
 export interface DiffRequest {
   scope: DiffScope
@@ -6,6 +6,13 @@ export interface DiffRequest {
   oldPath?: string
   commit?: string
   /** Refs for the compare scope; both are required when scope is 'compare'. */
+  from?: string
+  to?: string
+}
+
+export interface ReviewRequest {
+  scope: DiffScope
+  commit?: string
   from?: string
   to?: string
 }
@@ -47,6 +54,9 @@ export interface MutateRequest {
   op: MutationOp
   paths?: string[]
   patch?: string
+  patchId?: string
+  scope?: DiffScope
+  path?: string
   reverse?: boolean
   /** Branch name for branch operations, the branch for push-upstream, or the
    * tag name for tag operations. */
@@ -86,6 +96,7 @@ export interface OperationResult {
 export interface ApiClient {
   snapshot(): Promise<RepoSnapshot>
   diff(request: DiffRequest): Promise<FileDiff>
+  review(request: ReviewRequest): Promise<ReviewResponse>
   mutate(request: MutateRequest): Promise<void>
   commit(request: CommitRequest): Promise<OperationResult>
   graph(skip?: number): Promise<GraphPage>
@@ -137,6 +148,14 @@ export function diffQuery(request: DiffRequest): string {
   return params.toString()
 }
 
+export function reviewQuery(request: ReviewRequest): string {
+  const params = new URLSearchParams({ scope: request.scope })
+  if (request.commit) params.set('commit', request.commit)
+  if (request.from) params.set('from', request.from)
+  if (request.to) params.set('to', request.to)
+  return params.toString()
+}
+
 /**
  * API client for the local workbench. All requests are same-origin relative to
  * the capability URL, so no absolute base is needed.
@@ -151,10 +170,17 @@ export function createApi(): ApiClient {
       const res = await expectOK(await fetch(`api/v1/diff?${diffQuery(request)}`, { signal: AbortSignal.timeout(FETCH_TIMEOUT) }))
       return (await res.json()) as FileDiff
     },
+    async review(request: ReviewRequest): Promise<ReviewResponse> {
+      const res = await expectOK(await fetch(`api/v1/review?${reviewQuery(request)}`, { signal: AbortSignal.timeout(FETCH_TIMEOUT) }))
+      return (await res.json()) as ReviewResponse
+    },
     async mutate(request: MutateRequest): Promise<void> {
       const body = {
         paths: request.paths,
         patch: request.patch,
+        patchId: request.patchId,
+        scope: request.scope,
+        path: request.path,
         reverse: request.reverse,
         name: request.name,
         start: request.start,

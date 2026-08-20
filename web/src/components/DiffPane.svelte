@@ -170,8 +170,15 @@
   }
 
   function applyHunk(hunk: HunkPatch, reverse: boolean): void {
-    if (!active) return
-    void repo.mutate({ op: 'patch', patch: hunk.patch, reverse })
+    if (!active || !diff?.patchId || (active.scope !== 'staged' && active.scope !== 'unstaged')) return
+    void repo.mutate({
+      op: 'patch',
+      patch: hunk.patch,
+      patchId: diff.patchId,
+      scope: active.scope,
+      path: active.path,
+      reverse,
+    })
   }
 </script>
 

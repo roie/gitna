@@ -296,6 +296,10 @@ export function createRepoState(options: RepoStateOptions = {}) {
     const source = new EventSource('api/v1/events')
     eventSource = source
     source.addEventListener('snapshot-invalidated', () => scheduleRefresh())
+    source.addEventListener('graph-invalidated', () => {
+      scheduleRefresh()
+      void refreshGraph()
+    })
     return () => {
       source.close()
       if (eventSource === source) eventSource = null

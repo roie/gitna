@@ -44,9 +44,33 @@ function commitFile(path: string, kind: CommitFile['kind'] = 'modified'): Commit
   return { path, kind }
 }
 
-/** Default no-op implementations for the auxiliary read endpoints so mock API
- * clients only override the calls a test actually exercises. */
-const auxApi = {
+/** Default implementations so mock API clients only override the calls a test
+ * actually exercises. Unexpected core operations fail loudly. */
+const auxApi: ApiClient = {
+  async snapshot() {
+    throw new Error('snapshot not used')
+  },
+  async diff() {
+    throw new Error('diff not used')
+  },
+  async review() {
+    return { generation: 1, identity: { scope: 'unstaged' }, patch: '', supplements: [] }
+  },
+  async mutate() {
+    throw new Error('mutate not used')
+  },
+  async commit() {
+    throw new Error('commit not used')
+  },
+  async graph() {
+    return { commits: [], hasMore: false }
+  },
+  async commitFiles() {
+    return { files: [] }
+  },
+  async branches() {
+    return []
+  },
   async stashes() {
     return []
   },
@@ -408,7 +432,7 @@ describe('createRepoState', () => {
       ]),
     })
     await state.refreshGraph()
-    expect(state.graphRows.map((r) => r.column)).toEqual([0, 0, 1, 0])
+    expect(state.graphRows.map((r: { column: number }) => r.column)).toEqual([0, 0, 1, 0])
     expect(state.graphRows[0]?.commit.oid).toBe('M')
     expect(state.graphHasMore).toBe(false)
   })
@@ -474,7 +498,7 @@ describe('createRepoState', () => {
     expect(state.graphHasMore).toBe(true)
 
     await state.loadMoreGraph()
-    expect(state.graphRows.map((r) => r.commit.oid)).toEqual(['c4', 'c3', 'c2', 'c1'])
+    expect(state.graphRows.map((r: { commit: GraphCommit }) => r.commit.oid)).toEqual(['c4', 'c3', 'c2', 'c1'])
     expect(state.graphHasMore).toBe(false)
   })
 
@@ -1007,33 +1031,13 @@ describe('coalesce', () => {
 describe('operation feedback', () => {
   function mockMutateApi(mutateFn: ApiClient['mutate'] = async () => {}) {
     return {
+      ...auxApi,
       async snapshot() {
         return snapshot()
       },
       mutate: mutateFn,
       async commit() {
         return { ok: true }
-      },
-      async graph() {
-        return { commits: [], hasMore: false }
-      },
-      async commitFiles() {
-        return { files: [] }
-      },
-      async branches() {
-        return []
-      },
-      async stashes() {
-        return []
-      },
-      async tags() {
-        return []
-      },
-      async compare() {
-        return { files: [] }
-      },
-      async conflicts() {
-        return []
       },
     } satisfies ApiClient
   }
@@ -1099,19 +1103,13 @@ describe('operation feedback', () => {
     let captured = ''
     const repo = createRepoState({
       api: {
+        ...auxApi,
         async snapshot() { return snapshot() },
         async mutate() {},
         async commit() {
           captured = repo.activeOp ?? ''
           return { ok: true }
         },
-        async graph() { return { commits: [], hasMore: false } },
-        async commitFiles() { return { files: [] } },
-        async branches() { return [] },
-        async stashes() { return [] },
-        async tags() { return [] },
-        async compare() { return { files: [] } },
-        async conflicts() { return [] },
       } satisfies ApiClient,
     })
     void repo.refreshSnapshot()
