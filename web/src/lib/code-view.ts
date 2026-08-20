@@ -1,18 +1,17 @@
-/**
- * Adapted from Pierre DiffsHub DiffsHubViewer.tsx and lib/constants.ts at
- * diffs-v1.3.5 (59ec35ffac97abccef4c69f8d58d3747cbfbc6cb).
- * Replaces the React wrapper with one long-lived vanilla CodeView lifecycle.
- * Apache-2.0; Copyright 2025 Pierre Computer Company.
- */
+// Adapted from Pierre DiffsHub DiffsHubViewer.tsx and lib/constants.ts at
+// diffs-v1.3.5 (59ec35ffac97abccef4c69f8d58d3747cbfbc6cb).
+// Replaces the React wrapper with one long-lived vanilla CodeView lifecycle.
+// Apache-2.0; Copyright 2025 Pierre Computer Company.
 import {
   CodeView,
   type CodeViewItem,
   type CodeViewOptions,
   type DiffIndicators,
 } from "@pierre/diffs";
-import type { ApiClient } from "./api";
+import type { ApiClient, MutateRequest } from "./api";
+import { splitHunkPatches } from "./hunk-patches";
 import { createReviewDiffLoader, reviewToItems, type ReviewItemStatus } from "./review-data";
-import type { ReviewResponse } from "./types";
+import type { ChangeKind, ReviewIdentity, ReviewResponse } from "./types";
 
 export interface CodeViewDisplayOptions {
   diffStyle: "split" | "unified";
@@ -23,6 +22,16 @@ export interface CodeViewDisplayOptions {
   themeType: "system" | "light" | "dark";
   lightThemeName: string;
   darkThemeName: string;
+}
+
+export type ReviewFileAction = "stage" | "unstage" | "discard" | "delete";
+
+export interface ReviewCodeViewActions {
+  kindForPath(scope: "staged" | "unstaged", path: string): ChangeKind | undefined;
+  onFileAction(action: ReviewFileAction, path: string, kind: ChangeKind): Promise<void> | void;
+  onPatch(request: MutateRequest): Promise<void>;
+  onActionStart(): void;
+  onActionError(error: string): void;
 }
 
 const CODE_VIEW_CSS = `
@@ -45,9 +54,12 @@ export class ReviewCodeView {
   private readonly viewer = new CodeView();
   private display: CodeViewDisplayOptions;
   private items: CodeViewItem[] = [];
+  private orderedPaths: string[] = [];
   private pathToItemId = new Map<string, string>();
   private statusByItemId = new Map<string, ReviewItemStatus>();
+  private identity: ReviewIdentity | null = null;
   private loader: CodeViewOptions<undefined>["loadDiffFiles"];
+  private actions?: ReviewCodeViewActions;
 
   constructor(
     root: HTMLElement,
@@ -59,11 +71,20 @@ export class ReviewCodeView {
     this.viewer.setup(root);
   }
 
+  setActions(actions: ReviewCodeViewActions): void {
+    this.actions = actions;
+    this.viewer.setOptions(this.buildOptions());
+  }
+
   setReview(review: ReviewResponse): number {
     const converted = reviewToItems(review);
     this.items = converted.items;
+    this.orderedPaths = converted.items.flatMap((item) =>
+      item.type === "diff" ? [item.fileDiff.name] : [],
+    );
     this.pathToItemId = converted.pathToItemId;
     this.statusByItemId = converted.statusByItemId;
+    this.identity = review.identity;
     this.loader = createReviewDiffLoader(this.api, review.identity);
     this.viewer.setOptions(this.buildOptions());
     this.viewer.setItems(this.items);
@@ -101,6 +122,20 @@ export class ReviewCodeView {
     this.viewer.scrollTo({ type: "item", id, align: "start", behavior: "smooth" });
   }
 
+  scrollAdjacent(path: string | undefined, offset: -1 | 1): string | null {
+    if (this.orderedPaths.length === 0) return null;
+    const current = path ? this.orderedPaths.indexOf(path) : -1;
+    const index =
+      current < 0
+        ? offset > 0
+          ? 0
+          : this.orderedPaths.length - 1
+        : (current + offset + this.orderedPaths.length) % this.orderedPaths.length;
+    const next = this.orderedPaths[index]!;
+    this.scrollToPath(next);
+    return next;
+  }
+
   cleanUp(): void {
     this.viewer.cleanUp();
   }
@@ -127,19 +162,159 @@ export class ReviewCodeView {
       lineHoverHighlight: "number",
       stickyHeaders: true,
       unsafeCSS: CODE_VIEW_CSS,
-      renderHeaderPrefix: (_fileDiff, context) => {
-        const item = context.item;
-        return this.collapseButton(item);
-      },
-      renderHeaderMetadata: (_fileDiff, context) => {
-        const status = this.statusByItemId.get(context.item.id);
-        if (!status) return null;
-        const badge = document.createElement("span");
-        badge.className = "review-file-status";
-        badge.textContent = status === "binary" ? "Binary" : "Too large";
-        return badge;
-      },
+      renderHeaderPrefix: (_fileDiff, context) => this.collapseButton(context.item),
+      renderHeaderMetadata: (_fileDiff, context) => this.headerMetadata(context.item),
     };
+  }
+
+  private headerMetadata(item: CodeViewItem): HTMLElement | null {
+    if (item.type !== "diff") return null;
+    const status = this.statusByItemId.get(item.id);
+    const identity = this.identity;
+    const workingScope = identity?.scope === "staged" || identity?.scope === "unstaged";
+    if (!status && !workingScope) return null;
+
+    const metadata = document.createElement("span");
+    metadata.className = "review-header-metadata";
+    if (status) {
+      const badge = document.createElement("span");
+      badge.className = "review-file-status";
+      badge.textContent = status === "binary" ? "Binary" : "Too large";
+      metadata.append(badge);
+    }
+    if (
+      !identity ||
+      (identity.scope !== "staged" && identity.scope !== "unstaged") ||
+      !this.actions
+    )
+      return metadata;
+
+    const scope = identity.scope;
+    const path = item.fileDiff.name;
+    const kind = this.actions.kindForPath(scope, path) ?? this.inferKind(item);
+    const primary = scope === "staged" ? "unstage" : "stage";
+    metadata.append(this.fileActionButton(primary, path, kind));
+    if (scope === "unstaged") {
+      metadata.append(
+        this.fileActionButton(kind === "untracked" ? "delete" : "discard", path, kind),
+      );
+    }
+    if (item.fileDiff.hunks.length > 0 && kind === "modified") {
+      metadata.append(this.hunkLauncher(path));
+    }
+    return metadata;
+  }
+
+  private inferKind(item: Extract<CodeViewItem, { type: "diff" }>): ChangeKind {
+    switch (item.fileDiff.type) {
+      case "new":
+        return "added";
+      case "deleted":
+        return "deleted";
+      case "rename-pure":
+      case "rename-changed":
+        return "renamed";
+      default:
+        return "modified";
+    }
+  }
+
+  private fileActionButton(
+    action: ReviewFileAction,
+    path: string,
+    kind: ChangeKind,
+  ): HTMLButtonElement {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "review-git-action";
+    button.dataset.action = action;
+    button.textContent = action[0]!.toUpperCase() + action.slice(1);
+    button.ariaLabel = `${button.textContent} file ${path}`;
+    button.addEventListener("click", (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      if (!this.actions) return;
+      this.actions.onActionStart();
+      const result = this.actions.onFileAction(action, path, kind);
+      if (result instanceof Promise) {
+        button.disabled = true;
+        void result
+          .catch((error: unknown) => this.reportError(error))
+          .finally(() => {
+            button.disabled = false;
+          });
+      }
+    });
+    return button;
+  }
+
+  private hunkLauncher(path: string): HTMLButtonElement {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "review-git-action";
+    button.textContent = "Hunks";
+    button.ariaLabel = `Show hunk actions for ${path}`;
+    button.addEventListener("click", (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      void this.loadHunkActions(button, path);
+    });
+    return button;
+  }
+
+  private async loadHunkActions(button: HTMLButtonElement, path: string): Promise<void> {
+    const identity = this.identity;
+    if (!identity || (identity.scope !== "staged" && identity.scope !== "unstaged")) return;
+    this.actions?.onActionStart();
+    button.disabled = true;
+    button.textContent = "Loading…";
+    try {
+      const diff = await this.api.diff({ scope: identity.scope, path });
+      if (identity !== this.identity) return;
+      const hunks = splitHunkPatches(diff.patch ?? "");
+      if (!diff.patchId || hunks.length === 0) {
+        button.textContent = "No hunks";
+        return;
+      }
+      const group = document.createElement("span");
+      group.className = "review-hunk-actions";
+      for (const [index, hunk] of hunks.entries()) {
+        const hunkButton = document.createElement("button");
+        const verb = identity.scope === "staged" ? "Unstage" : "Stage";
+        hunkButton.type = "button";
+        hunkButton.className = "review-git-action";
+        hunkButton.textContent = `${verb} ${index + 1}`;
+        hunkButton.ariaLabel = `${verb} hunk ${index + 1} in ${path}`;
+        hunkButton.title = hunk.range;
+        hunkButton.addEventListener("click", (event) => {
+          event.preventDefault();
+          event.stopPropagation();
+          if (!this.actions) return;
+          this.actions.onActionStart();
+          for (const child of group.querySelectorAll("button")) child.disabled = true;
+          void this.actions
+            .onPatch({
+              op: "patch",
+              patch: hunk.patch,
+              patchId: diff.patchId,
+              scope: identity.scope,
+              path,
+              reverse: identity.scope === "staged",
+            })
+            .catch((error: unknown) => this.reportError(error));
+        });
+        group.append(hunkButton);
+      }
+      button.replaceWith(group);
+    } catch (error) {
+      button.disabled = false;
+      button.textContent = "Hunks";
+      this.reportError(error);
+    }
+  }
+
+  private reportError(error: unknown): void {
+    this.actions?.onActionError(error instanceof Error ? error.message : String(error));
   }
 
   private collapseButton(item: CodeViewItem): HTMLButtonElement {

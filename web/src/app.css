@@ -139,7 +139,7 @@ body {
   font-family:
     system-ui,
     -apple-system,
-    "Segoe UI",
+    'Segoe UI',
     sans-serif;
   font-size: 13px;
   color: var(--foreground);
@@ -157,6 +157,18 @@ body {
   height: 100%;
   min-width: 0;
   overflow: hidden;
+}
+
+.source-control-shell {
+  position: relative;
+  z-index: 40;
+  min-width: 0;
+  min-height: 0;
+  outline: none;
+}
+
+.source-control-scrim {
+  display: none;
 }
 
 .cv-scrollbar,
@@ -209,6 +221,13 @@ body {
   transform: rotate(-90deg);
 }
 
+.review-header-metadata,
+.review-hunk-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
 .review-file-status {
   display: inline-flex;
   align-items: center;
@@ -221,12 +240,82 @@ body {
   font-weight: 500;
 }
 
+.review-git-action {
+  min-height: 22px;
+  padding: 0 7px;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  background: var(--background);
+  color: var(--foreground);
+  font: inherit;
+  font-size: 11px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.review-git-action:hover,
+.review-git-action:focus-visible {
+  border-color: var(--muted-foreground);
+  background: var(--accent);
+  outline: none;
+}
+
+.review-git-action[data-action='discard'],
+.review-git-action[data-action='delete'] {
+  color: var(--destructive);
+}
+
+.review-git-action:disabled {
+  cursor: wait;
+  opacity: 0.55;
+}
+
 @media (width <= 767px) {
   .app {
     grid-template-columns: minmax(0, 1fr);
   }
 
-  .app > .source-control {
-    display: none !important;
+  .source-control-shell {
+    position: fixed;
+    inset: 0 auto 0 0;
+    width: min(360px, calc(100vw - 32px));
+    visibility: hidden;
+    transform: translateX(-102%);
+    background: var(--background);
+    box-shadow: 16px 0 40px rgb(0 0 0 / 0.24);
+    transition:
+      transform 180ms ease,
+      visibility 0s linear 180ms;
+  }
+
+  .source-control-shell.open {
+    visibility: visible;
+    transform: translateX(0);
+    transition-delay: 0s;
+  }
+
+  .source-control-scrim {
+    position: fixed;
+    z-index: 39;
+    inset: 0;
+    display: block;
+    padding: 0;
+    border: 0;
+    background: rgb(0 0 0 / 0.42);
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 180ms ease;
+  }
+
+  .source-control-scrim.open {
+    opacity: 1;
+    pointer-events: auto;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .source-control-shell,
+  .source-control-scrim {
+    transition: none;
   }
 }

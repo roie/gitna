@@ -18,9 +18,10 @@
     collapsed: boolean
     narrow: boolean
     onToggleCollapse(): void
+    onOpenSourceControl?(): void
   }
 
-  let { title, fileCount, collapsed, narrow, onToggleCollapse }: Props = $props()
+  let { title, fileCount, collapsed, narrow, onToggleCollapse, onOpenSourceControl }: Props = $props()
   const lightThemes = reviewThemeCatalog.getThemes({ colorScheme: 'light' })
   const darkThemes = reviewThemeCatalog.getThemes({ colorScheme: 'dark' })
 
@@ -30,6 +31,19 @@
 </script>
 
 <header class="review-header">
+  {#if narrow && onOpenSourceControl}
+    <Button
+      variant="ghost"
+      size="icon-md"
+      class="chrome-action"
+      aria-label="Open Source Control"
+      title="Open Source Control"
+      onclick={onOpenSourceControl}
+    >
+      <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M2.5 2.5h4v11h-4zm7 0h4v11h-4zM6.5 8h3" fill="none" stroke="currentColor" stroke-width="1.2" /></svg>
+    </Button>
+  {/if}
+
   <div class="identity">
     <span class="title" title={title}>{title}</span>
     <span class="count">{fileCount}</span>

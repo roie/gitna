@@ -147,7 +147,7 @@ export function createRepoState(options: RepoStateOptions = {}) {
   let selection = $state<Selection | null>(null)
   let activeOp = $state<string | null>(null)
 
-  let refreshRunning = false
+  let refreshPromise: Promise<void> | null = null
   let refreshAgain = false
 
   let graphCommits = $state<GraphCommit[]>([])
@@ -185,34 +185,38 @@ export function createRepoState(options: RepoStateOptions = {}) {
   let conflictsError = $state<string | null>(null)
 
   async function refreshSnapshot(): Promise<void> {
-    if (refreshRunning) {
-      refreshAgain = true
-      return
-    }
-    refreshRunning = true
-    loading = true
-    error = null
-    try {
-      const snap = await api.snapshot()
-      if (snap.generation <= generation) return
-      generation = snap.generation
-      snapshot = snap
-      selection = reconcileSelection(selection, snap.staged, snap.unstaged)
-      const op = snap.operation
-      if (op === 'merge' || op === 'rebase') {
-        void refreshConflicts()
-      } else if (conflicts.length > 0) {
-        conflicts = []
-      }
-    } catch (e) {
-      error = e instanceof Error ? e.message : String(e)
-    } finally {
-      loading = false
-      refreshRunning = false
-      if (refreshAgain) {
+    refreshAgain = true
+    if (refreshPromise) return refreshPromise
+
+    refreshPromise = (async () => {
+      while (refreshAgain) {
         refreshAgain = false
-        void refreshSnapshot()
+        loading = true
+        error = null
+        try {
+          const snap = await api.snapshot()
+          if (snap.generation <= generation) continue
+          generation = snap.generation
+          snapshot = snap
+          selection = reconcileSelection(selection, snap.staged, snap.unstaged)
+          const op = snap.operation
+          if (op === 'merge' || op === 'rebase') {
+            void refreshConflicts()
+          } else if (conflicts.length > 0) {
+            conflicts = []
+          }
+        } catch (e) {
+          error = e instanceof Error ? e.message : String(e)
+        } finally {
+          loading = false
+        }
       }
+    })()
+
+    try {
+      await refreshPromise
+    } finally {
+      refreshPromise = null
     }
   }
 
@@ -610,8 +614,9 @@ export function createRepoState(options: RepoStateOptions = {}) {
     } finally {
       busy = false
       activeOp = null
-      void refreshSnapshot()
-      void refreshGraph()
+      // The composer clears only after both authoritative views have observed
+      // the result. A hook failure still refreshes without discarding text.
+      await Promise.all([refreshSnapshot(), refreshGraph()])
     }
   }
 

@@ -1,14 +1,18 @@
 <script lang="ts">
+  import { onMount } from 'svelte'
   import type { RepoState } from '../lib/repo-state.svelte'
+  import type { WorkbenchActions } from '../lib/workbench-actions'
   import Button from './Button.svelte'
 
   interface Props {
     state: RepoState
+    actions: WorkbenchActions
   }
 
-  let { state: repo }: Props = $props()
+  let { state: repo, actions }: Props = $props()
 
   let message = $state('')
+  let messageInput = $state<HTMLTextAreaElement>()
 
   const stagedCount = $derived(repo.snapshot?.staged.length ?? 0)
   const canCommit = $derived(stagedCount > 0 && message.trim().length > 0 && !repo.busy)
@@ -22,6 +26,17 @@
       // repo.mutationError shows the hook's reason; keep the user's text.
     }
   }
+
+  onMount(() => {
+    const unregisterFocus = actions.register('focus-commit', () => messageInput?.focus())
+    const unregisterCommit = actions.register('commit', () => {
+      if (canCommit) void submit(false)
+    })
+    return () => {
+      unregisterFocus()
+      unregisterCommit()
+    }
+  })
 </script>
 
 <section class="composer" aria-label="Commit">
@@ -29,10 +44,8 @@
     class="message"
     placeholder="Commit message"
     rows="2"
+    bind:this={messageInput}
     bind:value={message}
-    onkeydown={(e) => {
-      if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) submit(false)
-    }}
   ></textarea>
   <div class="actions">
     <Button variant="default" size="sm" onclick={() => submit(false)} disabled={!canCommit}>

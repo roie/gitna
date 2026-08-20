@@ -8,9 +8,10 @@
 
   interface Props {
     repo: RepoState
+    onClose?(): void
   }
 
-  let { repo }: Props = $props()
+  let { repo, onClose }: Props = $props()
 
   let branchOpen = $state(false)
   let overflowOpen = $state(false)
@@ -45,15 +46,6 @@
     return [...names].sort()
   })
 
-  const upstreamLabel = $derived.by(() => {
-    const snap = repo.snapshot
-    if (!snap?.upstream) return 'no upstream'
-    const bits = []
-    if (snap.ahead > 0) bits.push(`↑${snap.ahead}`)
-    if (snap.behind > 0) bits.push(`↓${snap.behind}`)
-    return bits.length ? `${snap.upstream} ${bits.join(' ')}` : snap.upstream
-  })
-
   const tagTargets = $derived.by(() => {
     const opts: Array<{ value: string; label: string }> = [{ value: 'HEAD', label: 'HEAD' }]
     for (const b of localBranches) opts.push({ value: b.name, label: b.name })
@@ -86,14 +78,6 @@
       void repo.refreshStashes()
       void repo.refreshTags()
     }
-  }
-
-  function closeAll(): void {
-    branchOpen = false
-    overflowOpen = false
-    stashOpen = false
-    tagsOpen = false
-    compareOpen = false
   }
 
   function toggleStash(): void {
@@ -233,11 +217,23 @@
     if (compareFrom === compareTo) return
     void repo.openCompare(compareFrom, compareTo, `${compareFrom}..${compareTo}`)
   }
+
+  function repositoryName(root: string): string {
+    return root.replace(/[\\/]+$/, '').split(/[\\/]/).pop() || root
+  }
 </script>
 
 {#if repo.snapshot}
   <div class="toolbar">
-    <Button variant="outline" size="sm" onclick={toggleBranch} aria-expanded={branchOpen}>
+    <Button
+      variant="outline"
+      size="sm"
+      onclick={toggleBranch}
+      aria-expanded={branchOpen}
+      title={`${repo.snapshot.root} · ${repo.snapshot.headBranch ?? repo.snapshot.headOid?.slice(0, 8) ?? 'detached'}`}
+    >
+      <span class="repository-name">{repositoryName(repo.snapshot.root)}</span>
+      <span class="identity-separator">/</span>
       <span class="branch-name">{repo.snapshot?.headBranch ?? repo.snapshot?.headOid?.slice(0, 8) ?? '—'}</span>
       <span class="branch-chevron">{branchOpen ? '▴' : '▾'}</span>
     </Button>
@@ -260,6 +256,11 @@
     <Button variant="ghost" size="icon-sm" onclick={toggleOverflow} aria-expanded={overflowOpen} title="More actions">
       ⋯
     </Button>
+    {#if onClose}
+      <Button variant="ghost" size="icon-sm" class="mobile-close" onclick={onClose} aria-label="Close Source Control" title="Close Source Control">
+        ×
+      </Button>
+    {/if}
   </div>
 
   {#if branchOpen}
@@ -497,11 +498,20 @@
     border-bottom: 1px solid var(--border);
   }
 
+  .repository-name,
   .branch-name {
-    white-space: nowrap;
+    max-width: 80px;
     overflow: hidden;
     text-overflow: ellipsis;
-    max-width: 180px;
+    white-space: nowrap;
+  }
+
+  .identity-separator {
+    color: var(--muted-foreground);
+  }
+
+  :global(.mobile-close) {
+    display: none;
   }
 
   .branch-chevron {
@@ -764,6 +774,12 @@
     border-top-color: #009fff;
     border-radius: 50%;
     animation: spin 0.6s linear infinite;
+  }
+
+  @media (width <= 767px) {
+    :global(.mobile-close) {
+      display: inline-flex;
+    }
   }
 
   @keyframes spin {

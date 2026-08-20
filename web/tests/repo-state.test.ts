@@ -393,6 +393,35 @@ describe('createRepoState', () => {
     expect(state.busy).toBe(false)
   })
 
+  it('resolves commit only after the authoritative snapshot refresh completes', async () => {
+    let release = () => {}
+    const gate = new Promise<void>((resolve) => { release = resolve })
+    let settled = false
+    const state = createRepoState({
+      api: {
+        ...auxApi,
+        async snapshot() {
+          await gate
+          return snapshot({ generation: 2 })
+        },
+        async commit() {
+          return { ok: true }
+        },
+      },
+    })
+
+    const pending = (async () => {
+      await state.commit('wait for snapshot')
+      settled = true
+    })()
+    await Promise.resolve()
+    expect(settled).toBe(false)
+    release()
+    await pending
+    expect(state.generation).toBe(2)
+    expect(settled).toBe(true)
+  })
+
   it('surfaces a rejected hook without clearing mutationError', async () => {
     const state = createRepoState({
       api: { ...auxApi,
