@@ -36,6 +36,21 @@ repository. Each local source file carries a prominent modified-file notice.
 | `apps/diffshub/components/ThemedSurface.tsx` | `web/src/components/ThemedSurface.svelte` | Replaced the React polymorphic wrapper with a Svelte chrome host driven by the shared document theme. |
 | `apps/diffshub/components/themeCatalog.ts`; `apps/diffshub/components/themeController.ts`; `apps/diffshub/components/useChromeThemeProps.ts` | `web/src/lib/review-preferences.svelte.ts` | Ported the catalog, persistence, system/light/dark resolution, and shared chrome synchronization to a controller-backed Svelte store. |
 
+## Pinned DiffsHub React baseline
+
+Milestone 5.5 also incorporates verbatim React source from the same pinned app
+under `web/src/diffshub`. The initial baseline copies `Button`, `ButtonGroup`,
+`Input`, `Switch`, `DropdownMenu`, `DiffUrlForm`, `GitHubTokenControl`,
+`DiffsHubLogo`, `DiffsHubHeader`, `DiffsHubStatusPanel`, chrome button styles,
+theme controller/providers/hooks, URL helpers, shared types, chrome-theme helpers,
+and `app/globals.css`. The exact file-level disposition is maintained in
+`docs/research/diffshub-react-parity.md`.
+
+The copied files remain verbatim. New files under `web/src/diffshub/vite` and
+the fixture entry in `web/src/diffshub/main.tsx` are Gitna-authored boundaries
+for replacing `next/link`, `next/navigation`, `next/font`, SSR and remote data.
+The donor app's `LICENSE.md` is copied to `web/src/diffshub/LICENSE.md`.
+
 ## Pinned DiffsHub donor inventory
 
 The recovery plan requires inspecting these exact donor files before equivalent
@@ -72,6 +87,7 @@ was copied into Gitna.
 | Package | Installed version | Package license evidence | Required distribution material |
 | --- | --- | --- | --- |
 | `@pierre/diffs` | `1.3.5` | `web/node_modules/@pierre/diffs/LICENSE.md`; package metadata declares `apache-2.0` | `LICENSES/Apache-2.0.txt`; the package contains no NOTICE file. |
+| `@pierre/icons` | `0.7.1` | `web/node_modules/@pierre/icons/LICENSE.md`; package metadata declares `apache-2.0` | `LICENSES/Apache-2.0.txt`; the package contains no NOTICE file. |
 | `@pierre/trees` | `1.0.0-beta.6` | `web/node_modules/@pierre/trees/LICENSE.md`; package metadata declares `apache-2.0` | `LICENSES/Apache-2.0.txt` and the `@pierre/trees` notice below. |
 | `@pierre/theme` | `2.0.0` | `web/node_modules/@pierre/theme/LICENSE`; package metadata declares `apache-2.0` | `LICENSES/Apache-2.0.txt` and the `@pierre/theme` notice below. |
 | `@pierre/theming` | `1.0.1` | `web/node_modules/@pierre/theming/LICENSE.md`; package metadata declares `apache-2.0` | `LICENSES/Apache-2.0.txt`; the package contains no NOTICE file. |

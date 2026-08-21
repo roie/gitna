@@ -34,6 +34,21 @@ test('real binary renders repository source-control state', async ({ page, app }
   await expect(page.getByText('merge feature', { exact: true })).toBeVisible()
 })
 
+test('embedded binary serves the pinned DiffsHub React baseline', async ({ page, app }) => {
+  const response = await page.goto(new URL('react.html', app.url).href)
+  expect(response?.status()).toBe(200)
+  await expect(page.getByRole('img', { name: 'DiffsHub' })).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Collapse all files' })).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Theme settings' })).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Display settings' })).toBeVisible()
+  await expect(page.getByRole('status')).toContainText('Preparing diff')
+
+  await page.getByRole('button', { name: 'Display settings' }).click()
+  await expect(page.getByText('Backgrounds', { exact: true })).toBeVisible()
+  await expect(page.getByText('Line numbers', { exact: true })).toBeVisible()
+  await page.keyboard.press('Escape')
+})
+
 test('bounded review contract serves all scopes from the real repository', async ({
   request,
   app,

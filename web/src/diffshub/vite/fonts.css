@@ -1,0 +1,21 @@
+/* Replaces next/font while preserving the donor's exact CSS variable contract. */
+@font-face {
+  font-family: 'Geist';
+  src: url('../../assets/Geist-Variable.woff2') format('woff2');
+  font-style: normal;
+  font-weight: 100 900;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'Berkeley Mono';
+  src: url('../../assets/BerkeleyMonoVariable.woff2') format('woff2');
+  font-style: normal;
+  font-weight: 100 900;
+  font-display: swap;
+}
+
+:root {
+  --font-geist-sans: 'Geist', sans-serif;
+  --font-berkeley-mono: 'Berkeley Mono', monospace;
+}

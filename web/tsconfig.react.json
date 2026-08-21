@@ -1,0 +1,24 @@
+{
+  "compilerOptions": {
+    "tsBuildInfoFile": "./node_modules/.tmp/tsconfig.react.tsbuildinfo",
+    "target": "es2023",
+    "lib": ["dom", "dom.iterable", "esnext"],
+    "module": "esnext",
+    "moduleResolution": "bundler",
+    "jsx": "react-jsx",
+    "strict": true,
+    "skipLibCheck": true,
+    "noEmit": true,
+    "isolatedModules": true,
+    "allowArbitraryExtensions": true,
+    "types": ["vite/client"],
+    "baseUrl": ".",
+    "ignoreDeprecations": "6.0",
+    "paths": {
+      "@/*": ["src/diffshub/*"],
+      "next/link": ["src/diffshub/vite/next.tsx"],
+      "next/navigation": ["src/diffshub/vite/next.tsx"]
+    }
+  },
+  "include": ["src/diffshub/**/*.ts", "src/diffshub/**/*.tsx"]
+}
