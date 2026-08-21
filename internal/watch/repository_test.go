@@ -212,9 +212,11 @@ func TestWatcherIgnoresLockFiles(t *testing.T) {
 
 func TestWatcherDebouncesBursts(t *testing.T) {
 	root := trackedRepo(t)
-	w := startWatcher(t, root, Options{Debounce: 80 * time.Millisecond, FallbackInterval: -1})
+	// Keep the debounce window comfortably above the per-write race-detector
+	// overhead so this remains one logical burst under -race and CPU contention.
+	w := startWatcher(t, root, Options{Debounce: 250 * time.Millisecond, FallbackInterval: -1})
 	events := w.Events()
-	drain(t, events, 150*time.Millisecond)
+	drain(t, events, 350*time.Millisecond)
 
 	for i := 0; i < 10; i++ {
 		writeFile(t, root, "tracked.txt", "line\n")

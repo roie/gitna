@@ -200,9 +200,33 @@ func (a repoAdapter) CherryPick(ctx context.Context, oid string) error {
 	})
 }
 
+func (a repoAdapter) CherryPickAbort(ctx context.Context) error {
+	return a.queue.Do(ctx, func(ctx context.Context) error {
+		return a.repo.CherryPickAbort(ctx, a.runner)
+	})
+}
+
+func (a repoAdapter) CherryPickContinue(ctx context.Context) error {
+	return a.queue.Do(ctx, func(ctx context.Context) error {
+		return a.repo.CherryPickContinue(ctx, a.runner)
+	})
+}
+
 func (a repoAdapter) Revert(ctx context.Context, oid string) error {
 	return a.queue.Do(ctx, func(ctx context.Context) error {
 		return a.repo.Revert(ctx, a.runner, oid)
+	})
+}
+
+func (a repoAdapter) RevertAbort(ctx context.Context) error {
+	return a.queue.Do(ctx, func(ctx context.Context) error {
+		return a.repo.RevertAbort(ctx, a.runner)
+	})
+}
+
+func (a repoAdapter) RevertContinue(ctx context.Context) error {
+	return a.queue.Do(ctx, func(ctx context.Context) error {
+		return a.repo.RevertContinue(ctx, a.runner)
 	})
 }
 
@@ -259,6 +283,12 @@ func (a repoAdapter) RebaseContinue(ctx context.Context) error {
 func (a repoAdapter) ResolveConflict(ctx context.Context, path string, theirs bool) error {
 	return a.queue.Do(ctx, func(ctx context.Context) error {
 		return a.repo.ResolveConflictSide(ctx, a.runner, path, theirs)
+	})
+}
+
+func (a repoAdapter) ResolveConflictBoth(ctx context.Context, path string) error {
+	return a.queue.Do(ctx, func(ctx context.Context) error {
+		return a.repo.ResolveConflictBoth(ctx, a.runner, path)
 	})
 }
 

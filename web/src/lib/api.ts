@@ -39,7 +39,11 @@ export type MutationOp =
   | 'delete-tag'
   | 'push-tag'
   | 'cherry-pick'
+  | 'cherry-pick-abort'
+  | 'cherry-pick-continue'
   | 'revert'
+  | 'revert-abort'
+  | 'revert-continue'
   | 'reset'
   | 'merge'
   | 'merge-abort'
@@ -49,6 +53,7 @@ export type MutationOp =
   | 'rebase-continue'
   | 'resolve-ours'
   | 'resolve-theirs'
+  | 'resolve-both'
 
 export interface MutateRequest {
   op: MutationOp

@@ -49,7 +49,11 @@ type Repo interface {
 	DeleteTag(ctx context.Context, name string) error
 	PushTag(ctx context.Context, remote, name string) error
 	CherryPick(ctx context.Context, oid string) error
+	CherryPickAbort(ctx context.Context) error
+	CherryPickContinue(ctx context.Context) error
 	Revert(ctx context.Context, oid string) error
+	RevertAbort(ctx context.Context) error
+	RevertContinue(ctx context.Context) error
 	Reset(ctx context.Context, target, mode string) error
 	CompareFiles(ctx context.Context, from, to string) ([]protocol.CommitFile, error)
 	Conflicts(ctx context.Context) ([]protocol.ConflictEntry, error)
@@ -60,6 +64,7 @@ type Repo interface {
 	RebaseAbort(ctx context.Context) error
 	RebaseContinue(ctx context.Context) error
 	ResolveConflict(ctx context.Context, path string, theirs bool) error
+	ResolveConflictBoth(ctx context.Context, path string) error
 }
 
 // Options carries server configuration.

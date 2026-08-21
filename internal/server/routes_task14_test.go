@@ -24,8 +24,13 @@ func TestOperationMergeAndRebaseOps(t *testing.T) {
 		{OpRebase, mutationRequest{Name: "main"}, "rebase:main"},
 		{OpRebaseAbort, mutationRequest{}, "rebase-abort"},
 		{OpRebaseContinue, mutationRequest{}, "rebase-continue"},
+		{OpCherryPickAbort, mutationRequest{}, "cherry-pick-abort"},
+		{OpCherryPickContinue, mutationRequest{}, "cherry-pick-continue"},
+		{OpRevertAbort, mutationRequest{}, "revert-abort"},
+		{OpRevertContinue, mutationRequest{}, "revert-continue"},
 		{OpResolveOurs, mutationRequest{Paths: []string{"a.txt"}}, "resolve:a.txt:theirs=false"},
 		{OpResolveTheirs, mutationRequest{Paths: []string{"a.txt"}}, "resolve:a.txt:theirs=true"},
+		{OpResolveBoth, mutationRequest{Paths: []string{"a.txt"}}, "resolve-both:a.txt"},
 	} {
 		rec := postOperation(t, repo, tc.op, tc.req)
 		if rec.Code != http.StatusOK {
@@ -41,15 +46,20 @@ func TestOperationMergeAndRebaseOps(t *testing.T) {
 		"rebase:main",
 		"rebase-abort",
 		"rebase-continue",
+		"cherry-pick-abort",
+		"cherry-pick-continue",
+		"revert-abort",
+		"revert-continue",
 		"resolve:a.txt:theirs=false",
 		"resolve:a.txt:theirs=true",
+		"resolve-both:a.txt",
 	}) {
 		t.Fatalf("historyCalls = %v", repo.historyCalls)
 	}
 }
 
 func TestOperationConflictResolutionRequiresOnePath(t *testing.T) {
-	for _, op := range []string{OpResolveOurs, OpResolveTheirs} {
+	for _, op := range []string{OpResolveOurs, OpResolveTheirs, OpResolveBoth} {
 		for _, paths := range [][]string{nil, {}, {"a.txt", "b.txt"}} {
 			repo := &fakeRepo{}
 			rec := postOperation(t, repo, op, mutationRequest{Paths: paths})

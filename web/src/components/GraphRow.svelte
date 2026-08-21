@@ -52,18 +52,24 @@
     }
   }
 
+  function invoke(action: () => Promise<void>): void {
+    void action().catch(() => {
+      // Repo state exposes mutationError in the persistent composer status.
+    })
+  }
+
   function handleReset(): void {
     menuOpen = false
     if (resetMode === 'hard') {
       pendingReset = true
       return
     }
-    void repo.resetTo(row.commit.oid, resetMode)
+    invoke(() => repo.resetTo(row.commit.oid, resetMode))
   }
 
   function confirmHardReset(): void {
     pendingReset = false
-    void repo.resetTo(row.commit.oid, 'hard')
+    invoke(() => repo.resetTo(row.commit.oid, 'hard'))
   }
 
   $effect(() => {
@@ -171,10 +177,10 @@
         </Button>
         {#if menuOpen}
           <div class="row-menu" role="menu">
-            <button class="row-menu-item" role="menuitem" onclick={() => { menuOpen = false; void repo.cherryPick(row.commit.oid) }} disabled={repo.busy}>
+            <button class="row-menu-item" role="menuitem" onclick={() => { menuOpen = false; invoke(() => repo.cherryPick(row.commit.oid)) }} disabled={repo.busy}>
               Cherry-pick
             </button>
-            <button class="row-menu-item" role="menuitem" onclick={() => { menuOpen = false; void repo.revertCommit(row.commit.oid) }} disabled={repo.busy}>
+            <button class="row-menu-item" role="menuitem" onclick={() => { menuOpen = false; invoke(() => repo.revertCommit(row.commit.oid)) }} disabled={repo.busy}>
               Revert
             </button>
             <div class="row-menu-sep"></div>

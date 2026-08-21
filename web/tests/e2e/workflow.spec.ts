@@ -1,7 +1,16 @@
+import { spawnSync } from 'node:child_process'
 import { chmodSync, rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import type { Page } from '@playwright/test'
 import { expect, test } from './fixtures.js'
+
+function git(repo: string, ...args: string[]): string {
+  const result = spawnSync('git', args, { cwd: repo, encoding: 'utf8' })
+  if (result.status !== 0) {
+    throw new Error(`git ${args.join(' ')} failed: ${result.stderr || result.stdout}`)
+  }
+  return result.stdout.trim()
+}
 
 async function reviewPatch(page: Page, scope: 'staged' | 'unstaged') {
   return page.evaluate(async (reviewScope) => {
@@ -123,6 +132,82 @@ test('commit text survives hook failure and clears after authoritative success',
   await page.keyboard.press('Control+Enter')
   await expect(composer).toHaveValue('')
   await expect(page.getByText('milestone commit', { exact: true })).toBeVisible()
+})
+
+test('advanced Git actions use compact dialogs and destructive confirmations', async ({
+  page,
+  app,
+}) => {
+  git(app.repo, 'stash', 'push', '-u', '-m', 'confirmation stash')
+  await page.goto(app.url)
+  const moreActions = page.getByRole('button', { name: 'More actions' })
+
+  await moreActions.click()
+  await page.getByRole('button', { name: 'Merge or rebase…' }).click()
+  const integrateDialog = page.getByRole('dialog', { name: 'Merge or rebase' })
+  await expect(integrateDialog).toBeVisible()
+  await expect(integrateDialog.getByRole('button', { name: 'Merge', exact: true })).toBeVisible()
+  await expect(integrateDialog.getByRole('button', { name: 'Rebase', exact: true })).toBeVisible()
+  await page.keyboard.press('Escape')
+  await expect(integrateDialog).not.toBeVisible()
+
+  await moreActions.click()
+  await page.getByRole('button', { name: 'Compare refs…' }).click()
+  await expect(page.getByRole('dialog', { name: 'Compare references' })).toBeVisible()
+  await page.keyboard.press('Escape')
+
+  await moreActions.click()
+  await page.getByRole('button', { name: 'Stashes…' }).click()
+  const stashesDialog = page.getByRole('dialog', { name: 'Stashes' })
+  await expect(stashesDialog).toBeVisible()
+  await stashesDialog.getByRole('button', { name: 'Drop' }).click()
+  const stashConfirmation = page.getByRole('alertdialog')
+  await expect(stashConfirmation).toContainText('Drop stash@{0}?')
+  await stashConfirmation.getByRole('button', { name: 'Cancel' }).click()
+  await page.keyboard.press('Escape')
+
+  await moreActions.click()
+  await page.getByRole('button', { name: 'Tags…' }).click()
+  const tagsDialog = page.getByRole('dialog', { name: 'Tags' })
+  await expect(tagsDialog).toBeVisible()
+  await tagsDialog.getByRole('button', { name: 'Delete' }).click()
+  const confirmation = page.getByRole('alertdialog')
+  await expect(confirmation).toContainText('Delete tag v1?')
+  await confirmation.getByRole('button', { name: 'Cancel' }).click()
+  await expect(tagsDialog.getByText('v1', { exact: true })).toBeVisible()
+})
+
+test('cherry-pick conflicts can accept both sides and continue', async ({ page, app }) => {
+  git(app.repo, 'reset', '--hard', 'HEAD')
+  git(app.repo, 'clean', '-fd')
+  git(app.repo, 'switch', '-q', '-c', 'replay-conflict')
+  writeFileSync(join(app.repo, 'modified.txt'), 'replay side\n')
+  git(app.repo, 'add', '--', 'modified.txt')
+  git(app.repo, 'commit', '-qm', 'replay conflict')
+  const replayOid = git(app.repo, 'rev-parse', 'HEAD')
+  git(app.repo, 'switch', '-q', 'main')
+  writeFileSync(join(app.repo, 'modified.txt'), 'main side\n')
+  git(app.repo, 'add', '--', 'modified.txt')
+  git(app.repo, 'commit', '-qm', 'main conflict')
+  const cherryPick = spawnSync('git', ['cherry-pick', replayOid], {
+    cwd: app.repo,
+    encoding: 'utf8',
+  })
+  expect(cherryPick.status).not.toBe(0)
+
+  await page.goto(app.url)
+  const conflictView = page.locator('.conflict-bar')
+  await expect(conflictView).toContainText('Cherry-pick in progress')
+  await expect(conflictView).toContainText('modified.txt')
+  await conflictView.getByRole('button', { name: 'Both' }).click()
+  const continueButton = conflictView.getByRole('button', { name: 'Continue' })
+  await expect(continueButton).toBeEnabled()
+  await continueButton.click()
+  await expect(conflictView).not.toBeVisible()
+
+  const content = git(app.repo, 'show', 'HEAD:modified.txt')
+  expect(content).toContain('main side')
+  expect(content).toContain('replay side')
 })
 
 test('narrow Source Control uses a dismissible overlay without squeezing review', async ({

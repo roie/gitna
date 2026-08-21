@@ -345,7 +345,19 @@ func (s *slowRepo) PushTag(ctx context.Context, _, _ string) error {
 func (s *slowRepo) CherryPick(ctx context.Context, _ string) error {
 	return s.block(ctx)
 }
+func (s *slowRepo) CherryPickAbort(ctx context.Context) error {
+	return s.block(ctx)
+}
+func (s *slowRepo) CherryPickContinue(ctx context.Context) error {
+	return s.block(ctx)
+}
 func (s *slowRepo) Revert(ctx context.Context, _ string) error {
+	return s.block(ctx)
+}
+func (s *slowRepo) RevertAbort(ctx context.Context) error {
+	return s.block(ctx)
+}
+func (s *slowRepo) RevertContinue(ctx context.Context) error {
 	return s.block(ctx)
 }
 func (s *slowRepo) Reset(ctx context.Context, _, _ string) error {
@@ -376,5 +388,8 @@ func (s *slowRepo) RebaseContinue(ctx context.Context) error {
 	return s.block(ctx)
 }
 func (s *slowRepo) ResolveConflict(ctx context.Context, _ string, _ bool) error {
+	return s.block(ctx)
+}
+func (s *slowRepo) ResolveConflictBoth(ctx context.Context, _ string) error {
 	return s.block(ctx)
 }

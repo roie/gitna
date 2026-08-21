@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 
@@ -30,6 +32,7 @@ func parseLsFilesUnmerged(raw []byte) ([]protocol.ConflictEntry, error) {
 	}
 	type entry struct {
 		base, ours, theirs string
+		mode               string
 	}
 	byPath := make(map[string]*entry)
 	var paths []string
@@ -67,14 +70,19 @@ func parseLsFilesUnmerged(raw []byte) ([]protocol.ConflictEntry, error) {
 			byPath[path] = e
 			paths = append(paths, path)
 		}
+		mode := string(tok[:s1])
 		oid := string(tok[s1+1 : s2])
 		switch stage {
 		case 1:
 			e.base = oid
 		case 2:
 			e.ours = oid
+			e.mode = mode
 		case 3:
 			e.theirs = oid
+			if e.mode == "" {
+				e.mode = mode
+			}
 		}
 	}
 
@@ -82,10 +90,12 @@ func parseLsFilesUnmerged(raw []byte) ([]protocol.ConflictEntry, error) {
 	for _, p := range paths {
 		e := byPath[p]
 		out = append(out, protocol.ConflictEntry{
-			Path:      p,
-			BaseOID:   e.base,
-			OursOID:   e.ours,
-			TheirsOID: e.theirs,
+			Path:           p,
+			BaseOID:        e.base,
+			OursOID:        e.ours,
+			TheirsOID:      e.theirs,
+			Mode:           e.mode,
+			CanResolveBoth: e.ours != "" && e.theirs != "" && (e.mode == "100644" || e.mode == "100755"),
 		})
 	}
 	return out, nil
@@ -137,6 +147,93 @@ func (r Repository) ResolveConflictSide(ctx context.Context, runner Runner, path
 	}
 	if res.ExitCode != 0 {
 		return opError("stage resolved file", res)
+	}
+	return nil
+}
+
+// ResolveConflictBoth uses Git's union merge driver to retain both sides of a
+// regular text conflict, writes the merged blob into the index, and checks it
+// out to the worktree. Binary files and non-regular index modes deliberately
+// fall back to the external-edit-and-stage workflow.
+func (r Repository) ResolveConflictBoth(ctx context.Context, runner Runner, path string) error {
+	if err := validatePath(path); err != nil {
+		return err
+	}
+	entries, err := r.ListConflicts(ctx, runner)
+	if err != nil {
+		return err
+	}
+	var conflict *protocol.ConflictEntry
+	for i := range entries {
+		if entries[i].Path == path {
+			conflict = &entries[i]
+			break
+		}
+	}
+	if conflict == nil || !conflict.CanResolveBoth {
+		return fmt.Errorf("gitx: conflict cannot safely accept both sides")
+	}
+	ours, err := r.ConflictBlob(ctx, runner, path, 2)
+	if err != nil {
+		return err
+	}
+	theirs, err := r.ConflictBlob(ctx, runner, path, 3)
+	if err != nil {
+		return err
+	}
+	var base []byte
+	if conflict.BaseOID != "" {
+		base, err = r.ConflictBlob(ctx, runner, path, 1)
+		if err != nil {
+			return err
+		}
+	}
+	if bytes.IndexByte(ours, 0) >= 0 || bytes.IndexByte(theirs, 0) >= 0 || bytes.IndexByte(base, 0) >= 0 {
+		return fmt.Errorf("gitx: binary conflict requires external resolution")
+	}
+
+	tempDir, err := os.MkdirTemp("", "gitna-conflict-")
+	if err != nil {
+		return fmt.Errorf("gitx: create conflict workspace: %w", err)
+	}
+	defer os.RemoveAll(tempDir)
+	oursPath := filepath.Join(tempDir, "ours")
+	basePath := filepath.Join(tempDir, "base")
+	theirsPath := filepath.Join(tempDir, "theirs")
+	for name, content := range map[string][]byte{oursPath: ours, basePath: base, theirsPath: theirs} {
+		if err := os.WriteFile(name, content, 0o600); err != nil {
+			return fmt.Errorf("gitx: write conflict workspace: %w", err)
+		}
+	}
+	merged, err := runner.Run(ctx, r.Root, "merge-file", "--union", "-p", oursPath, basePath, theirsPath)
+	if err != nil {
+		return err
+	}
+	if merged.ExitCode != 0 {
+		return opError("merge-file --union", merged)
+	}
+	hashed, err := runner.RunInput(ctx, r.Root, merged.Stdout, "hash-object", "-w", "--stdin")
+	if err != nil {
+		return err
+	}
+	if hashed.ExitCode != 0 {
+		return opError("hash merged conflict", hashed)
+	}
+	oid := strings.TrimSpace(string(hashed.Stdout))
+	cacheInfo := strings.Join([]string{conflict.Mode, oid, path}, ",")
+	updated, err := runner.Run(ctx, r.Root, "update-index", "--add", "--cacheinfo", cacheInfo)
+	if err != nil {
+		return err
+	}
+	if updated.ExitCode != 0 {
+		return opError("index merged conflict", updated)
+	}
+	checkedOut, err := runner.Run(ctx, r.Root, "checkout-index", "-f", "--", path)
+	if err != nil {
+		return err
+	}
+	if checkedOut.ExitCode != 0 {
+		return opError("checkout merged conflict", checkedOut)
 	}
 	return nil
 }

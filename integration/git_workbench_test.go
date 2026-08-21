@@ -127,8 +127,24 @@ func (w *workbenchRepo) CherryPick(ctx context.Context, oid string) error {
 	return w.queue.Do(ctx, func(ctx context.Context) error { return w.repo.CherryPick(ctx, w.runner, oid) })
 }
 
+func (w *workbenchRepo) CherryPickAbort(ctx context.Context) error {
+	return w.queue.Do(ctx, func(ctx context.Context) error { return w.repo.CherryPickAbort(ctx, w.runner) })
+}
+
+func (w *workbenchRepo) CherryPickContinue(ctx context.Context) error {
+	return w.queue.Do(ctx, func(ctx context.Context) error { return w.repo.CherryPickContinue(ctx, w.runner) })
+}
+
 func (w *workbenchRepo) Revert(ctx context.Context, oid string) error {
 	return w.queue.Do(ctx, func(ctx context.Context) error { return w.repo.Revert(ctx, w.runner, oid) })
+}
+
+func (w *workbenchRepo) RevertAbort(ctx context.Context) error {
+	return w.queue.Do(ctx, func(ctx context.Context) error { return w.repo.RevertAbort(ctx, w.runner) })
+}
+
+func (w *workbenchRepo) RevertContinue(ctx context.Context) error {
+	return w.queue.Do(ctx, func(ctx context.Context) error { return w.repo.RevertContinue(ctx, w.runner) })
 }
 
 func (w *workbenchRepo) Reset(ctx context.Context, target, mode string) error {
@@ -169,6 +185,10 @@ func (w *workbenchRepo) RebaseContinue(ctx context.Context) error {
 
 func (w *workbenchRepo) ResolveConflict(ctx context.Context, path string, theirs bool) error {
 	return w.queue.Do(ctx, func(ctx context.Context) error { return w.repo.ResolveConflictSide(ctx, w.runner, path, theirs) })
+}
+
+func (w *workbenchRepo) ResolveConflictBoth(ctx context.Context, path string) error {
+	return w.queue.Do(ctx, func(ctx context.Context) error { return w.repo.ResolveConflictBoth(ctx, w.runner, path) })
 }
 
 func (w *workbenchRepo) StagePaths(ctx context.Context, paths []string) error {
@@ -699,6 +719,78 @@ func TestOperationQueueSerializesMutations(t *testing.T) {
 	if h.status() != "M  file.txt\n" {
 		t.Fatalf("status after concurrent stages = %q, want staged M", h.status())
 	}
+}
+
+func TestCherryPickConflictRecoveryViaAPI(t *testing.T) {
+	h := newHarness(t)
+	h.writeFile("conflict.txt", "base\n")
+	h.commitAll("conflict base")
+	git(t, h.root, "switch", "-q", "-c", "replay")
+	h.writeFile("conflict.txt", "replay side\n")
+	h.commitAll("replay change")
+	replayOID := strings.TrimSpace(git(t, h.root, "rev-parse", "HEAD"))
+	git(t, h.root, "switch", "-q", "main")
+	h.writeFile("conflict.txt", "main side\n")
+	h.commitAll("main change")
+
+	if got := h.post(server.OpCherryPick, map[string]any{"ref": replayOID}); got.Code != http.StatusConflict {
+		t.Fatalf("cherry-pick status = %d, want 409 (%s)", got.Code, got.Body)
+	}
+	conflictResponse := h.get("/api/v1/conflicts")
+	if conflictResponse.Code != http.StatusOK {
+		t.Fatalf("conflicts status = %d (%s)", conflictResponse.Code, conflictResponse.Body)
+	}
+	var conflicts []protocol.ConflictEntry
+	if err := json.Unmarshal(conflictResponse.Body.Bytes(), &conflicts); err != nil {
+		t.Fatal(err)
+	}
+	if len(conflicts) != 1 || conflicts[0].Path != "conflict.txt" || !conflicts[0].CanResolveBoth {
+		t.Fatalf("conflicts = %+v, want resolvable conflict.txt", conflicts)
+	}
+	if got := h.post(server.OpResolveBoth, map[string]any{"paths": []string{"conflict.txt"}}); got.Code != http.StatusOK {
+		t.Fatalf("resolve both status = %d (%s)", got.Code, got.Body)
+	}
+	if got := h.post(server.OpCherryPickContinue, map[string]any{}); got.Code != http.StatusOK {
+		t.Fatalf("continue status = %d (%s)", got.Code, got.Body)
+	}
+	content := h.readFile("conflict.txt")
+	if !strings.Contains(content, "main side") || !strings.Contains(content, "replay side") {
+		t.Fatalf("resolved content = %q, want both sides", content)
+	}
+	var snapshot protocol.RepoSnapshot
+	response := h.get("/api/v1/snapshot")
+	if err := json.Unmarshal(response.Body.Bytes(), &snapshot); err != nil {
+		t.Fatal(err)
+	}
+	if snapshot.Operation != "none" {
+		t.Fatalf("operation after continue = %q, want none", snapshot.Operation)
+	}
+}
+
+func TestMergeAndRebaseStartViaAPI(t *testing.T) {
+	h := newHarness(t)
+	h.writeFile("base.txt", "base\n")
+	h.commitAll("base")
+	git(t, h.root, "switch", "-q", "-c", "merge-source")
+	h.writeFile("merged.txt", "merged\n")
+	h.commitAll("merge source")
+	git(t, h.root, "switch", "-q", "main")
+
+	if got := h.post(server.OpMerge, map[string]any{"name": "merge-source"}); got.Code != http.StatusOK {
+		t.Fatalf("merge status = %d (%s)", got.Code, got.Body)
+	}
+	if got := h.readFile("merged.txt"); got != "merged\n" {
+		t.Fatalf("merged content = %q", got)
+	}
+
+	git(t, h.root, "switch", "-q", "-c", "upstream")
+	h.writeFile("upstream.txt", "upstream\n")
+	h.commitAll("upstream")
+	git(t, h.root, "switch", "-q", "main")
+	if got := h.post(server.OpRebase, map[string]any{"name": "upstream"}); got.Code != http.StatusOK {
+		t.Fatalf("rebase status = %d (%s)", got.Code, got.Body)
+	}
+	git(t, h.root, "cat-file", "-e", "HEAD:upstream.txt")
 }
 
 func TestGraphViaAPI(t *testing.T) {

@@ -232,10 +232,38 @@ func (f *fakeRepo) CherryPick(_ context.Context, ref string) error {
 	return f.opFail()
 }
 
+func (f *fakeRepo) CherryPickAbort(context.Context) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.historyCalls = append(f.historyCalls, "cherry-pick-abort")
+	return f.opFail()
+}
+
+func (f *fakeRepo) CherryPickContinue(context.Context) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.historyCalls = append(f.historyCalls, "cherry-pick-continue")
+	return f.opFail()
+}
+
 func (f *fakeRepo) Revert(_ context.Context, ref string) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.historyCalls = append(f.historyCalls, "revert:"+ref)
+	return f.opFail()
+}
+
+func (f *fakeRepo) RevertAbort(context.Context) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.historyCalls = append(f.historyCalls, "revert-abort")
+	return f.opFail()
+}
+
+func (f *fakeRepo) RevertContinue(context.Context) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.historyCalls = append(f.historyCalls, "revert-continue")
 	return f.opFail()
 }
 
@@ -307,6 +335,13 @@ func (f *fakeRepo) ResolveConflict(_ context.Context, path string, theirs bool) 
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.historyCalls = append(f.historyCalls, "resolve:"+path+":theirs="+boolStr(theirs))
+	return f.opFail()
+}
+
+func (f *fakeRepo) ResolveConflictBoth(_ context.Context, path string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.historyCalls = append(f.historyCalls, "resolve-both:"+path)
 	return f.opFail()
 }
 

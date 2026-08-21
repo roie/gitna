@@ -54,6 +54,43 @@ func TestCherryPickConflict(t *testing.T) {
 	if DetectOperation(repo) != "cherry-pick" {
 		t.Fatalf("operation = %q, want cherry-pick", DetectOperation(repo))
 	}
+	if err := repo.ResolveConflictSide(context.Background(), &ExecRunner{}, "a.txt", true); err != nil {
+		t.Fatalf("ResolveConflictSide: %v", err)
+	}
+	if err := repo.CherryPickContinue(context.Background(), &ExecRunner{}); err != nil {
+		t.Fatalf("CherryPickContinue: %v", err)
+	}
+	if DetectOperation(repo) != "none" {
+		t.Fatalf("operation after continue = %q, want none", DetectOperation(repo))
+	}
+}
+
+func TestCherryPickAbort(t *testing.T) {
+	root := initTestRepo(t)
+	writeFile(t, filepath.Join(root, "a.txt"), "base\n")
+	runGit(t, root, "add", "a.txt")
+	runGit(t, root, "commit", "-qm", "base")
+	runGit(t, root, "switch", "-q", "-c", "side")
+	writeFile(t, filepath.Join(root, "a.txt"), "side\n")
+	runGit(t, root, "add", "a.txt")
+	runGit(t, root, "commit", "-qm", "side")
+	sideOID := strings.TrimSpace(runGit(t, root, "rev-parse", "HEAD"))
+	runGit(t, root, "switch", "-q", "main")
+	writeFile(t, filepath.Join(root, "a.txt"), "main\n")
+	runGit(t, root, "add", "a.txt")
+	runGit(t, root, "commit", "-qm", "main")
+	before := strings.TrimSpace(runGit(t, root, "rev-parse", "HEAD"))
+
+	repo := Repository{Root: root, GitDir: filepath.Join(root, ".git")}
+	if err := repo.CherryPick(context.Background(), &ExecRunner{}, sideOID); !errors.Is(err, ErrConflict) {
+		t.Fatalf("CherryPick = %v, want ErrConflict", err)
+	}
+	if err := repo.CherryPickAbort(context.Background(), &ExecRunner{}); err != nil {
+		t.Fatalf("CherryPickAbort: %v", err)
+	}
+	if got := strings.TrimSpace(runGit(t, root, "rev-parse", "HEAD")); got != before {
+		t.Fatalf("HEAD after abort = %s, want %s", got, before)
+	}
 }
 
 func TestRevertAppliesInverse(t *testing.T) {
@@ -99,6 +136,41 @@ func TestRevertConflict(t *testing.T) {
 	}
 	if DetectOperation(repo) != "revert" {
 		t.Fatalf("operation = %q, want revert", DetectOperation(repo))
+	}
+	if err := repo.ResolveConflictSide(context.Background(), &ExecRunner{}, "a.txt", true); err != nil {
+		t.Fatalf("ResolveConflictSide: %v", err)
+	}
+	if err := repo.RevertContinue(context.Background(), &ExecRunner{}); err != nil {
+		t.Fatalf("RevertContinue: %v", err)
+	}
+	if DetectOperation(repo) != "none" {
+		t.Fatalf("operation after continue = %q, want none", DetectOperation(repo))
+	}
+}
+
+func TestRevertAbort(t *testing.T) {
+	root := initTestRepo(t)
+	writeFile(t, filepath.Join(root, "a.txt"), "base\n")
+	runGit(t, root, "add", "a.txt")
+	runGit(t, root, "commit", "-qm", "base")
+	writeFile(t, filepath.Join(root, "a.txt"), "target\n")
+	runGit(t, root, "add", "a.txt")
+	runGit(t, root, "commit", "-qm", "target")
+	target := strings.TrimSpace(runGit(t, root, "rev-parse", "HEAD"))
+	writeFile(t, filepath.Join(root, "a.txt"), "later\n")
+	runGit(t, root, "add", "a.txt")
+	runGit(t, root, "commit", "-qm", "later")
+	before := strings.TrimSpace(runGit(t, root, "rev-parse", "HEAD"))
+
+	repo := Repository{Root: root, GitDir: filepath.Join(root, ".git")}
+	if err := repo.Revert(context.Background(), &ExecRunner{}, target); !errors.Is(err, ErrConflict) {
+		t.Fatalf("Revert = %v, want ErrConflict", err)
+	}
+	if err := repo.RevertAbort(context.Background(), &ExecRunner{}); err != nil {
+		t.Fatalf("RevertAbort: %v", err)
+	}
+	if got := strings.TrimSpace(runGit(t, root, "rev-parse", "HEAD")); got != before {
+		t.Fatalf("HEAD after abort = %s, want %s", got, before)
 	}
 }
 

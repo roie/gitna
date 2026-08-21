@@ -36,7 +36,11 @@ const opLabels: Record<string, string> = {
   'delete-tag': 'Deleting tag',
   'push-tag': 'Pushing tag',
   'cherry-pick': 'Cherry-picking',
+  'cherry-pick-abort': 'Aborting cherry-pick',
+  'cherry-pick-continue': 'Continuing cherry-pick',
   revert: 'Reverting',
+  'revert-abort': 'Aborting revert',
+  'revert-continue': 'Continuing revert',
   reset: 'Resetting',
   merge: 'Merging',
   'merge-abort': 'Aborting merge',
@@ -46,6 +50,7 @@ const opLabels: Record<string, string> = {
   'rebase-continue': 'Continuing rebase',
   'resolve-ours': 'Resolving conflict',
   'resolve-theirs': 'Resolving conflict',
+  'resolve-both': 'Resolving conflict',
 }
 
 export interface Selection {
@@ -183,6 +188,7 @@ export function createRepoState(options: RepoStateOptions = {}) {
   let conflicts = $state<ConflictEntry[]>([])
   let conflictsLoading = $state(false)
   let conflictsError = $state<string | null>(null)
+  let conflictsRequest = 0
 
   async function refreshSnapshot(): Promise<void> {
     refreshAgain = true
@@ -200,11 +206,13 @@ export function createRepoState(options: RepoStateOptions = {}) {
           snapshot = snap
           selection = reconcileSelection(selection, snap.staged, snap.unstaged)
           const op = snap.operation
-          if (op === 'merge' || op === 'rebase') {
-            void refreshConflicts()
-          } else if (conflicts.length > 0) {
-            conflicts = []
-          }
+          conflictsRequest += 1
+          conflicts =
+            op === 'merge' || op === 'rebase' || op === 'cherry-pick' || op === 'revert'
+              ? (snap.conflicts ?? [])
+              : []
+          conflictsLoading = false
+          conflictsError = null
         } catch (e) {
           error = e instanceof Error ? e.message : String(e)
         } finally {
@@ -375,16 +383,20 @@ export function createRepoState(options: RepoStateOptions = {}) {
     }
   }
 
-  /** Refreshes the conflict list when a merge or rebase is in progress. */
+  /** Refreshes conflicts while preventing an older response from restoring stale entries. */
   async function refreshConflicts(): Promise<void> {
+    const request = ++conflictsRequest
     conflictsLoading = true
     conflictsError = null
     try {
-      conflicts = await api.conflicts()
+      const next = await api.conflicts()
+      if (request === conflictsRequest) conflicts = next
     } catch (e) {
-      conflictsError = e instanceof Error ? e.message : String(e)
+      if (request === conflictsRequest) {
+        conflictsError = e instanceof Error ? e.message : String(e)
+      }
     } finally {
-      conflictsLoading = false
+      if (request === conflictsRequest) conflictsLoading = false
     }
   }
 
@@ -505,8 +517,24 @@ export function createRepoState(options: RepoStateOptions = {}) {
     return operation({ op: 'cherry-pick', ref: oid })
   }
 
+  function cherryPickAbort(): Promise<void> {
+    return operation({ op: 'cherry-pick-abort' })
+  }
+
+  function cherryPickContinue(): Promise<void> {
+    return operation({ op: 'cherry-pick-continue' })
+  }
+
   function revertCommit(oid: string): Promise<void> {
     return operation({ op: 'revert', ref: oid })
+  }
+
+  function revertAbort(): Promise<void> {
+    return operation({ op: 'revert-abort' })
+  }
+
+  function revertContinue(): Promise<void> {
+    return operation({ op: 'revert-continue' })
   }
 
   function resetTo(target: string, mode: 'soft' | 'mixed' | 'hard'): Promise<void> {
@@ -543,6 +571,10 @@ export function createRepoState(options: RepoStateOptions = {}) {
 
   function resolveTheirs(path: string): Promise<void> {
     return operation({ op: 'resolve-theirs', paths: [path] })
+  }
+
+  function resolveBoth(path: string): Promise<void> {
+    return operation({ op: 'resolve-both', paths: [path] })
   }
 
   /**
@@ -760,7 +792,11 @@ export function createRepoState(options: RepoStateOptions = {}) {
     deleteTag,
     pushTag,
     cherryPick,
+    cherryPickAbort,
+    cherryPickContinue,
     revertCommit,
+    revertAbort,
+    revertContinue,
     resetTo,
     openCompare,
     clearCompare,
@@ -773,6 +809,7 @@ export function createRepoState(options: RepoStateOptions = {}) {
     rebaseContinue,
     resolveOurs,
     resolveTheirs,
+    resolveBoth,
   }
 }
 

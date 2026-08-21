@@ -13,7 +13,22 @@
   const operation = $derived(repo.snapshot?.operation ?? 'none')
   const isMerge = $derived(operation === 'merge')
   const isRebase = $derived(operation === 'rebase')
-  const isActive = $derived(isMerge || isRebase)
+  const isCherryPick = $derived(operation === 'cherry-pick')
+  const isRevert = $derived(operation === 'revert')
+  const isActive = $derived(isMerge || isRebase || isCherryPick || isRevert)
+  const operationLabel = $derived(
+    isMerge ? 'Merge' : isRebase ? 'Rebase' : isCherryPick ? 'Cherry-pick' : 'Revert',
+  )
+  const unresolvedConflicts = $derived.by(() => {
+    const snapshot = repo.snapshot
+    if (!snapshot) return repo.conflicts
+    const paths = new Set(
+      [...snapshot.staged, ...snapshot.unstaged]
+        .filter((change) => change.conflicted)
+        .map((change) => change.path),
+    )
+    return repo.conflicts.filter((entry) => paths.has(entry.path))
+  })
 
   async function run(action: () => Promise<void>): Promise<void> {
     actionError = null
@@ -32,20 +47,26 @@
     void run(() => repo.resolveTheirs(path))
   }
 
+  function handleResolveBoth(path: string): void {
+    void run(() => repo.resolveBoth(path))
+  }
+
+  function handleStageEdited(path: string): void {
+    void run(() => repo.mutate({ op: 'stage', paths: [path] }))
+  }
+
   function handleContinue(): void {
-    if (isMerge) {
-      void run(() => repo.mergeContinue())
-    } else if (isRebase) {
-      void run(() => repo.rebaseContinue())
-    }
+    if (isMerge) void run(() => repo.mergeContinue())
+    else if (isRebase) void run(() => repo.rebaseContinue())
+    else if (isCherryPick) void run(() => repo.cherryPickContinue())
+    else if (isRevert) void run(() => repo.revertContinue())
   }
 
   function handleAbort(): void {
-    if (isMerge) {
-      void run(() => repo.mergeAbort())
-    } else if (isRebase) {
-      void run(() => repo.rebaseAbort())
-    }
+    if (isMerge) void run(() => repo.mergeAbort())
+    else if (isRebase) void run(() => repo.rebaseAbort())
+    else if (isCherryPick) void run(() => repo.cherryPickAbort())
+    else if (isRevert) void run(() => repo.revertAbort())
   }
 </script>
 
@@ -53,15 +74,15 @@
   <div class="conflict-bar">
     <div class="conflict-header">
       <span class="conflict-label">
-        {isMerge ? 'Merge' : 'Rebase'} in progress
+        {operationLabel} in progress
       </span>
       <Button variant="destructive" size="xs" onclick={handleAbort} disabled={repo.busy}>
         Abort
       </Button>
     </div>
-    {#if repo.conflicts.length > 0}
+    {#if unresolvedConflicts.length > 0}
       <ul class="conflict-list">
-        {#each repo.conflicts as entry (entry.path)}
+        {#each unresolvedConflicts as entry (entry.path)}
           <li class="conflict-item">
             <span class="conflict-path" title={entry.path}>{entry.path}</span>
             <span class="conflict-buttons">
@@ -83,23 +104,46 @@
               >
                 Theirs
               </Button>
+              {#if entry.canResolveBoth}
+                <Button
+                  variant="outline"
+                  size="xs"
+                  onclick={() => handleResolveBoth(entry.path)}
+                  disabled={repo.busy}
+                  title="Union both text versions"
+                >
+                  Both
+                </Button>
+              {/if}
+              <Button
+                variant="ghost"
+                size="xs"
+                onclick={() => handleStageEdited(entry.path)}
+                disabled={repo.busy}
+                title="Stage the externally edited file as resolved"
+              >
+                Stage edited
+              </Button>
             </span>
           </li>
         {/each}
       </ul>
-      <Button
-        variant="outline"
-        size="sm"
-        onclick={handleContinue}
-        disabled={repo.busy || repo.conflictsLoading}
-      >
-        Continue
-      </Button>
     {:else if repo.conflictsLoading}
       <p class="conflict-note">Loading conflicts…</p>
     {:else}
-      <p class="conflict-note">No unmerged files</p>
+      <p class="conflict-note">All conflicts resolved and staged.</p>
     {/if}
+    {#if repo.conflictsError}
+      <p class="conflict-error" role="alert">{repo.conflictsError}</p>
+    {/if}
+    <Button
+      variant="outline"
+      size="sm"
+      onclick={handleContinue}
+      disabled={repo.busy || repo.conflictsLoading || unresolvedConflicts.length > 0}
+    >
+      Continue
+    </Button>
     {#if actionError}
       <p class="conflict-error" role="alert">{actionError}</p>
     {/if}

@@ -246,8 +246,10 @@ type Tag struct {
 // or revert. Stages 1–3 carry the base, ours, and theirs OIDs from the index;
 // empty means that side has no blob (e.g. an added file).
 type ConflictEntry struct {
-	Path      string `json:"path"`
-	BaseOID   string `json:"baseOid,omitempty"`
-	OursOID   string `json:"oursOid,omitempty"`
-	TheirsOID string `json:"theirsOid,omitempty"`
+	Path           string `json:"path"`
+	BaseOID        string `json:"baseOid,omitempty"`
+	OursOID        string `json:"oursOid,omitempty"`
+	TheirsOID      string `json:"theirsOid,omitempty"`
+	Mode           string `json:"mode,omitempty"`
+	CanResolveBoth bool   `json:"canResolveBoth"`
 }

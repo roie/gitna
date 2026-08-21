@@ -34,8 +34,12 @@ const (
 	OpTagCreate       = "create-tag"
 	OpTagDelete       = "delete-tag"
 	OpTagPush         = "push-tag"
-	OpCherryPick      = "cherry-pick"
-	OpRevert          = "revert"
+	OpCherryPick         = "cherry-pick"
+	OpCherryPickAbort    = "cherry-pick-abort"
+	OpCherryPickContinue = "cherry-pick-continue"
+	OpRevert             = "revert"
+	OpRevertAbort        = "revert-abort"
+	OpRevertContinue     = "revert-continue"
 	OpReset           = "reset"
 	OpMerge           = "merge"
 	OpMergeAbort      = "merge-abort"
@@ -45,6 +49,7 @@ const (
 	OpRebaseContinue  = "rebase-continue"
 	OpResolveOurs     = "resolve-ours"
 	OpResolveTheirs   = "resolve-theirs"
+	OpResolveBoth     = "resolve-both"
 )
 
 // mutationRequest is the JSON body shared by all operations. Only the fields
@@ -170,7 +175,7 @@ func (s *Server) handleOperation(w http.ResponseWriter, r *http.Request) {
 			})
 			return
 		}
-	case OpResolveOurs, OpResolveTheirs:
+	case OpResolveOurs, OpResolveTheirs, OpResolveBoth:
 		if len(req.Paths) != 1 {
 			writeJSON(w, http.StatusBadRequest, map[string]any{
 				"error": "conflict resolution requires exactly one path",
@@ -235,8 +240,16 @@ func (s *Server) handleOperation(w http.ResponseWriter, r *http.Request) {
 		err = s.repo.PushTag(ctx, req.Remote, req.Name)
 	case OpCherryPick:
 		err = s.repo.CherryPick(ctx, req.Ref)
+	case OpCherryPickAbort:
+		err = s.repo.CherryPickAbort(ctx)
+	case OpCherryPickContinue:
+		err = s.repo.CherryPickContinue(ctx)
 	case OpRevert:
 		err = s.repo.Revert(ctx, req.Ref)
+	case OpRevertAbort:
+		err = s.repo.RevertAbort(ctx)
+	case OpRevertContinue:
+		err = s.repo.RevertContinue(ctx)
 	case OpReset:
 		err = s.repo.Reset(ctx, req.Ref, req.Mode)
 	case OpMerge:
@@ -255,6 +268,8 @@ func (s *Server) handleOperation(w http.ResponseWriter, r *http.Request) {
 		err = s.repo.ResolveConflict(ctx, req.Paths[0], false)
 	case OpResolveTheirs:
 		err = s.repo.ResolveConflict(ctx, req.Paths[0], true)
+	case OpResolveBoth:
+		err = s.repo.ResolveConflictBoth(ctx, req.Paths[0])
 	default:
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "unknown operation"})
 		return

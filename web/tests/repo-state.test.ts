@@ -945,7 +945,7 @@ describe('merge, rebase, and conflict operations', () => {
     expect(mutate).toHaveBeenCalledWith({ op: 'rebase-continue' })
   })
 
-  it('calls resolve-ours and resolve-theirs', async () => {
+  it('calls ours, theirs, and both conflict resolution', async () => {
     const mutate = vi.fn().mockResolvedValue(undefined)
     const api: ApiClient = {
       ...auxApi,
@@ -961,6 +961,33 @@ describe('merge, rebase, and conflict operations', () => {
 
     await state.resolveTheirs('b.txt')
     expect(mutate).toHaveBeenCalledWith({ op: 'resolve-theirs', paths: ['b.txt'] })
+
+    await state.resolveBoth('c.txt')
+    expect(mutate).toHaveBeenCalledWith({ op: 'resolve-both', paths: ['c.txt'] })
+  })
+
+  it('calls cherry-pick and revert recovery operations', async () => {
+    const mutate = vi.fn().mockResolvedValue(undefined)
+    const api: ApiClient = {
+      ...auxApi,
+      async snapshot() { return snapshot({ generation: 1 }) },
+      async mutate(req) { return mutate(req) },
+      async diff() { throw new Error('not used') },
+    }
+    const state = createRepoState({ api })
+    await state.refreshSnapshot()
+
+    await state.cherryPickAbort()
+    await state.cherryPickContinue()
+    await state.revertAbort()
+    await state.revertContinue()
+
+    expect(mutate.mock.calls.map(([request]) => request.op)).toEqual([
+      'cherry-pick-abort',
+      'cherry-pick-continue',
+      'revert-abort',
+      'revert-continue',
+    ])
   })
 
   it('refreshes conflicts when snapshot shows merge operation', async () => {
@@ -968,7 +995,20 @@ describe('merge, rebase, and conflict operations', () => {
     const api: ApiClient = {
       ...auxApi,
       async snapshot() {
-        return snapshot({ generation: snapGen++, operation: 'merge' })
+        return snapshot({
+          generation: snapGen++,
+          operation: 'merge',
+          conflicts: [
+            {
+              path: 'a.txt',
+              baseOid: 'b1',
+              oursOid: 'o1',
+              theirsOid: 't1',
+              mode: '100644',
+              canResolveBoth: true,
+            },
+          ],
+        })
       },
       async diff() { throw new Error('not used') },
       async conflicts() {
@@ -991,7 +1031,22 @@ describe('merge, rebase, and conflict operations', () => {
       ...auxApi,
       async snapshot() {
         const gen = snapGen++
-        if (gen === 1) return snapshot({ generation: gen, operation: 'merge' })
+        if (gen === 1) {
+          return snapshot({
+            generation: gen,
+            operation: 'merge',
+            conflicts: [
+              {
+                path: 'a.txt',
+                baseOid: 'b1',
+                oursOid: 'o1',
+                theirsOid: 't1',
+                mode: '100644',
+                canResolveBoth: true,
+              },
+            ],
+          })
+        }
         return snapshot({ generation: gen, operation: 'none' })
       },
       async diff() { throw new Error('not used') },
@@ -1016,10 +1071,9 @@ describe('merge, rebase, and conflict operations', () => {
     }
     const state = createRepoState({ api })
     await state.refreshSnapshot()
+    await state.refreshConflicts()
 
-    await vi.waitFor(() => {
-      expect(state.conflictsError).toMatch(/network error/)
-    })
+    expect(state.conflictsError).toMatch(/network error/)
   })
 })
 

@@ -25,6 +25,30 @@ func (r Repository) Revert(ctx context.Context, runner Runner, oid string) error
 	return r.replayCommit(ctx, runner, "revert", oid)
 }
 
+// CherryPickContinue resumes an in-progress cherry-pick after all conflicts
+// have been resolved and staged.
+func (r Repository) CherryPickContinue(ctx context.Context, runner Runner) error {
+	return r.replayContinue(ctx, runner, "cherry-pick")
+}
+
+// CherryPickAbort restores the repository to its state before the current
+// cherry-pick sequence began.
+func (r Repository) CherryPickAbort(ctx context.Context, runner Runner) error {
+	return r.replayAbort(ctx, runner, "cherry-pick")
+}
+
+// RevertContinue resumes an in-progress revert after all conflicts have been
+// resolved and staged.
+func (r Repository) RevertContinue(ctx context.Context, runner Runner) error {
+	return r.replayContinue(ctx, runner, "revert")
+}
+
+// RevertAbort restores the repository to its state before the current revert
+// sequence began.
+func (r Repository) RevertAbort(ctx context.Context, runner Runner) error {
+	return r.replayAbort(ctx, runner, "revert")
+}
+
 func (r Repository) replayCommit(ctx context.Context, runner Runner, action, oid string) error {
 	if err := validateRef(oid); err != nil {
 		return err
@@ -41,6 +65,46 @@ func (r Repository) replayCommit(ctx context.Context, runner Runner, action, oid
 			return ErrConflict
 		}
 		return opError(action, res)
+	}
+	return nil
+}
+
+func (r Repository) replayContinue(ctx context.Context, runner Runner, action string) error {
+	if op := DetectOperation(r); op != action {
+		return fmt.Errorf("gitx: no %s in progress (operation=%s)", action, op)
+	}
+	// Continuing creates a commit with the sequencer's existing message; never
+	// launch an interactive editor from the browser-owned process.
+	var run Runner = runner
+	if er, ok := runner.(*ExecRunner); ok {
+		sequencer := &ExecRunner{Exec: er.Exec, StdoutLimit: er.StdoutLimit, StderrLimit: er.StderrLimit}
+		sequencer.Env = append(append([]string{}, er.Env...), "GIT_EDITOR=true")
+		run = sequencer
+	}
+	res, err := run.Run(ctx, r.Root, action, "--continue")
+	if err != nil {
+		return err
+	}
+	if res.ExitCode != 0 {
+		combined := string(res.Stdout) + "\n" + string(res.Stderr)
+		if strings.Contains(combined, "CONFLICT") || strings.Contains(combined, "unmerged") {
+			return ErrConflict
+		}
+		return opError(action+" --continue", res)
+	}
+	return nil
+}
+
+func (r Repository) replayAbort(ctx context.Context, runner Runner, action string) error {
+	if op := DetectOperation(r); op != action {
+		return fmt.Errorf("gitx: no %s in progress (operation=%s)", action, op)
+	}
+	res, err := runner.Run(ctx, r.Root, action, "--abort")
+	if err != nil {
+		return err
+	}
+	if res.ExitCode != 0 {
+		return opError(action+" --abort", res)
 	}
 	return nil
 }

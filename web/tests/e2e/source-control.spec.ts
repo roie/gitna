@@ -38,7 +38,22 @@ test('bounded review contract serves all scopes from the real repository', async
   request,
   app,
 }) => {
-  const unstaged = await readReview(request, new URL('api/v1/review?scope=unstaged', app.url).href)
+  const [unstaged, staged, commit, compare] = await Promise.all([
+    readReview(request, new URL('api/v1/review?scope=unstaged', app.url).href),
+    readReview(request, new URL('api/v1/review?scope=staged', app.url).href),
+    readReview(
+      request,
+      new URL(`api/v1/review?scope=commit&commit=${app.headOid}`, app.url).href,
+    ),
+    readReview(
+      request,
+      new URL(
+        `api/v1/review?scope=compare&from=${app.baseOid}&to=${app.headOid}`,
+        app.url,
+      ).href,
+    ),
+  ])
+
   expect(unstaged.identity.scope).toBe('unstaged')
   expect(unstaged.patch).toContain('diff --git a/modified.txt b/modified.txt')
   expect(unstaged.patch).toContain('diff --git a/two-hunk.txt b/two-hunk.txt')
@@ -52,23 +67,14 @@ test('bounded review contract serves all scopes from the real repository', async
     ]),
   )
 
-  const staged = await readReview(request, new URL('api/v1/review?scope=staged', app.url).href)
   expect(staged.identity.scope).toBe('staged')
   expect(staged.patch).toContain('diff --git a/staged.txt b/staged.txt')
   expect(staged.patch).toContain('rename to rename-new.txt')
   expect(staged.patch).toContain('deleted file mode')
 
-  const commit = await readReview(
-    request,
-    new URL(`api/v1/review?scope=commit&commit=${app.headOid}`, app.url).href,
-  )
   expect(commit.identity.commit).toBe(app.headOid)
   expect(commit.patch).toContain('feature.txt')
 
-  const compare = await readReview(
-    request,
-    new URL(`api/v1/review?scope=compare&from=${app.baseOid}&to=${app.headOid}`, app.url).href,
-  )
   expect(compare.identity.from).toBe(app.baseOid)
   expect(compare.identity.to).toBe(app.headOid)
   expect(compare.patch).toContain('main.txt')

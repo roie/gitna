@@ -5,6 +5,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/roie/gitna/internal/protocol"
@@ -134,6 +135,9 @@ func TestConflictOperationsRejectInvalidPaths(t *testing.T) {
 			if err := repo.ResolveConflictSide(context.Background(), &ExecRunner{}, path, false); !errors.Is(err, protocol.ErrInvalidPath) {
 				t.Fatalf("ResolveConflictSide(%q) error = %v, want ErrInvalidPath", path, err)
 			}
+			if err := repo.ResolveConflictBoth(context.Background(), &ExecRunner{}, path); !errors.Is(err, protocol.ErrInvalidPath) {
+				t.Fatalf("ResolveConflictBoth(%q) error = %v, want ErrInvalidPath", path, err)
+			}
 		})
 	}
 }
@@ -154,6 +158,24 @@ func TestResolveConflictSideOurs(t *testing.T) {
 	content, _ := readFile(t, filepath.Join(root, "a.txt"))
 	if content != "main version\n" {
 		t.Fatalf("worktree = %q, want ours", content)
+	}
+}
+
+func TestResolveConflictBoth(t *testing.T) {
+	root, repo, runner := mergeFixture(t)
+
+	runGitErr(t, root, "merge", "--no-edit", "feature")
+
+	if err := repo.ResolveConflictBoth(context.Background(), runner, "a.txt"); err != nil {
+		t.Fatalf("ResolveConflictBoth: %v", err)
+	}
+	content, _ := readFile(t, filepath.Join(root, "a.txt"))
+	if !strings.Contains(content, "main version") || !strings.Contains(content, "feature version") {
+		t.Fatalf("worktree = %q, want both sides", content)
+	}
+	conflicts, err := repo.ListConflicts(context.Background(), runner)
+	if err != nil || len(conflicts) != 0 {
+		t.Fatalf("conflicts after resolve both = %+v, %v", conflicts, err)
 	}
 }
 
@@ -190,10 +212,10 @@ func TestParseLsFilesUnmerged(t *testing.T) {
 	if len(conflicts) != 2 {
 		t.Fatalf("expected 2 conflicts, got %d", len(conflicts))
 	}
-	if conflicts[0].Path != "a.txt" || conflicts[0].BaseOID != "aaa111" || conflicts[0].OursOID != "bbb222" || conflicts[0].TheirsOID != "ccc333" {
+	if conflicts[0].Path != "a.txt" || conflicts[0].BaseOID != "aaa111" || conflicts[0].OursOID != "bbb222" || conflicts[0].TheirsOID != "ccc333" || conflicts[0].Mode != "100644" || !conflicts[0].CanResolveBoth {
 		t.Fatalf("a.txt conflict = %+v", conflicts[0])
 	}
-	if conflicts[1].Path != "b.txt" || conflicts[1].BaseOID != "" || conflicts[1].OursOID != "ddd444" || conflicts[1].TheirsOID != "eee555" {
+	if conflicts[1].Path != "b.txt" || conflicts[1].BaseOID != "" || conflicts[1].OursOID != "ddd444" || conflicts[1].TheirsOID != "eee555" || conflicts[1].Mode != "100644" || !conflicts[1].CanResolveBoth {
 		t.Fatalf("b.txt conflict = %+v", conflicts[1])
 	}
 }

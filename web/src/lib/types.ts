@@ -96,6 +96,7 @@ export interface RepoSnapshot {
   operation: string
   staged: FileChange[]
   unstaged: FileChange[]
+  conflicts?: ConflictEntry[]
   generation: number
 }
 
@@ -127,4 +128,6 @@ export interface ConflictEntry {
   baseOid: string
   oursOid: string
   theirsOid: string
+  mode?: string
+  canResolveBoth?: boolean
 }

@@ -4,6 +4,7 @@
   import type { Branch } from '../lib/types'
   import Button from './Button.svelte'
   import ConfirmDialog from './ConfirmDialog.svelte'
+  import GitOperationDialog from './GitOperationDialog.svelte'
   import Input from './Input.svelte'
   import PierreIcon from './PierreIcon.svelte'
 
@@ -22,19 +23,20 @@
   let publishBranch = $state<string | null>(null)
   let publishRemote = $state('origin')
 
-  let stashOpen = $state(false)
+  let activeDialog = $state<'compare' | 'integrate' | 'stash' | 'tags' | null>(null)
   let stashMessage = $state('')
   let stashUntracked = $state(false)
+  let pendingStashDrop = $state<string | null>(null)
 
-  let tagsOpen = $state(false)
   let newTagName = $state('')
   let newTagMessage = $state('')
   let tagTarget = $state('HEAD')
   let tagPushRemote = $state('origin')
+  let pendingTagDelete = $state<string | null>(null)
 
-  let compareOpen = $state(false)
   let compareFrom = $state('HEAD')
   let compareTo = $state('HEAD')
+  let integrateTarget = $state('')
 
   const localBranches = $derived((repo.branches ?? []).filter((b) => !b.remote))
   const remoteBranches = $derived((repo.branches ?? []).filter((b) => b.remote))
@@ -81,19 +83,13 @@
     }
   }
 
-  function toggleStash(): void {
-    stashOpen = !stashOpen
-  }
-
-  function toggleTags(): void {
-    tagsOpen = !tagsOpen
-  }
-
-  function toggleCompare(): void {
-    compareOpen = !compareOpen
-    if (compareOpen) {
+  function openDialog(dialog: 'compare' | 'integrate' | 'stash' | 'tags'): void {
+    activeDialog = dialog
+    overflowOpen = false
+    if (dialog === 'stash') void repo.refreshStashes()
+    if (dialog === 'tags' || dialog === 'compare') void repo.refreshTags()
+    if (dialog === 'integrate' || dialog === 'tags' || dialog === 'compare') {
       void repo.refreshBranches()
-      void repo.refreshTags()
     }
   }
 
@@ -114,7 +110,13 @@
   }
 
   function handleStashDrop(ref: string): void {
-    void run(() => repo.stashDrop(ref))
+    pendingStashDrop = ref
+  }
+
+  async function confirmStashDrop(): Promise<void> {
+    const ref = pendingStashDrop
+    pendingStashDrop = null
+    if (ref) await run(() => repo.stashDrop(ref))
   }
 
   function handleCreateTag(event: SubmitEvent): void {
@@ -129,7 +131,13 @@
   }
 
   function handleDeleteTag(name: string): void {
-    void run(() => repo.deleteTag(name))
+    pendingTagDelete = name
+  }
+
+  async function confirmTagDelete(): Promise<void> {
+    const name = pendingTagDelete
+    pendingTagDelete = null
+    if (name) await run(() => repo.deleteTag(name))
   }
 
   function handlePushTag(name: string): void {
@@ -217,6 +225,13 @@
   function handleCompare(): void {
     if (compareFrom === compareTo) return
     void repo.openCompare(compareFrom, compareTo, `${compareFrom}..${compareTo}`)
+  }
+
+  function handleIntegrate(kind: 'merge' | 'rebase'): void {
+    const target = integrateTarget.trim()
+    if (!target || repo.busy) return
+    activeDialog = null
+    void run(() => (kind === 'merge' ? repo.mergeBranch(target) : repo.rebaseBranch(target)))
   }
 
 </script>
@@ -326,135 +341,138 @@
         Refresh Graph
       </button>
 
-      <button class="overflow-item" onclick={toggleCompare} aria-expanded={compareOpen}>
-        Compare refs {compareOpen ? '▴' : '▾'}
-      </button>
-      {#if compareOpen}
-        <div class="compare-panel">
+      <button class="overflow-item" onclick={() => openDialog('compare')}>Compare refs…</button>
+      <button class="overflow-item" onclick={() => openDialog('integrate')}>Merge or rebase…</button>
+      <button class="overflow-item" onclick={() => openDialog('stash')}>Stashes…</button>
+      <button class="overflow-item" onclick={() => openDialog('tags')}>Tags…</button>
+
+    </div>
+  {/if}
+
+  {#if activeDialog === 'compare'}
+    <GitOperationDialog title="Compare references" onClose={() => (activeDialog = null)}>
+      <div class="dialog-form compare-form">
+        <label>
+          <span>From</span>
           <select bind:value={compareFrom} class="compare-select" aria-label="Compare from">
             {#each compareRefOptions as option (option.value + option.label)}
               <option value={option.value}>{option.label}</option>
             {/each}
           </select>
-          <span class="compare-sep">..</span>
+        </label>
+        <label>
+          <span>To</span>
           <select bind:value={compareTo} class="compare-select" aria-label="Compare to">
             {#each compareRefOptions as option (option.value + option.label)}
               <option value={option.value}>{option.label}</option>
             {/each}
           </select>
-          <Button variant="outline" size="sm" onclick={handleCompare} disabled={repo.busy || compareFrom === compareTo}>
-            Compare
-          </Button>
-        </div>
-        {#if repo.compare}
-          <div class="compare-result">
-            <span class="compare-title" title={repo.compare.label}>{repo.compare.label}</span>
-            <Button variant="ghost" size="icon-sm" onclick={() => repo.clearCompare()} aria-label="Close compare">×</Button>
-            {#if repo.compareError}
-              <p class="overflow-error" role="alert">{repo.compareError}</p>
-            {:else if repo.compareLoading}
-              <p class="overflow-note">Loading…</p>
-            {:else if repo.compareFiles.length === 0}
-              <p class="overflow-note">No differences</p>
-            {/if}
-          </div>
-        {/if}
-      {/if}
-
-      <button class="overflow-item" onclick={toggleStash} aria-expanded={stashOpen}>
-        Stash {stashOpen ? '▴' : '▾'}
-      </button>
-      {#if stashOpen}
-        <div class="overflow-panel">
-          <form class="create-form" onsubmit={handleStashPush}>
-            <Input
-              size="sm"
-              bind:value={stashMessage}
-              placeholder="Stash message"
-              aria-label="Stash message"
-              spellcheck={false}
-            />
-            <label class="check-label" title="Include untracked files">
-              <input type="checkbox" bind:checked={stashUntracked} aria-label="Include untracked" />
-              untracked
-            </label>
-            <Button variant="outline" size="sm" type="submit" disabled={repo.busy || !stashMessage.trim()}>
-              Stash
-            </Button>
-          </form>
-          <ul class="item-list">
-            {#each repo.stashes ?? [] as entry (entry.ref)}
-              <li class="item-row" title={`${entry.branch}: ${entry.message}`}>
-                <span class="item-label">
-                  <b>{entry.ref}</b> {entry.branch}: {entry.message}
-                </span>
-                <Button variant="ghost" size="xs" onclick={() => handleStashApply(entry.ref)} disabled={repo.busy} title="Apply without removing">Apply</Button>
-                <Button variant="ghost" size="xs" onclick={() => handleStashPop(entry.ref)} disabled={repo.busy} title="Apply and remove">Pop</Button>
-                <Button variant="ghost" size="xs" onclick={() => handleStashDrop(entry.ref)} disabled={repo.busy} title="Drop stash">×</Button>
-              </li>
-            {:else}
-              <li class="overflow-note">No stashes</li>
-            {/each}
-          </ul>
-        </div>
-      {/if}
-
-      <button class="overflow-item" onclick={toggleTags} aria-expanded={tagsOpen}>
-        Tags {tagsOpen ? '▴' : '▾'}
-      </button>
-      {#if tagsOpen}
-        <div class="overflow-panel">
-          <form class="create-form" onsubmit={handleCreateTag}>
-            <Input
-              size="sm"
-              bind:value={newTagName}
-              placeholder="Tag name"
-              aria-label="New tag name"
-              spellcheck={false}
-            />
-            <select bind:value={tagTarget} class="compare-select" aria-label="Tag target">
-              {#each tagTargets as target (target.value + target.label)}
-                <option value={target.value}>{target.label}</option>
-              {/each}
-            </select>
-            <Input
-              size="sm"
-              bind:value={newTagMessage}
-              placeholder="Message (optional)"
-              aria-label="Annotated tag message"
-              spellcheck={false}
-            />
-            <Button variant="outline" size="sm" type="submit" disabled={repo.busy || !newTagName.trim()}>
-              Create
-            </Button>
-          </form>
-          <ul class="item-list">
-            {#each repo.tags ?? [] as tag (tag.name)}
-              <li class="item-row" title={tag.oid}>
-                <span class="item-label">
-                  <b>{tag.name}</b>
-                  {tag.annotated ? ' (annotated)' : ''}
-                </span>
-                <Button variant="ghost" size="xs" onclick={() => handlePushTag(tag.name)} disabled={repo.busy} title="Push tag to remote">Push</Button>
-                <Button variant="ghost" size="xs" onclick={() => handleDeleteTag(tag.name)} disabled={repo.busy} title="Delete tag">×</Button>
-              </li>
-            {:else}
-              <li class="overflow-note">No tags</li>
-            {/each}
-          </ul>
-          {#if remotes.length > 1}
-            <div class="tag-push-row">
-              <span class="overflow-note">Push tag to:</span>
-              <select bind:value={tagPushRemote} class="compare-select">
-                {#each remotes as remote}
-                  <option value={remote}>{remote}</option>
-                {/each}
-              </select>
-            </div>
+        </label>
+        <Button variant="outline" size="sm" onclick={handleCompare} disabled={repo.busy || compareFrom === compareTo}>
+          Compare
+        </Button>
+      </div>
+      {#if repo.compare}
+        <div class="dialog-result">
+          <span class="compare-title" title={repo.compare.label}>{repo.compare.label}</span>
+          <Button variant="ghost" size="icon-sm" onclick={() => repo.clearCompare()} aria-label="Close compare">×</Button>
+          {#if repo.compareError}
+            <p class="overflow-error" role="alert">{repo.compareError}</p>
+          {:else if repo.compareLoading}
+            <p class="overflow-note">Loading…</p>
+          {:else if repo.compareFiles.length === 0}
+            <p class="overflow-note">No differences</p>
+          {:else}
+            <p class="overflow-note">{repo.compareFiles.length} changed {repo.compareFiles.length === 1 ? 'file' : 'files'} loaded in the review surface.</p>
           {/if}
         </div>
       {/if}
-    </div>
+    </GitOperationDialog>
+  {:else if activeDialog === 'integrate'}
+    <GitOperationDialog title="Merge or rebase" onClose={() => (activeDialog = null)}>
+      <div class="dialog-stack">
+        <label class="field-label">
+          <span>Branch or reference</span>
+          <select bind:value={integrateTarget} class="compare-select" aria-label="Branch or reference">
+            <option value="" disabled>Select a branch</option>
+            {#each repo.branches ?? [] as branch (branch.name)}
+              {#if !branch.current}
+                <option value={branch.name}>{branch.name}{branch.remote ? ' (remote)' : ''}</option>
+              {/if}
+            {/each}
+          </select>
+        </label>
+        <p class="dialog-help">Merge preserves both histories. Rebase reapplies the current branch on top of the selected reference.</p>
+        <div class="dialog-actions">
+          <Button variant="outline" size="sm" onclick={() => handleIntegrate('merge')} disabled={repo.busy || !integrateTarget}>Merge</Button>
+          <Button variant="outline" size="sm" onclick={() => handleIntegrate('rebase')} disabled={repo.busy || !integrateTarget}>Rebase</Button>
+        </div>
+      </div>
+    </GitOperationDialog>
+  {:else if activeDialog === 'stash'}
+    <GitOperationDialog title="Stashes" onClose={() => (activeDialog = null)}>
+      <form class="dialog-form" onsubmit={handleStashPush}>
+        <Input
+          size="sm"
+          bind:value={stashMessage}
+          placeholder="Stash message"
+          aria-label="Stash message"
+          spellcheck={false}
+        />
+        <label class="check-label" title="Include untracked files">
+          <input type="checkbox" bind:checked={stashUntracked} aria-label="Include untracked" />
+          Include untracked
+        </label>
+        <Button variant="outline" size="sm" type="submit" disabled={repo.busy || !stashMessage.trim()}>Stash</Button>
+      </form>
+      <ul class="item-list dialog-list">
+        {#each repo.stashes ?? [] as entry (entry.ref)}
+          <li class="item-row" title={`${entry.branch}: ${entry.message}`}>
+            <span class="item-label"><b>{entry.ref}</b> {entry.branch}: {entry.message}</span>
+            <Button variant="ghost" size="xs" onclick={() => handleStashApply(entry.ref)} disabled={repo.busy} title="Apply without removing">Apply</Button>
+            <Button variant="ghost" size="xs" onclick={() => handleStashPop(entry.ref)} disabled={repo.busy} title="Apply and remove">Pop</Button>
+            <Button variant="ghost" size="xs" onclick={() => handleStashDrop(entry.ref)} disabled={repo.busy} title="Drop stash">Drop</Button>
+          </li>
+        {:else}
+          <li class="overflow-note">No stashes</li>
+        {/each}
+      </ul>
+    </GitOperationDialog>
+  {:else if activeDialog === 'tags'}
+    <GitOperationDialog title="Tags" onClose={() => (activeDialog = null)}>
+      <form class="dialog-form tag-form" onsubmit={handleCreateTag}>
+        <Input size="sm" bind:value={newTagName} placeholder="Tag name" aria-label="New tag name" spellcheck={false} />
+        <label class="field-label">
+          <span>Target</span>
+          <select bind:value={tagTarget} class="compare-select" aria-label="Tag target">
+            {#each tagTargets as target (target.value + target.label)}
+              <option value={target.value}>{target.label}</option>
+            {/each}
+          </select>
+        </label>
+        <Input size="sm" bind:value={newTagMessage} placeholder="Message (optional)" aria-label="Annotated tag message" spellcheck={false} />
+        <Button variant="outline" size="sm" type="submit" disabled={repo.busy || !newTagName.trim()}>Create</Button>
+      </form>
+      {#if remotes.length > 1}
+        <label class="field-label remote-field">
+          <span>Push to</span>
+          <select bind:value={tagPushRemote} class="compare-select">
+            {#each remotes as remote}<option value={remote}>{remote}</option>{/each}
+          </select>
+        </label>
+      {/if}
+      <ul class="item-list dialog-list">
+        {#each repo.tags ?? [] as tag (tag.name)}
+          <li class="item-row" title={tag.oid}>
+            <span class="item-label"><b>{tag.name}</b>{tag.annotated ? ' (annotated)' : ''}</span>
+            <Button variant="ghost" size="xs" onclick={() => handlePushTag(tag.name)} disabled={repo.busy}>Push</Button>
+            <Button variant="ghost" size="xs" onclick={() => handleDeleteTag(tag.name)} disabled={repo.busy}>Delete</Button>
+          </li>
+        {:else}
+          <li class="overflow-note">No tags</li>
+        {/each}
+      </ul>
+    </GitOperationDialog>
   {/if}
 
   {#if publishBranch}
@@ -485,6 +503,26 @@
     confirmLabel="Delete anyway"
     onConfirm={() => void confirmForceDelete()}
     onCancel={() => (pendingDelete = null)}
+  />
+{/if}
+
+{#if pendingStashDrop}
+  <ConfirmDialog
+    title={`Drop ${pendingStashDrop}?`}
+    message="This permanently removes the stash. Gitna cannot undo this action."
+    confirmLabel="Drop stash"
+    onConfirm={() => void confirmStashDrop()}
+    onCancel={() => (pendingStashDrop = null)}
+  />
+{/if}
+
+{#if pendingTagDelete}
+  <ConfirmDialog
+    title={`Delete tag ${pendingTagDelete}?`}
+    message="This deletes the local tag. A tag already pushed to a remote is not removed there."
+    confirmLabel="Delete tag"
+    onConfirm={() => void confirmTagDelete()}
+    onCancel={() => (pendingTagDelete = null)}
   />
 {/if}
 
@@ -583,10 +621,6 @@
     color: var(--accent-foreground);
   }
 
-  .overflow-panel {
-    padding: 0 8px 8px;
-  }
-
   .overflow-separator {
     height: 1px;
     margin: 4px 8px;
@@ -668,11 +702,44 @@
     white-space: nowrap;
   }
 
-  .compare-panel {
+  .dialog-form {
     display: flex;
-    align-items: center;
+    align-items: end;
+    gap: 8px;
+    padding-bottom: 12px;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .dialog-form > :global(.input-wrap),
+  .dialog-form > label {
+    flex: 1;
+    min-width: 0;
+  }
+
+  .dialog-form label,
+  .field-label {
+    display: grid;
     gap: 4px;
-    padding: 4px 8px;
+    color: var(--muted-foreground);
+    font-size: 11px;
+  }
+
+  .dialog-stack {
+    display: grid;
+    gap: 12px;
+  }
+
+  .dialog-help {
+    margin: 0;
+    color: var(--muted-foreground);
+    font-size: 12px;
+    line-height: 1.5;
+  }
+
+  .dialog-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 8px;
   }
 
   .compare-select {
@@ -687,13 +754,8 @@
     font-family: inherit;
   }
 
-  .compare-sep {
-    color: var(--muted-foreground);
-    font-size: 12px;
-  }
-
-  .compare-result {
-    padding: 0 8px 4px;
+  .dialog-result {
+    padding-top: 12px;
   }
 
   .compare-title {
@@ -770,13 +832,14 @@
     color: var(--muted-foreground);
   }
 
-  .tag-push-row {
-    display: flex;
-    align-items: center;
-    gap: 4px;
-    margin-top: 4px;
-    padding-top: 4px;
-    border-top: 1px solid var(--border);
+  .remote-field {
+    margin: 12px 0;
+  }
+
+  .dialog-list {
+    max-height: 360px;
+    margin-top: 12px;
+    overflow-y: auto;
   }
 
   .spinner {
@@ -792,6 +855,21 @@
   @media (width <= 767px) {
     :global(.mobile-close) {
       display: inline-flex;
+    }
+
+    .dialog-form {
+      align-items: stretch;
+      flex-direction: column;
+    }
+
+    .dialog-form > :global(.input-wrap),
+    .dialog-form > label,
+    .dialog-form > :global(.btn) {
+      width: 100%;
+    }
+
+    .item-row {
+      flex-wrap: wrap;
     }
   }
 
