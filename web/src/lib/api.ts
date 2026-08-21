@@ -5,6 +5,7 @@ import type {
   DiffScope,
   FileDiff,
   GraphPage,
+  RepositoryFiles,
   RepoSnapshot,
   ReviewResponse,
   StashEntry,
@@ -111,6 +112,7 @@ export interface OperationResult {
 
 export interface ApiClient {
   snapshot(): Promise<RepoSnapshot>
+  repositoryFiles(): Promise<RepositoryFiles>
   diff(request: DiffRequest): Promise<FileDiff>
   review(request: ReviewRequest): Promise<ReviewResponse>
   mutate(request: MutateRequest): Promise<void>
@@ -190,6 +192,12 @@ export function createApi(): ApiClient {
         await fetch('api/v1/snapshot', { signal: AbortSignal.timeout(FETCH_TIMEOUT) }),
       )
       return (await res.json()) as RepoSnapshot
+    },
+    async repositoryFiles(): Promise<RepositoryFiles> {
+      const res = await expectOK(
+        await fetch('api/v1/files', { signal: AbortSignal.timeout(FETCH_TIMEOUT) }),
+      )
+      return (await res.json()) as RepositoryFiles
     },
     async diff(request: DiffRequest): Promise<FileDiff> {
       const res = await expectOK(

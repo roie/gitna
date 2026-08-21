@@ -33,7 +33,7 @@ test('staging loop preserves VS Code section order and visibility', async ({ pag
   const order = await page
     .locator('[data-section]')
     .evaluateAll((headers) => headers.map((header) => (header as HTMLElement).dataset.section))
-  expect(order).toEqual(['repository', 'workflow', 'staged', 'changes', 'graph'])
+  expect(order).toEqual(['workflow', 'staged', 'changes', 'repository', 'graph'])
   await expect(page.getByRole('textbox', { name: 'Repository path' })).toHaveValue(app.repo)
   await expect(page.getByRole('button', { name: 'Switch branch · main' })).toBeVisible()
   if (process.env.GITNA_CAPTURE_M4) {
@@ -48,21 +48,47 @@ test('staging loop preserves VS Code section order and visibility', async ({ pag
   ).toBeVisible()
   await page.getByRole('button', { name: 'Hide Changes search' }).click()
 
-  await changesTree.getByRole('treeitem', { name: 'modified.txt', exact: true }).click()
-  await page.getByRole('button', { name: 'Discard file modified.txt' }).click()
+  const modifiedRow = changesTree.getByRole('treeitem', {
+    name: 'modified.txt',
+    exact: true,
+  })
+  await changes.hover()
+  await expect(page.getByRole('button', { name: 'Discard all changes', exact: true })).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Stage all changes', exact: true })).toBeVisible()
+  if (process.env.GITNA_CAPTURE_M4) {
+    await page.screenshot({ path: '/tmp/gitna-section-actions.png', fullPage: true })
+  }
+  await modifiedRow.hover()
+  const discardModified = changesTree.getByRole('button', {
+    name: 'Discard changes in modified.txt',
+  })
+  const stageModified = changesTree.getByRole('button', { name: 'Stage modified.txt' })
+  await expect(discardModified).toBeVisible()
+  await expect(stageModified).toBeVisible()
+  await expect(discardModified).toHaveCSS('cursor', 'pointer')
+  await expect(stageModified).toHaveCSS('cursor', 'pointer')
+  if (process.env.GITNA_CAPTURE_M4) {
+    await page.screenshot({ path: '/tmp/gitna-row-actions.png', fullPage: true })
+  }
+  await discardModified.click()
   const confirmation = page.getByRole('alertdialog')
   await expect(confirmation).toContainText(app.repo)
   await expect(confirmation).toContainText('main')
   await confirmation.getByRole('button', { name: 'Cancel' }).click()
-  await page.getByRole('button', { name: 'Stage file modified.txt' }).click()
+  await modifiedRow.hover()
+  await stageModified.click()
   await expect.poll(async () => (await staged.textContent()) ?? '').toContain('4')
   await expect(
     stagedTree.getByRole('treeitem', { name: 'modified.txt', exact: true }),
   ).toBeVisible()
 
+  await staged.hover()
+  await expect(page.getByRole('button', { name: 'Unstage all changes', exact: true })).toBeVisible()
   for (const path of ['modified.txt', 'delete.txt', 'rename-new.txt', 'staged.txt']) {
-    await stagedTree.getByRole('treeitem', { name: path, exact: true }).click()
-    await page.getByRole('button', { name: `Unstage file ${path}` }).click()
+    const row = stagedTree.getByRole('treeitem', { name: path, exact: true })
+    await row.hover()
+    await stagedTree.getByRole('button', { name: `Unstage ${path}` }).click()
+    await expect(row).toHaveCount(0)
   }
 
   await expect(staged).toHaveCount(0)

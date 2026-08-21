@@ -47,6 +47,7 @@ interface DiffsHubFileTreeProps {
   // search open/close without owning the model creation.
   onModelReady(model: FileTreeModel | null): void;
   onSelectItem(itemId: string): void;
+  renderRowActions?: FileTreeOptions['renderRowActions'];
   selectedPath?: string | null;
   source: DiffsHubFileTreeSource;
 }
@@ -56,6 +57,7 @@ export const DiffsHubFileTree = memo(function DiffsHubFileTree({
   modelId = 'gh-code-view-tree',
   onModelReady,
   onSelectItem,
+  renderRowActions,
   selectedPath,
   source,
 }: DiffsHubFileTreeProps) {
@@ -84,6 +86,12 @@ export const DiffsHubFileTree = memo(function DiffsHubFileTree({
     }
   );
 
+  const stableRenderRowActions = useStableCallback(
+    (
+      context: Parameters<NonNullable<FileTreeOptions['renderRowActions']>>[0]
+    ) => renderRowActions?.(context) ?? null
+  );
+
   const { model } = useFileTree({
     ...BASE_FILE_TREE_OPTIONS,
     id: modelId,
@@ -91,6 +99,7 @@ export const DiffsHubFileTree = memo(function DiffsHubFileTree({
     paths: initialPathsRef.current,
     sort: PRESERVE_INPUT_ORDER_SORT,
     onSelectionChange,
+    renderRowActions: stableRenderRowActions,
     itemHeight: CODE_VIEW_FILE_TREE_ITEM_HEIGHT,
     initialVisibleRowCount,
   });

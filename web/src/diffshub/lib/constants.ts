@@ -148,12 +148,20 @@ const FOLDER_LABEL_UNSAFE_CSS = `
   }
 `;
 
+const FILE_TREE_ACTION_SPRITE_SHEET = `
+<svg xmlns="http://www.w3.org/2000/svg" aria-hidden="true" style="display:none">
+  <symbol id="gitna-action-stage" viewBox="0 0 16 16"><path d="M7 3h2v4h4v2H9v4H7V9H3V7h4z" /></symbol>
+  <symbol id="gitna-action-unstage" viewBox="0 0 16 16"><path d="M3 7h10v2H3z" /></symbol>
+  <symbol id="gitna-action-discard" viewBox="0 0 16 16"><path d="M6 3v2h4a4 4 0 1 1 0 8H8v-2h2a2 2 0 1 0 0-4H6v2L2 6l4-4v1z" /></symbol>
+</svg>`;
+
 // Options shared across all mounts of this tree. Lives at module scope so the
 // reference stays stable and useFileTree() never churns its initial snapshot.
 export const BASE_FILE_TREE_OPTIONS = {
   flattenEmptyDirectories: true,
   id: 'gh-code-view-tree',
   initialExpansion: 'open',
+  icons: { set: 'complete', spriteSheet: FILE_TREE_ACTION_SPRITE_SHEET },
   presorted: true,
   search: true,
   stickyFolders: true,

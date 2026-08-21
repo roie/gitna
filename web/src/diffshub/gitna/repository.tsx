@@ -138,6 +138,12 @@ export class GitnaRepository {
   activeOp: string | null = null
   generation = 0
   selection: Selection | null = null
+  repositoryFilePath: string | null = null
+
+  repositoryPaths: string[] = []
+  repositoryFilesLoading = false
+  repositoryFilesError: string | null = null
+  repositoryFilesTruncated = false
 
   graphCommits: GraphCommit[] = []
   graphRows: GraphRow[] = []
@@ -177,6 +183,7 @@ export class GitnaRepository {
   private refreshAgain = false
   private refreshTimer: ReturnType<typeof setTimeout> | null = null
   private conflictsRequest = 0
+  private repositoryFilesGeneration = 0
 
   constructor(api: ApiClient = createApi()) {
     this.api = api
@@ -244,6 +251,27 @@ export class GitnaRepository {
     }
   }
 
+  async refreshRepositoryFiles(): Promise<void> {
+    this.repositoryFilesLoading = true
+    this.repositoryFilesError = null
+    this.emit()
+    try {
+      const files = await this.api.repositoryFiles()
+      if (files.generation < this.repositoryFilesGeneration) return
+      this.repositoryFilesGeneration = files.generation
+      this.repositoryPaths = files.paths
+      this.repositoryFilesTruncated = files.truncated
+      if (this.repositoryFilePath != null && !files.paths.includes(this.repositoryFilePath)) {
+        this.repositoryFilePath = null
+      }
+    } catch (error) {
+      this.repositoryFilesError = errorMessage(error)
+    } finally {
+      this.repositoryFilesLoading = false
+      this.emit()
+    }
+  }
+
   connectEvents(): () => void {
     if (this.eventSource != null) return () => {}
     const source = new EventSource('api/v1/events')
@@ -252,7 +280,7 @@ export class GitnaRepository {
       if (this.refreshTimer != null) return
       this.refreshTimer = setTimeout(() => {
         this.refreshTimer = null
-        void this.refreshSnapshot()
+        void Promise.all([this.refreshSnapshot(), this.refreshRepositoryFiles()])
       }, 150)
     }
     source.addEventListener('snapshot-invalidated', scheduleSnapshot)
@@ -337,6 +365,7 @@ export class GitnaRepository {
   select(scope: ChangeScope, path: string | null): void {
     if (path == null) {
       this.selection = null
+      this.repositoryFilePath = null
       this.commitDiff = null
       this.emit()
       return
@@ -347,13 +376,24 @@ export class GitnaRepository {
         : changeList(this.snapshot, scope).find((candidate) => candidate.path === path)
     if (change == null) return
     this.selection = { scope, change }
+    this.repositoryFilePath = null
     this.commitDiff = null
     this.compareDiff = null
     this.emit()
   }
 
+  selectRepositoryFile(path: string): void {
+    if (!this.repositoryPaths.includes(path)) return
+    this.selection = null
+    this.commitDiff = null
+    this.compareDiff = null
+    this.repositoryFilePath = path
+    this.emit()
+  }
+
   selectCommitFile(oid: string, subject: string, file: CommitFile): void {
     this.selection = null
+    this.repositoryFilePath = null
     this.compareDiff = null
     this.commitDiff = { oid, subject, ...file }
     this.emit()
@@ -362,6 +402,7 @@ export class GitnaRepository {
   selectCompareFile(file: CommitFile): void {
     if (this.compare == null) return
     this.selection = null
+    this.repositoryFilePath = null
     this.commitDiff = null
     this.compareDiff = {
       from: this.compare.from,
@@ -442,10 +483,10 @@ export class GitnaRepository {
       this.mutationError = errorMessage(error)
       throw error
     } finally {
+      await Promise.allSettled([this.refreshSnapshot(), this.refreshRepositoryFiles()])
       this.busy = false
       this.activeOp = null
       this.emit()
-      void this.refreshSnapshot()
     }
   }
 
@@ -460,16 +501,17 @@ export class GitnaRepository {
       this.mutationError = errorMessage(error)
       throw error
     } finally {
-      this.busy = false
-      this.activeOp = null
-      this.emit()
       await Promise.allSettled([
         this.refreshSnapshot(),
+        this.refreshRepositoryFiles(),
         this.refreshGraph(),
         this.refreshBranches(),
         this.refreshStashes(),
         this.refreshTags(),
       ])
+      this.busy = false
+      this.activeOp = null
+      this.emit()
     }
   }
 
@@ -611,7 +653,11 @@ export class GitnaRepository {
       this.busy = false
       this.activeOp = null
       this.emit()
-      await Promise.all([this.refreshSnapshot(), this.refreshGraph()])
+      await Promise.all([
+        this.refreshSnapshot(),
+        this.refreshRepositoryFiles(),
+        this.refreshGraph(),
+      ])
     }
   }
 
@@ -656,6 +702,7 @@ export function RepositoryProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     void Promise.all([
       repository.refreshSnapshot(),
+      repository.refreshRepositoryFiles(),
       repository.refreshGraph(),
       repository.refreshBranches(),
       repository.refreshStashes(),

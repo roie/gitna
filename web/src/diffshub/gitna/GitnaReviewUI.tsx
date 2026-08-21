@@ -20,12 +20,13 @@ import type { DarkThemeName, LightThemeName } from '../lib/themeNames'
 import type { LoadedDiffsHubData } from '../lib/diffsHubDataAccumulator'
 import { GitnaSourceControl } from './SourceControlWorkflow'
 import { Confirm } from './Modal'
-import { adaptGitnaReview } from './reviewAdapter'
+import { adaptGitnaFile, adaptGitnaReview } from './reviewAdapter'
 import { useRepository } from './repository'
 
 interface ReviewTarget {
+  filePath?: string
   key: string
-  request: ReviewRequest
+  request?: ReviewRequest
   selectedPath?: string
 }
 
@@ -54,6 +55,13 @@ function useReviewTarget(): ReviewTarget | null {
       key: repository.selection.scope,
       request: { scope: repository.selection.scope },
       selectedPath: repository.selection.change.path,
+    }
+  }
+  if (repository.repositoryFilePath != null) {
+    return {
+      filePath: repository.repositoryFilePath,
+      key: `file:${repository.repositoryFilePath}`,
+      selectedPath: repository.repositoryFilePath,
     }
   }
   const snapshot = repository.snapshot
@@ -124,7 +132,7 @@ function GitnaReviewUIInner() {
       const snapshot = repository.snapshot
       if (snapshot == null) return
       const scope =
-        target?.request.scope === 'staged' || target?.request.scope === 'unstaged'
+        target?.request?.scope === 'staged' || target?.request?.scope === 'unstaged'
           ? target.request.scope
           : snapshot.unstaged.length > 0
             ? 'unstaged'
@@ -152,13 +160,16 @@ function GitnaReviewUIInner() {
     let active = true
     setLoadState('fetching')
     setErrorMessage(null)
-    repository.api
-      .review(target.request)
-      .then((review) => {
+    const dataPromise: Promise<LoadedDiffsHubData> =
+      target.filePath == null
+        ? repository.api.review(target.request!).then(adaptGitnaReview)
+        : repository.api
+            .diff({ scope: 'unstaged', path: target.filePath })
+            .then((diff) => adaptGitnaFile(diff, repository.generation))
+    dataPromise
+      .then((data) => {
         if (!active) return
         setLoadState('parsing')
-        const data = adaptGitnaReview(review)
-        if (!active) return
         setReviewData(data)
         setReviewKey((key) => key + 1)
         setLoadState('ready')
@@ -234,7 +245,7 @@ function GitnaReviewUIInner() {
     workerReady && themesHydrated && loadState === 'ready' && reviewData != null
 
   const workingScope =
-    target?.request.scope === 'staged' || target?.request.scope === 'unstaged'
+    target?.request?.scope === 'staged' || target?.request?.scope === 'unstaged'
       ? target.request.scope
       : null
   const gitnaActions: GitnaViewerActions | undefined =
@@ -349,7 +360,7 @@ function GitnaReviewUIInner() {
             onViewerReady={handleViewerReady}
           />
         ) : viewerAvailable && reviewData != null ? (
-          <GitnaEmptyState scope={target?.request.scope} />
+          <GitnaEmptyState scope={target?.request?.scope} />
         ) : (
           <div className="grid min-h-0 [grid-area:viewer] [&>*]:h-full">
             <DiffsHubStatusPanel

@@ -6,11 +6,35 @@ import {
   snapshotDiffsHubData,
   type LoadedDiffsHubData,
 } from '../lib/diffsHubDataAccumulator'
-import type { ReviewResponse } from '../../lib/types'
+import type { FileDiff, ReviewResponse } from '../../lib/types'
 
 function reviewIdentityKey(review: ReviewResponse): string {
   const { identity } = review
   return [identity.scope, identity.commit, identity.from, identity.to].filter(Boolean).join(':')
+}
+
+export function adaptGitnaFile(diff: FileDiff, generation: number): LoadedDiffsHubData {
+  const path = diff.after.path || diff.before.path
+  const contents = diff.binary || diff.tooLarge ? '' : diff.after.content
+  const file: FileContents = {
+    name: path,
+    contents,
+    lang: diff.after.language as FileContents['lang'],
+    cacheKey: `file:${generation}:${path}`,
+  }
+  const lineCount =
+    contents.length === 0 ? 0 : contents.split('\n').length - (contents.endsWith('\n') ? 1 : 0)
+  return {
+    diffStats: { addedLines: 0, deletedLines: 0, fileCount: 1, totalLinesOfCode: lineCount },
+    itemIdToFile: new Map([[path, { fileOrder: 0, path }]]),
+    items: [{ id: path, type: 'file', file, version: generation }],
+    treeSource: {
+      gitStatus: [],
+      pathCount: 1,
+      paths: [path],
+      pathToItemId: new Map([[path, path]]),
+    },
+  }
 }
 
 /**
@@ -39,7 +63,19 @@ export function adaptGitnaReview(review: ReviewResponse): LoadedDiffsHubData {
       lang: supplement.diff.after.language as FileContents['lang'],
       cacheKey: `${cacheKey}:${supplement.path}`,
     }
-    const fileDiff = parseDiffFromFile(null, after, undefined, true)
+    const before: FileContents | null =
+      supplement.kind === 'added' || supplement.kind === 'untracked'
+        ? null
+        : {
+            name: supplement.diff.before.path || supplement.path,
+            contents:
+              supplement.diff.binary || supplement.diff.tooLarge
+                ? ''
+                : supplement.diff.before.content,
+            lang: supplement.diff.before.language as FileContents['lang'],
+            cacheKey: `${cacheKey}:${supplement.path}:before`,
+          }
+    const fileDiff = parseDiffFromFile(before, after, undefined, true)
     appendFileDiffToDiffsHubData(accumulator, fileDiff, undefined)
   }
 

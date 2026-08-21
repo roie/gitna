@@ -60,6 +60,9 @@ const auxApi: ApiClient = {
   async snapshot() {
     throw new Error('snapshot not used')
   },
+  async repositoryFiles() {
+    return { generation: 1, paths: [], truncated: false }
+  },
   async diff() {
     throw new Error('diff not used')
   },
@@ -215,6 +218,28 @@ describe('createRepoState', () => {
     expect(state.loading).toBe(false)
     expect(state.selectedChange?.path).toBe('x.txt')
     expect(state.selectedChange?.scope).toBe('unstaged')
+  })
+
+  it('loads the bounded repository Explorer independently from Git changes', async () => {
+    const state = createRepoState({
+      api: {
+        ...auxApi,
+        async repositoryFiles() {
+          return {
+            generation: 3,
+            paths: ['.env', 'src/main.ts', 'vendor/generated.js'],
+            truncated: true,
+          }
+        },
+      },
+    })
+
+    await state.refreshRepositoryFiles()
+
+    expect(state.repositoryPaths).toEqual(['.env', 'src/main.ts', 'vendor/generated.js'])
+    expect(state.repositoryFilesTruncated).toBe(true)
+    expect(state.repositoryFilesLoading).toBe(false)
+    expect(state.repositoryFilesError).toBeNull()
   })
 
   it('ignores stale responses whose generation is not newer', async () => {

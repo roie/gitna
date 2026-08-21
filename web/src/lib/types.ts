@@ -86,6 +86,12 @@ export interface ReviewResponse {
   supplements: ReviewSupplement[]
 }
 
+export interface RepositoryFiles {
+  generation: number
+  paths: string[]
+  truncated: boolean
+}
+
 export interface RepoSnapshot {
   root: string
   headOid?: string

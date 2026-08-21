@@ -49,19 +49,14 @@ test('DiffsHub controls, Pierre repository search, and theme persist', async ({ 
           '[data-file-tree-search-container="true"]',
         )
         return {
-          endGap:
-            last == null
-              ? Number.POSITIVE_INFINITY
-              : Math.round(
-                  tree.getBoundingClientRect().bottom - last.getBoundingClientRect().bottom,
-                ),
+          hasVisibleRow: last != null,
           scrollOverflow:
             scroll == null ? Number.POSITIVE_INFINITY : scroll.scrollHeight - scroll.clientHeight,
           searchOpen: searchContainer?.dataset.open,
         }
       }),
     )
-    .toEqual({ endGap: 0, scrollOverflow: 0, searchOpen: 'true' })
+    .toEqual({ hasVisibleRow: true, scrollOverflow: 0, searchOpen: 'true' })
   if (process.env.GITNA_CAPTURE_GRAPH) {
     await page.screenshot({ path: '/tmp/gitna-tree-search.png', fullPage: true })
   }

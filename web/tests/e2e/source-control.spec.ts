@@ -1,3 +1,5 @@
+import { mkdirSync, writeFileSync } from 'node:fs'
+import { join } from 'node:path'
 import type { APIRequestContext, Locator } from '@playwright/test'
 import { test, expect } from './fixtures.js'
 
@@ -55,6 +57,28 @@ test('real binary renders repository source-control state', async ({ page, app }
   ).toBeVisible()
   const repositoryTree = page.locator('#gitna-repository-tree__tree')
   const changesTree = page.locator('#gitna-unstaged-tree__tree')
+  await expect(
+    repositoryTree.getByRole('treeitem', { name: 'feature.txt', exact: true }),
+  ).toBeVisible()
+  await expect(
+    repositoryTree.getByRole('treeitem', { name: 'main.txt', exact: true }),
+  ).toBeVisible()
+  await repositoryTree.getByRole('treeitem', { name: 'feature.txt', exact: true }).click()
+  await expect(page.locator('diffs-container').filter({ hasText: 'feature.txt' })).toBeVisible()
+  await expect(page.getByText('feature branch', { exact: true })).toBeVisible()
+  await expect(
+    repositoryTree.getByRole('treeitem', { name: 'delete.txt', exact: true }),
+  ).toHaveCount(0)
+  const repositoryFiles = await page.evaluate(async () => {
+    const response = await fetch('api/v1/files')
+    if (!response.ok) throw new Error(`files request failed: ${response.status}`)
+    return (await response.json()) as { paths: string[]; truncated: boolean }
+  })
+  expect(repositoryFiles.paths).toContain('feature.txt')
+  expect(repositoryFiles.paths.some((path) => path === '.git' || path.startsWith('.git/'))).toBe(
+    false,
+  )
+  expect(repositoryFiles.truncated).toBe(false)
   await expect.poll(() => visibleTreeEndGap(repositoryTree)).toBeLessThanOrEqual(1)
   await expect.poll(() => visibleTreeEndGap(changesTree)).toBeLessThanOrEqual(1)
 
@@ -84,7 +108,17 @@ test('real binary renders repository source-control state', async ({ page, app }
     .evaluateAll((nodes) => nodes.map((node) => Number(node.getAttribute('cx'))))
   expect(new Set(nodeColumns).size).toBeGreaterThan(1)
   await expect(page.getByText('base fixture', { exact: true })).toBeVisible()
-  await expect(page.locator('.workflow-scroll')).toHaveClass(/cv-mini-scrollbar/)
+  const sourcePaneBody = page.locator('[data-pane-body="source-control"]')
+  const sourcePaneHeader = page.locator('[data-section="workflow"]')
+  await expect(sourcePaneBody).toHaveClass(/cv-mini-scrollbar/)
+  await expect(sourcePaneBody).toHaveCSS('overflow-y', 'auto')
+  expect(
+    await sourcePaneBody.evaluate(
+      (body) => !body.contains(document.querySelector('[data-section="workflow"]')),
+    ),
+  ).toBe(true)
+  await expect(sourcePaneHeader).toHaveCSS('height', '22px')
+  await expect(page.getByRole('separator', { name: 'Resize sidebar panes' })).toHaveCount(2)
   await page.getByRole('button', { name: /^base fixture/ }).click()
   const graphTree = page.locator('[id^="gitna-graph-"][id$="__tree"]')
   await expect(
@@ -107,10 +141,67 @@ test('real binary renders repository source-control state', async ({ page, app }
   expect(Math.abs(nodeBox!.x + nodeBox!.width / 2 - (filesBox!.x + 1))).toBeLessThanOrEqual(1)
   await expect(page.locator('[data-graph-segment]').first()).toHaveAttribute('stroke-width', '2')
   await expect(page.locator('[data-graph-files]')).toHaveCSS('border-left-width', '2px')
+
+  const sourcePane = page.locator('[data-pane="source-control"]')
+  const repositoryPane = page.locator('[data-pane="repository"]')
+  const resizeHandle = page.getByRole('separator', { name: 'Resize sidebar panes' }).first()
+  const [sourceBefore, repositoryBefore] = await Promise.all([
+    sourcePane.boundingBox(),
+    repositoryPane.boundingBox(),
+  ])
+  expect(sourceBefore).not.toBeNull()
+  expect(repositoryBefore).not.toBeNull()
+  await resizeHandle.focus()
+  await page.keyboard.press('ArrowDown')
+  await expect
+    .poll(async () => (await sourcePane.boundingBox())?.height ?? 0)
+    .toBeGreaterThan(sourceBefore!.height)
+  await expect
+    .poll(async () => (await repositoryPane.boundingBox())?.height ?? Number.POSITIVE_INFINITY)
+    .toBeLessThan(repositoryBefore!.height)
+
+  const repositoryResizedHeight = (await repositoryPane.boundingBox())!.height
+  await sourcePaneHeader.click()
+  await expect(sourcePane).toHaveCSS('height', '22px')
+  await expect(sourcePaneBody).toHaveCount(0)
+  await expect
+    .poll(async () => (await repositoryPane.boundingBox())?.height ?? 0)
+    .toBeGreaterThan(repositoryResizedHeight)
+  await sourcePaneHeader.click()
+  await expect(sourcePaneBody).toHaveCount(1)
+
   if (process.env.GITNA_CAPTURE_GRAPH) {
     await graphTree.getByRole('treeitem').last().scrollIntoViewIfNeeded()
     await page.screenshot({ path: '/tmp/gitna-graph-refined.png', fullPage: true })
   }
+})
+
+test('repository tree keeps a bounded virtualized viewport for thousands of files', async ({
+  page,
+  app,
+}) => {
+  test.setTimeout(120_000)
+  const directory = join(app.repo, 'virtualized-files')
+  mkdirSync(directory)
+  for (let index = 0; index < 2_500; index++) {
+    writeFileSync(join(directory, `file-${index.toString().padStart(4, '0')}.txt`), 'content\n')
+  }
+
+  await page.goto(app.url)
+  const repositoryHeader = page.locator('[data-section="repository"]')
+  await expect
+    .poll(async () => Number(await repositoryHeader.locator('.section-count').textContent()))
+    .toBeGreaterThan(2_000)
+
+  const repositoryBody = page.locator('[data-pane-body="repository"]')
+  const repositoryTree = page.locator('#gitna-repository-tree__tree')
+  const virtualScroll = repositoryTree.locator('[data-file-tree-virtualized-scroll="true"]')
+  await expect(repositoryBody).toHaveCSS('overflow-y', 'hidden')
+  await expect(virtualScroll).toBeVisible()
+  await expect.poll(() => repositoryTree.getByRole('treeitem').count()).toBeLessThan(200)
+  expect(
+    await virtualScroll.evaluate((element) => element.scrollHeight / element.clientHeight),
+  ).toBeGreaterThan(10)
 })
 
 test('embedded binary serves the pinned DiffsHub React frontend', async ({ page, app }) => {

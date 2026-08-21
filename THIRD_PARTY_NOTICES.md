@@ -34,20 +34,21 @@ Control integration boundaries.
 | `ReviewUI.tsx` and `RootLayout.tsx` composition | `web/src/diffshub/main.tsx`, `web/src/diffshub/gitna/GitnaReviewUI.tsx` | Next/GitHub orchestration replaced by typed local adapters while preserving provider order and donor review composition. |
 | GitHub loaders/auth, Next metadata and marketing route | none | Not distributed; these remote/site-only features have no truthful local Gitna counterpart. |
 
-The mandatory file-level provenance, dependency, behavior and non-applicable
-feature matrix is maintained at `docs/research/diffshub-react-parity.md`.
-
 ## Pierre npm packages
 
 These packages are consumed as npm dependencies and bundled into Gitna's
-embedded frontend. Their package use is not a claim that their renderer source
-was copied into Gitna.
+embedded frontend. `@pierre/trees` is modified under Apache-2.0 through the
+reproducible pnpm patch at `web/patches/@pierre__trees@1.0.0-beta.6.patch`.
+Gitna's modification adds a generic public interactive row-action renderer,
+semantic action buttons, and hover/focus styling while preserving Pierre's row
+rendering, focus, selection and virtualization ownership. The other package
+renderers are distributed unmodified.
 
 | Package | Installed version | Package license evidence | Required distribution material |
 | --- | --- | --- | --- |
 | `@pierre/diffs` | `1.3.5` | `web/node_modules/@pierre/diffs/LICENSE.md`; package metadata declares `apache-2.0` | `LICENSES/Apache-2.0.txt`; the package contains no NOTICE file. |
 | `@pierre/icons` | `0.7.1` | `web/node_modules/@pierre/icons/LICENSE.md`; package metadata declares `apache-2.0` | `LICENSES/Apache-2.0.txt`; the package contains no NOTICE file. |
-| `@pierre/trees` | `1.0.0-beta.6` | `web/node_modules/@pierre/trees/LICENSE.md`; package metadata declares `apache-2.0` | `LICENSES/Apache-2.0.txt` and the `@pierre/trees` notice below. |
+| `@pierre/trees` | `1.0.0-beta.6` + Gitna row-actions patch | `web/node_modules/@pierre/trees/LICENSE.md`; package metadata declares `apache-2.0` | `LICENSES/Apache-2.0.txt`, `web/patches/@pierre__trees@1.0.0-beta.6.patch`, and the `@pierre/trees` notice below. |
 | `@pierre/theme` | `2.0.0` | `web/node_modules/@pierre/theme/LICENSE`; package metadata declares `apache-2.0` | `LICENSES/Apache-2.0.txt` and the `@pierre/theme` notice below. |
 | `@pierre/theming` | `1.0.1` | `web/node_modules/@pierre/theming/LICENSE.md`; package metadata declares `apache-2.0` | `LICENSES/Apache-2.0.txt`; the package contains no NOTICE file. |
 

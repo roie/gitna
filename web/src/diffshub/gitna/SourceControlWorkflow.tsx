@@ -3,11 +3,14 @@ import {
   IconChevronSm,
   IconEllipsis,
   IconFileTree,
+  IconMinus,
+  IconPlus,
   IconRefresh,
+  IconReply,
   IconSearch,
   IconSymbolDiffstatFill,
 } from '@pierre/icons'
-import type { FileTree, GitStatus, GitStatusEntry } from '@pierre/trees'
+import type { FileTree, FileTreeOptions, GitStatus, GitStatusEntry } from '@pierre/trees'
 import { useFileTreeSearch } from '@pierre/trees/react'
 import {
   Fragment,
@@ -60,7 +63,18 @@ function repositoryName(root: string): string {
 
 interface TreeFile {
   kind: ChangeKind
+  oldPath?: string
   path: string
+}
+
+function mutationPaths(changes: readonly TreeFile[]): string[] {
+  return [
+    ...new Set(
+      changes.flatMap((change) =>
+        change.oldPath == null ? [change.path] : [change.oldPath, change.path],
+      ),
+    ),
+  ]
 }
 
 function gitStatus(kind: ChangeKind): GitStatus {
@@ -68,6 +82,22 @@ function gitStatus(kind: ChangeKind): GitStatus {
   if (kind === 'deleted') return 'deleted'
   if (kind === 'renamed') return 'renamed'
   return 'modified'
+}
+
+function createRepositoryTreeSource(
+  paths: readonly string[],
+  changes: readonly TreeFile[],
+): DiffsHubFileTreeSource {
+  const statusesByPath = new Map(changes.map((change) => [change.path, gitStatus(change.kind)]))
+  return {
+    gitStatus: paths.flatMap((path) => {
+      const status = statusesByPath.get(path)
+      return status == null ? [] : [{ path, status }]
+    }),
+    pathCount: paths.length,
+    paths,
+    pathToItemId: new Map(paths.map((path) => [path, path])),
+  }
 }
 
 function createTreeSource(files: readonly TreeFile[]): DiffsHubFileTreeSource {
@@ -98,17 +128,113 @@ function treeViewportHeight(source: DiffsHubFileTreeSource): number {
   return Math.max(24, (source.pathCount + directories.size) * 24)
 }
 
-function useNaturalTreeHeight(model: FileTree | null): number {
+const PANE_SIZES_STORAGE_KEY = 'gitna-source-control-pane-sizes'
+const DEFAULT_PANE_SIZES = [52, 28, 20] as const
+
+function readPaneSizes(): [number, number, number] {
+  try {
+    const value = JSON.parse(localStorage.getItem(PANE_SIZES_STORAGE_KEY) ?? 'null') as unknown
+    if (
+      Array.isArray(value) &&
+      value.length === 3 &&
+      value.every((entry) => typeof entry === 'number' && entry >= 8)
+    ) {
+      return [value[0], value[1], value[2]]
+    }
+  } catch {
+    // Invalid local state falls back to the stable VS Code-style proportions.
+  }
+  return [...DEFAULT_PANE_SIZES]
+}
+
+function usePaneSizes() {
+  const containerRef = useRef<HTMLDivElement>(null)
+  const [sizes, setSizes] = useState<[number, number, number]>(readPaneSizes)
+  const resizeBy = useCallback((index: 0 | 1, delta: number) => {
+    setSizes((current) => {
+      const next = [...current] as [number, number, number]
+      const bounded = Math.max(8 - current[index], Math.min(delta, current[index + 1] - 8))
+      next[index] += bounded
+      next[index + 1] -= bounded
+      localStorage.setItem(PANE_SIZES_STORAGE_KEY, JSON.stringify(next))
+      return next
+    })
+  }, [])
+  const startResize = useCallback(
+    (index: 0 | 1, event: React.PointerEvent<HTMLElement>) => {
+      if (event.button !== 0 || containerRef.current == null) return
+      event.preventDefault()
+      const startY = event.clientY
+      const startSizes = [...sizes] as [number, number, number]
+      const height = containerRef.current.getBoundingClientRect().height
+      const onPointerMove = (moveEvent: PointerEvent) => {
+        const delta = ((moveEvent.clientY - startY) / Math.max(1, height)) * 100
+        const bounded = Math.max(8 - startSizes[index], Math.min(delta, startSizes[index + 1] - 8))
+        const next = [...startSizes] as [number, number, number]
+        next[index] += bounded
+        next[index + 1] -= bounded
+        localStorage.setItem(PANE_SIZES_STORAGE_KEY, JSON.stringify(next))
+        setSizes(next)
+      }
+      const stop = () => {
+        window.removeEventListener('pointermove', onPointerMove)
+        window.removeEventListener('pointerup', stop)
+      }
+      window.addEventListener('pointermove', onPointerMove)
+      window.addEventListener('pointerup', stop, { once: true })
+    },
+    [sizes],
+  )
+  return { containerRef, resizeBy, sizes, startResize }
+}
+
+function PaneResizeHandle({
+  disabled,
+  index,
+  onResize,
+  onStart,
+  size,
+}: {
+  disabled: boolean
+  index: 0 | 1
+  onResize(index: 0 | 1, delta: number): void
+  onStart(index: 0 | 1, event: React.PointerEvent<HTMLElement>): void
+  size: number
+}) {
+  return (
+    <hr
+      aria-disabled={disabled}
+      aria-label="Resize sidebar panes"
+      aria-orientation="horizontal"
+      aria-valuemax={92}
+      aria-valuemin={8}
+      aria-valuenow={Math.round(size)}
+      tabIndex={disabled ? -1 : 0}
+      className={cn(
+        'relative z-20 hidden h-0 overflow-visible border-0 outline-none before:absolute before:inset-x-0 before:-top-0.5 before:h-1 before:cursor-[ns-resize] before:bg-transparent before:transition-colors before:duration-100 hover:before:bg-[var(--diffshub-primary-fg)] focus-visible:before:bg-[var(--diffshub-primary-fg)] active:before:bg-[var(--diffshub-primary-fg)] md:block',
+        disabled && 'pointer-events-none',
+      )}
+      onPointerDown={(event) => !disabled && onStart(index, event)}
+      onKeyDown={(event) => {
+        if (disabled || (event.key !== 'ArrowUp' && event.key !== 'ArrowDown')) return
+        event.preventDefault()
+        onResize(index, event.key === 'ArrowUp' ? -2 : 2)
+      }}
+    />
+  )
+}
+
+function useNaturalTreeHeight(model: FileTree | null, enabled = true): number {
   const [height, setHeight] = useState(0)
   useEffect(() => {
-    if (model == null) {
+    if (!enabled || model == null) {
       setHeight(0)
       return
     }
     const updateHeight = () => setHeight(model.getVisibleCount() * model.getItemHeight())
     updateHeight()
     return model.subscribe(updateHeight)
-  }, [model])
+  }, [enabled, model])
   return height
 }
 
@@ -128,13 +254,14 @@ export function GitnaSourceControl() {
   const graphHeader = useRef<HTMLButtonElement>(null)
   const composer = useRef<HTMLTextAreaElement>(null)
   const moreTrigger = useRef<HTMLButtonElement>(null)
+  const { containerRef, resizeBy, sizes, startResize } = usePaneSizes()
 
   const snapshot = repository.snapshot
   const staged = snapshot?.staged ?? []
   const unstaged = snapshot?.unstaged ?? []
   const repositorySource = useMemo(
-    () => createTreeSource([...staged, ...unstaged]),
-    [staged, unstaged],
+    () => createRepositoryTreeSource(repository.repositoryPaths, [...staged, ...unstaged]),
+    [repository.repositoryPaths, staged, unstaged],
   )
   const stagedSource = useMemo(() => createTreeSource(staged), [staged])
   const unstagedSource = useMemo(() => createTreeSource(unstaged), [unstaged])
@@ -162,10 +289,15 @@ export function GitnaSourceControl() {
 
   const selectRepositoryPath = useCallback(
     (path: string) => {
-      const scope = unstaged.some((change) => change.path === path) ? 'unstaged' : 'staged'
-      repository.select(scope, path)
+      if (unstaged.some((change) => change.path === path)) {
+        repository.select('unstaged', path)
+      } else if (staged.some((change) => change.path === path)) {
+        repository.select('staged', path)
+      } else {
+        repository.selectRepositoryFile(path)
+      }
     },
-    [repository, unstaged],
+    [repository, staged, unstaged],
   )
 
   useEffect(() => {
@@ -204,22 +336,19 @@ export function GitnaSourceControl() {
       className="source-control flex h-full min-h-0 flex-col"
       aria-label="Source Control workflow"
     >
-      <div className="workflow-scroll cv-mini-scrollbar min-h-0 flex-1 overflow-y-auto overscroll-contain pb-4">
-        <TreeSection
-          dataSection="repository"
-          emptyMessage="No repository changes"
-          icon={<IconFileTree className="size-3" />}
-          modelId="gitna-repository-tree"
-          open={repositoryOpen}
-          selectedPath={repository.selection?.change.path}
-          source={repositorySource}
-          title={repositoryName(snapshot.root)}
-          onOpenChange={setRepositoryOpen}
-          onSelectPath={selectRepositoryPath}
-        />
-
-        <section className="section border-t border-border/70">
+      <div
+        ref={containerRef}
+        className="pane-stack grid min-h-0 flex-1 overflow-hidden max-md:block max-md:overflow-y-auto"
+        style={{
+          gridTemplateRows: `${workflowOpen ? `minmax(142px, ${sizes[0]}fr)` : '22px'} 0 ${repositoryOpen ? `minmax(142px, ${sizes[1]}fr)` : '22px'} 0 ${graphOpen ? `minmax(142px, ${sizes[2]}fr)` : '22px'}`,
+        }}
+      >
+        <section
+          data-pane="source-control"
+          className="section min-h-0 overflow-hidden md:flex md:flex-col"
+        >
           <WorkflowSectionHeader
+            pane
             dataSection="workflow"
             icon={<IconSymbolDiffstatFill className="size-3" />}
             open={workflowOpen}
@@ -227,7 +356,10 @@ export function GitnaSourceControl() {
             onOpenChange={setWorkflowOpen}
           />
           {workflowOpen && (
-            <>
+            <div
+              data-pane-body="source-control"
+              className="cv-mini-scrollbar min-h-0 overscroll-contain md:flex-1 md:overflow-y-auto max-md:overflow-visible"
+            >
               <SourceControlToolbar
                 onConfirm={setPendingConfirm}
                 onError={setLocalError}
@@ -258,8 +390,16 @@ export function GitnaSourceControl() {
                   }}
                 />
                 <div className="mt-2 flex items-center gap-2">
-                  <label className="mr-auto flex cursor-pointer items-center gap-1.5 text-xs text-muted-foreground">
-                    <Switch aria-label="Amend" checked={amend} onCheckedChange={setAmend} />
+                  <label
+                    htmlFor="gitna-amend"
+                    className="mr-auto flex cursor-pointer items-center gap-1.5 text-xs text-muted-foreground"
+                  >
+                    <Switch
+                      id="gitna-amend"
+                      aria-label="Amend"
+                      checked={amend}
+                      onCheckedChange={setAmend}
+                    />
                     Amend
                   </label>
                   <Button
@@ -281,6 +421,8 @@ export function GitnaSourceControl() {
                 <ChangeSection
                   changes={staged}
                   modelId="gitna-staged-tree"
+                  onConfirm={setPendingConfirm}
+                  onRun={run}
                   open={stagedOpen}
                   scope="staged"
                   source={stagedSource}
@@ -293,6 +435,8 @@ export function GitnaSourceControl() {
                   changes={unstaged}
                   headerRef={changesHeader}
                   modelId="gitna-unstaged-tree"
+                  onConfirm={setPendingConfirm}
+                  onRun={run}
                   open={changesOpen}
                   scope="unstaged"
                   source={unstagedSource}
@@ -300,11 +444,59 @@ export function GitnaSourceControl() {
                   onOpenChange={setChangesOpen}
                 />
               )}
-            </>
+            </div>
           )}
         </section>
 
+        <PaneResizeHandle
+          disabled={!workflowOpen || !repositoryOpen}
+          index={0}
+          onResize={resizeBy}
+          onStart={startResize}
+          size={sizes[0]}
+        />
+
+        <TreeSection
+          pane
+          dataSection="repository"
+          emptyMessage="No repository files"
+          footer={
+            <>
+              {repository.repositoryFilesLoading && repository.repositoryPaths.length === 0 && (
+                <p className="px-8 py-2 text-xs text-muted-foreground">Loading files…</p>
+              )}
+              {repository.repositoryFilesError != null && (
+                <p className="px-8 py-2 text-xs text-red-500" role="alert">
+                  {repository.repositoryFilesError}
+                </p>
+              )}
+              {repository.repositoryFilesTruncated && (
+                <p className="px-8 py-2 text-xs text-amber-600 dark:text-amber-400" role="status">
+                  Showing the first 50,000 files
+                </p>
+              )}
+            </>
+          }
+          icon={<IconFileTree className="size-3" />}
+          modelId="gitna-repository-tree"
+          open={repositoryOpen}
+          selectedPath={repository.repositoryFilePath ?? repository.selection?.change.path}
+          source={repositorySource}
+          title={repositoryName(snapshot.root)}
+          onOpenChange={setRepositoryOpen}
+          onSelectPath={selectRepositoryPath}
+        />
+
+        <PaneResizeHandle
+          disabled={!repositoryOpen || !graphOpen}
+          index={1}
+          onResize={resizeBy}
+          onStart={startResize}
+          size={sizes[1]}
+        />
+
         <GraphSection
+          pane
           headerRef={graphHeader}
           open={graphOpen}
           onConfirm={setPendingConfirm}
@@ -606,6 +798,7 @@ interface WorkflowSectionHeaderProps {
   icon: ReactNode
   onOpenChange(open: boolean): void
   open: boolean
+  pane?: boolean
   title: string
 }
 
@@ -617,6 +810,7 @@ function WorkflowSectionHeader({
   icon,
   onOpenChange,
   open,
+  pane = false,
   title,
 }: WorkflowSectionHeaderProps) {
   return (
@@ -624,7 +818,8 @@ function WorkflowSectionHeader({
       ref={headerRef}
       type="button"
       className={cn(
-        'section-header flex h-8 w-full min-w-0 cursor-pointer items-center gap-1.5 px-3 text-left text-xs hover:bg-muted focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-[var(--diffshub-primary-fg)]',
+        'section-header flex w-full min-w-0 cursor-pointer items-center gap-1.5 px-3 text-left hover:bg-muted focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-[var(--diffshub-primary-fg)]',
+        pane ? 'h-[22px] shrink-0 text-[11px] font-bold uppercase' : 'h-8 text-xs',
         className,
       )}
       data-section={dataSection}
@@ -633,7 +828,9 @@ function WorkflowSectionHeader({
     >
       <IconChevronSm className={cn('size-3 transition-transform', !open && '-rotate-90')} />
       {icon}
-      <span className="section-title min-w-0 flex-1 truncate font-medium">{title}</span>
+      <span className={cn('section-title min-w-0 flex-1 truncate', !pane && 'font-medium')}>
+        {title}
+      </span>
       {count != null && (
         <span className="section-count tabular-nums text-muted-foreground">{count}</span>
       )}
@@ -644,12 +841,16 @@ function WorkflowSectionHeader({
 interface TreeSectionProps {
   dataSection: string
   emptyMessage: string
+  footer?: ReactNode
+  headerActions?: ReactNode
   headerRef?: React.Ref<HTMLButtonElement>
   icon: ReactNode
   modelId: string
   onOpenChange(open: boolean): void
   onSelectPath(path: string): void
   open: boolean
+  pane?: boolean
+  renderRowActions?: FileTreeOptions['renderRowActions']
   selectedPath?: string | null
   source: DiffsHubFileTreeSource
   title: string
@@ -658,24 +859,36 @@ interface TreeSectionProps {
 function TreeSection({
   dataSection,
   emptyMessage,
+  footer,
+  headerActions,
   headerRef,
   icon,
   modelId,
   onOpenChange,
   onSelectPath,
   open,
+  pane = false,
+  renderRowActions,
   selectedPath,
   source,
   title,
 }: TreeSectionProps) {
   const [model, setModel] = useState<FileTree | null>(null)
   const [searchOpen, setSearchOpen] = useState(false)
-  const naturalHeight = useNaturalTreeHeight(model)
+  const naturalHeight = useNaturalTreeHeight(model, !pane)
   const searchHeight = searchOpen ? CODE_VIEW_FILE_TREE_SEARCH_OPEN_HEIGHT : 0
   const height = (naturalHeight > 0 ? naturalHeight : treeViewportHeight(source)) + searchHeight
   return (
-    <section className="section border-t border-border/70 first:border-t-0">
-      <div className="flex items-center">
+    <section
+      data-pane={pane ? 'repository' : undefined}
+      className={cn(
+        'section border-t border-border/70 first:border-t-0',
+        pane && 'flex h-full min-h-0 flex-col overflow-hidden',
+        pane && open && 'max-md:h-[50vh]',
+        pane && !open && 'max-md:h-[22px]',
+      )}
+    >
+      <div className="group/tree-header flex shrink-0 items-center">
         <WorkflowSectionHeader
           className="flex-1"
           count={source.pathCount}
@@ -683,27 +896,47 @@ function TreeSection({
           headerRef={headerRef}
           icon={icon}
           open={open}
+          pane={pane}
           title={title}
           onOpenChange={onOpenChange}
         />
+        {headerActions != null && (
+          <div className="flex shrink-0 items-center opacity-0 group-focus-within/tree-header:opacity-100 group-hover/tree-header:opacity-100 max-md:opacity-100">
+            {headerActions}
+          </div>
+        )}
         {open && model != null && source.pathCount > 0 && (
           <TreeSearchToggle model={model} title={title} onOpenChange={setSearchOpen} />
         )}
       </div>
-      {open && source.pathCount > 0 && (
-        <div className="min-h-0" style={{ height }}>
-          <DiffsHubFileTree
-            className="overflow-visible md:ml-2"
-            modelId={modelId}
-            onModelReady={setModel}
-            onSelectItem={onSelectPath}
-            selectedPath={selectedPath}
-            source={source}
-          />
-        </div>
-      )}
-      {open && source.pathCount === 0 && (
-        <p className="px-8 py-2 text-xs text-muted-foreground">{emptyMessage}</p>
+      {open && (
+        <>
+          <div
+            data-pane-body={pane ? 'repository' : undefined}
+            className={cn(pane && 'min-h-0 flex-1 overflow-hidden')}
+          >
+            {source.pathCount > 0 && (
+              <div
+                className={cn('min-h-0', pane && 'h-full')}
+                style={pane ? undefined : { height }}
+              >
+                <DiffsHubFileTree
+                  className={cn(pane ? 'h-full overflow-hidden' : 'overflow-visible', 'md:ml-2')}
+                  modelId={modelId}
+                  onModelReady={setModel}
+                  onSelectItem={onSelectPath}
+                  renderRowActions={renderRowActions}
+                  selectedPath={selectedPath}
+                  source={source}
+                />
+              </div>
+            )}
+            {source.pathCount === 0 && (
+              <p className="px-8 py-2 text-xs text-muted-foreground">{emptyMessage}</p>
+            )}
+          </div>
+          {footer != null && <div className="shrink-0">{footer}</div>}
+        </>
       )}
     </section>
   )
@@ -740,7 +973,9 @@ interface ChangeSectionProps {
   changes: readonly TreeFile[]
   headerRef?: React.Ref<HTMLButtonElement>
   modelId: string
+  onConfirm(confirm: PendingConfirm): void
   onOpenChange(open: boolean): void
+  onRun(action: () => Promise<void>): Promise<void>
   open: boolean
   scope: ChangeScope
   source: DiffsHubFileTreeSource
@@ -751,23 +986,151 @@ function ChangeSection({
   changes,
   headerRef,
   modelId,
+  onConfirm,
   onOpenChange,
+  onRun,
   open,
   scope,
   source,
   title,
 }: ChangeSectionProps) {
   const repository = useRepository()
+  const changesByPath = useMemo(
+    () => new Map(changes.map((change) => [change.path, change])),
+    [changes],
+  )
   const selectedPath =
     repository.selection?.scope === scope ? repository.selection.change.path : null
+  const renderRowActions = useCallback<NonNullable<FileTreeOptions['renderRowActions']>>(
+    ({ item, row }) => {
+      if (row.kind !== 'file') return null
+      const change = changesByPath.get(item.path)
+      if (change == null) return null
+      if (scope === 'staged') {
+        return [
+          {
+            id: 'unstage',
+            label: `Unstage ${item.name}`,
+            icon: { name: 'gitna-action-unstage' },
+            disabled: repository.busy,
+            onAction: () =>
+              void onRun(() =>
+                repository.mutate({ op: 'unstage', paths: mutationPaths([change]) }),
+              ),
+          },
+        ]
+      }
+      return [
+        {
+          id: 'discard',
+          label: `Discard changes in ${item.name}`,
+          icon: { name: 'gitna-action-discard' },
+          disabled: repository.busy,
+          onAction: () =>
+            onConfirm({
+              title: `Discard changes in ${item.name}?`,
+              message: `${repository.snapshot?.root ?? 'Repository'} on ${repository.snapshot?.headBranch ?? 'detached HEAD'}. ${
+                change.kind === 'untracked'
+                  ? 'This permanently deletes the untracked file.'
+                  : 'This restores the file from the index.'
+              } Gitna cannot undo this action.`,
+              confirmLabel: 'Discard changes',
+              run: () =>
+                repository.mutate({
+                  op: change.kind === 'untracked' ? 'delete' : 'discard',
+                  paths: mutationPaths([change]),
+                }),
+            }),
+        },
+        {
+          id: 'stage',
+          label: `Stage ${item.name}`,
+          icon: { name: 'gitna-action-stage' },
+          disabled: repository.busy,
+          onAction: () =>
+            void onRun(() => repository.mutate({ op: 'stage', paths: mutationPaths([change]) })),
+        },
+      ]
+    },
+    [changesByPath, onConfirm, onRun, repository, scope],
+  )
+
+  const headerActions =
+    scope === 'staged' ? (
+      <Button
+        type="button"
+        variant="ghost"
+        size="icon-only"
+        aria-label="Unstage all changes"
+        title="Unstage All Changes"
+        disabled={repository.busy}
+        onClick={() =>
+          void onRun(() => repository.mutate({ op: 'unstage', paths: mutationPaths(changes) }))
+        }
+      >
+        <IconMinus className="size-3" />
+      </Button>
+    ) : (
+      <>
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon-only"
+          aria-label="Discard all changes"
+          title="Discard All Changes"
+          disabled={repository.busy}
+          onClick={() =>
+            onConfirm({
+              title: 'Discard all changes?',
+              message: `${repository.snapshot?.root ?? 'Repository'} on ${repository.snapshot?.headBranch ?? 'detached HEAD'}. This restores tracked files and permanently deletes untracked files. Gitna cannot undo this action.`,
+              confirmLabel: 'Discard all changes',
+              run: async () => {
+                const tracked = changes.filter((change) => change.kind !== 'untracked')
+                const untracked = changes.filter((change) => change.kind === 'untracked')
+                if (tracked.length > 0) {
+                  await repository.mutate({
+                    op: 'discard',
+                    paths: mutationPaths(tracked),
+                  })
+                }
+                if (untracked.length > 0) {
+                  await repository.mutate({
+                    op: 'delete',
+                    paths: mutationPaths(untracked),
+                  })
+                }
+              },
+            })
+          }
+        >
+          <IconReply className="size-3" />
+        </Button>
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon-only"
+          aria-label="Stage all changes"
+          title="Stage All Changes"
+          disabled={repository.busy}
+          onClick={() =>
+            void onRun(() => repository.mutate({ op: 'stage', paths: mutationPaths(changes) }))
+          }
+        >
+          <IconPlus className="size-3" />
+        </Button>
+      </>
+    )
+
   return (
     <TreeSection
       dataSection={scope === 'staged' ? 'staged' : 'changes'}
       emptyMessage={changes.length === 0 ? 'No changes' : 'No matching files'}
+      headerActions={headerActions}
       headerRef={headerRef}
       icon={<IconSymbolDiffstatFill className="size-3" />}
       modelId={modelId}
       open={open}
+      renderRowActions={renderRowActions}
       selectedPath={selectedPath}
       source={source}
       title={title}
@@ -782,6 +1145,7 @@ interface GraphSectionProps {
   onConfirm(confirm: PendingConfirm): void
   onOpenChange(open: boolean): void
   open: boolean
+  pane?: boolean
 }
 
 const GRAPH_LANE_SPACING = 12
@@ -822,23 +1186,54 @@ function relativeCommitTime(value: string): string {
   return formatter.format(elapsedSeconds, 'second')
 }
 
-function GraphSection({ headerRef, onConfirm, onOpenChange, open }: GraphSectionProps) {
+function GraphSection({
+  headerRef,
+  onConfirm,
+  onOpenChange,
+  open,
+  pane = false,
+}: GraphSectionProps) {
   const repository = useRepository()
   const laneCount = Math.max(1, ...repository.graphRows.map((row) => row.totalColumns))
   return (
-    <section className="section border-t border-border/70">
-      <WorkflowSectionHeader
-        count={repository.graphRows.length}
-        dataSection="graph"
-        headerRef={headerRef}
-        icon={<IconBranch className="size-3" />}
-        open={open}
-        title="Graph"
-        onOpenChange={onOpenChange}
-      />
+    <section
+      data-pane={pane ? 'graph' : undefined}
+      className={cn(
+        'section min-h-0 overflow-hidden',
+        pane && 'border-t border-border/70 md:flex md:flex-col',
+      )}
+    >
+      <div className="group/graph-header flex items-center">
+        <WorkflowSectionHeader
+          className="flex-1"
+          count={repository.graphRows.length}
+          dataSection="graph"
+          headerRef={headerRef}
+          icon={<IconBranch className="size-3" />}
+          open={open}
+          pane={pane}
+          title="Graph"
+          onOpenChange={onOpenChange}
+        />
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon-only"
+          className="mr-2 opacity-0 group-focus-within/graph-header:opacity-100 group-hover/graph-header:opacity-100 max-md:opacity-100"
+          aria-label="Refresh Graph"
+          title="Refresh Graph"
+          disabled={repository.graphLoading}
+          onClick={() => void repository.refreshGraph()}
+        >
+          <IconRefresh className="size-3" />
+        </Button>
+      </div>
       {open && (
         <TooltipProvider delayDuration={500} skipDelayDuration={150}>
-          <div className="graph-list px-2">
+          <div
+            data-pane-body={pane ? 'graph' : undefined}
+            className="graph-list cv-mini-scrollbar min-h-0 px-2 pb-4 overscroll-contain md:flex-1 md:overflow-y-auto max-md:overflow-visible"
+          >
             {repository.graphRows.map((row) => (
               <GraphCommitRow
                 key={row.commit.oid}
@@ -1363,8 +1758,12 @@ function OperationModal({ kind, onClose, onConfirm, onError }: OperationModalPro
             value={stashMessage}
             onChange={(event) => setStashMessage(event.currentTarget.value)}
           />
-          <label className="flex cursor-pointer items-center gap-2 text-xs">
+          <label
+            htmlFor="gitna-stash-include-untracked"
+            className="flex cursor-pointer items-center gap-2 text-xs"
+          >
             <Switch
+              id="gitna-stash-include-untracked"
               aria-label="Include untracked"
               checked={includeUntracked}
               onCheckedChange={setIncludeUntracked}
@@ -1461,9 +1860,10 @@ function OperationModal({ kind, onClose, onConfirm, onError }: OperationModalPro
           Create
         </Button>
       </form>
-      <label className="mb-3 grid gap-1 text-xs">
+      <label htmlFor="gitna-tag-remote" className="mb-3 grid gap-1 text-xs">
         Push to
         <Input
+          id="gitna-tag-remote"
           aria-label="Push to"
           value={remote}
           onChange={(event) => setRemote(event.currentTarget.value)}
