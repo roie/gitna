@@ -1,18 +1,15 @@
 # Gitna frontend
 
-Gitna's frontend is built by Vite and embedded into the Go binary as static
-assets.
+Gitna's frontend is a React 19/Vite application derived mechanically from the
+pinned DiffsHub `diffs-v1.3.5` source. Vite emits static assets to
+`../internal/webui/dist`; Go embeds that directory into the native executable.
+There is no production Node.js or Next.js runtime.
 
-During the DiffsHub React migration, Vite has two explicit entries:
-
-- `index.html` — the tested Svelte Gitna and current default.
-- `react.html` — the fixture-backed React baseline copied from pinned DiffsHub
-  source.
-
-The temporary React entry is intentional. Do not route extensionless paths to it
-or remove the Svelte entry until the parity matrix in
-`../docs/research/diffshub-react-parity.md` is complete and equivalent workflow
-coverage passes.
+Gitna keeps the donor DiffsHub header, responsive sidebar, file tree,
+continuous CodeView, comments, themes, diff stats, worker monitor, controls and
+interaction primitives. Typed adapters under `src/diffshub/gitna` connect
+those presentation components to the local Go/system-Git API and add the VS
+Code Source Control workflow.
 
 ## Commands
 
@@ -24,7 +21,3 @@ pnpm test
 pnpm build
 pnpm exec playwright test
 ```
-
-`pnpm build` emits both entries to `../internal/webui/dist`; the Go embed then
-packages the directory into the native executable. There is no production
-Node.js or Next.js runtime.
