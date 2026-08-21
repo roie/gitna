@@ -554,7 +554,7 @@ function GitnaHeaderActions({
   const destructive = kind === 'untracked' ? 'delete' : 'discard';
   const destructiveLabel = kind === 'untracked' ? 'Delete' : 'Discard';
   const buttonClass =
-    'inline-flex h-6 items-center rounded px-1.5 text-[10px] text-muted-foreground hover:bg-muted hover:text-foreground disabled:pointer-events-none disabled:opacity-50';
+    'inline-flex h-6 cursor-pointer items-center rounded px-1.5 text-[10px] text-muted-foreground hover:bg-muted hover:text-foreground disabled:pointer-events-none disabled:opacity-50';
 
   const loadHunks = async () => {
     setLoading(true);

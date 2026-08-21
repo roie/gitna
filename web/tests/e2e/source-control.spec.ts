@@ -1,4 +1,4 @@
-import type { APIRequestContext } from '@playwright/test'
+import type { APIRequestContext, Locator } from '@playwright/test'
 import { test, expect } from './fixtures.js'
 
 interface ReviewResponse {
@@ -12,6 +12,15 @@ async function readReview(request: APIRequestContext, url: string): Promise<Revi
   const response = await request.get(url)
   expect(response.status()).toBe(200)
   return (await response.json()) as ReviewResponse
+}
+
+async function visibleTreeEndGap(tree: Locator): Promise<number> {
+  return tree.evaluate((element) => {
+    const rows = element.querySelectorAll<HTMLElement>('[role="treeitem"]')
+    const last = rows.item(rows.length - 1)
+    if (last == null) return Number.POSITIVE_INFINITY
+    return Math.round(element.getBoundingClientRect().bottom - last.getBoundingClientRect().bottom)
+  })
 }
 
 test('real binary renders repository source-control state', async ({ page, app }) => {
@@ -30,6 +39,7 @@ test('real binary renders repository source-control state', async ({ page, app }
   await expect(staged).toBeVisible()
   await expect(changes).toHaveAttribute('aria-expanded', 'true')
   await expect(staged).toHaveAttribute('aria-expanded', 'true')
+  await expect(page.getByRole('switch', { name: 'Amend' })).toBeVisible()
   await expect(page.locator('.section-title', { hasText: /^Graph$/ })).toBeVisible()
   await expect(
     page.locator('#gitna-unstaged-tree__tree').getByRole('treeitem', {
@@ -43,10 +53,36 @@ test('real binary renders repository source-control state', async ({ page, app }
       exact: true,
     }),
   ).toBeVisible()
+  const repositoryTree = page.locator('#gitna-repository-tree__tree')
+  const changesTree = page.locator('#gitna-unstaged-tree__tree')
+  await expect.poll(() => visibleTreeEndGap(repositoryTree)).toBeLessThanOrEqual(1)
+  await expect.poll(() => visibleTreeEndGap(changesTree)).toBeLessThanOrEqual(1)
+
   const headCommit = page.getByRole('button', { name: /^merge feature/ })
   await expect(headCommit).toContainText('main')
   await expect(headCommit).not.toContainText('Gitna E2E')
   await expect(headCommit).not.toContainText(app.headOid.slice(0, 8))
+  await expect(headCommit).toHaveCSS('cursor', 'pointer')
+  await expect(page.locator('[data-section="graph"]')).toHaveCSS('cursor', 'pointer')
+  await headCommit.hover()
+  const tooltip = page.getByRole('tooltip')
+  await expect(tooltip).toBeVisible()
+  await expect(tooltip).toContainText('Gitna E2E')
+  await expect(tooltip).toContainText(app.headOid.slice(0, 8))
+  if (process.env.GITNA_CAPTURE_GRAPH) {
+    await page.screenshot({ path: '/tmp/gitna-graph-tooltip.png', fullPage: true })
+  }
+  await page.keyboard.press('Escape')
+  await expect(tooltip).toBeHidden()
+  await headCommit.focus()
+  await expect(tooltip).toBeVisible()
+  await expect(headCommit).toHaveAttribute('aria-describedby', /radix/)
+  await page.keyboard.press('Escape')
+
+  const nodeColumns = await page.locator('[data-graph-node]').evaluateAll((nodes) =>
+    nodes.map((node) => Number(node.getAttribute('cx'))),
+  )
+  expect(new Set(nodeColumns).size).toBeGreaterThan(1)
   await expect(page.getByText('base fixture', { exact: true })).toBeVisible()
   await expect(page.locator('.workflow-scroll')).toHaveClass(/cv-mini-scrollbar/)
   await page.getByRole('button', { name: /^base fixture/ }).click()
@@ -60,6 +96,17 @@ test('real binary renders repository source-control state', async ({ page, app }
   expect(
     await graphTree.evaluate((tree) => tree.scrollHeight - tree.clientHeight),
   ).toBeLessThanOrEqual(1)
+  await expect.poll(() => visibleTreeEndGap(graphTree)).toBeLessThanOrEqual(1)
+  const baseCommit = page.getByRole('button', { name: /^base fixture/ })
+  const [nodeBox, filesBox] = await Promise.all([
+    baseCommit.locator('[data-graph-node]').boundingBox(),
+    page.locator('[data-graph-files]').boundingBox(),
+  ])
+  expect(nodeBox).not.toBeNull()
+  expect(filesBox).not.toBeNull()
+  expect(Math.abs(nodeBox!.x + nodeBox!.width / 2 - (filesBox!.x + 1))).toBeLessThanOrEqual(1)
+  await expect(page.locator('[data-graph-segment]').first()).toHaveAttribute('stroke-width', '2')
+  await expect(page.locator('[data-graph-files]')).toHaveCSS('border-left-width', '2px')
   if (process.env.GITNA_CAPTURE_GRAPH) {
     await graphTree.getByRole('treeitem').last().scrollIntoViewIfNeeded()
     await page.screenshot({ path: '/tmp/gitna-graph-refined.png', fullPage: true })
@@ -74,6 +121,10 @@ test('embedded binary serves the pinned DiffsHub React frontend', async ({ page,
   await expect(page.getByRole('button', { name: 'Theme settings' })).toBeVisible()
   await expect(page.getByRole('button', { name: 'Display settings' })).toBeVisible()
   await expect(page.locator('diffs-container').first()).toBeVisible({ timeout: 30_000 })
+  await expect(page.getByRole('button', { name: 'Stage file modified.txt' })).toHaveCSS(
+    'cursor',
+    'pointer',
+  )
   await expect(page.locator('aside[aria-label="Source Control"]')).toBeVisible()
   await expect(page.locator('[data-section="repository"]')).toBeVisible()
   await expect(page.locator('[data-section="workflow"]')).toBeVisible()

@@ -21,6 +21,7 @@ import {
 } from 'react'
 
 import { ApiError } from '../../lib/api'
+import type { GraphRow } from '../../lib/graph-lanes'
 import type { ChangeKind, ChangeScope, ConflictEntry } from '../../lib/types'
 import { Button } from '../components/Button'
 import { DiffsHubFileTree } from '../components/DiffsHubFileTree'
@@ -32,6 +33,13 @@ import {
   DropdownMenuTrigger,
 } from '../components/DropdownMenu'
 import { Input } from '../components/Input'
+import { Switch } from '../components/Switch'
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from '../components/Tooltip'
 import { cn } from '../lib/cn'
 import type { DiffsHubFileTreeSource } from '../lib/types'
 import { Confirm, Modal } from './Modal'
@@ -82,7 +90,7 @@ function createTreeSource(files: readonly TreeFile[]): DiffsHubFileTreeSource {
   }
 }
 
-function treeViewportHeight(source: DiffsHubFileTreeSource, maximum = 240): number {
+function treeViewportHeight(source: DiffsHubFileTreeSource): number {
   if (source.pathCount === 0) return 0
   const directories = new Set<string>()
   for (const path of source.paths) {
@@ -91,7 +99,7 @@ function treeViewportHeight(source: DiffsHubFileTreeSource, maximum = 240): numb
       directories.add(segments.slice(0, index).join('/'))
     }
   }
-  return Math.min(maximum, Math.max(48, (source.pathCount + directories.size) * 24 + 8))
+  return Math.max(24, (source.pathCount + directories.size) * 24)
 }
 
 function useNaturalTreeHeight(model: FileTree | null): number {
@@ -205,7 +213,6 @@ export function GitnaSourceControl() {
           dataSection="repository"
           emptyMessage="No repository changes"
           icon={<IconFileTree className="size-3" />}
-          maximumHeight={144}
           modelId="gitna-repository-tree"
           open={repositoryOpen}
           selectedPath={repository.selection?.change.path}
@@ -255,11 +262,11 @@ export function GitnaSourceControl() {
                   }}
                 />
                 <div className="mt-2 flex items-center gap-2">
-                  <label className="mr-auto flex items-center gap-1.5 text-xs text-muted-foreground">
-                    <input
-                      type="checkbox"
+                  <label className="mr-auto flex cursor-pointer items-center gap-1.5 text-xs text-muted-foreground">
+                    <Switch
+                      aria-label="Amend"
                       checked={amend}
-                      onChange={(event) => setAmend(event.currentTarget.checked)}
+                      onCheckedChange={setAmend}
                     />
                     Amend
                   </label>
@@ -569,7 +576,7 @@ function SourceControlToolbar({ moreTrigger, onConfirm, onError, onOpenDialog }:
           </span>
           <select
             aria-label="Publish remote"
-            className="rounded border border-border bg-background px-1 py-1"
+            className="cursor-pointer rounded border border-border bg-background px-1 py-1 outline-none focus:border-[var(--diffshub-primary-fg)]"
             value={publishRemote}
             onChange={(event) => setPublishRemote(event.currentTarget.value)}
           >
@@ -625,7 +632,7 @@ function WorkflowSectionHeader({
       ref={headerRef}
       type="button"
       className={cn(
-        'section-header flex h-8 w-full min-w-0 items-center gap-1.5 px-3 text-left text-xs hover:bg-muted focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-[var(--diffshub-primary-fg)]',
+        'section-header flex h-8 w-full min-w-0 cursor-pointer items-center gap-1.5 px-3 text-left text-xs hover:bg-muted focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-[var(--diffshub-primary-fg)]',
         className,
       )}
       data-section={dataSection}
@@ -647,7 +654,6 @@ interface TreeSectionProps {
   emptyMessage: string
   headerRef?: React.Ref<HTMLButtonElement>
   icon: ReactNode
-  maximumHeight?: number
   modelId: string
   onOpenChange(open: boolean): void
   onSelectPath(path: string): void
@@ -662,7 +668,6 @@ function TreeSection({
   emptyMessage,
   headerRef,
   icon,
-  maximumHeight,
   modelId,
   onOpenChange,
   onSelectPath,
@@ -672,7 +677,8 @@ function TreeSection({
   title,
 }: TreeSectionProps) {
   const [model, setModel] = useState<FileTree | null>(null)
-  const height = treeViewportHeight(source, maximumHeight)
+  const naturalHeight = useNaturalTreeHeight(model)
+  const height = naturalHeight > 0 ? naturalHeight : treeViewportHeight(source)
   return (
     <section className="section border-t border-border/70 first:border-t-0">
       <div className="flex items-center">
@@ -693,7 +699,7 @@ function TreeSection({
       {open && source.pathCount > 0 && (
         <div className="min-h-0" style={{ height }}>
           <DiffsHubFileTree
-            className="md:ml-2"
+            className="overflow-visible md:ml-2"
             modelId={modelId}
             onModelReady={setModel}
             onSelectItem={onSelectPath}
@@ -775,8 +781,47 @@ interface GraphSectionProps {
   open: boolean
 }
 
+const GRAPH_LANE_SPACING = 12
+const GRAPH_LANE_INSET = 8
+const GRAPH_ROW_HEIGHT = 28
+const GRAPH_LANE_COLORS = [
+  'var(--diffshub-primary-fg, #3b82f6)',
+  '#f59e0b',
+  '#a855f7',
+  '#10b981',
+  '#f43f5e',
+]
+
+function graphColumnX(column: number): number {
+  return GRAPH_LANE_INSET + column * GRAPH_LANE_SPACING
+}
+
+function graphLaneColor(column: number): string {
+  return GRAPH_LANE_COLORS[column % GRAPH_LANE_COLORS.length]!
+}
+
+function relativeCommitTime(value: string): string {
+  const elapsedSeconds = Math.round((new Date(value).getTime() - Date.now()) / 1000)
+  const units: Array<[Intl.RelativeTimeFormatUnit, number]> = [
+    ['year', 31_536_000],
+    ['month', 2_592_000],
+    ['week', 604_800],
+    ['day', 86_400],
+    ['hour', 3_600],
+    ['minute', 60],
+  ]
+  const formatter = new Intl.RelativeTimeFormat(undefined, { numeric: 'auto' })
+  for (const [unit, seconds] of units) {
+    if (Math.abs(elapsedSeconds) >= seconds) {
+      return formatter.format(Math.round(elapsedSeconds / seconds), unit)
+    }
+  }
+  return formatter.format(elapsedSeconds, 'second')
+}
+
 function GraphSection({ headerRef, onConfirm, onOpenChange, open }: GraphSectionProps) {
   const repository = useRepository()
+  const laneCount = Math.max(1, ...repository.graphRows.map((row) => row.totalColumns))
   return (
     <section className="section border-t border-border/70">
       <WorkflowSectionHeader
@@ -789,37 +834,126 @@ function GraphSection({ headerRef, onConfirm, onOpenChange, open }: GraphSection
         onOpenChange={onOpenChange}
       />
       {open && (
-        <div className="graph-list px-2">
-          {repository.graphRows.map((row) => (
-            <GraphCommitRow key={row.commit.oid} row={row} onConfirm={onConfirm} />
-          ))}
-          {repository.graphHasMore && (
-            <Button
-              variant="ghost"
-              size="sm"
-              className="w-full"
-              disabled={repository.graphLoading}
-              onClick={() => void repository.loadMoreGraph()}
-            >
-              Load more
-            </Button>
-          )}
-          {repository.graphError != null && (
-            <p role="alert" className="px-2 py-2 text-xs text-red-500">
-              {repository.graphError}
-            </p>
-          )}
-        </div>
+        <TooltipProvider delayDuration={500} skipDelayDuration={150}>
+          <div className="graph-list px-2">
+            {repository.graphRows.map((row) => (
+              <GraphCommitRow
+                key={row.commit.oid}
+                laneCount={laneCount}
+                row={row}
+                onConfirm={onConfirm}
+              />
+            ))}
+            {repository.graphHasMore && (
+              <Button
+                variant="ghost"
+                size="sm"
+                className="w-full"
+                disabled={repository.graphLoading}
+                onClick={() => void repository.loadMoreGraph()}
+              >
+                Load more
+              </Button>
+            )}
+            {repository.graphError != null && (
+              <p role="alert" className="px-2 py-2 text-xs text-red-500">
+                {repository.graphError}
+              </p>
+            )}
+          </div>
+        </TooltipProvider>
       )}
     </section>
   )
 }
 
+function GraphLaneGutter({ laneCount, open, row }: { laneCount: number; open: boolean; row: GraphRow }) {
+  const width = graphColumnX(laneCount - 1) + GRAPH_LANE_INSET
+  const nodeX = graphColumnX(row.column)
+  const middle = GRAPH_ROW_HEIGHT / 2
+  return (
+    <svg
+      aria-hidden="true"
+      data-graph-gutter
+      className="h-7 shrink-0"
+      width={width}
+      height={GRAPH_ROW_HEIGHT}
+      viewBox={`0 0 ${width} ${GRAPH_ROW_HEIGHT}`}
+    >
+      {row.lanes.map((lane) => {
+        const laneX = graphColumnX(lane.column)
+        const color = graphLaneColor(lane.column)
+        return lane.next === row.commit.oid ? (
+          <path
+            key={`incoming:${lane.column}`}
+            data-graph-segment
+            d={`M ${laneX} 0 C ${laneX} ${middle / 2}, ${nodeX} ${middle / 2}, ${nodeX} ${middle}`}
+            fill="none"
+            stroke={color}
+            strokeWidth="2"
+            vectorEffect="non-scaling-stroke"
+          />
+        ) : (
+          <line
+            key={`passing:${lane.column}`}
+            data-graph-segment
+            x1={laneX}
+            x2={laneX}
+            y1="0"
+            y2={GRAPH_ROW_HEIGHT}
+            stroke={color}
+            strokeWidth="2"
+            vectorEffect="non-scaling-stroke"
+          />
+        )
+      })}
+      {row.outgoing.map((column) => {
+        const outgoingX = graphColumnX(column)
+        return column === row.column ? (
+          <line
+            key={`outgoing:${column}`}
+            data-graph-segment
+            x1={nodeX}
+            x2={nodeX}
+            y1={middle}
+            y2={GRAPH_ROW_HEIGHT}
+            stroke={graphLaneColor(column)}
+            strokeWidth="2"
+            vectorEffect="non-scaling-stroke"
+          />
+        ) : (
+          <path
+            key={`outgoing:${column}`}
+            data-graph-segment
+            d={`M ${nodeX} ${middle} C ${nodeX} ${middle + middle / 2}, ${outgoingX} ${middle + middle / 2}, ${outgoingX} ${GRAPH_ROW_HEIGHT}`}
+            fill="none"
+            stroke={graphLaneColor(column)}
+            strokeWidth="2"
+            vectorEffect="non-scaling-stroke"
+          />
+        )
+      })}
+      <circle
+        data-graph-node
+        cx={nodeX}
+        cy={middle}
+        r="4"
+        fill={open ? graphLaneColor(row.column) : 'var(--diffshub-sidebar-bg, var(--color-background))'}
+        stroke={graphLaneColor(row.column)}
+        strokeWidth="2"
+        vectorEffect="non-scaling-stroke"
+      />
+    </svg>
+  )
+}
+
 function GraphCommitRow({
+  laneCount,
   row,
   onConfirm,
 }: {
-  row: ReturnType<typeof useRepository>['graphRows'][number]
+  laneCount: number
+  row: GraphRow
   onConfirm(confirm: PendingConfirm): void
 }) {
   const repository = useRepository()
@@ -835,51 +969,68 @@ function GraphCommitRow({
     (ref, index, all) => all.findIndex((candidate) => candidate.name === ref.name) === index,
   )
   const visibleRefs = refs.slice(0, 2)
+  const authorTime = new Date(row.commit.authorTime)
   return (
     <div className="graph-row">
-      <div className="group flex min-h-7 items-center gap-1 text-xs">
-        <button
-          type="button"
-          className={cn(
-            'flex min-w-0 flex-1 items-center gap-1 rounded px-1 py-0.5 text-left hover:bg-muted focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-[var(--diffshub-primary-fg)]',
-            open && 'bg-muted',
-          )}
-          aria-expanded={open}
-          title={`${row.commit.authorName} · ${shortOid} · ${new Date(row.commit.authorTime).toLocaleString()}`}
-          onClick={() => void repository.toggleCommit(row.commit.oid)}
-        >
-          <span
-            className="relative flex h-6 w-5 shrink-0 items-center justify-center"
-            aria-hidden="true"
-          >
-            <span className="absolute inset-y-0 left-1/2 w-px bg-blue-500" />
-            <span
+      <div className="group flex h-7 items-center gap-1 text-xs">
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <button
+              type="button"
               className={cn(
-                'relative size-2.5 rounded-full border-2 border-blue-500 bg-background',
-                open && 'bg-blue-400 shadow-[0_0_0_2px_color-mix(in_srgb,var(--diffshub-primary-fg)_18%,transparent)]',
+                'flex h-7 min-w-0 flex-1 cursor-pointer items-center gap-1 rounded px-1 text-left hover:bg-muted focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-[var(--diffshub-primary-fg)]',
+                open && 'bg-muted',
               )}
-            />
-          </span>
-          <span className="min-w-0 flex-1 truncate font-medium">{row.commit.subject}</span>
-          {visibleRefs.map((ref) => (
-            <span
-              key={`${ref.kind}:${ref.name}`}
-              className={cn(
-                'max-w-24 shrink-0 truncate rounded-full border border-blue-500/60 px-1.5 py-0.5 text-[10px] leading-none',
-                ref.kind === 'head'
-                  ? 'bg-blue-500 text-white'
-                  : 'bg-blue-500/10 text-blue-500',
-              )}
+              aria-expanded={open}
+              onClick={() => void repository.toggleCommit(row.commit.oid)}
             >
-              {ref.name}
-            </span>
-          ))}
-          {refs.length > visibleRefs.length && (
-            <span className="shrink-0 text-[10px] text-muted-foreground">
-              +{refs.length - visibleRefs.length}
-            </span>
-          )}
-        </button>
+              <GraphLaneGutter laneCount={laneCount} open={open} row={row} />
+              <span className="min-w-0 flex-1 truncate font-medium">{row.commit.subject}</span>
+              {visibleRefs.map((ref) => (
+                <span
+                  key={`${ref.kind}:${ref.name}`}
+                  className={cn(
+                    'max-w-24 shrink-0 truncate rounded-full border border-blue-500/60 px-1.5 py-0.5 text-[10px] leading-none',
+                    ref.kind === 'head'
+                      ? 'bg-blue-500 text-white'
+                      : 'bg-blue-500/10 text-blue-500',
+                  )}
+                >
+                  {ref.name}
+                </span>
+              ))}
+              {refs.length > visibleRefs.length && (
+                <span className="shrink-0 text-[10px] text-muted-foreground">
+                  +{refs.length - visibleRefs.length}
+                </span>
+              )}
+            </button>
+          </TooltipTrigger>
+          <TooltipContent side="right" align="start">
+            <div className="flex flex-wrap items-baseline gap-x-1.5 gap-y-0.5">
+              <strong className="font-medium">{row.commit.authorName}</strong>
+              <span className="text-muted-foreground">
+                {relativeCommitTime(row.commit.authorTime)} ({authorTime.toLocaleString()})
+              </span>
+            </div>
+            <p className="mt-2 font-medium">{row.commit.subject}</p>
+            {refs.length > 0 && (
+              <div className="mt-2 flex flex-wrap gap-1">
+                {refs.map((ref) => (
+                  <span
+                    key={`${ref.kind}:${ref.name}`}
+                    className="rounded-full border border-border px-1.5 py-0.5 text-[10px]"
+                  >
+                    {ref.name}
+                  </span>
+                ))}
+              </div>
+            )}
+            <div className="mt-2 border-t border-border pt-2 font-mono text-[11px] text-muted-foreground">
+              {shortOid}
+            </div>
+          </TooltipContent>
+        </Tooltip>
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
             <Button
@@ -935,16 +1086,22 @@ function GraphCommitRow({
         </DropdownMenu>
       </div>
       {open && (
-        <div className="ml-[14px] border-l-2 border-blue-500 pl-1">
+        <div
+          data-graph-files
+          className="border-l-2 pl-1"
+          style={{
+            borderColor: graphLaneColor(row.column),
+            marginLeft: graphColumnX(row.column) + 3,
+          }}
+        >
           {repository.filesLoading[row.commit.oid] && (
             <p className="px-3 py-2 text-xs text-muted-foreground">Loading…</p>
           )}
           {files != null && files.length > 0 && (
             <div className="min-h-0" style={{ height: treeHeight }}>
               <DiffsHubFileTree
-                className="md:ml-1"
+                className="overflow-visible md:ml-1"
                 modelId={`gitna-graph-${row.commit.oid}`}
-                scrollMode="parent"
                 onModelReady={setTreeModel}
                 onSelectItem={(path) => {
                   const file = files.find((candidate) => candidate.path === path)
@@ -1195,11 +1352,11 @@ function OperationModal({ kind, onClose, onConfirm, onError }: OperationModalPro
             value={stashMessage}
             onChange={(event) => setStashMessage(event.currentTarget.value)}
           />
-          <label className="flex items-center gap-2 text-xs">
-            <input
-              type="checkbox"
+          <label className="flex cursor-pointer items-center gap-2 text-xs">
+            <Switch
+              aria-label="Include untracked"
               checked={includeUntracked}
-              onChange={(event) => setIncludeUntracked(event.currentTarget.checked)}
+              onCheckedChange={setIncludeUntracked}
             />
             Include untracked
           </label>
@@ -1295,8 +1452,8 @@ function OperationModal({ kind, onClose, onConfirm, onError }: OperationModalPro
       </form>
       <label className="mb-3 grid gap-1 text-xs">
         Push to
-        <input
-          className="rounded border border-border bg-background px-2 py-1"
+        <Input
+          aria-label="Push to"
           value={remote}
           onChange={(event) => setRemote(event.currentTarget.value)}
         />
@@ -1361,7 +1518,7 @@ function SelectField({
       <span>{label}</span>
       <select
         aria-label={label === 'Branch or reference' ? label : `Compare ${label.toLowerCase()}`}
-        className="h-9 rounded-md border border-border bg-background px-2 text-sm"
+        className="h-9 cursor-pointer rounded-md border border-border bg-background px-2 text-sm outline-none focus:border-[var(--diffshub-primary-fg)]"
         value={value}
         onChange={(event) => onChange(event.currentTarget.value)}
       >

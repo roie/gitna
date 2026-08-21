@@ -64,7 +64,26 @@ test('review failure keeps Source Control usable and retry recovers', async ({ p
   })
 
   await page.goto(app.url)
-  await expect(page.getByRole('alert')).toContainText('Couldn’t load diff')
+  const alert = page.getByRole('alert')
+  await expect(alert).toContainText('Couldn’t load diff')
+  const statusPanel = alert.locator('..')
+  const review = page.getByRole('region', { name: 'Review' })
+  const [statusBox, alertBox, reviewBox] = await Promise.all([
+    statusPanel.boundingBox(),
+    alert.boundingBox(),
+    review.boundingBox(),
+  ])
+  expect(statusBox).not.toBeNull()
+  expect(alertBox).not.toBeNull()
+  expect(reviewBox).not.toBeNull()
+  expect(statusBox!.x).toBeGreaterThanOrEqual(319)
+  expect(Math.abs(statusBox!.x + statusBox!.width - (reviewBox!.x + reviewBox!.width))).toBeLessThanOrEqual(1)
+  expect(Math.abs(statusBox!.y + statusBox!.height - (reviewBox!.y + reviewBox!.height))).toBeLessThanOrEqual(1)
+  expect(Math.abs(alertBox!.x + alertBox!.width / 2 - (statusBox!.x + statusBox!.width / 2))).toBeLessThanOrEqual(1)
+  expect(Math.abs(alertBox!.y + alertBox!.height / 2 - (statusBox!.y + statusBox!.height / 2))).toBeLessThanOrEqual(1)
+  if (process.env.GITNA_CAPTURE_GRAPH) {
+    await page.screenshot({ path: '/tmp/gitna-loading-centered.png', fullPage: true })
+  }
   await expect(page.getByPlaceholder('Commit message')).toBeVisible()
   failReview = false
   await page.evaluate(() => {

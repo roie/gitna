@@ -382,12 +382,14 @@ function GitnaReviewUIInner() {
       ) : viewerAvailable && reviewData != null ? (
         <GitnaEmptyState scope={target?.request.scope} />
       ) : (
-        <DiffsHubStatusPanel
-          errorMessage={errorMessage ?? repository.error}
-          localRepository
-          onRetry={() => setReviewAttempt((attempt) => attempt + 1)}
-          state={loadState}
-        />
+        <div className="grid min-h-0 [grid-area:viewer] [&>*]:h-full">
+          <DiffsHubStatusPanel
+            errorMessage={errorMessage ?? repository.error}
+            localRepository
+            onRetry={() => setReviewAttempt((attempt) => attempt + 1)}
+            state={loadState}
+          />
+        </div>
       )}
       {reviewActionError != null && (
         <p className="fixed right-3 bottom-3 z-50 max-w-md rounded-md bg-red-600 px-3 py-2 text-xs text-white shadow-lg" role="alert">
