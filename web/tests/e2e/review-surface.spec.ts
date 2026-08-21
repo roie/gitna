@@ -23,8 +23,11 @@ test('continuous Pierre CodeView renders the complete working-tree review', asyn
   await expect(page.locator('diffs-container')).toHaveCount(5, { timeout: 30_000 })
   await expect(page.getByText('modified.txt', { exact: true }).last()).toBeVisible()
   await expect(page.getByText('two-hunk.txt', { exact: true }).last()).toBeVisible()
-  await page.getByRole('button', { name: 'Files', exact: true }).click()
-  await expect(page.getByRole('treeitem', { name: 'large-untracked.txt', exact: true })).toBeVisible()
+  await expect(
+    page
+      .locator('#gitna-repository-tree__tree')
+      .getByRole('treeitem', { name: 'large-untracked.txt', exact: true }),
+  ).toBeVisible()
 
   await page.getByRole('button', { name: 'Display settings' }).click()
   await expect(page.getByRole('menu', { name: 'Display settings' })).toBeVisible()

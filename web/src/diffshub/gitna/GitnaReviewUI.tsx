@@ -20,32 +20,17 @@ import {
 } from '../components/DiffsHubViewer'
 import { ThemeSourceProvider } from '../components/ThemeSourceProvider'
 import { docsThemeCatalog, themeController } from '../components/themeController'
-import { useThemeCycle } from '../components/useThemeCycle'
-import { removeSavedCommentSidebarEntry } from '../lib/removeSavedCommentSidebarEntry'
 import type {
   CommentMetadata,
-  DiffsHubDeletedCommentEvent,
-  DiffsHubSavedCommentEntry,
-  DiffsHubSavedCommentEvent,
-  DiffsHubSavedCommentItem,
-  DiffsHubFileTreeSource,
   ViewerLoadState,
 } from '../lib/types'
-import { upsertSavedCommentSidebarEntry } from '../lib/upsertSavedCommentSidebarEntry'
 import type { ReviewRequest } from '../../lib/api'
 import type { DarkThemeName, LightThemeName } from '../lib/themeNames'
 import type { LoadedDiffsHubData } from '../lib/diffsHubDataAccumulator'
-import { GitnaSourceControl } from './GitnaSourceControl'
+import { GitnaSourceControl } from './SourceControlWorkflow'
 import { Confirm } from './Modal'
 import { adaptGitnaReview } from './reviewAdapter'
 import { useRepository } from './repository'
-
-const EMPTY_TREE_SOURCE: DiffsHubFileTreeSource = {
-  gitStatus: [],
-  pathCount: 0,
-  paths: [],
-  pathToItemId: new Map(),
-}
 
 interface ReviewTarget {
   key: string
@@ -116,9 +101,6 @@ function GitnaReviewUIInner() {
   const [reviewData, setReviewData] = useState<LoadedDiffsHubData | null>(null)
   const [reviewAttempt, setReviewAttempt] = useState(0)
   const [reviewKey, setReviewKey] = useState(0)
-  const [commentSections, setCommentSections] = useState<
-    DiffsHubSavedCommentItem[]
-  >([])
   const [reviewActionError, setReviewActionError] = useState<string | null>(null)
   const [pendingFileAction, setPendingFileAction] = useState<{
     action: 'discard' | 'delete'
@@ -196,7 +178,6 @@ function GitnaReviewUIInner() {
         const data = adaptGitnaReview(review)
         if (!active) return
         setReviewData(data)
-        setCommentSections([])
         setReviewKey((key) => key + 1)
         setLoadState('ready')
       })
@@ -217,9 +198,6 @@ function GitnaReviewUIInner() {
   const darkThemeName = themesHydrated
     ? themeState.darkThemeName
     : docsThemeCatalog.defaultDarkThemeName
-  const resolvedTheme = themesHydrated
-    ? themeState.resolvedColorScheme
-    : undefined
   const setColorMode = useCallback(
     (mode: ColorMode) => themeController.setColorMode(mode),
     [],
@@ -234,33 +212,6 @@ function GitnaReviewUIInner() {
       themeController.setThemeNameForScheme('dark', name),
     [],
   )
-  const themeCycle = useThemeCycle({
-    lightThemeName,
-    darkThemeName,
-    resolvedThemeMode: resolvedTheme,
-    setLightThemeName,
-    setDarkThemeName,
-    setColorMode,
-  })
-
-  const handleSelectTreeItem = useCallback((itemId: string) => {
-    setFileTreeOverlayOpen(false)
-    const viewer = viewerRef.current
-    const item = viewer?.getItem(itemId)
-    if (viewer == null || item == null) return
-    if (item.collapsed === true) {
-      item.collapsed = false
-      item.version = typeof item.version === 'number' ? item.version + 1 : 1
-      viewer.updateItem(item)
-    }
-    viewer.scrollTo({
-      type: 'item',
-      id: itemId,
-      align: 'start',
-      behavior: 'smooth',
-    })
-  }, [])
-
   const applyCollapseMode = useCallback(
     (mode: 'expanded' | 'collapsed') => {
       const viewer = viewerRef.current
@@ -302,46 +253,6 @@ function GitnaReviewUIInner() {
 
   const handleLineLinkChange = useCallback(
     (_selection: CodeViewLineSelection | null) => {},
-    [],
-  )
-
-  const handleCommentSaved = useCallback(
-    (comment: DiffsHubSavedCommentEvent) => {
-      if (reviewData == null) return
-      setCommentSections((current) =>
-        upsertSavedCommentSidebarEntry(
-          current,
-          reviewData.itemIdToFile,
-          comment,
-        ),
-      )
-    },
-    [reviewData],
-  )
-  const handleCommentDeleted = useCallback(
-    (comment: DiffsHubDeletedCommentEvent) => {
-      setCommentSections((current) =>
-        removeSavedCommentSidebarEntry(current, comment),
-      )
-    },
-    [],
-  )
-  const handleSelectComment = useCallback(
-    (comment: DiffsHubSavedCommentEntry) => {
-      setFileTreeOverlayOpen(false)
-      viewerRef.current?.setSelectedLines({
-        id: comment.itemId,
-        range: comment.range,
-      })
-      viewerRef.current?.scrollTo({
-        type: 'line',
-        id: comment.itemId,
-        lineNumber: comment.range.end,
-        side: comment.range.endSide ?? comment.range.side,
-        align: 'center',
-        behavior: 'smooth-auto',
-      })
-    },
     [],
   )
 
@@ -441,24 +352,18 @@ function GitnaReviewUIInner() {
       {themesHydrated && (
         <DiffsHubSidebar
           className="[grid-area:viewer] md:[grid-area:tree]"
-          commentSections={commentSections}
-          diffStats={reviewData?.diffStats ?? null}
           mobileOverlayOpen={fileTreeOverlayOpen}
           onMobileClose={() => setFileTreeOverlayOpen(false)}
-          onSelectComment={handleSelectComment}
-          onSelectItem={handleSelectTreeItem}
           scrollRef={scrollRef}
-          source={reviewData?.treeSource ?? EMPTY_TREE_SOURCE}
-          sourceControl={<GitnaSourceControl />}
-          streaming={false}
-          themeCycle={themeCycle}
-          viewerRef={viewerRef}
-        />
+        >
+          <GitnaSourceControl />
+        </DiffsHubSidebar>
       )}
       {viewerAvailable && reviewData != null && reviewData.items.length > 0 ? (
           <DiffsHubViewer
             key={reviewKey}
             className="code-view [grid-area:viewer]"
+            commentsEnabled={false}
             diffStyle={diffStyle}
             overflow={overflow}
             showBackgrounds={showBackgrounds}
@@ -469,8 +374,8 @@ function GitnaReviewUIInner() {
             viewerRef={viewerRef}
             initialItems={reviewData.items}
             gitnaActions={gitnaActions}
-            onCommentDeleted={handleCommentDeleted}
-            onCommentSaved={handleCommentSaved}
+            onCommentDeleted={() => {}}
+            onCommentSaved={() => {}}
             onLineLinkChange={handleLineLinkChange}
             onViewerReady={handleViewerReady}
           />

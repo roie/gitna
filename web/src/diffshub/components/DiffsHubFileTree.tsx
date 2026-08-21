@@ -18,6 +18,7 @@ import {
   CODE_VIEW_FILE_TREE_ITEM_HEIGHT,
   getInitialBatchSize,
 } from '@/lib/constants';
+import { cn } from '@/lib/cn';
 import type { DiffsHubFileTreeSource } from '@/lib/types';
 type FileTreeSortComparator = Exclude<
   NonNullable<FileTreeOptions['sort']>,
@@ -39,17 +40,23 @@ const DENSITY_OVERRIDE_STYLES = {
 } as CSSProperties;
 
 interface DiffsHubFileTreeProps {
+  className?: string;
+  modelId?: string;
   // Callback invoked with the underlying tree model once it's mounted, and
   // again with `null` on unmount. Lets parents drive imperative APIs like
   // search open/close without owning the model creation.
   onModelReady(model: FileTreeModel | null): void;
   onSelectItem(itemId: string): void;
+  selectedPath?: string | null;
   source: DiffsHubFileTreeSource;
 }
 
 export const DiffsHubFileTree = memo(function DiffsHubFileTree({
+  className,
+  modelId = 'gh-code-view-tree',
   onModelReady,
   onSelectItem,
+  selectedPath,
   source,
 }: DiffsHubFileTreeProps) {
   const sourceRef = useRef(source);
@@ -79,6 +86,7 @@ export const DiffsHubFileTree = memo(function DiffsHubFileTree({
 
   const { model } = useFileTree({
     ...BASE_FILE_TREE_OPTIONS,
+    id: modelId,
     gitStatus: source.gitStatus,
     paths: initialPathsRef.current,
     sort: PRESERVE_INPUT_ORDER_SORT,
@@ -134,9 +142,16 @@ export const DiffsHubFileTree = memo(function DiffsHubFileTree({
     return () => onModelReady(null);
   }, [model, onModelReady]);
 
+  useEffect(() => {
+    for (const path of model.getSelectedPaths()) {
+      if (path !== selectedPath) model.getItem(path)?.deselect();
+    }
+    if (selectedPath != null) model.getItem(selectedPath)?.select();
+  }, [model, selectedPath]);
+
   return (
     <ThemedFileTree
-      className="h-full min-h-0 overflow-auto overscroll-contain md:ml-3"
+      className={cn('h-full min-h-0 overflow-auto overscroll-contain md:ml-3', className)}
       model={model}
       reconcileForegroundFromChrome
       style={DENSITY_OVERRIDE_STYLES}

@@ -1,5 +1,6 @@
 // Modified from the pinned DiffsHub donor: Gitna adds local file and hunk
-// mutation actions to the donor CodeView header metadata slot.
+// mutation actions to the donor CodeView header metadata slot and can disable
+// the donor comment affordance when mounted in the Source Control-only shell.
 import {
   areSelectionsEqual,
   type CodeViewDiffItem,
@@ -80,6 +81,7 @@ interface ActiveDraftComment {
 
 interface DiffsHubViewerProps {
   className?: string;
+  commentsEnabled?: boolean;
   diffStyle: 'split' | 'unified';
   onCommentDeleted(comment: DiffsHubDeletedCommentEvent): void;
   onCommentSaved(comment: DiffsHubSavedCommentEvent): void;
@@ -99,6 +101,7 @@ interface DiffsHubViewerProps {
 
 export const DiffsHubViewer = memo(function DiffsHubViewer({
   className,
+  commentsEnabled = true,
   diffStyle,
   onCommentDeleted,
   onCommentSaved,
@@ -466,22 +469,25 @@ export const DiffsHubViewer = memo(function DiffsHubViewer({
         disableLineNumbers: !lineNumbers,
         lineHoverHighlight: 'number',
         // hunkSeparators: 'line-info-basic',
-        enableLineSelection: true,
-        enableGutterUtility: true,
+        enableLineSelection: commentsEnabled,
+        enableGutterUtility: commentsEnabled,
         stickyHeaders: true,
         unsafeCSS: CODE_VIEW_CUSTOM_CSS,
         // FIXME(amadeus): Move all `onX` methods onto the react component maybe?
-        onGutterUtilityClick(range, context) {
-          if (context.item.type !== 'diff') {
-            return;
-          }
-          handleCreateDraftComment(range, context.item.id);
-        },
-        onLineSelectionEnd(range, context) {
-          handleLineSelectionEnd(range, context.item);
-        },
+        onGutterUtilityClick: commentsEnabled
+          ? (range, context) => {
+              if (context.item.type !== 'diff') {
+                return;
+              }
+              handleCreateDraftComment(range, context.item.id);
+            }
+          : undefined,
+        onLineSelectionEnd: commentsEnabled
+          ? (range, context) => handleLineSelectionEnd(range, context.item)
+          : undefined,
       }) satisfies CodeViewOptions<CommentMetadata>,
     [
+      commentsEnabled,
       diffIndicators,
       diffStyle,
       handleCreateDraftComment,
@@ -504,9 +510,9 @@ export const DiffsHubViewer = memo(function DiffsHubViewer({
       )}
       options={options}
       style={annotationThemeStyle}
-      selectedLines={selectedLines}
+      selectedLines={commentsEnabled ? selectedLines : null}
       onSelectedLinesChange={handleSetSelection}
-      renderAnnotation={renderCommentAnnotation}
+      renderAnnotation={commentsEnabled ? renderCommentAnnotation : undefined}
       renderHeaderMetadata={renderHeaderMetadata}
       renderHeaderPrefix={renderHeaderPrefix}
     />

@@ -22,41 +22,47 @@ async function reviewPatch(page: Page, scope: 'staged' | 'unstaged') {
 
 test('staging loop preserves VS Code section order and visibility', async ({ page, app }) => {
   await page.goto(app.url)
-  const sourceControl = page.locator('aside[aria-label="Source Control"]')
   const staged = page.locator('[data-section="staged"]')
   const changes = page.locator('[data-section="changes"]')
   const graph = page.locator('[data-section="graph"]')
+  const stagedTree = page.locator('#gitna-staged-tree__tree')
+  const changesTree = page.locator('#gitna-unstaged-tree__tree')
 
   await expect(staged).toBeVisible()
   await expect(changes).toBeVisible()
-  const order = await page.locator('.section-title').allTextContents()
-  expect(order.indexOf('Staged Changes')).toBeLessThan(order.indexOf('Changes'))
-  expect(order.indexOf('Changes')).toBeLessThan(order.indexOf('Graph'))
+  const order = await page
+    .locator('[data-section]')
+    .evaluateAll((headers) => headers.map((header) => (header as HTMLElement).dataset.section))
+  expect(order).toEqual(['repository', 'workflow', 'staged', 'changes', 'graph'])
   await expect(page.getByRole('textbox', { name: 'Repository path' })).toHaveValue(app.repo)
   await expect(page.getByRole('button', { name: 'Switch branch · main' })).toBeVisible()
   if (process.env.GITNA_CAPTURE_M4) {
     await page.screenshot({ path: '/tmp/gitna-m4-desktop.png', fullPage: true })
   }
   await page.getByRole('button', { name: 'Search Changes' }).click()
-  const treeSearch = page.getByRole('textbox', { name: 'Filter Changes' })
+  const treeSearch = changesTree.getByRole('textbox', { name: 'Search…' })
   await expect(treeSearch).toBeVisible()
   await treeSearch.fill('modified')
-  await expect(page.getByRole('treeitem', { name: 'modified.txt', exact: true })).toBeVisible()
-  await page.getByRole('button', { name: 'Search Changes' }).click()
+  await expect(
+    changesTree.getByRole('treeitem', { name: 'modified.txt', exact: true }),
+  ).toBeVisible()
+  await page.getByRole('button', { name: 'Hide Changes search' }).click()
 
-  await page.getByRole('treeitem', { name: 'modified.txt', exact: true }).click()
-  await sourceControl.getByRole('button', { name: 'Discard file modified.txt' }).click()
+  await changesTree.getByRole('treeitem', { name: 'modified.txt', exact: true }).click()
+  await page.getByRole('button', { name: 'Discard file modified.txt' }).click()
   const confirmation = page.getByRole('alertdialog')
   await expect(confirmation).toContainText(app.repo)
   await expect(confirmation).toContainText('main')
   await confirmation.getByRole('button', { name: 'Cancel' }).click()
-  await sourceControl.getByRole('button', { name: 'Stage file modified.txt' }).click()
+  await page.getByRole('button', { name: 'Stage file modified.txt' }).click()
   await expect.poll(async () => (await staged.textContent()) ?? '').toContain('4')
-  await expect(page.getByRole('treeitem', { name: 'modified.txt', exact: true })).toBeVisible()
+  await expect(
+    stagedTree.getByRole('treeitem', { name: 'modified.txt', exact: true }),
+  ).toBeVisible()
 
   for (const path of ['modified.txt', 'delete.txt', 'rename-new.txt', 'staged.txt']) {
-    await page.getByRole('treeitem', { name: path, exact: true }).click()
-    await sourceControl.getByRole('button', { name: `Unstage file ${path}` }).click()
+    await stagedTree.getByRole('treeitem', { name: path, exact: true }).click()
+    await page.getByRole('button', { name: `Unstage file ${path}` }).click()
   }
 
   await expect(staged).toHaveCount(0)
@@ -85,7 +91,10 @@ test('tree navigation and Pierre header hunk actions preserve the other hunk', a
   page.on('pageerror', (error) => browserErrors.push(error.message))
   await page.setViewportSize({ width: 1280, height: 420 })
   await page.goto(app.url)
-  await page.getByRole('treeitem', { name: 'two-hunk.txt', exact: true }).click()
+  await page
+    .locator('#gitna-unstaged-tree__tree')
+    .getByRole('treeitem', { name: 'two-hunk.txt', exact: true })
+    .click()
 
   const renderedFile = page.locator('diffs-container').filter({ hasText: 'two-hunk.txt' })
   await expect(renderedFile).toBeVisible()
@@ -106,7 +115,9 @@ test('tree navigation and Pierre header hunk actions preserve the other hunk', a
   await expect(page.getByRole('button', { name: 'Switch to split view' })).toBeVisible()
   await page.keyboard.press('Alt+ArrowDown')
   await expect(
-    page.getByRole('treeitem', { name: 'large-untracked.txt', exact: true }),
+    page
+      .locator('#gitna-unstaged-tree__tree')
+      .getByRole('treeitem', { name: 'large-untracked.txt', exact: true }),
   ).toHaveAttribute('aria-selected', 'true')
   expect(browserErrors).toEqual([])
 })

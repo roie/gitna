@@ -9,7 +9,7 @@ function git(repo: string, ...args: string[]): string {
   return result.stdout.trim()
 }
 
-test('DiffsHub controls, tree search, status filter, and theme persist', async ({ page, app }) => {
+test('DiffsHub controls, Pierre repository search, and theme persist', async ({ page, app }) => {
   await page.goto(app.url)
   await expect(page.locator('diffs-container').first()).toBeVisible({ timeout: 30_000 })
 
@@ -26,23 +26,24 @@ test('DiffsHub controls, tree search, status filter, and theme persist', async (
   await expect(page.getByText('GitHub token', { exact: false })).toHaveCount(0)
   await page.keyboard.press('Escape')
 
-  await page.getByRole('button', { name: 'Files', exact: true }).click()
-  await page.getByRole('button', { name: 'Show file search' }).click()
-  const search = page.getByRole('textbox', { name: 'Search…' })
+  const repositoryTree = page.locator('#gitna-repository-tree__tree')
+  await page.getByRole('button', { name: 'Search Repository' }).click()
+  const search = repositoryTree.getByRole('textbox', { name: 'Search…' })
   await search.fill('two-hunk')
-  await expect(page.getByRole('treeitem', { name: 'two-hunk.txt', exact: true })).toBeVisible()
-  await expect(page.getByRole('treeitem', { name: 'modified.txt', exact: true })).toHaveCount(0)
+  await expect(
+    repositoryTree.getByRole('treeitem', { name: 'two-hunk.txt', exact: true }),
+  ).toBeVisible()
+  await expect(
+    repositoryTree.getByRole('treeitem', { name: 'modified.txt', exact: true }),
+  ).toHaveCount(0)
   await search.fill('')
-  await page.getByRole('button', { name: 'Hide file search' }).click()
+  await page.getByRole('button', { name: 'Hide Repository search' }).click()
 
-  await page.getByRole('button', { name: 'Filter by Git status' }).click()
-  await page.getByRole('menuitemcheckbox', { name: /Added/ }).click()
-  await page.keyboard.press('Escape')
-  await expect(page.getByRole('treeitem', { name: 'untracked.txt', exact: true })).toBeVisible()
-  await expect(page.getByRole('treeitem', { name: 'modified.txt', exact: true })).toHaveCount(0)
-
-  await expect(page.getByRole('button', { name: 'Diff Stats (F2)' })).toBeVisible()
-  await expect(page.getByRole('button', { name: 'System Monitor (F3)' })).toBeVisible()
+  await expect(
+    repositoryTree.getByRole('treeitem', { name: 'untracked.txt', exact: true }),
+  ).toHaveAttribute('data-item-git-status', 'added')
+  await expect(page.getByRole('button', { name: 'Files', exact: true })).toHaveCount(0)
+  await expect(page.getByRole('button', { name: 'Comments', exact: true })).toHaveCount(0)
 })
 
 test('review failure keeps Source Control usable and retry recovers', async ({ page, app }) => {

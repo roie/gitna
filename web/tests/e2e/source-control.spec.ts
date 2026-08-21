@@ -18,20 +18,37 @@ test('real binary renders repository source-control state', async ({ page, app }
   const response = await page.goto(app.url)
   expect(response?.status()).toBe(200)
   await expect(page.getByPlaceholder('Commit message')).toBeVisible()
-  const changes = page
-    .locator('.section-header')
-    .filter({ has: page.locator('.section-title', { hasText: /^Changes$/ }) })
-  const staged = page
-    .locator('.section-header')
-    .filter({ has: page.locator('.section-title', { hasText: /^Staged Changes$/ }) })
+  const repository = page.locator('[data-section="repository"]')
+  const workflow = page.locator('[data-section="workflow"]')
+  const changes = page.locator('[data-section="changes"]')
+  const staged = page.locator('[data-section="staged"]')
+  await expect(repository).toBeVisible()
+  await expect(workflow).toBeVisible()
   await expect(changes).toBeVisible()
   await expect(staged).toBeVisible()
   await expect(changes).toHaveAttribute('aria-expanded', 'true')
   await expect(staged).toHaveAttribute('aria-expanded', 'true')
   await expect(page.locator('.section-title', { hasText: /^Graph$/ })).toBeVisible()
-  await expect(page.getByRole('treeitem', { name: 'modified.txt', exact: true })).toBeVisible()
-  await expect(page.getByRole('treeitem', { name: 'staged.txt', exact: true })).toBeVisible()
+  await expect(
+    page.locator('#gitna-unstaged-tree__tree').getByRole('treeitem', {
+      name: 'modified.txt',
+      exact: true,
+    }),
+  ).toBeVisible()
+  await expect(
+    page.locator('#gitna-staged-tree__tree').getByRole('treeitem', {
+      name: 'staged.txt',
+      exact: true,
+    }),
+  ).toBeVisible()
   await expect(page.getByText('merge feature', { exact: true })).toBeVisible()
+  await page.getByRole('button', { name: /merge feature Gitna E2E/ }).click()
+  await expect(
+    page.locator('[id^="gitna-graph-"][id$="__tree"]').getByRole('treeitem', {
+      name: 'feature.txt',
+      exact: true,
+    }),
+  ).toBeVisible()
 })
 
 test('embedded binary serves the pinned DiffsHub React frontend', async ({ page, app }) => {
@@ -42,8 +59,12 @@ test('embedded binary serves the pinned DiffsHub React frontend', async ({ page,
   await expect(page.getByRole('button', { name: 'Theme settings' })).toBeVisible()
   await expect(page.getByRole('button', { name: 'Display settings' })).toBeVisible()
   await expect(page.locator('diffs-container').first()).toBeVisible({ timeout: 30_000 })
-  await expect(page.getByRole('button', { name: 'Source Control' })).toBeVisible()
-  await expect(page.getByRole('button', { name: 'Files', exact: true })).toBeVisible()
+  await expect(page.locator('aside[aria-label="Source Control"]')).toBeVisible()
+  await expect(page.locator('[data-section="repository"]')).toBeVisible()
+  await expect(page.locator('[data-section="workflow"]')).toBeVisible()
+  await expect(page.locator('[data-section="graph"]')).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Files', exact: true })).toHaveCount(0)
+  await expect(page.getByRole('button', { name: 'Comments', exact: true })).toHaveCount(0)
 
   await page.getByRole('button', { name: 'Display settings' }).click()
   await expect(page.getByText('Backgrounds', { exact: true })).toBeVisible()
@@ -58,16 +79,10 @@ test('bounded review contract serves all scopes from the real repository', async
   const [unstaged, staged, commit, compare] = await Promise.all([
     readReview(request, new URL('api/v1/review?scope=unstaged', app.url).href),
     readReview(request, new URL('api/v1/review?scope=staged', app.url).href),
+    readReview(request, new URL(`api/v1/review?scope=commit&commit=${app.headOid}`, app.url).href),
     readReview(
       request,
-      new URL(`api/v1/review?scope=commit&commit=${app.headOid}`, app.url).href,
-    ),
-    readReview(
-      request,
-      new URL(
-        `api/v1/review?scope=compare&from=${app.baseOid}&to=${app.headOid}`,
-        app.url,
-      ).href,
+      new URL(`api/v1/review?scope=compare&from=${app.baseOid}&to=${app.headOid}`, app.url).href,
     ),
   ])
 
