@@ -258,6 +258,9 @@ func (s *slowRepo) block(ctx context.Context) error {
 func (s *slowRepo) Snapshot(ctx context.Context) (protocol.RepoSnapshot, error) {
 	return s.snap, s.block(ctx)
 }
+func (s *slowRepo) RepositoryFiles(ctx context.Context, _ int) (protocol.RepositoryFiles, error) {
+	return protocol.RepositoryFiles{}, s.block(ctx)
+}
 func (s *slowRepo) Diff(ctx context.Context, _ protocol.DiffScope, _ protocol.DiffOptions) (protocol.FileDiff, error) {
 	return protocol.FileDiff{}, s.block(ctx)
 }

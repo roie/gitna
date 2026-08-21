@@ -33,6 +33,10 @@ func (a repoAdapter) Snapshot(ctx context.Context) (protocol.RepoSnapshot, error
 	return a.repo.Status(ctx, a.runner)
 }
 
+func (a repoAdapter) RepositoryFiles(ctx context.Context, limit int) (protocol.RepositoryFiles, error) {
+	return a.repo.RepositoryFiles(ctx, limit)
+}
+
 func (a repoAdapter) Diff(ctx context.Context, scope protocol.DiffScope, opts protocol.DiffOptions) (protocol.FileDiff, error) {
 	return a.repo.Diff(ctx, a.runner, scope, opts)
 }

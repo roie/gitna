@@ -18,6 +18,7 @@ type fakeRepo struct {
 	err    error
 	diff   protocol.FileDiff
 	review protocol.ReviewResponse
+	files  protocol.RepositoryFiles
 
 	graphCommits []protocol.GraphCommit
 	graphFiles   []protocol.CommitFile
@@ -67,6 +68,13 @@ func (f *fakeRepo) Snapshot(context.Context) (protocol.RepoSnapshot, error) {
 		return protocol.RepoSnapshot{}, f.err
 	}
 	return f.snap, nil
+}
+
+func (f *fakeRepo) RepositoryFiles(context.Context, int) (protocol.RepositoryFiles, error) {
+	if f.err != nil {
+		return protocol.RepositoryFiles{}, f.err
+	}
+	return f.files, nil
 }
 
 func (f *fakeRepo) Diff(context.Context, protocol.DiffScope, protocol.DiffOptions) (protocol.FileDiff, error) {
@@ -458,6 +466,29 @@ func TestSnapshotRouteReturnsNormalizedJSON(t *testing.T) {
 	}
 	if got.Generation == 0 {
 		t.Fatal("generation not populated")
+	}
+}
+
+func TestRepositoryFilesRouteReturnsExplorerPaths(t *testing.T) {
+	h := newSnapshotServer(&fakeRepo{files: protocol.RepositoryFiles{
+		Paths:     []string{".env", "ignored/generated.js", "src/main.go"},
+		Truncated: true,
+	}})
+
+	req := httptest.NewRequest(http.MethodGet, "/s/"+testToken+"/api/v1/files", nil)
+	req.Host = testHost
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusOK)
+	}
+	var got protocol.RepositoryFiles
+	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if got.Generation == 0 || !got.Truncated || len(got.Paths) != 3 {
+		t.Fatalf("files = %+v", got)
 	}
 }
 

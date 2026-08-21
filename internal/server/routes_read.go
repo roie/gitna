@@ -25,6 +25,8 @@ func (s *Server) apiRoutes() http.Handler {
 		switch {
 		case r.Method == http.MethodGet && p == "/snapshot":
 			s.handleSnapshot(w, r)
+		case r.Method == http.MethodGet && p == "/files":
+			s.handleRepositoryFiles(w, r)
 		case r.Method == http.MethodGet && p == "/diff":
 			s.handleDiff(w, r)
 		case r.Method == http.MethodGet && p == "/review":
@@ -214,6 +216,42 @@ func (s *Server) handleSnapshot(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusConflict, map[string]string{
 		"error": "repository changed while snapshot was loading",
 		"code":  "snapshot-invalidated",
+	})
+}
+
+// handleRepositoryFiles returns the bounded filesystem Explorer model with the
+// same generation-race protection as the source-control snapshot.
+func (s *Server) handleRepositoryFiles(w http.ResponseWriter, r *http.Request) {
+	if s.repo == nil {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "repository unavailable"})
+		return
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), ReadTimeout)
+	defer cancel()
+
+	const maxAttempts = 3
+	for range maxAttempts {
+		generation := s.gen.Load()
+		files, err := s.repo.RepositoryFiles(ctx, repositoryFileLimit)
+		if err != nil {
+			if timeoutReached(ctx, err) {
+				writeJSON(w, http.StatusGatewayTimeout, map[string]string{"error": "repository files timed out"})
+				return
+			}
+			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+			return
+		}
+		if generation != s.gen.Load() {
+			continue
+		}
+		files.Generation = generation
+		writeJSON(w, http.StatusOK, files)
+		return
+	}
+
+	writeJSON(w, http.StatusConflict, map[string]string{
+		"error": "repository changed while files were loading",
+		"code":  "files-invalidated",
 	})
 }
 

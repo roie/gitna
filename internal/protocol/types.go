@@ -51,6 +51,14 @@ type FileChange struct {
 
 // RepoSnapshot is a point-in-time view of the repository's source-control
 // state, produced from git status and the worktree metadata.
+// RepositoryFiles is a bounded filesystem view of the worktree used by the
+// Explorer tree. Paths are repository-relative and always slash-separated.
+type RepositoryFiles struct {
+	Generation uint64   `json:"generation"`
+	Paths      []string `json:"paths"`
+	Truncated  bool     `json:"truncated"`
+}
+
 type RepoSnapshot struct {
 	Root       string          `json:"root"`
 	HeadOID    string          `json:"headOid,omitempty"`

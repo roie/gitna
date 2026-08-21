@@ -20,6 +20,7 @@ import (
 // shared mutation queue wired at the app layer.
 type Repo interface {
 	Snapshot(ctx context.Context) (protocol.RepoSnapshot, error)
+	RepositoryFiles(ctx context.Context, limit int) (protocol.RepositoryFiles, error)
 	Diff(ctx context.Context, scope protocol.DiffScope, opts protocol.DiffOptions) (protocol.FileDiff, error)
 	Review(ctx context.Context, scope protocol.DiffScope, opts protocol.DiffOptions) (protocol.ReviewResponse, error)
 	History(ctx context.Context, skip, limit int) ([]protocol.GraphCommit, error)
