@@ -27,6 +27,10 @@ export const CODE_VIEW_CUSTOM_CSS = `
 `;
 
 export const CODE_VIEW_FILE_TREE_ITEM_HEIGHT = 24;
+// The open Pierre search container renders at 43px and keeps the donor's 12px
+// block-end margin. Stacked Source Control Trees reserve exactly that chrome so
+// search does not create an internal scrollbar or clip its final result row.
+export const CODE_VIEW_FILE_TREE_SEARCH_OPEN_HEIGHT = 55;
 export const CODE_VIEW_BATCH_COUNT = 25;
 export const CODE_VIEW_BATCH_COUNT_MAX = 96;
 

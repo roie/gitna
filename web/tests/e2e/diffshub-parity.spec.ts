@@ -39,6 +39,32 @@ test('DiffsHub controls, Pierre repository search, and theme persist', async ({ 
   await expect(
     repositoryTree.getByRole('treeitem', { name: 'modified.txt', exact: true }),
   ).toHaveCount(0)
+  await expect
+    .poll(() =>
+      repositoryTree.evaluate((tree) => {
+        const rows = tree.querySelectorAll<HTMLElement>('[role="treeitem"]')
+        const last = rows.item(rows.length - 1)
+        const scroll = tree.querySelector<HTMLElement>('[data-file-tree-virtualized-scroll="true"]')
+        const searchContainer = tree.querySelector<HTMLElement>(
+          '[data-file-tree-search-container="true"]',
+        )
+        return {
+          endGap:
+            last == null
+              ? Number.POSITIVE_INFINITY
+              : Math.round(
+                  tree.getBoundingClientRect().bottom - last.getBoundingClientRect().bottom,
+                ),
+          scrollOverflow:
+            scroll == null ? Number.POSITIVE_INFINITY : scroll.scrollHeight - scroll.clientHeight,
+          searchOpen: searchContainer?.dataset.open,
+        }
+      }),
+    )
+    .toEqual({ endGap: 0, scrollOverflow: 0, searchOpen: 'true' })
+  if (process.env.GITNA_CAPTURE_GRAPH) {
+    await page.screenshot({ path: '/tmp/gitna-tree-search.png', fullPage: true })
+  }
   await search.fill('')
   await repositorySection.getByRole('button', { name: /^Hide .* search$/ }).click()
 

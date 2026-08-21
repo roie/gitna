@@ -36,6 +36,7 @@ import { Input } from '../components/Input'
 import { Switch } from '../components/Switch'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '../components/Tooltip'
 import { cn } from '../lib/cn'
+import { CODE_VIEW_FILE_TREE_SEARCH_OPEN_HEIGHT } from '../lib/constants'
 import type { DiffsHubFileTreeSource } from '../lib/types'
 import { Confirm, Modal } from './Modal'
 import { useRepository } from './repository'
@@ -668,8 +669,10 @@ function TreeSection({
   title,
 }: TreeSectionProps) {
   const [model, setModel] = useState<FileTree | null>(null)
+  const [searchOpen, setSearchOpen] = useState(false)
   const naturalHeight = useNaturalTreeHeight(model)
-  const height = naturalHeight > 0 ? naturalHeight : treeViewportHeight(source)
+  const searchHeight = searchOpen ? CODE_VIEW_FILE_TREE_SEARCH_OPEN_HEIGHT : 0
+  const height = (naturalHeight > 0 ? naturalHeight : treeViewportHeight(source)) + searchHeight
   return (
     <section className="section border-t border-border/70 first:border-t-0">
       <div className="flex items-center">
@@ -684,7 +687,7 @@ function TreeSection({
           onOpenChange={onOpenChange}
         />
         {open && model != null && source.pathCount > 0 && (
-          <TreeSearchToggle model={model} title={title} />
+          <TreeSearchToggle model={model} title={title} onOpenChange={setSearchOpen} />
         )}
       </div>
       {open && source.pathCount > 0 && (
@@ -706,8 +709,17 @@ function TreeSection({
   )
 }
 
-function TreeSearchToggle({ model, title }: { model: FileTree; title: string }) {
+function TreeSearchToggle({
+  model,
+  onOpenChange,
+  title,
+}: {
+  model: FileTree
+  onOpenChange(open: boolean): void
+  title: string
+}) {
   const search = useFileTreeSearch(model)
+  useEffect(() => onOpenChange(search.isOpen), [onOpenChange, search.isOpen])
   return (
     <Button
       type="button"
