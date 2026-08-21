@@ -2,13 +2,7 @@ import type { CodeViewLineSelection, DiffIndicators } from '@pierre/diffs'
 import { type CodeViewHandle, useWorkerPool } from '@pierre/diffs/react'
 import type { ColorMode } from '@pierre/theming'
 import { useThemeController } from '@pierre/theming/react'
-import {
-  type ReactNode,
-  useCallback,
-  useEffect,
-  useRef,
-  useState,
-} from 'react'
+import { type ReactNode, useCallback, useEffect, useRef, useState } from 'react'
 
 import { DiffsHubHeader } from '../components/DiffsHubHeader'
 import { DiffsHubSidebar } from '../components/DiffsHubSidebar'
@@ -20,10 +14,7 @@ import {
 } from '../components/DiffsHubViewer'
 import { ThemeSourceProvider } from '../components/ThemeSourceProvider'
 import { docsThemeCatalog, themeController } from '../components/themeController'
-import type {
-  CommentMetadata,
-  ViewerLoadState,
-} from '../lib/types'
+import type { CommentMetadata, ViewerLoadState } from '../lib/types'
 import type { ReviewRequest } from '../../lib/api'
 import type { DarkThemeName, LightThemeName } from '../lib/themeNames'
 import type { LoadedDiffsHubData } from '../lib/diffsHubDataAccumulator'
@@ -67,10 +58,7 @@ function useReviewTarget(): ReviewTarget | null {
   }
   const snapshot = repository.snapshot
   if (snapshot == null) return null
-  const scope =
-    snapshot.unstaged.length > 0 || snapshot.staged.length === 0
-      ? 'unstaged'
-      : 'staged'
+  const scope = snapshot.unstaged.length > 0 || snapshot.staged.length === 0 ? 'unstaged' : 'staged'
   return { key: scope, request: { scope } }
 }
 
@@ -87,9 +75,7 @@ function GitnaReviewUIInner() {
   const target = useReviewTarget()
   const workerReady = useIsWorkerPoolReadyOrDisabled()
   const [diffStyle, setDiffStyle] = useState<'split' | 'unified'>('split')
-  const [collapseMode, setCollapseMode] = useState<'expanded' | 'collapsed'>(
-    'expanded',
-  )
+  const [collapseMode, setCollapseMode] = useState<'expanded' | 'collapsed'>('expanded')
   const [fileTreeOverlayOpen, setFileTreeOverlayOpen] = useState(false)
   const [overflow, setOverflow] = useState<'wrap' | 'scroll'>('scroll')
   const [showBackgrounds, setShowBackgrounds] = useState(true)
@@ -127,11 +113,7 @@ function GitnaReviewUIInner() {
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
-      if (
-        event.ctrlKey &&
-        event.shiftKey &&
-        event.key.toLowerCase() === 'l'
-      ) {
+      if (event.ctrlKey && event.shiftKey && event.key.toLowerCase() === 'l') {
         event.preventDefault()
         setDiffStyle((style) => (style === 'split' ? 'unified' : 'split'))
         return
@@ -198,18 +180,13 @@ function GitnaReviewUIInner() {
   const darkThemeName = themesHydrated
     ? themeState.darkThemeName
     : docsThemeCatalog.defaultDarkThemeName
-  const setColorMode = useCallback(
-    (mode: ColorMode) => themeController.setColorMode(mode),
-    [],
-  )
+  const setColorMode = useCallback((mode: ColorMode) => themeController.setColorMode(mode), [])
   const setLightThemeName = useCallback(
-    (name: LightThemeName) =>
-      themeController.setThemeNameForScheme('light', name),
+    (name: LightThemeName) => themeController.setThemeNameForScheme('light', name),
     [],
   )
   const setDarkThemeName = useCallback(
-    (name: DarkThemeName) =>
-      themeController.setThemeNameForScheme('dark', name),
+    (name: DarkThemeName) => themeController.setThemeNameForScheme('dark', name),
     [],
   )
   const applyCollapseMode = useCallback(
@@ -251,16 +228,10 @@ function GitnaReviewUIInner() {
     handleViewerReady()
   }, [handleViewerReady])
 
-  const handleLineLinkChange = useCallback(
-    (_selection: CodeViewLineSelection | null) => {},
-    [],
-  )
+  const handleLineLinkChange = useCallback((_selection: CodeViewLineSelection | null) => {}, [])
 
   const viewerAvailable =
-    workerReady &&
-    themesHydrated &&
-    loadState === 'ready' &&
-    reviewData != null
+    workerReady && themesHydrated && loadState === 'ready' && reviewData != null
 
   const workingScope =
     target?.request.scope === 'staged' || target?.request.scope === 'unstaged'
@@ -305,9 +276,7 @@ function GitnaReviewUIInner() {
             void repository
               .mutate({ op: action, paths })
               .catch((error: unknown) =>
-                setReviewActionError(
-                  error instanceof Error ? error.message : String(error),
-                ),
+                setReviewActionError(error instanceof Error ? error.message : String(error)),
               )
           },
           onPatch(request) {
@@ -319,47 +288,47 @@ function GitnaReviewUIInner() {
 
   return (
     <>
-    <ReviewGrid>
-      <DiffsHubHeader
-        className="[grid-area:header]"
-        collapseMode={collapseMode}
-        colorMode={colorMode}
-        darkThemeName={darkThemeName}
-        diffIndicators={diffIndicators}
-        diffStyle={diffStyle}
-        fileTreeAvailable
-        fileTreeOverlayOpen={fileTreeOverlayOpen}
-        githubTokenActive={false}
-        initialUrl={repository.snapshot?.root ?? 'Loading repository…'}
-        localRepository
-        lightThemeName={lightThemeName}
-        lineNumbers={lineNumbers}
-        overflow={overflow}
-        onClearGitHubToken={() => {}}
-        onSaveGitHubToken={() => {}}
-        onToggleCollapseMode={handleToggleCollapseMode}
-        onToggleFileTreeOverlay={() => setFileTreeOverlayOpen((open) => !open)}
-        setColorMode={setColorMode}
-        setDarkThemeName={setDarkThemeName}
-        setDiffIndicators={setDiffIndicators}
-        setDiffStyle={setDiffStyle}
-        setLightThemeName={setLightThemeName}
-        setLineNumbers={setLineNumbers}
-        setOverflow={setOverflow}
-        setShowBackgrounds={setShowBackgrounds}
-        showBackgrounds={showBackgrounds}
-      />
-      {themesHydrated && (
-        <DiffsHubSidebar
-          className="[grid-area:viewer] md:[grid-area:tree]"
-          mobileOverlayOpen={fileTreeOverlayOpen}
-          onMobileClose={() => setFileTreeOverlayOpen(false)}
-          scrollRef={scrollRef}
-        >
-          <GitnaSourceControl />
-        </DiffsHubSidebar>
-      )}
-      {viewerAvailable && reviewData != null && reviewData.items.length > 0 ? (
+      <ReviewGrid>
+        <DiffsHubHeader
+          className="[grid-area:header]"
+          collapseMode={collapseMode}
+          colorMode={colorMode}
+          darkThemeName={darkThemeName}
+          diffIndicators={diffIndicators}
+          diffStyle={diffStyle}
+          fileTreeAvailable
+          fileTreeOverlayOpen={fileTreeOverlayOpen}
+          githubTokenActive={false}
+          initialUrl={repository.snapshot?.root ?? 'Loading repository…'}
+          localRepository
+          lightThemeName={lightThemeName}
+          lineNumbers={lineNumbers}
+          overflow={overflow}
+          onClearGitHubToken={() => {}}
+          onSaveGitHubToken={() => {}}
+          onToggleCollapseMode={handleToggleCollapseMode}
+          onToggleFileTreeOverlay={() => setFileTreeOverlayOpen((open) => !open)}
+          setColorMode={setColorMode}
+          setDarkThemeName={setDarkThemeName}
+          setDiffIndicators={setDiffIndicators}
+          setDiffStyle={setDiffStyle}
+          setLightThemeName={setLightThemeName}
+          setLineNumbers={setLineNumbers}
+          setOverflow={setOverflow}
+          setShowBackgrounds={setShowBackgrounds}
+          showBackgrounds={showBackgrounds}
+        />
+        {themesHydrated && (
+          <DiffsHubSidebar
+            className="[grid-area:viewer] md:[grid-area:tree]"
+            mobileOverlayOpen={fileTreeOverlayOpen}
+            onMobileClose={() => setFileTreeOverlayOpen(false)}
+            scrollRef={scrollRef}
+          >
+            <GitnaSourceControl />
+          </DiffsHubSidebar>
+        )}
+        {viewerAvailable && reviewData != null && reviewData.items.length > 0 ? (
           <DiffsHubViewer
             key={reviewKey}
             className="code-view [grid-area:viewer]"
@@ -379,43 +348,44 @@ function GitnaReviewUIInner() {
             onLineLinkChange={handleLineLinkChange}
             onViewerReady={handleViewerReady}
           />
-      ) : viewerAvailable && reviewData != null ? (
-        <GitnaEmptyState scope={target?.request.scope} />
-      ) : (
-        <div className="grid min-h-0 [grid-area:viewer] [&>*]:h-full">
-          <DiffsHubStatusPanel
-            errorMessage={errorMessage ?? repository.error}
-            localRepository
-            onRetry={() => setReviewAttempt((attempt) => attempt + 1)}
-            state={loadState}
-          />
-        </div>
+        ) : viewerAvailable && reviewData != null ? (
+          <GitnaEmptyState scope={target?.request.scope} />
+        ) : (
+          <div className="grid min-h-0 [grid-area:viewer] [&>*]:h-full">
+            <DiffsHubStatusPanel
+              errorMessage={errorMessage ?? repository.error}
+              localRepository
+              onRetry={() => setReviewAttempt((attempt) => attempt + 1)}
+              state={loadState}
+            />
+          </div>
+        )}
+        {reviewActionError != null && (
+          <p
+            className="fixed right-3 bottom-3 z-50 max-w-md rounded-md bg-red-600 px-3 py-2 text-xs text-white shadow-lg"
+            role="alert"
+          >
+            {reviewActionError}
+          </p>
+        )}
+      </ReviewGrid>
+      {pendingFileAction != null && (
+        <Confirm
+          title={`${pendingFileAction.action === 'delete' ? 'Delete' : 'Discard changes in'} ${pendingFileAction.path}?`}
+          message={`${repository.snapshot?.root ?? 'Repository'} · ${repository.snapshot?.headBranch ?? 'detached'}. This action cannot be undone by Gitna.`}
+          confirmLabel={pendingFileAction.action === 'delete' ? 'Delete' : 'Discard'}
+          onCancel={() => setPendingFileAction(null)}
+          onConfirm={() => {
+            const pending = pendingFileAction
+            setPendingFileAction(null)
+            void repository
+              .mutate({ op: pending.action, paths: pending.paths })
+              .catch((error: unknown) =>
+                setReviewActionError(error instanceof Error ? error.message : String(error)),
+              )
+          }}
+        />
       )}
-      {reviewActionError != null && (
-        <p className="fixed right-3 bottom-3 z-50 max-w-md rounded-md bg-red-600 px-3 py-2 text-xs text-white shadow-lg" role="alert">
-          {reviewActionError}
-        </p>
-      )}
-    </ReviewGrid>
-    {pendingFileAction != null && (
-      <Confirm
-        title={`${pendingFileAction.action === 'delete' ? 'Delete' : 'Discard changes in'} ${pendingFileAction.path}?`}
-        message={`${repository.snapshot?.root ?? 'Repository'} · ${repository.snapshot?.headBranch ?? 'detached'}. This action cannot be undone by Gitna.`}
-        confirmLabel={pendingFileAction.action === 'delete' ? 'Delete' : 'Discard'}
-        onCancel={() => setPendingFileAction(null)}
-        onConfirm={() => {
-          const pending = pendingFileAction
-          setPendingFileAction(null)
-          void repository
-            .mutate({ op: pending.action, paths: pending.paths })
-            .catch((error: unknown) =>
-              setReviewActionError(
-                error instanceof Error ? error.message : String(error),
-              ),
-            )
-        }}
-      />
-    )}
     </>
   )
 }

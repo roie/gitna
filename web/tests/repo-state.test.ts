@@ -2,9 +2,19 @@ import { describe, expect, it, vi } from 'vitest'
 import { ApiError } from '../src/lib/api'
 import { coalesce, createRepoState, reconcileSelection } from '../src/diffshub/gitna/repository'
 import type { ApiClient } from '../src/lib/api'
-import type { ChangeScope, CommitFile, FileChange, GraphCommit, RepoSnapshot } from '../src/lib/types'
+import type {
+  ChangeScope,
+  CommitFile,
+  FileChange,
+  GraphCommit,
+  RepoSnapshot,
+} from '../src/lib/types'
 
-function change(scope: ChangeScope, path: string, kind: FileChange['kind'] = 'modified'): FileChange {
+function change(
+  scope: ChangeScope,
+  path: string,
+  kind: FileChange['kind'] = 'modified',
+): FileChange {
   return {
     path,
     kind,
@@ -222,9 +232,7 @@ describe('createRepoState', () => {
   })
 
   it('clears selection with select(scope, null)', async () => {
-    const api = queuedApi([
-      snapshot({ generation: 1, unstaged: [change('unstaged', 'x.txt')] }),
-    ])
+    const api = queuedApi([snapshot({ generation: 1, unstaged: [change('unstaged', 'x.txt')] })])
     const state = createRepoState({ api })
 
     await state.refreshSnapshot()
@@ -254,7 +262,8 @@ describe('createRepoState', () => {
 
   it('records an error when the snapshot request fails', async () => {
     const state = createRepoState({
-      api: { ...auxApi,
+      api: {
+        ...auxApi,
         async snapshot() {
           throw new Error('boom')
         },
@@ -288,11 +297,15 @@ describe('createRepoState', () => {
     let release = () => {}
     const gate = new Promise<void>((r) => (release = r))
     const state = createRepoState({
-      api: { ...auxApi,
+      api: {
+        ...auxApi,
         async snapshot() {
           calls += 1
           if (calls === 1) await gate
-          return snapshot({ generation: calls + 1, unstaged: [change('unstaged', `f${calls}.txt`)] })
+          return snapshot({
+            generation: calls + 1,
+            unstaged: [change('unstaged', `f${calls}.txt`)],
+          })
         },
         async diff() {
           throw new Error('not used')
@@ -325,7 +338,8 @@ describe('createRepoState', () => {
 
   it('mutates and refreshes the snapshot afterwards', async () => {
     const mutate = vi.fn(async () => {})
-    const api: ApiClient = { ...auxApi,
+    const api: ApiClient = {
+      ...auxApi,
       async snapshot() {
         return snapshot({ generation: 2, unstaged: [change('unstaged', 'x.txt')] })
       },
@@ -348,7 +362,8 @@ describe('createRepoState', () => {
 
   it('surfaces a failed mutation and rethrows', async () => {
     const state = createRepoState({
-      api: { ...auxApi,
+      api: {
+        ...auxApi,
         async snapshot() {
           return snapshot({ generation: 2 })
         },
@@ -364,14 +379,17 @@ describe('createRepoState', () => {
       },
     })
 
-    await expect(state.mutate({ op: 'patch', patch: 'stale' })).rejects.toThrow('patch does not apply')
+    await expect(state.mutate({ op: 'patch', patch: 'stale' })).rejects.toThrow(
+      'patch does not apply',
+    )
     expect(state.mutationError).toMatch(/patch does not apply/)
     expect(state.busy).toBe(false)
   })
 
   it('commits staged changes and refreshes the snapshot', async () => {
     const commit = vi.fn(async () => ({ ok: true }))
-    const api: ApiClient = { ...auxApi,
+    const api: ApiClient = {
+      ...auxApi,
       async snapshot() {
         return snapshot({ generation: 2, staged: [change('staged', 'x.txt')] })
       },
@@ -395,7 +413,9 @@ describe('createRepoState', () => {
 
   it('resolves commit only after the authoritative snapshot refresh completes', async () => {
     let release = () => {}
-    const gate = new Promise<void>((resolve) => { release = resolve })
+    const gate = new Promise<void>((resolve) => {
+      release = resolve
+    })
     let settled = false
     const state = createRepoState({
       api: {
@@ -424,7 +444,8 @@ describe('createRepoState', () => {
 
   it('surfaces a rejected hook without clearing mutationError', async () => {
     const state = createRepoState({
-      api: { ...auxApi,
+      api: {
+        ...auxApi,
         async snapshot() {
           return snapshot({ generation: 2 })
         },
@@ -457,7 +478,12 @@ describe('createRepoState', () => {
   it('assigns lanes to the loaded graph', async () => {
     const state = createRepoState({
       api: graphApi([
-        [graphCommit('M', ['A', 'B']), graphCommit('A', ['C']), graphCommit('B', ['C']), graphCommit('C', [])],
+        [
+          graphCommit('M', ['A', 'B']),
+          graphCommit('A', ['C']),
+          graphCommit('B', ['C']),
+          graphCommit('C', []),
+        ],
       ]),
     })
     await state.refreshGraph()
@@ -471,7 +497,12 @@ describe('createRepoState', () => {
       api: graphApi(
         [
           [graphCommit('c3', ['c2']), graphCommit('c2', ['c1']), graphCommit('c1', [])],
-          [graphCommit('c4', ['c3']), graphCommit('c3', ['c2']), graphCommit('c2', ['c1']), graphCommit('c1', [])],
+          [
+            graphCommit('c4', ['c3']),
+            graphCommit('c3', ['c2']),
+            graphCommit('c2', ['c1']),
+            graphCommit('c1', []),
+          ],
         ],
         { c2: [commitFile('two.txt')] },
       ),
@@ -527,7 +558,12 @@ describe('createRepoState', () => {
     expect(state.graphHasMore).toBe(true)
 
     await state.loadMoreGraph()
-    expect(state.graphRows.map((r: { commit: GraphCommit }) => r.commit.oid)).toEqual(['c4', 'c3', 'c2', 'c1'])
+    expect(state.graphRows.map((r: { commit: GraphCommit }) => r.commit.oid)).toEqual([
+      'c4',
+      'c3',
+      'c2',
+      'c1',
+    ])
     expect(state.graphHasMore).toBe(false)
   })
 
@@ -565,7 +601,8 @@ describe('createRepoState', () => {
 describe('branch and sync operations', () => {
   it('runs a branch op and refreshes snapshot, graph, and branches', async () => {
     const ops: string[] = []
-    const api: ApiClient = { ...auxApi,
+    const api: ApiClient = {
+      ...auxApi,
       async snapshot() {
         return snapshot({ generation: 2 })
       },
@@ -600,7 +637,8 @@ describe('branch and sync operations', () => {
 
   it('routes each sync action to the matching operation', async () => {
     const ops: string[] = []
-    const api: ApiClient = { ...auxApi,
+    const api: ApiClient = {
+      ...auxApi,
       async snapshot() {
         return snapshot({ generation: 2 })
       },
@@ -643,7 +681,8 @@ describe('branch and sync operations', () => {
   })
 
   it('propagates structured no-upstream state to the caller', async () => {
-    const api: ApiClient = { ...auxApi,
+    const api: ApiClient = {
+      ...auxApi,
       async snapshot() {
         return snapshot({ generation: 2 })
       },
@@ -674,7 +713,8 @@ describe('branch and sync operations', () => {
   })
 
   it('refreshes branches with the branch list', async () => {
-    const api: ApiClient = { ...auxApi,
+    const api: ApiClient = {
+      ...auxApi,
       async snapshot() {
         return snapshot({ generation: 2 })
       },
@@ -857,7 +897,12 @@ describe('merge, rebase, and conflict operations', () => {
         return mutate(req)
       },
       async diff() {
-        return { before: { path: '', content: '' }, after: { path: '', content: '' }, binary: false, tooLarge: false }
+        return {
+          before: { path: '', content: '' },
+          after: { path: '', content: '' },
+          binary: false,
+          tooLarge: false,
+        }
       },
       async conflicts() {
         return [{ path: 'a.txt', baseOid: 'b1', oursOid: 'o1', theirsOid: 't1' }]
@@ -874,9 +919,15 @@ describe('merge, rebase, and conflict operations', () => {
     const mutate = vi.fn().mockResolvedValue(undefined)
     const api: ApiClient = {
       ...auxApi,
-      async snapshot() { return snapshot({ generation: 1 }) },
-      async mutate(req) { return mutate(req) },
-      async diff() { throw new Error('not used') },
+      async snapshot() {
+        return snapshot({ generation: 1 })
+      },
+      async mutate(req) {
+        return mutate(req)
+      },
+      async diff() {
+        throw new Error('not used')
+      },
     }
     const state = createRepoState({ api })
     await state.refreshSnapshot()
@@ -889,9 +940,15 @@ describe('merge, rebase, and conflict operations', () => {
     const mutate = vi.fn().mockResolvedValue(undefined)
     const api: ApiClient = {
       ...auxApi,
-      async snapshot() { return snapshot({ generation: 1 }) },
-      async mutate(req) { return mutate(req) },
-      async diff() { throw new Error('not used') },
+      async snapshot() {
+        return snapshot({ generation: 1 })
+      },
+      async mutate(req) {
+        return mutate(req)
+      },
+      async diff() {
+        throw new Error('not used')
+      },
     }
     const state = createRepoState({ api })
     await state.refreshSnapshot()
@@ -904,9 +961,15 @@ describe('merge, rebase, and conflict operations', () => {
     const mutate = vi.fn().mockResolvedValue(undefined)
     const api: ApiClient = {
       ...auxApi,
-      async snapshot() { return snapshot({ generation: 1 }) },
-      async mutate(req) { return mutate(req) },
-      async diff() { throw new Error('not used') },
+      async snapshot() {
+        return snapshot({ generation: 1 })
+      },
+      async mutate(req) {
+        return mutate(req)
+      },
+      async diff() {
+        throw new Error('not used')
+      },
     }
     const state = createRepoState({ api })
     await state.refreshSnapshot()
@@ -919,9 +982,15 @@ describe('merge, rebase, and conflict operations', () => {
     const mutate = vi.fn().mockResolvedValue(undefined)
     const api: ApiClient = {
       ...auxApi,
-      async snapshot() { return snapshot({ generation: 1 }) },
-      async mutate(req) { return mutate(req) },
-      async diff() { throw new Error('not used') },
+      async snapshot() {
+        return snapshot({ generation: 1 })
+      },
+      async mutate(req) {
+        return mutate(req)
+      },
+      async diff() {
+        throw new Error('not used')
+      },
     }
     const state = createRepoState({ api })
     await state.refreshSnapshot()
@@ -934,9 +1003,15 @@ describe('merge, rebase, and conflict operations', () => {
     const mutate = vi.fn().mockResolvedValue(undefined)
     const api: ApiClient = {
       ...auxApi,
-      async snapshot() { return snapshot({ generation: 1 }) },
-      async mutate(req) { return mutate(req) },
-      async diff() { throw new Error('not used') },
+      async snapshot() {
+        return snapshot({ generation: 1 })
+      },
+      async mutate(req) {
+        return mutate(req)
+      },
+      async diff() {
+        throw new Error('not used')
+      },
     }
     const state = createRepoState({ api })
     await state.refreshSnapshot()
@@ -949,9 +1024,15 @@ describe('merge, rebase, and conflict operations', () => {
     const mutate = vi.fn().mockResolvedValue(undefined)
     const api: ApiClient = {
       ...auxApi,
-      async snapshot() { return snapshot({ generation: 1 }) },
-      async mutate(req) { return mutate(req) },
-      async diff() { throw new Error('not used') },
+      async snapshot() {
+        return snapshot({ generation: 1 })
+      },
+      async mutate(req) {
+        return mutate(req)
+      },
+      async diff() {
+        throw new Error('not used')
+      },
     }
     const state = createRepoState({ api })
     await state.refreshSnapshot()
@@ -970,9 +1051,15 @@ describe('merge, rebase, and conflict operations', () => {
     const mutate = vi.fn().mockResolvedValue(undefined)
     const api: ApiClient = {
       ...auxApi,
-      async snapshot() { return snapshot({ generation: 1 }) },
-      async mutate(req) { return mutate(req) },
-      async diff() { throw new Error('not used') },
+      async snapshot() {
+        return snapshot({ generation: 1 })
+      },
+      async mutate(req) {
+        return mutate(req)
+      },
+      async diff() {
+        throw new Error('not used')
+      },
     }
     const state = createRepoState({ api })
     await state.refreshSnapshot()
@@ -1010,7 +1097,9 @@ describe('merge, rebase, and conflict operations', () => {
           ],
         })
       },
-      async diff() { throw new Error('not used') },
+      async diff() {
+        throw new Error('not used')
+      },
       async conflicts() {
         return [{ path: 'a.txt', baseOid: 'b1', oursOid: 'o1', theirsOid: 't1' }]
       },
@@ -1049,7 +1138,9 @@ describe('merge, rebase, and conflict operations', () => {
         }
         return snapshot({ generation: gen, operation: 'none' })
       },
-      async diff() { throw new Error('not used') },
+      async diff() {
+        throw new Error('not used')
+      },
       async conflicts() {
         return [{ path: 'a.txt', baseOid: 'b1', oursOid: 'o1', theirsOid: 't1' }]
       },
@@ -1065,9 +1156,15 @@ describe('merge, rebase, and conflict operations', () => {
   it('records conflict fetch errors', async () => {
     const api: ApiClient = {
       ...auxApi,
-      async snapshot() { return snapshot({ generation: 1, operation: 'merge' }) },
-      async diff() { throw new Error('not used') },
-      async conflicts() { throw new Error('network error') },
+      async snapshot() {
+        return snapshot({ generation: 1, operation: 'merge' })
+      },
+      async diff() {
+        throw new Error('not used')
+      },
+      async conflicts() {
+        throw new Error('network error')
+      },
     }
     const state = createRepoState({ api })
     await state.refreshSnapshot()
@@ -1187,7 +1284,9 @@ describe('operation feedback', () => {
     const repo = createRepoState({
       api: {
         ...auxApi,
-        async snapshot() { return snapshot() },
+        async snapshot() {
+          return snapshot()
+        },
         async mutate() {},
         async commit() {
           captured = repo.activeOp ?? ''

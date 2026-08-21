@@ -9,7 +9,8 @@
     "preview": "vite preview",
     "check": "tsc -p tsconfig.node.json && tsc -p tsconfig.react.json",
     "lint": "oxlint src tests",
-    "format": "oxfmt --write src tests",
+    "format": "oxfmt --write src/diffshub/gitna src/diffshub/main.tsx src/diffshub/vite src/lib tests vite.config.ts playwright.config.ts postcss.config.mjs",
+    "format:check": "oxfmt --check src/diffshub/gitna src/diffshub/main.tsx src/diffshub/vite src/lib tests vite.config.ts playwright.config.ts postcss.config.mjs",
     "test": "vitest run",
     "test:e2e": "playwright test"
   },

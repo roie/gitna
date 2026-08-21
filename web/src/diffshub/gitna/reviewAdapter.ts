@@ -1,8 +1,4 @@
-import {
-  parseDiffFromFile,
-  parsePatchFiles,
-  type FileContents,
-} from '@pierre/diffs'
+import { parseDiffFromFile, parsePatchFiles, type FileContents } from '@pierre/diffs'
 
 import {
   appendFileDiffToDiffsHubData,
@@ -14,9 +10,7 @@ import type { ReviewResponse } from '../../lib/types'
 
 function reviewIdentityKey(review: ReviewResponse): string {
   const { identity } = review
-  return [identity.scope, identity.commit, identity.from, identity.to]
-    .filter(Boolean)
-    .join(':')
+  return [identity.scope, identity.commit, identity.from, identity.to].filter(Boolean).join(':')
 }
 
 /**
@@ -41,9 +35,7 @@ export function adaptGitnaReview(review: ReviewResponse): LoadedDiffsHubData {
     const after: FileContents = {
       name: supplement.path,
       contents:
-        supplement.diff.binary || supplement.diff.tooLarge
-          ? ''
-          : supplement.diff.after.content,
+        supplement.diff.binary || supplement.diff.tooLarge ? '' : supplement.diff.after.content,
       lang: supplement.diff.after.language as FileContents['lang'],
       cacheKey: `${cacheKey}:${supplement.path}`,
     }

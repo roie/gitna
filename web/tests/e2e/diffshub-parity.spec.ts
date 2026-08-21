@@ -77,10 +77,18 @@ test('review failure keeps Source Control usable and retry recovers', async ({ p
   expect(alertBox).not.toBeNull()
   expect(reviewBox).not.toBeNull()
   expect(statusBox!.x).toBeGreaterThanOrEqual(319)
-  expect(Math.abs(statusBox!.x + statusBox!.width - (reviewBox!.x + reviewBox!.width))).toBeLessThanOrEqual(1)
-  expect(Math.abs(statusBox!.y + statusBox!.height - (reviewBox!.y + reviewBox!.height))).toBeLessThanOrEqual(1)
-  expect(Math.abs(alertBox!.x + alertBox!.width / 2 - (statusBox!.x + statusBox!.width / 2))).toBeLessThanOrEqual(1)
-  expect(Math.abs(alertBox!.y + alertBox!.height / 2 - (statusBox!.y + statusBox!.height / 2))).toBeLessThanOrEqual(1)
+  expect(
+    Math.abs(statusBox!.x + statusBox!.width - (reviewBox!.x + reviewBox!.width)),
+  ).toBeLessThanOrEqual(1)
+  expect(
+    Math.abs(statusBox!.y + statusBox!.height - (reviewBox!.y + reviewBox!.height)),
+  ).toBeLessThanOrEqual(1)
+  expect(
+    Math.abs(alertBox!.x + alertBox!.width / 2 - (statusBox!.x + statusBox!.width / 2)),
+  ).toBeLessThanOrEqual(1)
+  expect(
+    Math.abs(alertBox!.y + alertBox!.height / 2 - (statusBox!.y + statusBox!.height / 2)),
+  ).toBeLessThanOrEqual(1)
   if (process.env.GITNA_CAPTURE_GRAPH) {
     await page.screenshot({ path: '/tmp/gitna-loading-centered.png', fullPage: true })
   }

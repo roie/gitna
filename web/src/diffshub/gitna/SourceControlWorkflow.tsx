@@ -34,12 +34,7 @@ import {
 } from '../components/DropdownMenu'
 import { Input } from '../components/Input'
 import { Switch } from '../components/Switch'
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipProvider,
-  TooltipTrigger,
-} from '../components/Tooltip'
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '../components/Tooltip'
 import { cn } from '../lib/cn'
 import type { DiffsHubFileTreeSource } from '../lib/types'
 import { Confirm, Modal } from './Modal'
@@ -263,11 +258,7 @@ export function GitnaSourceControl() {
                 />
                 <div className="mt-2 flex items-center gap-2">
                   <label className="mr-auto flex cursor-pointer items-center gap-1.5 text-xs text-muted-foreground">
-                    <Switch
-                      aria-label="Amend"
-                      checked={amend}
-                      onCheckedChange={setAmend}
-                    />
+                    <Switch aria-label="Amend" checked={amend} onCheckedChange={setAmend} />
                     Amend
                   </label>
                   <Button
@@ -867,7 +858,15 @@ function GraphSection({ headerRef, onConfirm, onOpenChange, open }: GraphSection
   )
 }
 
-function GraphLaneGutter({ laneCount, open, row }: { laneCount: number; open: boolean; row: GraphRow }) {
+function GraphLaneGutter({
+  laneCount,
+  open,
+  row,
+}: {
+  laneCount: number
+  open: boolean
+  row: GraphRow
+}) {
   const width = graphColumnX(laneCount - 1) + GRAPH_LANE_INSET
   const nodeX = graphColumnX(row.column)
   const middle = GRAPH_ROW_HEIGHT / 2
@@ -938,7 +937,9 @@ function GraphLaneGutter({ laneCount, open, row }: { laneCount: number; open: bo
         cx={nodeX}
         cy={middle}
         r="4"
-        fill={open ? graphLaneColor(row.column) : 'var(--diffshub-sidebar-bg, var(--color-background))'}
+        fill={
+          open ? graphLaneColor(row.column) : 'var(--diffshub-sidebar-bg, var(--color-background))'
+        }
         stroke={graphLaneColor(row.column)}
         strokeWidth="2"
         vectorEffect="non-scaling-stroke"
@@ -991,9 +992,7 @@ function GraphCommitRow({
                   key={`${ref.kind}:${ref.name}`}
                   className={cn(
                     'max-w-24 shrink-0 truncate rounded-full border border-blue-500/60 px-1.5 py-0.5 text-[10px] leading-none',
-                    ref.kind === 'head'
-                      ? 'bg-blue-500 text-white'
-                      : 'bg-blue-500/10 text-blue-500',
+                    ref.kind === 'head' ? 'bg-blue-500 text-white' : 'bg-blue-500/10 text-blue-500',
                   )}
                 >
                   {ref.name}

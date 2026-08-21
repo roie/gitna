@@ -1,4 +1,15 @@
-import type { Branch, CommitFiles, ConflictEntry, DiffScope, FileDiff, GraphPage, RepoSnapshot, ReviewResponse, StashEntry, Tag } from './types'
+import type {
+  Branch,
+  CommitFiles,
+  ConflictEntry,
+  DiffScope,
+  FileDiff,
+  GraphPage,
+  RepoSnapshot,
+  ReviewResponse,
+  StashEntry,
+  Tag,
+} from './types'
 
 export interface DiffRequest {
   scope: DiffScope
@@ -136,10 +147,17 @@ const MUTATE_TIMEOUT = 120_000
 
 async function expectOK(res: Response): Promise<Response> {
   if (!res.ok) {
-    const body = (await res.json().catch(() => null)) as
-      | { error?: string; code?: string; branch?: string }
-      | null
-    throw new ApiError(res.status, body?.error ?? `request failed: ${res.status}`, body?.code, body?.branch)
+    const body = (await res.json().catch(() => null)) as {
+      error?: string
+      code?: string
+      branch?: string
+    } | null
+    throw new ApiError(
+      res.status,
+      body?.error ?? `request failed: ${res.status}`,
+      body?.code,
+      body?.branch,
+    )
   }
   return res
 }
@@ -168,15 +186,25 @@ export function reviewQuery(request: ReviewRequest): string {
 export function createApi(): ApiClient {
   return {
     async snapshot(): Promise<RepoSnapshot> {
-      const res = await expectOK(await fetch('api/v1/snapshot', { signal: AbortSignal.timeout(FETCH_TIMEOUT) }))
+      const res = await expectOK(
+        await fetch('api/v1/snapshot', { signal: AbortSignal.timeout(FETCH_TIMEOUT) }),
+      )
       return (await res.json()) as RepoSnapshot
     },
     async diff(request: DiffRequest): Promise<FileDiff> {
-      const res = await expectOK(await fetch(`api/v1/diff?${diffQuery(request)}`, { signal: AbortSignal.timeout(FETCH_TIMEOUT) }))
+      const res = await expectOK(
+        await fetch(`api/v1/diff?${diffQuery(request)}`, {
+          signal: AbortSignal.timeout(FETCH_TIMEOUT),
+        }),
+      )
       return (await res.json()) as FileDiff
     },
     async review(request: ReviewRequest): Promise<ReviewResponse> {
-      const res = await expectOK(await fetch(`api/v1/review?${reviewQuery(request)}`, { signal: AbortSignal.timeout(FETCH_TIMEOUT) }))
+      const res = await expectOK(
+        await fetch(`api/v1/review?${reviewQuery(request)}`, {
+          signal: AbortSignal.timeout(FETCH_TIMEOUT),
+        }),
+      )
       return (await res.json()) as ReviewResponse
     },
     async mutate(request: MutateRequest): Promise<void> {
@@ -216,31 +244,48 @@ export function createApi(): ApiClient {
       return (await res.json()) as OperationResult
     },
     async graph(skip = 0): Promise<GraphPage> {
-      const res = await expectOK(await fetch(`api/v1/graph?skip=${skip}`, { signal: AbortSignal.timeout(FETCH_TIMEOUT) }))
+      const res = await expectOK(
+        await fetch(`api/v1/graph?skip=${skip}`, { signal: AbortSignal.timeout(FETCH_TIMEOUT) }),
+      )
       return (await res.json()) as GraphPage
     },
     async commitFiles(oid: string): Promise<CommitFiles> {
-      const res = await expectOK(await fetch(`api/v1/commit/${oid}/files`, { signal: AbortSignal.timeout(FETCH_TIMEOUT) }))
+      const res = await expectOK(
+        await fetch(`api/v1/commit/${oid}/files`, { signal: AbortSignal.timeout(FETCH_TIMEOUT) }),
+      )
       return (await res.json()) as CommitFiles
     },
     async branches(): Promise<Branch[]> {
-      const res = await expectOK(await fetch('api/v1/branches', { signal: AbortSignal.timeout(FETCH_TIMEOUT) }))
+      const res = await expectOK(
+        await fetch('api/v1/branches', { signal: AbortSignal.timeout(FETCH_TIMEOUT) }),
+      )
       return (await res.json()) as Branch[]
     },
     async stashes(): Promise<StashEntry[]> {
-      const res = await expectOK(await fetch('api/v1/stashes', { signal: AbortSignal.timeout(FETCH_TIMEOUT) }))
+      const res = await expectOK(
+        await fetch('api/v1/stashes', { signal: AbortSignal.timeout(FETCH_TIMEOUT) }),
+      )
       return (await res.json()) as StashEntry[]
     },
     async tags(): Promise<Tag[]> {
-      const res = await expectOK(await fetch('api/v1/tags', { signal: AbortSignal.timeout(FETCH_TIMEOUT) }))
+      const res = await expectOK(
+        await fetch('api/v1/tags', { signal: AbortSignal.timeout(FETCH_TIMEOUT) }),
+      )
       return (await res.json()) as Tag[]
     },
     async compare(from: string, to: string): Promise<CommitFiles> {
-      const res = await expectOK(await fetch(`api/v1/compare?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`, { signal: AbortSignal.timeout(FETCH_TIMEOUT) }))
+      const res = await expectOK(
+        await fetch(
+          `api/v1/compare?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`,
+          { signal: AbortSignal.timeout(FETCH_TIMEOUT) },
+        ),
+      )
       return (await res.json()) as CommitFiles
     },
     async conflicts(): Promise<ConflictEntry[]> {
-      const res = await expectOK(await fetch('api/v1/conflicts', { signal: AbortSignal.timeout(FETCH_TIMEOUT) }))
+      const res = await expectOK(
+        await fetch('api/v1/conflicts', { signal: AbortSignal.timeout(FETCH_TIMEOUT) }),
+      )
       return (await res.json()) as ConflictEntry[]
     },
   }

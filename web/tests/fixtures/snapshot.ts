@@ -28,8 +28,20 @@ export const snapshotFixture: RepoSnapshot = {
   unstaged: [
     { path: 'tracked.txt', kind: 'modified', scope: 'unstaged', staged: false, conflicted: false },
     { path: 'both.txt', kind: 'modified', scope: 'unstaged', staged: false, conflicted: false },
-    { path: 'new file.txt', kind: 'untracked', scope: 'unstaged', staged: false, conflicted: false },
-    { path: 'conflicted.txt', kind: 'conflicted', scope: 'unstaged', staged: false, conflicted: true },
+    {
+      path: 'new file.txt',
+      kind: 'untracked',
+      scope: 'unstaged',
+      staged: false,
+      conflicted: false,
+    },
+    {
+      path: 'conflicted.txt',
+      kind: 'conflicted',
+      scope: 'unstaged',
+      staged: false,
+      conflicted: true,
+    },
   ],
   generation: 7,
 }

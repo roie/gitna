@@ -79,9 +79,9 @@ test('real binary renders repository source-control state', async ({ page, app }
   await expect(headCommit).toHaveAttribute('aria-describedby', /radix/)
   await page.keyboard.press('Escape')
 
-  const nodeColumns = await page.locator('[data-graph-node]').evaluateAll((nodes) =>
-    nodes.map((node) => Number(node.getAttribute('cx'))),
-  )
+  const nodeColumns = await page
+    .locator('[data-graph-node]')
+    .evaluateAll((nodes) => nodes.map((node) => Number(node.getAttribute('cx'))))
   expect(new Set(nodeColumns).size).toBeGreaterThan(1)
   await expect(page.getByText('base fixture', { exact: true })).toBeVisible()
   await expect(page.locator('.workflow-scroll')).toHaveClass(/cv-mini-scrollbar/)

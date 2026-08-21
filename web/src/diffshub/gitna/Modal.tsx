@@ -1,8 +1,4 @@
-import {
-  type ReactNode,
-  useEffect,
-  useRef,
-} from 'react'
+import { type ReactNode, useEffect, useRef } from 'react'
 
 import { IconX } from '@pierre/icons'
 
@@ -17,7 +13,13 @@ interface ModalProps {
   title: string
 }
 
-export function Modal({ children, destructive = false, onClose, role = 'dialog', title }: ModalProps) {
+export function Modal({
+  children,
+  destructive = false,
+  onClose,
+  role = 'dialog',
+  title,
+}: ModalProps) {
   const dialogRef = useRef<HTMLDialogElement>(null)
 
   useEffect(() => {
@@ -69,7 +71,9 @@ export function Confirm({ confirmLabel, message, onCancel, onConfirm, title }: C
     <Modal destructive onClose={onCancel} role="alertdialog" title={title}>
       <p className="text-sm leading-6 text-muted-foreground">{message}</p>
       <div className="mt-5 flex justify-end gap-2">
-        <Button variant="outline" size="sm" onClick={onCancel}>Cancel</Button>
+        <Button variant="outline" size="sm" onClick={onCancel}>
+          Cancel
+        </Button>
         <Button
           variant="destructive"
           size="sm"

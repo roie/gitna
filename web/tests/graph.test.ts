@@ -112,11 +112,7 @@ describe('computeGraph', () => {
     //     N  (sibling of M, both children of R)
     //     |\
     //     | R
-    const rows = computeGraph([
-      commit('M', ['R']),
-      commit('N', ['R']),
-      commit('R', []),
-    ])
+    const rows = computeGraph([commit('M', ['R']), commit('N', ['R']), commit('R', [])])
     expect(rows.map((r) => r.column)).toEqual([0, 1, 0])
   })
 

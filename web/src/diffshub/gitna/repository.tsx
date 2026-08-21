@@ -109,8 +109,7 @@ export function reconcileSelection(
   const existing = current.find((change) => change.path === selection.change.path)
   if (existing != null) return { scope: selection.scope, change: existing }
   const ordered = [...staged, ...unstaged]
-  const nearest =
-    ordered.find((change) => change.path >= selection.change.path) ?? ordered.at(-1)
+  const nearest = ordered.find((change) => change.path >= selection.change.path) ?? ordered.at(-1)
   return nearest == null ? null : { scope: nearest.scope, change: nearest }
 }
 
@@ -218,11 +217,7 @@ export class GitnaRepository {
           if (snapshot.generation <= this.generation) continue
           this.generation = snapshot.generation
           this.snapshot = snapshot
-          this.selection = reconcileSelection(
-            this.selection,
-            snapshot.staged,
-            snapshot.unstaged,
-          )
+          this.selection = reconcileSelection(this.selection, snapshot.staged, snapshot.unstaged)
           this.conflictsRequest += 1
           this.conflicts =
             snapshot.operation === 'merge' ||
@@ -346,9 +341,10 @@ export class GitnaRepository {
       this.emit()
       return
     }
-    const change = this.snapshot == null
-      ? undefined
-      : changeList(this.snapshot, scope).find((candidate) => candidate.path === path)
+    const change =
+      this.snapshot == null
+        ? undefined
+        : changeList(this.snapshot, scope).find((candidate) => candidate.path === path)
     if (change == null) return
     this.selection = { scope, change }
     this.commitDiff = null
@@ -668,20 +664,12 @@ export function RepositoryProvider({ children }: { children: ReactNode }) {
     return repository.connectEvents()
   }, [repository])
 
-  return (
-    <RepositoryContext.Provider value={repository}>
-      {children}
-    </RepositoryContext.Provider>
-  )
+  return <RepositoryContext.Provider value={repository}>{children}</RepositoryContext.Provider>
 }
 
 export function useRepository(): GitnaRepository {
   const repository = useContext(RepositoryContext)
   if (repository == null) throw new Error('Missing Gitna repository provider')
-  useSyncExternalStore(
-    repository.subscribe,
-    repository.getVersion,
-    repository.getVersion,
-  )
+  useSyncExternalStore(repository.subscribe, repository.getVersion, repository.getVersion)
   return repository
 }

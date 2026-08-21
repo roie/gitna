@@ -1,0 +1,11 @@
+{
+  "printWidth": 100,
+  "singleQuote": true,
+  "semi": false,
+  "trailingComma": "all",
+  "ignorePatterns": [
+    "src/diffshub/components/**",
+    "src/diffshub/lib/**",
+    "src/diffshub/globals.css"
+  ]
+}
