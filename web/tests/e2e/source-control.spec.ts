@@ -43,9 +43,13 @@ test('real binary renders repository source-control state', async ({ page, app }
       exact: true,
     }),
   ).toBeVisible()
+  const headCommit = page.getByRole('button', { name: /^merge feature/ })
+  await expect(headCommit).toContainText('main')
+  await expect(headCommit).not.toContainText('Gitna E2E')
+  await expect(headCommit).not.toContainText(app.headOid.slice(0, 8))
   await expect(page.getByText('base fixture', { exact: true })).toBeVisible()
   await expect(page.locator('.workflow-scroll')).toHaveClass(/cv-mini-scrollbar/)
-  await page.getByRole('button', { name: /base fixture Gitna E2E/ }).click()
+  await page.getByRole('button', { name: /^base fixture/ }).click()
   const graphTree = page.locator('[id^="gitna-graph-"][id$="__tree"]')
   await expect(
     graphTree.getByRole('treeitem', {
@@ -56,6 +60,10 @@ test('real binary renders repository source-control state', async ({ page, app }
   expect(
     await graphTree.evaluate((tree) => tree.scrollHeight - tree.clientHeight),
   ).toBeLessThanOrEqual(1)
+  if (process.env.GITNA_CAPTURE_GRAPH) {
+    await graphTree.getByRole('treeitem').last().scrollIntoViewIfNeeded()
+    await page.screenshot({ path: '/tmp/gitna-graph-refined.png', fullPage: true })
+  }
 })
 
 test('embedded binary serves the pinned DiffsHub React frontend', async ({ page, app }) => {

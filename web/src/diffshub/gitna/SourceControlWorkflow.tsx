@@ -94,7 +94,19 @@ function treeViewportHeight(source: DiffsHubFileTreeSource, maximum = 240): numb
   return Math.min(maximum, Math.max(48, (source.pathCount + directories.size) * 24 + 8))
 }
 
-function ignoreTreeModel(_model: FileTree | null): void {}
+function useNaturalTreeHeight(model: FileTree | null): number {
+  const [height, setHeight] = useState(0)
+  useEffect(() => {
+    if (model == null) {
+      setHeight(0)
+      return
+    }
+    const updateHeight = () => setHeight(model.getVisibleCount() * model.getItemHeight())
+    updateHeight()
+    return model.subscribe(updateHeight)
+  }, [model])
+  return height
+}
 
 export function GitnaSourceControl() {
   const repository = useRepository()
@@ -815,36 +827,65 @@ function GraphCommitRow({
   const shortOid = row.commit.oid.slice(0, 8)
   const files = repository.commitFiles[row.commit.oid]
   const source = useMemo(() => createTreeSource(files ?? []), [files])
+  const [treeModel, setTreeModel] = useState<FileTree | null>(null)
+  const treeHeight = useNaturalTreeHeight(treeModel)
   const selectedPath =
     repository.commitDiff?.oid === row.commit.oid ? repository.commitDiff.path : null
+  const refs = row.commit.refs.filter(
+    (ref, index, all) => all.findIndex((candidate) => candidate.name === ref.name) === index,
+  )
+  const visibleRefs = refs.slice(0, 2)
   return (
-    <div className="graph-row border-t border-border/40 first:border-0">
-      <div className="group flex min-h-8 items-center gap-1 text-xs">
+    <div className="graph-row">
+      <div className="group flex min-h-7 items-center gap-1 text-xs">
         <button
           type="button"
-          className="flex min-w-0 flex-1 items-center gap-1 rounded px-1 py-1 text-left hover:bg-muted focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-[var(--diffshub-primary-fg)]"
+          className={cn(
+            'flex min-w-0 flex-1 items-center gap-1 rounded px-1 py-0.5 text-left hover:bg-muted focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-[var(--diffshub-primary-fg)]',
+            open && 'bg-muted',
+          )}
           aria-expanded={open}
+          title={`${row.commit.authorName} · ${shortOid} · ${new Date(row.commit.authorTime).toLocaleString()}`}
           onClick={() => void repository.toggleCommit(row.commit.oid)}
         >
           <span
             className="relative flex h-6 w-5 shrink-0 items-center justify-center"
             aria-hidden="true"
           >
-            <span className="absolute inset-y-0 left-1/2 w-px bg-blue-400/70" />
-            <span className="relative size-2 rounded-full border-2 border-blue-500 bg-background" />
+            <span className="absolute inset-y-0 left-1/2 w-px bg-blue-500" />
+            <span
+              className={cn(
+                'relative size-2.5 rounded-full border-2 border-blue-500 bg-background',
+                open && 'bg-blue-400 shadow-[0_0_0_2px_color-mix(in_srgb,var(--diffshub-primary-fg)_18%,transparent)]',
+              )}
+            />
           </span>
-          <span className="min-w-0 flex-1">
-            <span className="block truncate">{row.commit.subject}</span>
-            <span className="block truncate text-[10px] text-muted-foreground">
-              {row.commit.authorName} · {shortOid}
+          <span className="min-w-0 flex-1 truncate font-medium">{row.commit.subject}</span>
+          {visibleRefs.map((ref) => (
+            <span
+              key={`${ref.kind}:${ref.name}`}
+              className={cn(
+                'max-w-24 shrink-0 truncate rounded-full border border-blue-500/60 px-1.5 py-0.5 text-[10px] leading-none',
+                ref.kind === 'head'
+                  ? 'bg-blue-500 text-white'
+                  : 'bg-blue-500/10 text-blue-500',
+              )}
+            >
+              {ref.name}
             </span>
-          </span>
+          ))}
+          {refs.length > visibleRefs.length && (
+            <span className="shrink-0 text-[10px] text-muted-foreground">
+              +{refs.length - visibleRefs.length}
+            </span>
+          )}
         </button>
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
             <Button
               variant="ghost"
               size="icon-only"
+              className="opacity-0 group-focus-within:opacity-100 group-hover:opacity-100"
               aria-label={`Actions for ${row.commit.subject}`}
             >
               <IconEllipsis className="size-3" />
@@ -894,17 +935,17 @@ function GraphCommitRow({
         </DropdownMenu>
       </div>
       {open && (
-        <div className="ml-5 border-l border-border/70">
+        <div className="ml-[14px] border-l-2 border-blue-500 pl-1">
           {repository.filesLoading[row.commit.oid] && (
             <p className="px-3 py-2 text-xs text-muted-foreground">Loading…</p>
           )}
           {files != null && files.length > 0 && (
-            <div className="min-h-0" style={{ height: treeViewportHeight(source, Number.POSITIVE_INFINITY) }}>
+            <div className="min-h-0" style={{ height: treeHeight }}>
               <DiffsHubFileTree
                 className="md:ml-1"
                 modelId={`gitna-graph-${row.commit.oid}`}
                 scrollMode="parent"
-                onModelReady={ignoreTreeModel}
+                onModelReady={setTreeModel}
                 onSelectItem={(path) => {
                   const file = files.find((candidate) => candidate.path === path)
                   if (file != null) {
