@@ -18,19 +18,20 @@ test('continuous Pierre CodeView renders the complete working-tree review', asyn
   await page.goto(app.url)
   const review = page.getByRole('region', { name: 'Review' })
   await expect(review).toBeVisible()
-  await expect(page.locator('.review-header .identity')).toContainText('Working tree changes')
+  await expect(page.getByRole('textbox', { name: 'Repository path' })).toHaveValue(app.repo)
   await expect(page.getByRole('button', { name: 'Collapse all files' })).toBeVisible()
-  await expect(page.locator('diffs-container')).toHaveCount(5)
+  await expect(page.locator('diffs-container')).toHaveCount(5, { timeout: 30_000 })
   await expect(page.getByText('modified.txt', { exact: true }).last()).toBeVisible()
   await expect(page.getByText('two-hunk.txt', { exact: true }).last()).toBeVisible()
-  await expect(page.getByText('Too large', { exact: true })).toBeVisible()
+  await page.getByRole('button', { name: 'Files', exact: true }).click()
+  await expect(page.getByRole('treeitem', { name: 'large-untracked.txt', exact: true })).toBeVisible()
 
   await page.getByRole('button', { name: 'Display settings' }).click()
   await expect(page.getByRole('menu', { name: 'Display settings' })).toBeVisible()
   await expect(page.getByRole('switch', { name: 'Backgrounds' })).toBeVisible()
   await page.keyboard.press('Escape')
   await page.getByRole('button', { name: 'Theme settings' }).click()
-  await page.getByRole('button', { name: 'dark', exact: true }).click()
+  await page.getByRole('button', { name: 'Dark', exact: true }).click()
   await expect(page.locator('html')).toHaveClass(/dark/)
   await page.keyboard.press('Escape')
 
@@ -46,7 +47,7 @@ test('narrow review switches to a single usable CodeView surface', async ({ page
   await page.setViewportSize({ width: 390, height: 844 })
   await page.goto(app.url)
   await expect(page.getByRole('region', { name: 'Review' })).toBeVisible()
-  await expect(page.locator('diffs-container').first()).toBeVisible()
+  await expect(page.locator('diffs-container').first()).toBeVisible({ timeout: 30_000 })
   await expect(page.getByRole('button', { name: 'Switch to unified view' })).toHaveCount(0)
   const geometry = await page.evaluate(() => ({
     bodyWidth: document.body.scrollWidth,

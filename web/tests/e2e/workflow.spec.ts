@@ -22,6 +22,7 @@ async function reviewPatch(page: Page, scope: 'staged' | 'unstaged') {
 
 test('staging loop preserves VS Code section order and visibility', async ({ page, app }) => {
   await page.goto(app.url)
+  const sourceControl = page.locator('aside[aria-label="Source Control"]')
   const staged = page.locator('[data-section="staged"]')
   const changes = page.locator('[data-section="changes"]')
   const graph = page.locator('[data-section="graph"]')
@@ -31,30 +32,31 @@ test('staging loop preserves VS Code section order and visibility', async ({ pag
   const order = await page.locator('.section-title').allTextContents()
   expect(order.indexOf('Staged Changes')).toBeLessThan(order.indexOf('Changes'))
   expect(order.indexOf('Changes')).toBeLessThan(order.indexOf('Graph'))
-  await expect(page.locator('.review-header .identity')).toContainText('repo / main')
+  await expect(page.getByRole('textbox', { name: 'Repository path' })).toHaveValue(app.repo)
+  await expect(page.getByRole('button', { name: 'Switch branch · main' })).toBeVisible()
   if (process.env.GITNA_CAPTURE_M4) {
     await page.screenshot({ path: '/tmp/gitna-m4-desktop.png', fullPage: true })
   }
   await page.getByRole('button', { name: 'Search Changes' }).click()
-  const treeSearch = page.locator('[data-file-tree-search-container][data-open="true"] input')
+  const treeSearch = page.getByRole('textbox', { name: 'Filter Changes' })
   await expect(treeSearch).toBeVisible()
   await treeSearch.fill('modified')
   await expect(page.getByRole('treeitem', { name: 'modified.txt', exact: true })).toBeVisible()
   await page.getByRole('button', { name: 'Search Changes' }).click()
 
   await page.getByRole('treeitem', { name: 'modified.txt', exact: true }).click()
-  await page.getByRole('button', { name: 'Discard file modified.txt' }).click()
+  await sourceControl.getByRole('button', { name: 'Discard file modified.txt' }).click()
   const confirmation = page.getByRole('alertdialog')
   await expect(confirmation).toContainText(app.repo)
   await expect(confirmation).toContainText('main')
   await confirmation.getByRole('button', { name: 'Cancel' }).click()
-  await page.getByRole('button', { name: 'Stage file modified.txt' }).click()
+  await sourceControl.getByRole('button', { name: 'Stage file modified.txt' }).click()
   await expect.poll(async () => (await staged.textContent()) ?? '').toContain('4')
   await expect(page.getByRole('treeitem', { name: 'modified.txt', exact: true })).toBeVisible()
 
   for (const path of ['modified.txt', 'delete.txt', 'rename-new.txt', 'staged.txt']) {
     await page.getByRole('treeitem', { name: path, exact: true }).click()
-    await page.getByRole('button', { name: `Unstage file ${path}` }).click()
+    await sourceControl.getByRole('button', { name: `Unstage file ${path}` }).click()
   }
 
   await expect(staged).toHaveCount(0)
@@ -143,7 +145,7 @@ test('advanced Git actions use compact dialogs and destructive confirmations', a
   const moreActions = page.getByRole('button', { name: 'More actions' })
 
   await moreActions.click()
-  await page.getByRole('button', { name: 'Merge or rebase…' }).click()
+  await page.getByRole('menuitem', { name: 'Merge or rebase…' }).click()
   const integrateDialog = page.getByRole('dialog', { name: 'Merge or rebase' })
   await expect(integrateDialog).toBeVisible()
   await expect(integrateDialog.getByRole('button', { name: 'Merge', exact: true })).toBeVisible()
@@ -152,12 +154,12 @@ test('advanced Git actions use compact dialogs and destructive confirmations', a
   await expect(integrateDialog).not.toBeVisible()
 
   await moreActions.click()
-  await page.getByRole('button', { name: 'Compare refs…' }).click()
+  await page.getByRole('menuitem', { name: 'Compare refs…' }).click()
   await expect(page.getByRole('dialog', { name: 'Compare references' })).toBeVisible()
   await page.keyboard.press('Escape')
 
   await moreActions.click()
-  await page.getByRole('button', { name: 'Stashes…' }).click()
+  await page.getByRole('menuitem', { name: 'Stashes…' }).click()
   const stashesDialog = page.getByRole('dialog', { name: 'Stashes' })
   await expect(stashesDialog).toBeVisible()
   await stashesDialog.getByRole('button', { name: 'Drop' }).click()
@@ -167,14 +169,14 @@ test('advanced Git actions use compact dialogs and destructive confirmations', a
   await page.keyboard.press('Escape')
 
   await moreActions.click()
-  await page.getByRole('button', { name: 'Tags…' }).click()
+  await page.getByRole('menuitem', { name: 'Tags…' }).click()
   const tagsDialog = page.getByRole('dialog', { name: 'Tags' })
   await expect(tagsDialog).toBeVisible()
   await tagsDialog.getByRole('button', { name: 'Delete' }).click()
   const confirmation = page.getByRole('alertdialog')
   await expect(confirmation).toContainText('Delete tag v1?')
   await confirmation.getByRole('button', { name: 'Cancel' }).click()
-  await expect(tagsDialog.getByText('v1', { exact: true })).toBeVisible()
+  await expect(tagsDialog.locator('b', { hasText: /^v1$/ })).toBeVisible()
 })
 
 test('cherry-pick conflicts can accept both sides and continue', async ({ page, app }) => {
@@ -219,9 +221,10 @@ test('narrow Source Control uses a dismissible overlay without squeezing review'
   const review = page.getByRole('region', { name: 'Review' })
   await expect(review).toBeVisible()
   const sourceControl = page.locator('aside[aria-label="Source Control"]')
-  await expect(sourceControl).not.toBeVisible()
+  await expect(sourceControl).toHaveAttribute('aria-hidden', 'true')
 
   await page.getByRole('button', { name: 'Open Source Control' }).click()
+  await expect(sourceControl).not.toHaveAttribute('aria-hidden', 'true')
   await expect(sourceControl).toBeVisible()
   await expect(page.getByPlaceholder('Commit message')).toBeVisible()
   await expect(review).toHaveCSS('width', '390px')
@@ -229,10 +232,7 @@ test('narrow Source Control uses a dismissible overlay without squeezing review'
     await page.screenshot({ path: '/tmp/gitna-m4-mobile-overlay.png', fullPage: true })
   }
 
-  await page
-    .locator('.source-control')
-    .getByRole('button', { name: 'Close Source Control' })
-    .click()
-  await expect(sourceControl).not.toBeVisible()
+  await sourceControl.getByRole('button', { name: 'Close Source Control' }).click()
+  await expect(sourceControl).toHaveAttribute('aria-hidden', 'true')
   await expect(review).toHaveCSS('width', '390px')
 })

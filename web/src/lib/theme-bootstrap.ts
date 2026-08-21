@@ -1,4 +1,5 @@
-const MODE_KEY = 'gitna-color-mode'
+// Pre-paint boundary aligned with the pinned DiffsHub theme controller.
+const MODE_KEY = 'theme'
 
 try {
   const saved = localStorage.getItem(MODE_KEY)

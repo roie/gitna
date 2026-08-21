@@ -1,0 +1,85 @@
+import { spawnSync } from 'node:child_process'
+import { expect, test } from './fixtures.js'
+
+function git(repo: string, ...args: string[]): string {
+  const result = spawnSync('git', args, { cwd: repo, encoding: 'utf8' })
+  if (result.status !== 0) {
+    throw new Error(`git ${args.join(' ')} failed: ${result.stderr || result.stdout}`)
+  }
+  return result.stdout.trim()
+}
+
+test('DiffsHub controls, tree search, status filter, and theme persist', async ({ page, app }) => {
+  await page.goto(app.url)
+  await expect(page.locator('diffs-container').first()).toBeVisible({ timeout: 30_000 })
+
+  await page.getByRole('button', { name: 'Theme settings' }).click()
+  await page.getByRole('button', { name: 'Dark', exact: true }).click()
+  await expect(page.locator('html')).toHaveClass(/dark/)
+  await page.reload()
+  await expect(page.locator('html')).toHaveClass(/dark/)
+  await expect(page.locator('diffs-container').first()).toBeVisible({ timeout: 30_000 })
+
+  await page.getByRole('button', { name: 'Display settings' }).click()
+  await expect(page.getByRole('switch', { name: 'Backgrounds' })).toBeVisible()
+  await expect(page.getByRole('switch', { name: 'Line numbers' })).toBeVisible()
+  await expect(page.getByText('GitHub token', { exact: false })).toHaveCount(0)
+  await page.keyboard.press('Escape')
+
+  await page.getByRole('button', { name: 'Files', exact: true }).click()
+  await page.getByRole('button', { name: 'Show file search' }).click()
+  const search = page.getByRole('textbox', { name: 'Search…' })
+  await search.fill('two-hunk')
+  await expect(page.getByRole('treeitem', { name: 'two-hunk.txt', exact: true })).toBeVisible()
+  await expect(page.getByRole('treeitem', { name: 'modified.txt', exact: true })).toHaveCount(0)
+  await search.fill('')
+  await page.getByRole('button', { name: 'Hide file search' }).click()
+
+  await page.getByRole('button', { name: 'Filter by Git status' }).click()
+  await page.getByRole('menuitemcheckbox', { name: /Added/ }).click()
+  await page.keyboard.press('Escape')
+  await expect(page.getByRole('treeitem', { name: 'untracked.txt', exact: true })).toBeVisible()
+  await expect(page.getByRole('treeitem', { name: 'modified.txt', exact: true })).toHaveCount(0)
+
+  await expect(page.getByRole('button', { name: 'Diff Stats (F2)' })).toBeVisible()
+  await expect(page.getByRole('button', { name: 'System Monitor (F3)' })).toBeVisible()
+})
+
+test('review failure keeps Source Control usable and retry recovers', async ({ page, app }) => {
+  let failReview = true
+  await page.route('**/api/v1/review?*', async (route) => {
+    if (failReview) {
+      await route.fulfill({
+        status: 503,
+        contentType: 'application/json',
+        body: JSON.stringify({ error: 'fixture review unavailable' }),
+      })
+      return
+    }
+    await route.continue()
+  })
+
+  await page.goto(app.url)
+  await expect(page.getByRole('alert')).toContainText('Couldn’t load diff')
+  await expect(page.getByPlaceholder('Commit message')).toBeVisible()
+  failReview = false
+  await page.evaluate(() => {
+    const retry = [...document.querySelectorAll('button')].find(
+      (button) => button.textContent?.trim() === 'Try again',
+    )
+    retry?.click()
+  })
+  await expect(page.locator('diffs-container').first()).toBeVisible({ timeout: 30_000 })
+})
+
+test('clean repository renders a truthful empty review state', async ({ page, app }) => {
+  git(app.repo, 'reset', '--hard', 'HEAD')
+  git(app.repo, 'clean', '-fd')
+
+  await page.goto(app.url)
+  await expect(page.getByRole('status')).toContainText('Working tree clean', {
+    timeout: 30_000,
+  })
+  await expect(page.getByPlaceholder('Commit message')).toBeVisible()
+  await expect(page.locator('diffs-container')).toHaveCount(0)
+})

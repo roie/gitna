@@ -34,14 +34,16 @@ test('real binary renders repository source-control state', async ({ page, app }
   await expect(page.getByText('merge feature', { exact: true })).toBeVisible()
 })
 
-test('embedded binary serves the pinned DiffsHub React baseline', async ({ page, app }) => {
-  const response = await page.goto(new URL('react.html', app.url).href)
+test('embedded binary serves the pinned DiffsHub React frontend', async ({ page, app }) => {
+  const response = await page.goto(app.url)
   expect(response?.status()).toBe(200)
   await expect(page.getByRole('img', { name: 'DiffsHub' })).toBeVisible()
   await expect(page.getByRole('button', { name: 'Collapse all files' })).toBeVisible()
   await expect(page.getByRole('button', { name: 'Theme settings' })).toBeVisible()
   await expect(page.getByRole('button', { name: 'Display settings' })).toBeVisible()
-  await expect(page.getByRole('status')).toContainText('Preparing diff')
+  await expect(page.locator('diffs-container').first()).toBeVisible({ timeout: 30_000 })
+  await expect(page.getByRole('button', { name: 'Source Control' })).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Files', exact: true })).toBeVisible()
 
   await page.getByRole('button', { name: 'Display settings' }).click()
   await expect(page.getByText('Backgrounds', { exact: true })).toBeVisible()
