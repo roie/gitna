@@ -47,6 +47,7 @@ interface DiffsHubFileTreeProps {
   // search open/close without owning the model creation.
   onModelReady(model: FileTreeModel | null): void;
   onSelectItem(itemId: string): void;
+  scrollMode?: 'contained' | 'parent';
   selectedPath?: string | null;
   source: DiffsHubFileTreeSource;
 }
@@ -56,6 +57,7 @@ export const DiffsHubFileTree = memo(function DiffsHubFileTree({
   modelId = 'gh-code-view-tree',
   onModelReady,
   onSelectItem,
+  scrollMode = 'contained',
   selectedPath,
   source,
 }: DiffsHubFileTreeProps) {
@@ -151,7 +153,11 @@ export const DiffsHubFileTree = memo(function DiffsHubFileTree({
 
   return (
     <ThemedFileTree
-      className={cn('h-full min-h-0 overflow-auto overscroll-contain md:ml-3', className)}
+      className={cn(
+        'h-full min-h-0 overscroll-contain md:ml-3',
+        scrollMode === 'contained' ? 'overflow-auto' : 'overflow-visible',
+        className,
+      )}
       model={model}
       reconcileForegroundFromChrome
       style={DENSITY_OVERRIDE_STYLES}

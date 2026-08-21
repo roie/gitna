@@ -23,7 +23,9 @@ test('real binary renders repository source-control state', async ({ page, app }
   const changes = page.locator('[data-section="changes"]')
   const staged = page.locator('[data-section="staged"]')
   await expect(repository).toBeVisible()
+  await expect(repository).toContainText('repo')
   await expect(workflow).toBeVisible()
+  await expect(workflow).toContainText('Source Control')
   await expect(changes).toBeVisible()
   await expect(staged).toBeVisible()
   await expect(changes).toHaveAttribute('aria-expanded', 'true')
@@ -41,14 +43,19 @@ test('real binary renders repository source-control state', async ({ page, app }
       exact: true,
     }),
   ).toBeVisible()
-  await expect(page.getByText('merge feature', { exact: true })).toBeVisible()
-  await page.getByRole('button', { name: /merge feature Gitna E2E/ }).click()
+  await expect(page.getByText('base fixture', { exact: true })).toBeVisible()
+  await expect(page.locator('.workflow-scroll')).toHaveClass(/cv-mini-scrollbar/)
+  await page.getByRole('button', { name: /base fixture Gitna E2E/ }).click()
+  const graphTree = page.locator('[id^="gitna-graph-"][id$="__tree"]')
   await expect(
-    page.locator('[id^="gitna-graph-"][id$="__tree"]').getByRole('treeitem', {
-      name: 'feature.txt',
+    graphTree.getByRole('treeitem', {
+      name: 'modified.txt',
       exact: true,
     }),
   ).toBeVisible()
+  expect(
+    await graphTree.evaluate((tree) => tree.scrollHeight - tree.clientHeight),
+  ).toBeLessThanOrEqual(1)
 })
 
 test('embedded binary serves the pinned DiffsHub React frontend', async ({ page, app }) => {

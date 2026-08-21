@@ -27,7 +27,10 @@ test('DiffsHub controls, Pierre repository search, and theme persist', async ({ 
   await page.keyboard.press('Escape')
 
   const repositoryTree = page.locator('#gitna-repository-tree__tree')
-  await page.getByRole('button', { name: 'Search Repository' }).click()
+  const repositorySection = page
+    .locator('section.section')
+    .filter({ has: page.locator('[data-section="repository"]') })
+  await repositorySection.getByRole('button', { name: /^Search / }).click()
   const search = repositoryTree.getByRole('textbox', { name: 'Search…' })
   await search.fill('two-hunk')
   await expect(
@@ -37,7 +40,7 @@ test('DiffsHub controls, Pierre repository search, and theme persist', async ({ 
     repositoryTree.getByRole('treeitem', { name: 'modified.txt', exact: true }),
   ).toHaveCount(0)
   await search.fill('')
-  await page.getByRole('button', { name: 'Hide Repository search' }).click()
+  await repositorySection.getByRole('button', { name: /^Hide .* search$/ }).click()
 
   await expect(
     repositoryTree.getByRole('treeitem', { name: 'untracked.txt', exact: true }),
@@ -82,5 +85,6 @@ test('clean repository renders a truthful empty review state', async ({ page, ap
     timeout: 30_000,
   })
   await expect(page.getByPlaceholder('Commit message')).toBeVisible()
+  await expect(page.locator('[data-section="changes"]')).toHaveCount(0)
   await expect(page.locator('diffs-container')).toHaveCount(0)
 })

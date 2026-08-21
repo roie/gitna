@@ -50,6 +50,10 @@ function message(error: unknown): string {
   return error instanceof Error ? error.message : String(error)
 }
 
+function repositoryName(root: string): string {
+  return root.split(/[\\/]/).filter(Boolean).at(-1) ?? root
+}
+
 interface TreeFile {
   kind: ChangeKind
   path: string
@@ -184,7 +188,7 @@ export function GitnaSourceControl() {
       className="source-control flex h-full min-h-0 flex-col"
       aria-label="Source Control workflow"
     >
-      <div className="workflow-scroll min-h-0 flex-1 overflow-y-auto overscroll-contain pb-4">
+      <div className="workflow-scroll cv-mini-scrollbar min-h-0 flex-1 overflow-y-auto overscroll-contain pb-4">
         <TreeSection
           dataSection="repository"
           emptyMessage="No repository changes"
@@ -194,7 +198,7 @@ export function GitnaSourceControl() {
           open={repositoryOpen}
           selectedPath={repository.selection?.change.path}
           source={repositorySource}
-          title="Repository"
+          title={repositoryName(snapshot.root)}
           onOpenChange={setRepositoryOpen}
           onSelectPath={selectRepositoryPath}
         />
@@ -204,7 +208,7 @@ export function GitnaSourceControl() {
             dataSection="workflow"
             icon={<IconSymbolDiffstatFill className="size-3" />}
             open={workflowOpen}
-            title="Changes"
+            title="Source Control"
             onOpenChange={setWorkflowOpen}
           />
           {workflowOpen && (
@@ -273,16 +277,18 @@ export function GitnaSourceControl() {
                   onOpenChange={setStagedOpen}
                 />
               )}
-              <ChangeSection
-                changes={unstaged}
-                headerRef={changesHeader}
-                modelId="gitna-unstaged-tree"
-                open={changesOpen}
-                scope="unstaged"
-                source={unstagedSource}
-                title="Changes"
-                onOpenChange={setChangesOpen}
-              />
+              {unstaged.length > 0 && (
+                <ChangeSection
+                  changes={unstaged}
+                  headerRef={changesHeader}
+                  modelId="gitna-unstaged-tree"
+                  open={changesOpen}
+                  scope="unstaged"
+                  source={unstagedSource}
+                  title="Changes"
+                  onOpenChange={setChangesOpen}
+                />
+              )}
             </>
           )}
         </section>
@@ -893,10 +899,11 @@ function GraphCommitRow({
             <p className="px-3 py-2 text-xs text-muted-foreground">Loading…</p>
           )}
           {files != null && files.length > 0 && (
-            <div className="min-h-0" style={{ height: treeViewportHeight(source, 192) }}>
+            <div className="min-h-0" style={{ height: treeViewportHeight(source, Number.POSITIVE_INFINITY) }}>
               <DiffsHubFileTree
                 className="md:ml-1"
                 modelId={`gitna-graph-${row.commit.oid}`}
+                scrollMode="parent"
                 onModelReady={ignoreTreeModel}
                 onSelectItem={(path) => {
                   const file = files.find((candidate) => candidate.path === path)
