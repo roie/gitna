@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 import { ApiError } from '../src/lib/api'
-import { coalesce, createRepoState, reconcileSelection } from '../src/lib/repo-state.svelte'
+import { coalesce, createRepoState, reconcileSelection } from '../src/diffshub/gitna/repository'
 import type { ApiClient } from '../src/lib/api'
 import type { ChangeScope, CommitFile, FileChange, GraphCommit, RepoSnapshot } from '../src/lib/types'
 

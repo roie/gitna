@@ -7,8 +7,9 @@ interface LinkProps extends AnchorHTMLAttributes<HTMLAnchorElement> {
 
 /** Vite boundary for the donor's client-only next/link usage. */
 export default function Link({ children, href, ...props }: LinkProps) {
+  const localHref = href === '/' ? './' : href
   return (
-    <a href={href} {...props}>
+    <a href={localHref} {...props}>
       {children}
     </a>
   )

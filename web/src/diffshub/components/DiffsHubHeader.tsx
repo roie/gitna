@@ -1,3 +1,5 @@
+// Modified from the pinned DiffsHub donor: localRepository replaces the
+// GitHub URL editor/external link with Gitna's read-only repository identity.
 import type { DiffIndicators } from '@pierre/diffs';
 import {
   IconCheck,
@@ -17,7 +19,7 @@ import {
   IconSymbolDiffstat,
 } from '@pierre/icons';
 import { type ColorMode } from '@pierre/theming';
-import Link from 'next/link';
+import Link from '../vite/next';
 import {
   type CSSProperties,
   type Dispatch,
@@ -33,20 +35,20 @@ import { CHROME_ICON_BUTTON_CLASS } from './chromeButtonStyles';
 import { DiffsHubLogo } from './DiffsHubLogo';
 import { DiffUrlForm } from './DiffUrlForm';
 import { useChromeThemeProps } from './useChromeThemeProps';
-import { Button } from '@/components/Button';
-import { ButtonGroup, ButtonGroupItem } from '@/components/ButtonGroup';
+import { Button } from './Button';
+import { ButtonGroup, ButtonGroupItem } from './ButtonGroup';
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuTrigger,
-} from '@/components/DropdownMenu';
-import { GitHubTokenControl } from '@/components/GitHubTokenControl';
-import { Switch } from '@/components/Switch';
-import { docsThemeCatalog } from '@/components/themeCatalog';
-import { cn } from '@/lib/cn';
-import { diffshubChromeMapping } from '@/lib/theme/diffshubChromeMapping';
-import { getDropdownThemeStyle } from '@/lib/theme/dropdownChromeStyle';
+} from './DropdownMenu';
+import { GitHubTokenControl } from './GitHubTokenControl';
+import { Switch } from './Switch';
+import { docsThemeCatalog } from './themeCatalog';
+import { cn } from '../lib/cn';
+import { diffshubChromeMapping } from '../lib/theme/diffshubChromeMapping';
+import { getDropdownThemeStyle } from '../lib/theme/dropdownChromeStyle';
 
 type LightThemeName = string;
 type DarkThemeName = string;
@@ -65,6 +67,7 @@ interface HeaderProps {
   fileTreeOverlayOpen: boolean;
   githubTokenActive: boolean;
   initialUrl: string;
+  localRepository?: boolean;
   lightThemeName: LightThemeName;
   lineNumbers: boolean;
   overflow: 'wrap' | 'scroll';
@@ -94,6 +97,7 @@ export const DiffsHubHeader = memo(function DiffsHubHeader({
   fileTreeOverlayOpen,
   githubTokenActive,
   initialUrl,
+  localRepository = false,
   lightThemeName,
   lineNumbers,
   overflow,
@@ -114,7 +118,7 @@ export const DiffsHubHeader = memo(function DiffsHubHeader({
   const [currentUrl, setCurrentUrl] = useState(initialUrl);
   // Only show the external-link button when the input still reflects the
   // committed URL — otherwise we'd be pointing at a draft the user is editing.
-  const showExternalLink = currentUrl === initialUrl;
+  const showExternalLink = !localRepository && currentUrl === initialUrl;
   // Mirror the sidebar's themed chrome so the header bar lives on the same
   // Shiki surface (background, text, icons, borders) instead of the global
   // light/dark palette. Falls back to the diffshub-sidebar-bg CSS variable
@@ -144,21 +148,48 @@ export const DiffsHubHeader = memo(function DiffsHubHeader({
       >
         <DiffsHubLogo />
       </Link>
-      <DiffUrlForm
-        className="order-last md:order-none md:mr-auto"
-        initialUrl={initialUrl}
-        onUrlChange={setCurrentUrl}
-        placeholder="https://github.com/org/repo/123"
-        inputClassName="w-full md:w-auto"
-      />
+      {localRepository ? (
+        <input
+          aria-label="Repository path"
+          className="order-last block h-9 min-w-0 w-full truncate rounded-md text-sm text-primary focus-visible:outline-none md:order-none md:mr-auto md:w-auto"
+          readOnly
+          title={initialUrl}
+          value={initialUrl}
+        />
+      ) : (
+        <DiffUrlForm
+          className="order-last md:order-none md:mr-auto"
+          initialUrl={initialUrl}
+          onUrlChange={setCurrentUrl}
+          placeholder="https://github.com/org/repo/123"
+          inputClassName="w-full md:w-auto"
+        />
+      )}
       <div className="flex w-full items-center justify-between gap-2 md:w-auto md:justify-end">
         <Button
           type="button"
           variant="ghost"
           size="icon-md"
+          aria-label={
+            localRepository
+              ? fileTreeOverlayOpen
+                ? 'Close Source Control'
+                : 'Open Source Control'
+              : fileTreeOverlayOpen
+                ? 'Hide file tree'
+                : 'Show file tree'
+          }
           aria-pressed={fileTreeOverlayOpen}
           disabled={!fileTreeAvailable}
-          title={fileTreeOverlayOpen ? 'Hide file tree' : 'Show file tree'}
+          title={
+            localRepository
+              ? fileTreeOverlayOpen
+                ? 'Close Source Control'
+                : 'Open Source Control'
+              : fileTreeOverlayOpen
+                ? 'Hide file tree'
+                : 'Show file tree'
+          }
           className={cn(CHROME_ICON_BUTTON_CLASS, 'md:hidden')}
           onClick={onToggleFileTreeOverlay}
         >
@@ -248,12 +279,16 @@ export const DiffsHubHeader = memo(function DiffsHubHeader({
                 className="w-72 p-2"
                 style={dropdownThemeStyle}
               >
-                <GitHubTokenControl
-                  active={githubTokenActive}
-                  onClear={onClearGitHubToken}
-                  onSave={onSaveGitHubToken}
-                />
-                <div className="bg-border/70 my-2 h-px" />
+                {!localRepository && (
+                  <>
+                    <GitHubTokenControl
+                      active={githubTokenActive}
+                      onClear={onClearGitHubToken}
+                      onSave={onSaveGitHubToken}
+                    />
+                    <div className="bg-border/70 my-2 h-px" />
+                  </>
+                )}
                 <DropdownMenuItem
                   className="cursor-default p-0"
                   onSelect={(e) => e.preventDefault()}

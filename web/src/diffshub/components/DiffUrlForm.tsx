@@ -1,8 +1,10 @@
 'use client';
 
+// Modified from the pinned DiffsHub donor: standalone Vite resolves the local
+// navigation and component boundaries without Next.js/monorepo aliases.
 import { useStableCallback } from '@pierre/diffs/react';
 import { IconX } from '@pierre/icons';
-import { useRouter } from 'next/navigation';
+import { useRouter } from '../vite/next';
 import {
   type FormEvent,
   type ReactNode,
@@ -13,9 +15,9 @@ import {
 } from 'react';
 import { createPortal } from 'react-dom';
 
-import { Button } from '@/components/Button';
-import { cn } from '@/lib/cn';
-import { getPatchViewerHref } from '@/lib/getPatchViewerHref';
+import { Button } from './Button';
+import { cn } from '../lib/cn';
+import { getPatchViewerHref } from '../lib/getPatchViewerHref';
 
 interface DiffUrlFormProps {
   className?: string;

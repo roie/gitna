@@ -1,3 +1,5 @@
+// Modified from the pinned DiffsHub donor: localRepository uses truthful
+// local-Git loading copy while retaining every donor state and layout.
 import { IconCiWarningFill, IconRefresh } from '@pierre/icons';
 
 import { useChromeThemeProps } from './useChromeThemeProps';
@@ -8,12 +10,14 @@ import type { ViewerLoadState } from '@/lib/types';
 
 interface DiffsHubStatusPanelProps {
   errorMessage: string | null;
+  localRepository?: boolean;
   onRetry(): void;
   state: ViewerLoadState;
 }
 
 export function DiffsHubStatusPanel({
   errorMessage,
+  localRepository = false,
   onRetry,
   state,
 }: DiffsHubStatusPanelProps) {
@@ -39,7 +43,9 @@ export function DiffsHubStatusPanel({
     : state === 'parsing'
       ? 'Parsing the patch and building the file tree…'
       : state === 'fetching'
-        ? 'Fetching the patch from GitHub…'
+        ? localRepository
+          ? 'Fetching the patch from the local repository…'
+          : 'Fetching the patch from GitHub…'
         : 'Reading the patch and showing files as they arrive…';
 
   return (
