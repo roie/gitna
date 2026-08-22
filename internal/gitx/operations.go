@@ -33,7 +33,17 @@ func (q *MutationQueue) run() {
 			j.done <- err
 			continue
 		}
-		j.done <- j.fn(j.ctx)
+
+		// Once a mutation starts, a disconnected caller must not interrupt Git
+		// midway through changing the index or worktree. Keep the server-assigned
+		// deadline, but detach execution from request cancellation.
+		runCtx := context.WithoutCancel(j.ctx)
+		cancel := func() {}
+		if deadline, ok := j.ctx.Deadline(); ok {
+			runCtx, cancel = context.WithDeadline(runCtx, deadline)
+		}
+		j.done <- j.fn(runCtx)
+		cancel()
 	}
 }
 

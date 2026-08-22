@@ -2,6 +2,7 @@ package gitx
 
 import (
 	"context"
+	"errors"
 	"slices"
 	"sync"
 	"testing"
@@ -112,5 +113,46 @@ func TestMutationQueueDoCancelledBeforeStart(t *testing.T) {
 	cancel()
 	if err := q.Do(ctx, func(context.Context) error { return nil }); err == nil {
 		t.Fatal("Do with cancelled context = nil error, want ctx.Err")
+	}
+}
+
+func TestMutationQueueCallerCancellationDoesNotInterruptRunningJob(t *testing.T) {
+	q := NewMutationQueue()
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	deadline, hasDeadline := ctx.Deadline()
+	if !hasDeadline {
+		t.Fatal("test context has no deadline")
+	}
+	started := make(chan context.Context, 1)
+	finish := make(chan struct{})
+	completed := make(chan struct{})
+
+	doReturned := make(chan error, 1)
+	go func() {
+		doReturned <- q.Do(ctx, func(runCtx context.Context) error {
+			started <- runCtx
+			<-finish
+			close(completed)
+			return nil
+		})
+	}()
+
+	runCtx := <-started
+	cancel()
+	if err := <-doReturned; !errors.Is(err, context.Canceled) {
+		t.Fatalf("Do after caller cancellation = %v, want context.Canceled", err)
+	}
+	if err := runCtx.Err(); err != nil {
+		t.Fatalf("running job context after caller cancellation = %v, want nil", err)
+	}
+	if runDeadline, ok := runCtx.Deadline(); !ok || !runDeadline.Equal(deadline) {
+		t.Fatalf("running job deadline = %v, %t; want %v, true", runDeadline, ok, deadline)
+	}
+
+	close(finish)
+	select {
+	case <-completed:
+	case <-time.After(5 * time.Second):
+		t.Fatal("running job did not complete")
 	}
 }
