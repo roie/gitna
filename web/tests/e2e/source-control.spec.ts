@@ -1,5 +1,6 @@
+import { execFileSync } from 'node:child_process'
 import { mkdirSync, writeFileSync } from 'node:fs'
-import { join } from 'node:path'
+import { dirname, join } from 'node:path'
 import type { APIRequestContext, Locator } from '@playwright/test'
 import { test, expect } from './fixtures.js'
 
@@ -25,6 +26,10 @@ async function visibleTreeEndGap(tree: Locator): Promise<number> {
   })
 }
 
+function runGit(cwd: string, ...args: string[]): string {
+  return execFileSync('git', ['-C', cwd, ...args], { encoding: 'utf8' }).trim()
+}
+
 test('real binary renders repository source-control state', async ({ page, app }) => {
   const response = await page.goto(app.url)
   expect(response?.status()).toBe(200)
@@ -36,7 +41,7 @@ test('real binary renders repository source-control state', async ({ page, app }
   await expect(repository).toBeVisible()
   await expect(repository).toContainText('repo')
   await expect(workflow).toBeVisible()
-  await expect(workflow).toContainText('Source Control')
+  await expect(workflow).toContainText('main')
   await expect(changes).toBeVisible()
   await expect(staged).toBeVisible()
   await expect(changes).toHaveAttribute('aria-expanded', 'true')
@@ -183,6 +188,118 @@ test('real binary renders repository source-control state', async ({ page, app }
   }
 })
 
+test('repository path switches the live session and remains fully editable', async ({
+  page,
+  app,
+}) => {
+  const nextRepo = join(dirname(app.repo), 'next-repository-with-a-long-location-name')
+  mkdirSync(nextRepo)
+  runGit(nextRepo, 'init', '-q', '-b', 'trunk')
+  runGit(nextRepo, 'config', 'user.email', 'e2e@example.com')
+  runGit(nextRepo, 'config', 'user.name', 'Gitna E2E')
+  writeFileSync(join(nextRepo, 'next.txt'), 'next repository\n')
+  runGit(nextRepo, 'add', '--', 'next.txt')
+  runGit(nextRepo, 'commit', '-qm', 'next repository')
+
+  await page.goto(app.url)
+  const pathInput = page.getByRole('textbox', { name: 'Repository path' })
+  await expect(pathInput).toHaveValue(app.repo)
+  await pathInput.fill(nextRepo)
+  await pathInput.press('Enter')
+
+  await expect(pathInput).toHaveValue(nextRepo)
+  await expect(page.locator('[data-section="workflow"]')).toContainText('trunk')
+  await expect(
+    page.getByRole('region', { name: 'Source Control workflow' }).getByText('Working tree clean'),
+  ).toBeVisible()
+  await expect(page.locator('[data-section="repository"]')).toContainText(
+    'next-repository-with-a-long-location-name',
+  )
+  const clearPath = page.getByRole('button', { name: 'Clear repository path' })
+  await expect(clearPath).toHaveCSS('opacity', '0')
+  await pathInput.hover()
+  await expect(clearPath).toHaveCSS('opacity', '0.5')
+  const inputBox = await pathInput.boundingBox()
+  const clearBox = await clearPath.boundingBox()
+  expect(inputBox).not.toBeNull()
+  expect(clearBox).not.toBeNull()
+  expect(clearBox!.x - (inputBox!.x + inputBox!.width)).toBe(4)
+  await expect(
+    page.getByRole('button', { name: 'Reveal repository in file manager' }),
+  ).toBeVisible()
+})
+
+test('branch picker, repository filters, list view, and graph stats use direct pane controls', async ({
+  page,
+  app,
+}) => {
+  const nested = join(app.repo, 'nested')
+  mkdirSync(nested)
+  writeFileSync(join(nested, 'clean.txt'), 'nested file\n')
+
+  await page.goto(app.url)
+  const sourceControlActions = [
+    page.getByRole('button', { name: /^Switch branch · main$/ }),
+    page.getByRole('button', { name: 'Fetch' }),
+    page.getByRole('button', { name: 'More actions' }),
+  ]
+  const actionBoxes = await Promise.all(sourceControlActions.map((action) => action.boundingBox()))
+  for (let index = 1; index < actionBoxes.length; index += 1) {
+    const previous = actionBoxes[index - 1]
+    const current = actionBoxes[index]
+    expect(previous).not.toBeNull()
+    expect(current).not.toBeNull()
+    expect(current!.x - (previous!.x + previous!.width)).toBe(12)
+    expect(current!.width).toBe(16)
+  }
+  await sourceControlActions[0].click()
+  const branchInput = page.getByRole('textbox', { name: 'Search or create branch' })
+  await branchInput.fill('topic')
+  await page.getByRole('button', { name: 'New' }).click()
+  await expect(page.locator('[data-section="workflow"]')).toContainText('topic')
+
+  await page.getByRole('button', { name: /^Repository actions/ }).click()
+  await page.getByRole('menuitem', { name: /Filter by status/ }).hover()
+  await page.getByRole('menuitem', { name: /Changed files/ }).click()
+  await expect(page.locator('[data-section="repository"] .section-count')).toContainText('/')
+  await expect(
+    page
+      .locator('#gitna-repository-tree__tree')
+      .getByRole('treeitem', { name: 'main.txt', exact: true }),
+  ).toHaveCount(0)
+
+  await page.getByRole('button', { name: /^Repository actions/ }).click()
+  await page.getByRole('menuitem', { name: /Filter by status/ }).hover()
+  await page.getByRole('menuitem', { name: /All files/ }).click()
+
+  await page.getByRole('button', { name: /^Repository actions/ }).click()
+  await page.getByRole('menuitem', { name: 'Collapse all folders' }).click()
+  await expect(
+    page.locator('#gitna-repository-tree__tree').getByRole('treeitem', {
+      name: 'clean.txt',
+      exact: true,
+    }),
+  ).toHaveCount(0)
+  await page.getByRole('button', { name: /^Repository actions/ }).click()
+  await page.getByRole('menuitem', { name: 'Expand all folders' }).click()
+
+  await page.getByRole('button', { name: /^Repository actions/ }).click()
+  await page.getByRole('menuitem', { name: /Show as List/ }).click()
+  await expect(
+    page.locator('#gitna-repository-tree__tree').getByRole('treeitem', {
+      name: 'nested › clean.txt',
+      exact: true,
+    }),
+  ).toBeVisible()
+
+  const mergeCommit = page.getByRole('button', { name: /^merge feature/ }).first()
+  await mergeCommit.hover()
+  const tooltip = page.getByRole('tooltip')
+  await expect(tooltip).toContainText(/\d+ files?/)
+  await expect(tooltip).toContainText(/\+\d+/)
+  await expect(tooltip).toContainText(/−\d+/)
+})
+
 test('repository tree keeps a bounded virtualized viewport for thousands of files', async ({
   page,
   app,
@@ -197,7 +314,13 @@ test('repository tree keeps a bounded virtualized viewport for thousands of file
   await page.goto(app.url)
   const repositoryHeader = page.locator('[data-section="repository"]')
   await expect
-    .poll(async () => Number(await repositoryHeader.locator('.section-count').textContent()))
+    .poll(
+      async () => {
+        const count = await repositoryHeader.locator('.section-count').textContent()
+        return Number.parseInt(count?.replace(/\D/g, '') ?? '0', 10)
+      },
+      { timeout: 30_000 },
+    )
     .toBeGreaterThan(2_000)
 
   const repositoryBody = page.locator('[data-pane-body="repository"]')

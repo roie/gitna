@@ -317,6 +317,15 @@ function GitnaReviewUIInner() {
           overflow={overflow}
           onClearGitHubToken={() => {}}
           onSaveGitHubToken={() => {}}
+          onSwitchRepository={(path) => repository.switchRepository(path)}
+          onRevealRepository={async () => {
+            setReviewActionError(null)
+            try {
+              await repository.revealRepository()
+            } catch (error) {
+              setReviewActionError(error instanceof Error ? error.message : String(error))
+            }
+          }}
           onToggleCollapseMode={handleToggleCollapseMode}
           onToggleFileTreeOverlay={() => setFileTreeOverlayOpen((open) => !open)}
           setColorMode={setColorMode}

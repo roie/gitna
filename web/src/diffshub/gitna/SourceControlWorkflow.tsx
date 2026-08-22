@@ -10,11 +10,16 @@ import {
   IconSearch,
   IconSymbolDiffstatFill,
 } from '@pierre/icons'
-import type { FileTree, FileTreeOptions, GitStatus, GitStatusEntry } from '@pierre/trees'
+import type {
+  FileTree,
+  FileTreeDirectoryHandle,
+  FileTreeOptions,
+  GitStatus,
+  GitStatusEntry,
+} from '@pierre/trees'
 import { useFileTreeSearch } from '@pierre/trees/react'
 import {
   type ComponentType,
-  Fragment,
   type FormEvent,
   type ReactNode,
   useCallback,
@@ -28,12 +33,16 @@ import { ApiError } from '../../lib/api'
 import type { GraphRow } from '../../lib/graph-lanes'
 import type { ChangeKind, ChangeScope, ConflictEntry } from '../../lib/types'
 import { Button } from '../components/Button'
+import { CHROME_ICON_BUTTON_CLASS } from '../components/chromeButtonStyles'
 import { DiffsHubFileTree } from '../components/DiffsHubFileTree'
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuSeparator,
+  DropdownMenuSub,
+  DropdownMenuSubContent,
+  DropdownMenuSubTrigger,
   DropdownMenuTrigger,
 } from '../components/DropdownMenu'
 import { Input } from '../components/Input'
@@ -69,6 +78,20 @@ interface TreeFile {
   path: string
 }
 
+type RepositoryStatusFilter = 'all' | 'changed' | ChangeKind
+type RepositoryViewMode = 'tree' | 'list'
+
+const REPOSITORY_FILTERS: readonly { label: string; value: RepositoryStatusFilter }[] = [
+  { label: 'All files', value: 'all' },
+  { label: 'Changed files', value: 'changed' },
+  { label: 'Modified', value: 'modified' },
+  { label: 'Added', value: 'added' },
+  { label: 'Deleted', value: 'deleted' },
+  { label: 'Renamed', value: 'renamed' },
+  { label: 'Untracked', value: 'untracked' },
+  { label: 'Conflicted', value: 'conflicted' },
+]
+
 function mutationPaths(changes: readonly TreeFile[]): string[] {
   return [
     ...new Set(
@@ -91,6 +114,7 @@ function createRepositoryTreeSource(
   changes: readonly TreeFile[],
 ): DiffsHubFileTreeSource {
   const statusesByPath = new Map(changes.map((change) => [change.path, gitStatus(change.kind)]))
+  const identity = new Map(paths.map((path) => [path, path]))
   return {
     gitStatus: paths.flatMap((path) => {
       const status = statusesByPath.get(path)
@@ -98,8 +122,51 @@ function createRepositoryTreeSource(
     }),
     pathCount: paths.length,
     paths,
-    pathToItemId: new Map(paths.map((path) => [path, path])),
+    pathToItemId: identity,
+    itemIdToPath: identity,
   }
+}
+
+function createRepositoryListSource(
+  paths: readonly string[],
+  changes: readonly TreeFile[],
+): DiffsHubFileTreeSource {
+  const statusesByPath = new Map(changes.map((change) => [change.path, gitStatus(change.kind)]))
+  const displayPaths: string[] = []
+  const pathToItemId = new Map<string, string>()
+  const itemIdToPath = new Map<string, string>()
+  const used = new Set<string>()
+  for (const path of paths) {
+    const base = path.replaceAll('/', ' › ')
+    let display = base
+    while (used.has(display)) display += '\u2063'
+    used.add(display)
+    displayPaths.push(display)
+    pathToItemId.set(display, path)
+    itemIdToPath.set(path, display)
+  }
+  return {
+    gitStatus: displayPaths.flatMap((display) => {
+      const original = pathToItemId.get(display)!
+      const status = statusesByPath.get(original)
+      return status == null ? [] : [{ path: display, status }]
+    }),
+    pathCount: displayPaths.length,
+    paths: displayPaths,
+    pathToItemId,
+    itemIdToPath,
+  }
+}
+
+function filterRepositoryPaths(
+  paths: readonly string[],
+  changes: readonly TreeFile[],
+  filter: RepositoryStatusFilter,
+): string[] {
+  if (filter === 'all') return [...paths]
+  const kinds = new Map(changes.map((change) => [change.path, change.kind]))
+  if (filter === 'changed') return paths.filter((path) => kinds.has(path))
+  return paths.filter((path) => kinds.get(path) === filter)
 }
 
 function createTreeSource(files: readonly TreeFile[]): DiffsHubFileTreeSource {
@@ -247,6 +314,8 @@ export function GitnaSourceControl() {
   const [changesOpen, setChangesOpen] = useState(true)
   const [stagedOpen, setStagedOpen] = useState(true)
   const [graphOpen, setGraphOpen] = useState(true)
+  const [repositoryFilter, setRepositoryFilter] = useState<RepositoryStatusFilter>('all')
+  const [repositoryView, setRepositoryView] = useState<RepositoryViewMode>('tree')
   const [commitMessage, setCommitMessage] = useState('')
   const [amend, setAmend] = useState(false)
   const [localError, setLocalError] = useState<string | null>(null)
@@ -261,10 +330,29 @@ export function GitnaSourceControl() {
   const snapshot = repository.snapshot
   const staged = snapshot?.staged ?? []
   const unstaged = snapshot?.unstaged ?? []
-  const repositorySource = useMemo(
-    () => createRepositoryTreeSource(repository.repositoryPaths, [...staged, ...unstaged]),
-    [repository.repositoryPaths, staged, unstaged],
+  const changedPathCount = new Set(
+    [...staged, ...unstaged, ...(snapshot?.conflicts ?? [])].map((change) => change.path),
+  ).size
+  const branchTitle =
+    snapshot?.headBranch ??
+    (snapshot?.headOid == null ? 'Detached HEAD' : `Detached at ${snapshot.headOid.slice(0, 8)}`)
+  const repositoryChanges = useMemo(() => [...staged, ...unstaged], [staged, unstaged])
+  const filteredRepositoryPaths = useMemo(
+    () => filterRepositoryPaths(repository.repositoryPaths, repositoryChanges, repositoryFilter),
+    [repository.repositoryPaths, repositoryChanges, repositoryFilter],
   )
+  const repositorySource = useMemo(
+    () =>
+      repositoryView === 'tree'
+        ? createRepositoryTreeSource(filteredRepositoryPaths, repositoryChanges)
+        : createRepositoryListSource(filteredRepositoryPaths, repositoryChanges),
+    [filteredRepositoryPaths, repositoryChanges, repositoryView],
+  )
+  const workflowCompact = changedPathCount === 0 && repository.conflicts.length === 0
+  const repositoryCount =
+    repositoryFilter === 'all'
+      ? `${repository.repositoryPaths.length}${repository.repositoryFilesLoading ? '+' : ''}`
+      : `${filteredRepositoryPaths.length} / ${repository.repositoryPaths.length}${repository.repositoryFilesLoading ? '+' : ''}`
   const stagedSource = useMemo(() => createTreeSource(staged), [staged])
   const unstagedSource = useMemo(() => createTreeSource(unstaged), [unstaged])
 
@@ -342,7 +430,7 @@ export function GitnaSourceControl() {
         ref={containerRef}
         className="pane-stack grid min-h-0 flex-1 overflow-hidden max-md:block max-md:overflow-y-auto"
         style={{
-          gridTemplateRows: `${workflowOpen ? `minmax(142px, ${sizes[0]}fr)` : 'max-content'} 0 ${repositoryOpen ? `minmax(142px, ${sizes[1]}fr)` : 'max-content'} 0 ${graphOpen ? `minmax(142px, ${sizes[2]}fr)` : 'max-content'}`,
+          gridTemplateRows: `${workflowOpen && !workflowCompact ? `minmax(142px, ${sizes[0]}fr)` : 'max-content'} 0 ${repositoryOpen ? `minmax(142px, ${sizes[1]}fr)` : 'max-content'} 0 ${graphOpen ? `minmax(142px, ${sizes[2]}fr)` : 'max-content'}`,
         }}
       >
         <section
@@ -350,10 +438,19 @@ export function GitnaSourceControl() {
           className="section min-h-0 overflow-hidden md:flex md:flex-col"
         >
           <PaneSectionHeader
+            actions={
+              <SourceControlHeaderActions
+                onConfirm={setPendingConfirm}
+                onError={setLocalError}
+                onOpenDialog={setOperationDialog}
+                moreTrigger={moreTrigger}
+              />
+            }
             dataSection="workflow"
             icon={IconSymbolDiffstatFill}
+            count={changedPathCount}
             open={workflowOpen}
-            title="Source Control"
+            title={branchTitle}
             onOpenChange={setWorkflowOpen}
           />
           {workflowOpen && (
@@ -361,12 +458,6 @@ export function GitnaSourceControl() {
               data-pane-body="source-control"
               className="cv-mini-scrollbar min-h-0 overscroll-contain md:flex-1 md:overflow-y-auto max-md:overflow-visible"
             >
-              <SourceControlToolbar
-                onConfirm={setPendingConfirm}
-                onError={setLocalError}
-                onOpenDialog={setOperationDialog}
-                moreTrigger={moreTrigger}
-              />
               <form
                 className="commit-composer px-3 py-2"
                 onSubmit={(event) => {
@@ -445,12 +536,17 @@ export function GitnaSourceControl() {
                   onOpenChange={setChangesOpen}
                 />
               )}
+              {changedPathCount === 0 && repository.conflicts.length === 0 && (
+                <StatusRow icon={IconSymbolDiffstatFill}>
+                  <span className="text-xs">Working tree clean</span>
+                </StatusRow>
+              )}
             </div>
           )}
         </section>
 
         <PaneResizeHandle
-          disabled={!workflowOpen || !repositoryOpen}
+          disabled={!workflowOpen || workflowCompact || !repositoryOpen}
           index={0}
           onResize={resizeBy}
           onStart={startResize}
@@ -459,25 +555,37 @@ export function GitnaSourceControl() {
 
         <TreeSection
           pane
+          count={repositoryCount}
           dataSection="repository"
           emptyMessage="No repository files"
           footer={
             <>
-              {repository.repositoryFilesLoading && repository.repositoryPaths.length === 0 && (
-                <p className="px-8 py-2 text-xs text-muted-foreground">Loading files…</p>
+              {repository.repositoryFilesLoading && (
+                <p className="px-8 py-2 text-xs text-muted-foreground">
+                  {repository.repositoryPaths.length === 0
+                    ? 'Loading files…'
+                    : `Loading more files… ${repository.repositoryPaths.length.toLocaleString()}`}
+                </p>
               )}
               {repository.repositoryFilesError != null && (
                 <p className="px-8 py-2 text-xs text-red-500" role="alert">
                   {repository.repositoryFilesError}
                 </p>
               )}
-              {repository.repositoryFilesTruncated && (
-                <p className="px-8 py-2 text-xs text-amber-600 dark:text-amber-400" role="status">
-                  Showing the first 50,000 files
-                </p>
-              )}
             </>
           }
+          renderHeaderActions={(model) => (
+            <RepositoryHeaderActions
+              filter={repositoryFilter}
+              loading={repository.repositoryFilesLoading}
+              model={model}
+              paths={repositoryView === 'tree' ? filteredRepositoryPaths : []}
+              view={repositoryView}
+              onFilterChange={setRepositoryFilter}
+              onRefresh={() => void repository.refreshRepositoryFiles()}
+              onViewChange={setRepositoryView}
+            />
+          )}
           icon={<IconFileTree className="size-3" />}
           paneIcon={IconFileTree}
           modelId="gitna-repository-tree"
@@ -539,20 +647,32 @@ export function GitnaSourceControl() {
   )
 }
 
-interface ToolbarProps {
+interface SourceControlHeaderActionsProps {
   moreTrigger: React.RefObject<HTMLButtonElement | null>
   onConfirm(confirm: PendingConfirm): void
   onError(error: string | null): void
   onOpenDialog(dialog: Exclude<OperationDialog, null>): void
 }
 
-function SourceControlToolbar({ moreTrigger, onConfirm, onError, onOpenDialog }: ToolbarProps) {
+function SourceControlHeaderActions({
+  moreTrigger,
+  onConfirm,
+  onError,
+  onOpenDialog,
+}: SourceControlHeaderActionsProps) {
   const repository = useRepository()
-  const [newBranchName, setNewBranchName] = useState('')
+  const [branchQuery, setBranchQuery] = useState('')
+  const [branchMenuOpen, setBranchMenuOpen] = useState(false)
   const [moreOpen, setMoreOpen] = useState(false)
   const [publishBranch, setPublishBranch] = useState<string | null>(null)
   const [publishRemote, setPublishRemote] = useState('origin')
-  const localBranches = repository.branches.filter((branch) => !branch.remote)
+  const normalizedBranchQuery = branchQuery.trim().toLocaleLowerCase()
+  const localBranches = repository.branches.filter(
+    (branch) => !branch.remote && branch.name.toLocaleLowerCase().includes(normalizedBranchQuery),
+  )
+  const remoteBranches = repository.branches.filter(
+    (branch) => branch.remote && branch.name.toLocaleLowerCase().includes(normalizedBranchQuery),
+  )
   const remotes = useMemo(() => {
     const values = new Set<string>()
     for (const branch of repository.branches) {
@@ -623,50 +743,61 @@ function SourceControlToolbar({ moreTrigger, onConfirm, onError, onOpenDialog }:
 
   return (
     <>
-      <div className="toolbar flex h-8 shrink-0 items-center gap-1 border-b border-border px-3">
-        <DropdownMenu onOpenChange={(open) => open && void repository.refreshBranches()}>
-          <DropdownMenuTrigger asChild>
-            <Button
-              variant="ghost"
-              size="icon-only"
-              aria-label={`Switch branch · ${repository.snapshot?.headBranch ?? 'detached'}`}
-              title={`Switch branch · ${repository.snapshot?.root ?? ''}`}
-            >
-              <IconBranch className="size-3.5" />
+      <DropdownMenu
+        open={branchMenuOpen}
+        onOpenChange={(open) => {
+          setBranchMenuOpen(open)
+          if (open) void repository.refreshBranches()
+        }}
+      >
+        <DropdownMenuTrigger asChild>
+          <Button
+            variant="ghost"
+            size="icon-only"
+            aria-label={`Switch branch · ${repository.snapshot?.headBranch ?? 'detached'}`}
+            title={`Switch branch · ${repository.snapshot?.root ?? ''}`}
+            className={CHROME_ICON_BUTTON_CLASS}
+          >
+            <IconBranch className="size-4 md:size-3" />
+          </Button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="start" className="w-72 p-2">
+          <form
+            className="mb-2 flex gap-2"
+            onSubmit={(event) => {
+              event.preventDefault()
+              const name = branchQuery.trim()
+              if (name.length === 0) return
+              setBranchQuery('')
+              setBranchMenuOpen(false)
+              void run(() => repository.createBranch(name))
+            }}
+          >
+            <Input
+              inputSize="sm"
+              aria-label="Search or create branch"
+              placeholder="Search or create branch"
+              value={branchQuery}
+              onChange={(event) => setBranchQuery(event.currentTarget.value)}
+            />
+            <Button variant="outline" size="sm" type="submit" disabled={branchQuery.trim() === ''}>
+              New
             </Button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="start" className="w-72 p-2">
-            <form
-              className="mb-2 flex gap-2"
-              onSubmit={(event) => {
-                event.preventDefault()
-                const name = newBranchName.trim()
-                if (name.length === 0) return
-                setNewBranchName('')
-                void run(() => repository.operation({ op: 'create-branch', name }))
-              }}
-            >
-              <Input
-                inputSize="sm"
-                aria-label="New branch name"
-                placeholder="New branch name"
-                value={newBranchName}
-                onChange={(event) => setNewBranchName(event.currentTarget.value)}
-              />
-              <Button variant="outline" size="sm" type="submit">
-                New
-              </Button>
-            </form>
-            <DropdownMenuSeparator />
-            {localBranches.map((branch) => (
-              <Fragment key={branch.name}>
-                <DropdownMenuItem
-                  disabled={branch.current || repository.busy}
-                  onSelect={() =>
-                    void run(() => repository.operation({ op: 'switch-branch', name: branch.name }))
-                  }
-                >
-                  <span className="w-4">{branch.current ? '●' : ''}</span>
+          </form>
+          <DropdownMenuSeparator />
+          <p className="px-2 py-1 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+            Local branches
+          </p>
+          {localBranches.map((branch) =>
+            branch.current ? (
+              <DropdownMenuItem key={branch.name} disabled>
+                <span className="w-4">●</span>
+                <span className="min-w-0 flex-1 truncate">{branch.name}</span>
+              </DropdownMenuItem>
+            ) : (
+              <DropdownMenuSub key={branch.name}>
+                <DropdownMenuSubTrigger disabled={repository.busy}>
+                  <span className="w-4" />
                   <span className="min-w-0 flex-1 truncate">{branch.name}</span>
                   {branch.upstream != null && (
                     <span className="text-[10px] text-muted-foreground">
@@ -674,118 +805,135 @@ function SourceControlToolbar({ moreTrigger, onConfirm, onError, onOpenDialog }:
                       {branch.behind > 0 ? ` ↓${branch.behind}` : ''}
                     </span>
                   )}
-                </DropdownMenuItem>
-                {!branch.current && (
+                </DropdownMenuSubTrigger>
+                <DropdownMenuSubContent>
+                  <DropdownMenuItem
+                    onSelect={() => void run(() => repository.switchBranch(branch.name))}
+                  >
+                    Switch to branch
+                  </DropdownMenuItem>
                   <DropdownMenuItem
                     className="text-red-600 dark:text-red-400"
-                    disabled={repository.busy}
                     onSelect={() => void deleteBranch(branch.name)}
                   >
-                    Delete branch {branch.name}
+                    Delete branch…
                   </DropdownMenuItem>
-                )}
-              </Fragment>
-            ))}
-          </DropdownMenuContent>
-        </DropdownMenu>
-        <span className="min-w-0 flex-1 truncate text-xs text-muted-foreground">
-          {repository.snapshot?.headBranch ?? repository.snapshot?.headOid?.slice(0, 8)}
-        </span>
-        {repository.activeOpLabel != null && (
-          <span
-            className="active-op flex items-center gap-1 text-[10px] text-muted-foreground"
-            role="status"
-          >
-            <span className="size-2 animate-pulse rounded-full bg-emerald-500" />
-            {repository.activeOpLabel}
-          </span>
-        )}
-        <Button
-          variant="ghost"
-          size="icon-only"
-          disabled={repository.busy}
-          aria-label="Fetch"
-          title="Fetch"
-          onClick={() => void run(() => repository.operation({ op: 'fetch' }))}
-        >
-          <IconRefresh className="size-3.5" />
-        </Button>
-        <DropdownMenu
-          open={moreOpen}
-          onOpenChange={(open) => {
-            setMoreOpen(open)
-            if (!open) return
-            void repository.refreshBranches()
-            void repository.refreshStashes()
-            void repository.refreshTags()
-          }}
-        >
-          <DropdownMenuTrigger asChild>
-            <Button
-              ref={moreTrigger}
-              variant="ghost"
-              size="icon-only"
-              aria-label="More actions"
-              title="More actions"
-            >
-              <IconEllipsis className="size-3.5" />
-            </Button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="end">
-            <DropdownMenuItem onSelect={() => void run(() => repository.operation({ op: 'pull' }))}>
-              Pull
-            </DropdownMenuItem>
-            <DropdownMenuItem onSelect={() => void push()}>Push</DropdownMenuItem>
-            <DropdownMenuSeparator />
-            <DropdownMenuItem onSelect={() => void repository.refreshGraph()}>
-              Refresh Graph
-            </DropdownMenuItem>
-            <DropdownMenuItem onSelect={() => onOpenDialog('compare')}>
-              Compare refs…
-            </DropdownMenuItem>
-            <DropdownMenuItem onSelect={() => onOpenDialog('integrate')}>
-              Merge or rebase…
-            </DropdownMenuItem>
-            <DropdownMenuItem onSelect={() => onOpenDialog('stash')}>Stashes…</DropdownMenuItem>
-            <DropdownMenuItem onSelect={() => onOpenDialog('tags')}>Tags…</DropdownMenuItem>
-          </DropdownMenuContent>
-        </DropdownMenu>
-      </div>
-      {publishBranch != null && (
-        <div
-          className="flex items-center gap-2 border-b border-border px-3 py-2 text-xs"
-          role="status"
-        >
-          <span className="min-w-0 flex-1 truncate">
-            <b>{publishBranch}</b> has no upstream
-          </span>
-          <select
-            aria-label="Publish remote"
-            className="cursor-pointer rounded border border-border bg-background px-1 py-1 outline-none focus:border-[var(--diffshub-primary-fg)]"
-            value={publishRemote}
-            onChange={(event) => setPublishRemote(event.currentTarget.value)}
-          >
-            {(remotes.length > 0 ? remotes : ['origin']).map((remote) => (
-              <option key={remote}>{remote}</option>
-            ))}
-          </select>
+                </DropdownMenuSubContent>
+              </DropdownMenuSub>
+            ),
+          )}
+          {remoteBranches.length > 0 && (
+            <>
+              <DropdownMenuSeparator />
+              <p className="px-2 py-1 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+                Remote branches
+              </p>
+              {remoteBranches.map((branch) => {
+                const localName = branch.name.slice(branch.name.indexOf('/') + 1)
+                return (
+                  <DropdownMenuItem
+                    key={branch.name}
+                    disabled={repository.busy}
+                    onSelect={() => void run(() => repository.createBranch(localName, branch.name))}
+                  >
+                    <span className="w-4" />
+                    <span className="min-w-0 flex-1 truncate">{branch.name}</span>
+                  </DropdownMenuItem>
+                )
+              })}
+            </>
+          )}
+          {localBranches.length === 0 && remoteBranches.length === 0 && (
+            <p className="px-2 py-2 text-xs text-muted-foreground">No matching branches</p>
+          )}
+        </DropdownMenuContent>
+      </DropdownMenu>
+      <Button
+        variant="ghost"
+        size="icon-only"
+        disabled={repository.busy}
+        aria-label="Fetch"
+        title="Fetch"
+        className={CHROME_ICON_BUTTON_CLASS}
+        onClick={() => void run(() => repository.operation({ op: 'fetch' }))}
+      >
+        <IconRefresh className="size-4 md:size-3" />
+      </Button>
+      <DropdownMenu
+        open={moreOpen}
+        onOpenChange={(open) => {
+          setMoreOpen(open)
+          if (!open) return
+          void repository.refreshBranches()
+          void repository.refreshStashes()
+          void repository.refreshTags()
+        }}
+      >
+        <DropdownMenuTrigger asChild>
           <Button
-            variant="outline"
-            size="xs"
-            onClick={() =>
-              void run(async () => {
-                await repository.operation({
-                  op: 'push-upstream',
-                  remote: publishRemote,
-                  name: publishBranch,
-                })
-                setPublishBranch(null)
-              })
-            }
+            ref={moreTrigger}
+            variant="ghost"
+            size="icon-only"
+            aria-label="More actions"
+            title="More actions"
+            className={CHROME_ICON_BUTTON_CLASS}
           >
-            Publish
+            <IconEllipsis className="size-4 md:size-3" />
           </Button>
-        </div>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="end">
+          <DropdownMenuItem onSelect={() => void run(() => repository.operation({ op: 'pull' }))}>
+            Pull
+          </DropdownMenuItem>
+          <DropdownMenuItem onSelect={() => void push()}>Push</DropdownMenuItem>
+          <DropdownMenuSeparator />
+          <DropdownMenuItem onSelect={() => void repository.refreshGraph()}>
+            Refresh Graph
+          </DropdownMenuItem>
+          <DropdownMenuItem onSelect={() => onOpenDialog('compare')}>
+            Compare refs…
+          </DropdownMenuItem>
+          <DropdownMenuItem onSelect={() => onOpenDialog('integrate')}>
+            Merge or rebase…
+          </DropdownMenuItem>
+          <DropdownMenuItem onSelect={() => onOpenDialog('stash')}>Stashes…</DropdownMenuItem>
+          <DropdownMenuItem onSelect={() => onOpenDialog('tags')}>Tags…</DropdownMenuItem>
+        </DropdownMenuContent>
+      </DropdownMenu>
+      {publishBranch != null && (
+        <Modal title={`Publish ${publishBranch}`} onClose={() => setPublishBranch(null)}>
+          <div className="flex items-center gap-2 text-xs" role="status">
+            <span className="min-w-0 flex-1 truncate">
+              <b>{publishBranch}</b> has no upstream
+            </span>
+            <select
+              aria-label="Publish remote"
+              className="cursor-pointer rounded border border-border bg-background px-1 py-1 outline-none focus:border-[var(--diffshub-primary-fg)]"
+              value={publishRemote}
+              onChange={(event) => setPublishRemote(event.currentTarget.value)}
+            >
+              {(remotes.length > 0 ? remotes : ['origin']).map((remote) => (
+                <option key={remote}>{remote}</option>
+              ))}
+            </select>
+            <Button
+              variant="outline"
+              size="xs"
+              onClick={() =>
+                void run(async () => {
+                  await repository.operation({
+                    op: 'push-upstream',
+                    remote: publishRemote,
+                    name: publishBranch,
+                  })
+                  setPublishBranch(null)
+                })
+              }
+            >
+              Publish
+            </Button>
+          </div>
+        </Modal>
       )}
     </>
   )
@@ -836,7 +984,7 @@ function WorkflowSectionHeader({
 
 interface PaneSectionHeaderProps {
   actions?: ReactNode
-  count?: number
+  count?: ReactNode
   dataSection: string
   headerRef?: React.Ref<HTMLButtonElement>
   icon: ComponentType<{ className?: string }>
@@ -856,7 +1004,7 @@ function PaneSectionHeader({
   title,
 }: PaneSectionHeaderProps) {
   return (
-    <StatusRow icon={icon} className="group/pane-header shrink-0 text-sm md:mr-0">
+    <StatusRow icon={icon} className="group/pane-header shrink-0 text-sm">
       <button
         ref={headerRef}
         type="button"
@@ -872,16 +1020,138 @@ function PaneSectionHeader({
           </span>
         )}
       </button>
-      {actions != null && (
-        <div className="flex shrink-0 items-center gap-1 opacity-0 group-focus-within/pane-header:opacity-100 group-hover/pane-header:opacity-100 max-md:opacity-100">
-          {actions}
-        </div>
-      )}
+      {actions != null && <div className="flex shrink-0 items-center gap-3">{actions}</div>}
     </StatusRow>
   )
 }
 
+function setRepositoryFoldersExpanded(
+  model: FileTree | null,
+  paths: readonly string[],
+  expanded: boolean,
+): void {
+  if (model == null) return
+  const directories = new Set<string>()
+  for (const path of paths) {
+    const segments = path.split('/')
+    for (let index = 1; index < segments.length; index += 1) {
+      directories.add(segments.slice(0, index).join('/'))
+    }
+  }
+  const ordered = [...directories].sort((left, right) => {
+    const depth = left.split('/').length - right.split('/').length
+    return expanded ? depth : -depth
+  })
+  for (const path of ordered) {
+    const item = model.getItem(path)
+    if (item?.isDirectory()) {
+      const directory = item as FileTreeDirectoryHandle
+      if (expanded) directory.expand()
+      else directory.collapse()
+    }
+  }
+}
+
+function RepositoryHeaderActions({
+  filter,
+  loading,
+  model,
+  onFilterChange,
+  onRefresh,
+  onViewChange,
+  paths,
+  view,
+}: {
+  filter: RepositoryStatusFilter
+  loading: boolean
+  model: FileTree | null
+  onFilterChange(filter: RepositoryStatusFilter): void
+  onRefresh(): void
+  onViewChange(view: RepositoryViewMode): void
+  paths: readonly string[]
+  view: RepositoryViewMode
+}) {
+  const filterLabel = REPOSITORY_FILTERS.find((candidate) => candidate.value === filter)?.label
+  const filtered = filter !== 'all'
+  return (
+    <>
+      <Button
+        variant="ghost"
+        size="icon-only"
+        className={CHROME_ICON_BUTTON_CLASS}
+        aria-label="Refresh Repository"
+        title="Refresh Repository"
+        disabled={loading}
+        onClick={onRefresh}
+      >
+        <IconRefresh className="size-4 md:size-3" />
+      </Button>
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <Button
+            variant="ghost"
+            size="icon-only"
+            className={cn(CHROME_ICON_BUTTON_CLASS, 'relative')}
+            aria-label={`Repository actions · ${filterLabel ?? 'All files'}`}
+            title={`Repository actions · ${filterLabel ?? 'All files'}`}
+          >
+            <IconEllipsis className="size-4 md:size-3" />
+            {filtered && (
+              <span
+                aria-hidden="true"
+                className="absolute -right-0.5 -top-0.5 size-2 rounded-full border-[1px] border-[var(--diffshub-sidebar-bg)] bg-blue-500 dark:bg-blue-400"
+              />
+            )}
+          </Button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="end">
+          <DropdownMenuSub>
+            <DropdownMenuSubTrigger>
+              Filter by status
+              <span className="ml-auto mr-1 text-[10px] text-muted-foreground">{filterLabel}</span>
+            </DropdownMenuSubTrigger>
+            <DropdownMenuSubContent>
+              {REPOSITORY_FILTERS.map((candidate) => (
+                <DropdownMenuItem
+                  key={candidate.value}
+                  onSelect={() => onFilterChange(candidate.value)}
+                >
+                  <span className="w-4">{candidate.value === filter ? '✓' : ''}</span>
+                  {candidate.label}
+                </DropdownMenuItem>
+              ))}
+            </DropdownMenuSubContent>
+          </DropdownMenuSub>
+          <DropdownMenuSeparator />
+          <DropdownMenuItem onSelect={() => onViewChange('tree')}>
+            <span className="w-4">{view === 'tree' ? '✓' : ''}</span>
+            Show as Tree
+          </DropdownMenuItem>
+          <DropdownMenuItem onSelect={() => onViewChange('list')}>
+            <span className="w-4">{view === 'list' ? '✓' : ''}</span>
+            Show as List
+          </DropdownMenuItem>
+          <DropdownMenuSeparator />
+          <DropdownMenuItem
+            disabled={view !== 'tree' || model == null}
+            onSelect={() => setRepositoryFoldersExpanded(model, paths, true)}
+          >
+            Expand all folders
+          </DropdownMenuItem>
+          <DropdownMenuItem
+            disabled={view !== 'tree' || model == null}
+            onSelect={() => setRepositoryFoldersExpanded(model, paths, false)}
+          >
+            Collapse all folders
+          </DropdownMenuItem>
+        </DropdownMenuContent>
+      </DropdownMenu>
+    </>
+  )
+}
+
 interface TreeSectionProps {
+  count?: ReactNode
   dataSection: string
   emptyMessage: string
   footer?: ReactNode
@@ -894,6 +1164,7 @@ interface TreeSectionProps {
   open: boolean
   pane?: boolean
   paneIcon?: ComponentType<{ className?: string }>
+  renderHeaderActions?: (model: FileTree | null) => ReactNode
   renderRowActions?: FileTreeOptions['renderRowActions']
   selectedPath?: string | null
   source: DiffsHubFileTreeSource
@@ -901,6 +1172,7 @@ interface TreeSectionProps {
 }
 
 function TreeSection({
+  count,
   dataSection,
   emptyMessage,
   footer,
@@ -913,6 +1185,7 @@ function TreeSection({
   open,
   pane = false,
   paneIcon,
+  renderHeaderActions,
   renderRowActions,
   selectedPath,
   source,
@@ -927,7 +1200,8 @@ function TreeSection({
     <section
       data-pane={pane ? 'repository' : undefined}
       className={cn(
-        'section border-t border-border/70 first:border-t-0',
+        'section',
+        !pane && 'border-t border-border/70 first:border-t-0',
         pane && 'flex h-full min-h-0 flex-col overflow-hidden',
         pane && open && 'max-md:h-[50vh]',
         pane && !open && 'max-md:h-auto',
@@ -937,13 +1211,14 @@ function TreeSection({
         <PaneSectionHeader
           actions={
             <>
-              {headerActions}
               {open && model != null && source.pathCount > 0 && (
                 <TreeSearchToggle model={model} title={title} onOpenChange={setSearchOpen} />
               )}
+              {renderHeaderActions?.(model)}
+              {headerActions}
             </>
           }
-          count={source.pathCount}
+          count={count ?? source.pathCount}
           dataSection={dataSection}
           headerRef={headerRef}
           icon={paneIcon ?? IconFileTree}
@@ -1024,11 +1299,11 @@ function TreeSearchToggle({
       size="icon-only"
       aria-label={search.isOpen ? `Hide ${title} search` : `Search ${title}`}
       aria-pressed={search.isOpen}
-      className="mr-2"
+      className={CHROME_ICON_BUTTON_CLASS}
       onPointerDown={(event) => event.preventDefault()}
       onClick={() => (search.isOpen ? search.close() : search.open())}
     >
-      <IconSearch className="size-3" />
+      <IconSearch className="size-4 md:size-3" />
     </Button>
   )
 }
@@ -1253,25 +1528,49 @@ function GraphSection({ headerRef, onConfirm, onOpenChange, open }: GraphSection
   const repository = useRepository()
   const laneCount = Math.max(1, ...repository.graphRows.map((row) => row.totalColumns))
   return (
-    <section
-      data-pane="graph"
-      className="section min-h-0 overflow-hidden border-t border-border/70 md:flex md:flex-col"
-    >
+    <section data-pane="graph" className="section min-h-0 overflow-hidden md:flex md:flex-col">
       <PaneSectionHeader
         actions={
-          <Button
-            type="button"
-            variant="ghost"
-            size="icon-only"
-            aria-label="Refresh Graph"
-            title="Refresh Graph"
-            disabled={repository.graphLoading}
-            onClick={() => void repository.refreshGraph()}
-          >
-            <IconRefresh className="size-3" />
-          </Button>
+          <>
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon-only"
+              aria-label="Refresh Graph"
+              title="Refresh Graph"
+              className={CHROME_ICON_BUTTON_CLASS}
+              disabled={repository.graphLoading}
+              onClick={() => void repository.refreshGraph()}
+            >
+              <IconRefresh className="size-4 md:size-3" />
+            </Button>
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button
+                  variant="ghost"
+                  size="icon-only"
+                  aria-label="Graph actions"
+                  title="Graph actions"
+                  className={CHROME_ICON_BUTTON_CLASS}
+                >
+                  <IconEllipsis className="size-4 md:size-3" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end">
+                <DropdownMenuItem
+                  disabled={!repository.graphHasMore || repository.graphLoading}
+                  onSelect={() => void repository.loadMoreGraph()}
+                >
+                  Load more commits
+                </DropdownMenuItem>
+                <DropdownMenuItem onSelect={() => void repository.refreshGraph()}>
+                  Reload history
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          </>
         }
-        count={repository.graphRows.length}
+        count={`${repository.graphRows.length}${repository.graphHasMore ? '+' : ''}`}
         dataSection="graph"
         headerRef={headerRef}
         icon={IconBranch}
@@ -1419,6 +1718,7 @@ function GraphCommitRow({
   const open = repository.expanded[row.commit.oid] === true
   const shortOid = row.commit.oid.slice(0, 8)
   const files = repository.commitFiles[row.commit.oid]
+  const stats = repository.commitStats[row.commit.oid]
   const source = useMemo(() => createTreeSource(files ?? []), [files])
   const [treeModel, setTreeModel] = useState<FileTree | null>(null)
   const treeHeight = useNaturalTreeHeight(treeModel)
@@ -1432,7 +1732,11 @@ function GraphCommitRow({
   return (
     <div className="graph-row">
       <div className="group flex h-7 items-center gap-1 text-xs">
-        <Tooltip>
+        <Tooltip
+          onOpenChange={(tooltipOpen) => {
+            if (tooltipOpen) void repository.loadCommitDetails(row.commit.oid)
+          }}
+        >
           <TooltipTrigger asChild>
             <button
               type="button"
@@ -1483,8 +1787,30 @@ function GraphCommitRow({
                 ))}
               </div>
             )}
-            <div className="mt-2 border-t border-border pt-2 font-mono text-[11px] text-muted-foreground">
-              {shortOid}
+            <div className="mt-2 flex items-center gap-2 border-t border-border pt-2 text-[11px]">
+              {stats == null ? (
+                <span className="text-muted-foreground">
+                  {repository.filesError[row.commit.oid] ?? 'Loading statistics…'}
+                </span>
+              ) : (
+                <>
+                  <span className="text-muted-foreground">
+                    {stats.files} {stats.files === 1 ? 'file' : 'files'}
+                  </span>
+                  <span className="font-medium text-emerald-600 dark:text-emerald-400">
+                    +{stats.additions}
+                  </span>
+                  <span className="font-medium text-red-600 dark:text-red-400">
+                    −{stats.deletions}
+                  </span>
+                  {stats.binaryFiles > 0 && (
+                    <span className="text-muted-foreground">
+                      {stats.binaryFiles} {stats.binaryFiles === 1 ? 'binary' : 'binaries'}
+                    </span>
+                  )}
+                </>
+              )}
+              <span className="ml-auto font-mono text-muted-foreground">{shortOid}</span>
             </div>
           </TooltipContent>
         </Tooltip>

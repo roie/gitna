@@ -152,11 +152,15 @@ export const DiffsHubFileTree = memo(function DiffsHubFileTree({
   }, [model, onModelReady]);
 
   useEffect(() => {
+    const modelPath =
+      selectedPath == null
+        ? null
+        : (source.itemIdToPath?.get(selectedPath) ?? selectedPath);
     for (const path of model.getSelectedPaths()) {
-      if (path !== selectedPath) model.getItem(path)?.deselect();
+      if (path !== modelPath) model.getItem(path)?.deselect();
     }
-    if (selectedPath != null) model.getItem(selectedPath)?.select();
-  }, [model, selectedPath]);
+    if (modelPath != null) model.getItem(modelPath)?.select();
+  }, [model, selectedPath, source]);
 
   return (
     <ThemedFileTree

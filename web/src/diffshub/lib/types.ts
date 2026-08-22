@@ -98,6 +98,7 @@ export interface DiffsHubFileTreeSource {
   pathCount: number;
   paths: readonly string[];
   pathToItemId: ReadonlyMap<string, string>;
+  itemIdToPath?: ReadonlyMap<string, string>;
   previousSource?: DiffsHubFileTreeSource;
 }
 

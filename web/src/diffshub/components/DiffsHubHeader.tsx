@@ -1,5 +1,5 @@
-// Modified from the pinned DiffsHub donor: localRepository replaces the
-// GitHub URL editor/external link with Gitna's read-only repository identity.
+// Modified from the pinned DiffsHub donor: localRepository adapts the URL
+// editor into an explicit local repository switcher and reveal action.
 import type { DiffIndicators } from '@pierre/diffs';
 import {
   IconCheck,
@@ -17,14 +17,16 @@ import {
   IconGearFill,
   IconShare,
   IconSymbolDiffstat,
+  IconX,
 } from '@pierre/icons';
-import { type ColorMode } from '@pierre/theming';
+import type { ColorMode } from '@pierre/theming';
 import Link from '../vite/next';
 import {
   type CSSProperties,
   type Dispatch,
   memo,
   type SetStateAction,
+  useEffect,
   useLayoutEffect,
   useMemo,
   useRef,
@@ -73,6 +75,8 @@ interface HeaderProps {
   overflow: 'wrap' | 'scroll';
   onClearGitHubToken(): void;
   onSaveGitHubToken(token: string): void;
+  onSwitchRepository?(path: string): Promise<void>;
+  onRevealRepository?(): Promise<void>;
   onToggleCollapseMode(): void;
   onToggleFileTreeOverlay(): void;
   setColorMode(mode: ColorMode): void;
@@ -84,6 +88,85 @@ interface HeaderProps {
   setOverflow: Dispatch<SetStateAction<'wrap' | 'scroll'>>;
   setShowBackgrounds: Dispatch<SetStateAction<boolean>>;
   showBackgrounds: boolean;
+}
+
+function LocalRepositoryForm({
+  initialPath,
+  onSwitch,
+}: {
+  initialPath: string;
+  onSwitch?: (path: string) => Promise<void>;
+}) {
+  const [path, setPath] = useState(initialPath);
+  const [pending, setPending] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => setPath(initialPath), [initialPath]);
+
+  const showClear =
+    path.length > 0 && (path === initialPath || error !== null);
+
+  return (
+    <form
+      className="group order-last flex min-w-0 w-full items-center gap-1 overflow-hidden md:order-none md:mr-auto"
+      onSubmit={(event) => {
+        event.preventDefault();
+        const next = path.trim();
+        if (next === '' || next === initialPath || onSwitch == null) return;
+        setPending(true);
+        setError(null);
+        void onSwitch(next)
+          .catch((reason: unknown) => {
+            setError(reason instanceof Error ? reason.message : String(reason));
+          })
+          .finally(() => setPending(false));
+      }}
+    >
+      <input
+        ref={inputRef}
+        aria-label="Repository path"
+        aria-invalid={error != null}
+        className="focus:text-primary block field-sizing-content h-9 min-w-[24ch] w-full rounded-md text-sm focus-visible:outline-none aria-invalid:text-red-500 md:w-auto"
+        disabled={pending}
+        spellCheck={false}
+        title={error ?? initialPath}
+        value={path}
+        onBlur={() => {
+          if (path.trim() === '') setPath(initialPath);
+        }}
+        onChange={(event) => {
+          setPath(event.currentTarget.value);
+          setError(null);
+        }}
+        onKeyDown={(event) => {
+          if (event.key === 'Escape') {
+            setPath(initialPath);
+            setError(null);
+            inputRef.current?.blur();
+          }
+        }}
+      />
+      {showClear && (
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon-md"
+          aria-label="Clear repository path"
+          title="Clear repository path"
+          className="opacity-0 transition-opacity duration-200 will-change-auto group-focus-within:opacity-50 group-hover:opacity-50 hover:opacity-75"
+          onClick={() => {
+            setPath('');
+            setError(null);
+            inputRef.current?.focus();
+          }}
+        >
+          <IconX className="size-4" />
+        </Button>
+      )}
+      <button type="submit" hidden />
+    </form>
+  );
 }
 
 export const DiffsHubHeader = memo(function DiffsHubHeader({
@@ -103,6 +186,8 @@ export const DiffsHubHeader = memo(function DiffsHubHeader({
   overflow,
   onClearGitHubToken,
   onSaveGitHubToken,
+  onSwitchRepository,
+  onRevealRepository,
   onToggleCollapseMode,
   onToggleFileTreeOverlay,
   setColorMode,
@@ -149,12 +234,9 @@ export const DiffsHubHeader = memo(function DiffsHubHeader({
         <DiffsHubLogo />
       </Link>
       {localRepository ? (
-        <input
-          aria-label="Repository path"
-          className="order-last block h-9 min-w-0 w-full truncate rounded-md text-sm text-primary focus-visible:outline-none md:order-none md:mr-auto md:w-auto"
-          readOnly
-          title={initialUrl}
-          value={initialUrl}
+        <LocalRepositoryForm
+          initialPath={initialUrl}
+          onSwitch={onSwitchRepository}
         />
       ) : (
         <DiffUrlForm
@@ -196,6 +278,22 @@ export const DiffsHubHeader = memo(function DiffsHubHeader({
           <IconFileTreeFill className="size-4 md:size-3" />
         </Button>
         <div className="flex items-center gap-2">
+          {localRepository && onRevealRepository != null && (
+            <>
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon-md"
+                aria-label="Reveal repository in file manager"
+                title="Reveal repository in file manager"
+                className={cn(CHROME_ICON_BUTTON_CLASS, 'hidden md:flex')}
+                onClick={() => void onRevealRepository()}
+              >
+                <IconShare className="size-4 md:size-3" />
+              </Button>
+              <div className="bg-border hidden h-3 w-px md:block" />
+            </>
+          )}
           {showExternalLink && (
             <>
               <Button
