@@ -438,6 +438,7 @@ export function GitnaSourceControl() {
           className="section min-h-0 overflow-hidden md:flex md:flex-col"
         >
           <PaneSectionHeader
+            className="border-t-0"
             actions={
               <SourceControlHeaderActions
                 onConfirm={setPendingConfirm}
@@ -941,7 +942,6 @@ function SourceControlHeaderActions({
 
 interface WorkflowSectionHeaderProps {
   className?: string
-  count?: number
   dataSection: string
   headerRef?: React.Ref<HTMLButtonElement>
   icon: ReactNode
@@ -952,7 +952,6 @@ interface WorkflowSectionHeaderProps {
 
 function WorkflowSectionHeader({
   className,
-  count,
   dataSection,
   headerRef,
   icon,
@@ -965,7 +964,7 @@ function WorkflowSectionHeader({
       ref={headerRef}
       type="button"
       className={cn(
-        'section-header flex h-8 w-full min-w-0 cursor-pointer items-center gap-1.5 px-3 text-left text-xs hover:bg-muted focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-[var(--diffshub-primary-fg)]',
+        'section-header flex h-8 w-full min-w-0 cursor-pointer items-center gap-1.5 px-3 text-left text-xs focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-[var(--diffshub-primary-fg)]',
         className,
       )}
       data-section={dataSection}
@@ -975,15 +974,13 @@ function WorkflowSectionHeader({
       <IconChevronSm className={cn('size-3 transition-transform', !open && '-rotate-90')} />
       {icon}
       <span className="section-title min-w-0 flex-1 truncate font-medium">{title}</span>
-      {count != null && (
-        <span className="section-count tabular-nums text-muted-foreground">{count}</span>
-      )}
     </button>
   )
 }
 
 interface PaneSectionHeaderProps {
   actions?: ReactNode
+  className?: string
   count?: ReactNode
   dataSection: string
   headerRef?: React.Ref<HTMLButtonElement>
@@ -995,6 +992,7 @@ interface PaneSectionHeaderProps {
 
 function PaneSectionHeader({
   actions,
+  className,
   count,
   dataSection,
   headerRef,
@@ -1004,7 +1002,7 @@ function PaneSectionHeader({
   title,
 }: PaneSectionHeaderProps) {
   return (
-    <StatusRow icon={icon} className="group/pane-header shrink-0 text-sm">
+    <StatusRow icon={icon} className={cn('group/pane-header shrink-0 text-sm', className)}>
       <button
         ref={headerRef}
         type="button"
@@ -1227,10 +1225,9 @@ function TreeSection({
           onOpenChange={onOpenChange}
         />
       ) : (
-        <div className="group/tree-header flex shrink-0 items-center">
+        <div className="group/tree-header flex h-8 shrink-0 items-center hover:bg-muted focus-within:bg-muted">
           <WorkflowSectionHeader
-            className="flex-1"
-            count={source.pathCount}
+            className="min-w-0 flex-1"
             dataSection={dataSection}
             headerRef={headerRef}
             icon={icon}
@@ -1243,9 +1240,9 @@ function TreeSection({
               {headerActions}
             </div>
           )}
-          {open && model != null && source.pathCount > 0 && (
-            <TreeSearchToggle model={model} title={title} onOpenChange={setSearchOpen} />
-          )}
+          <span className="section-count min-w-7 shrink-0 pr-3 text-right text-xs tabular-nums text-muted-foreground">
+            {source.pathCount}
+          </span>
         </div>
       )}
       {open && (
@@ -1340,11 +1337,27 @@ function ChangeSection({
   )
   const selectedPath =
     repository.selection?.scope === scope ? repository.selection.change.path : null
+  const discardChanges = useCallback(
+    async (targetChanges: readonly TreeFile[]) => {
+      const tracked = targetChanges.filter((change) => change.kind !== 'untracked')
+      const untracked = targetChanges.filter((change) => change.kind === 'untracked')
+      if (tracked.length > 0) {
+        await repository.mutate({ op: 'discard', paths: mutationPaths(tracked) })
+      }
+      if (untracked.length > 0) {
+        await repository.mutate({ op: 'delete', paths: mutationPaths(untracked) })
+      }
+    },
+    [repository],
+  )
   const renderRowActions = useCallback<NonNullable<FileTreeOptions['renderRowActions']>>(
     ({ item, row }) => {
-      if (row.kind !== 'file') return null
-      const change = changesByPath.get(item.path)
-      if (change == null) return null
+      const itemPath = item.path.replace(/[\\/]+$/, '')
+      const itemChanges =
+        row.kind === 'file'
+          ? [changesByPath.get(itemPath)].filter((change): change is TreeFile => change != null)
+          : changes.filter((change) => change.path.startsWith(`${itemPath}/`))
+      if (itemChanges.length === 0) return null
       if (scope === 'staged') {
         return [
           {
@@ -1354,7 +1367,7 @@ function ChangeSection({
             disabled: repository.busy,
             onAction: () =>
               void onRun(() =>
-                repository.mutate({ op: 'unstage', paths: mutationPaths([change]) }),
+                repository.mutate({ op: 'unstage', paths: mutationPaths(itemChanges) }),
               ),
           },
         ]
@@ -1369,16 +1382,14 @@ function ChangeSection({
             onConfirm({
               title: `Discard changes in ${item.name}?`,
               message: `${repository.snapshot?.root ?? 'Repository'} on ${repository.snapshot?.headBranch ?? 'detached HEAD'}. ${
-                change.kind === 'untracked'
-                  ? 'This permanently deletes the untracked file.'
-                  : 'This restores the file from the index.'
+                row.kind === 'directory'
+                  ? 'This restores tracked files and permanently deletes untracked files in this folder.'
+                  : itemChanges[0].kind === 'untracked'
+                    ? 'This permanently deletes the untracked file.'
+                    : 'This restores the file from the index.'
               } Gitna cannot undo this action.`,
               confirmLabel: 'Discard changes',
-              run: () =>
-                repository.mutate({
-                  op: change.kind === 'untracked' ? 'delete' : 'discard',
-                  paths: mutationPaths([change]),
-                }),
+              run: () => discardChanges(itemChanges),
             }),
         },
         {
@@ -1387,11 +1398,11 @@ function ChangeSection({
           icon: { name: 'gitna-action-stage' },
           disabled: repository.busy,
           onAction: () =>
-            void onRun(() => repository.mutate({ op: 'stage', paths: mutationPaths([change]) })),
+            void onRun(() => repository.mutate({ op: 'stage', paths: mutationPaths(itemChanges) })),
         },
       ]
     },
-    [changesByPath, onConfirm, onRun, repository, scope],
+    [changes, changesByPath, discardChanges, onConfirm, onRun, repository, scope],
   )
 
   const headerActions =
@@ -1423,22 +1434,7 @@ function ChangeSection({
               title: 'Discard all changes?',
               message: `${repository.snapshot?.root ?? 'Repository'} on ${repository.snapshot?.headBranch ?? 'detached HEAD'}. This restores tracked files and permanently deletes untracked files. Gitna cannot undo this action.`,
               confirmLabel: 'Discard all changes',
-              run: async () => {
-                const tracked = changes.filter((change) => change.kind !== 'untracked')
-                const untracked = changes.filter((change) => change.kind === 'untracked')
-                if (tracked.length > 0) {
-                  await repository.mutate({
-                    op: 'discard',
-                    paths: mutationPaths(tracked),
-                  })
-                }
-                if (untracked.length > 0) {
-                  await repository.mutate({
-                    op: 'delete',
-                    paths: mutationPaths(untracked),
-                  })
-                }
-              },
+              run: () => discardChanges(changes),
             })
           }
         >

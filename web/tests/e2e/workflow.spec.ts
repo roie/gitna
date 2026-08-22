@@ -1,5 +1,5 @@
 import { spawnSync } from 'node:child_process'
-import { chmodSync, rmSync, writeFileSync } from 'node:fs'
+import { chmodSync, mkdirSync, rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import type { Page } from '@playwright/test'
 import { expect, test } from './fixtures.js'
@@ -39,22 +39,28 @@ test('staging loop preserves VS Code section order and visibility', async ({ pag
   if (process.env.GITNA_CAPTURE_M4) {
     await page.screenshot({ path: '/tmp/gitna-m4-desktop.png', fullPage: true })
   }
-  await page.getByRole('button', { name: 'Search Changes' }).click()
-  const treeSearch = changesTree.getByRole('textbox', { name: 'Search…' })
-  await expect(treeSearch).toBeVisible()
-  await treeSearch.fill('modified')
-  await expect(
-    changesTree.getByRole('treeitem', { name: 'modified.txt', exact: true }),
-  ).toBeVisible()
-  await page.getByRole('button', { name: 'Hide Changes search' }).click()
+  await expect(page.getByRole('button', { name: 'Search Changes' })).toHaveCount(0)
+  await expect(page.getByRole('button', { name: 'Search Staged Changes' })).toHaveCount(0)
 
   const modifiedRow = changesTree.getByRole('treeitem', {
     name: 'modified.txt',
     exact: true,
   })
+  const changesHeader = changes.locator('..')
   await changes.hover()
-  await expect(page.getByRole('button', { name: 'Discard all changes', exact: true })).toBeVisible()
-  await expect(page.getByRole('button', { name: 'Stage all changes', exact: true })).toBeVisible()
+  expect(
+    await changesHeader.evaluate((element) => getComputedStyle(element).backgroundColor),
+  ).not.toBe('rgba(0, 0, 0, 0)')
+  const discardAll = page.getByRole('button', { name: 'Discard all changes', exact: true })
+  const stageAll = page.getByRole('button', { name: 'Stage all changes', exact: true })
+  await expect(discardAll).toBeVisible()
+  await expect(stageAll).toBeVisible()
+  const changeCount = changesHeader.locator('.section-count')
+  const countBox = await changeCount.boundingBox()
+  const stageAllBox = await stageAll.boundingBox()
+  expect(countBox).not.toBeNull()
+  expect(stageAllBox).not.toBeNull()
+  expect(countBox!.x).toBeGreaterThan(stageAllBox!.x)
   if (process.env.GITNA_CAPTURE_M4) {
     await page.screenshot({ path: '/tmp/gitna-section-actions.png', fullPage: true })
   }
@@ -77,7 +83,7 @@ test('staging loop preserves VS Code section order and visibility', async ({ pag
   await confirmation.getByRole('button', { name: 'Cancel' }).click()
   await modifiedRow.hover()
   await stageModified.click()
-  await expect.poll(async () => (await staged.textContent()) ?? '').toContain('4')
+  await expect(staged.locator('..').locator('.section-count')).toHaveText('4')
   await expect(
     stagedTree.getByRole('treeitem', { name: 'modified.txt', exact: true }),
   ).toBeVisible()
@@ -104,6 +110,35 @@ test('staging loop preserves VS Code section order and visibility', async ({ pag
   await expect(page.getByText('Refresh Graph', { exact: true })).toBeVisible()
   await page.keyboard.press('F1')
   await expect(page.getByText('Refresh Graph', { exact: true })).not.toBeVisible()
+})
+
+test('folder rows expose stage, unstage, and discard actions on hover', async ({ page, app }) => {
+  const folder = join(app.repo, 'nested')
+  mkdirSync(folder)
+  writeFileSync(join(folder, 'one.txt'), 'one\n')
+  writeFileSync(join(folder, 'two.txt'), 'two\n')
+
+  await page.goto(app.url)
+  const changesTree = page.locator('#gitna-unstaged-tree__tree')
+  const stagedTree = page.locator('#gitna-staged-tree__tree')
+  const changedFolder = changesTree.getByRole('treeitem', { name: 'nested', exact: true })
+
+  await changedFolder.hover()
+  await expect(changesTree.getByRole('button', { name: 'Discard changes in nested' })).toBeVisible()
+  await changesTree.getByRole('button', { name: 'Stage nested' }).click()
+
+  const stagedFolder = stagedTree.getByRole('treeitem', { name: 'nested', exact: true })
+  await expect(stagedFolder).toBeVisible()
+  await stagedFolder.hover()
+  await stagedTree.getByRole('button', { name: 'Unstage nested' }).click()
+
+  await expect(changedFolder).toBeVisible()
+  await changedFolder.hover()
+  await changesTree.getByRole('button', { name: 'Discard changes in nested' }).click()
+  const confirmation = page.getByRole('alertdialog')
+  await expect(confirmation).toContainText('permanently deletes untracked files in this folder')
+  await confirmation.getByRole('button', { name: 'Discard changes' }).click()
+  await expect(changedFolder).toHaveCount(0)
 })
 
 test('tree navigation and Pierre header hunk actions preserve the other hunk', async ({
