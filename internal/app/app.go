@@ -51,7 +51,7 @@ func (a *repoAdapter) Snapshot(ctx context.Context) (protocol.RepoSnapshot, erro
 }
 
 func (a *repoAdapter) RepositoryFiles(ctx context.Context, after string, limit int) (protocol.RepositoryFiles, error) {
-	return a.current().RepositoryFiles(ctx, after, limit)
+	return a.current().RepositoryFiles(ctx, a.runner, after, limit)
 }
 
 func (a *repoAdapter) Diff(ctx context.Context, scope protocol.DiffScope, opts protocol.DiffOptions) (protocol.FileDiff, error) {

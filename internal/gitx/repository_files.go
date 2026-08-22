@@ -1,60 +1,63 @@
 package gitx
 
 import (
+	"bytes"
 	"context"
-	"io/fs"
+	"fmt"
+	"os"
 	"path/filepath"
+	"sort"
+	"strings"
 
 	"github.com/roie/gitna/internal/protocol"
 )
 
-// RepositoryFiles returns one bounded page of the worktree's complete visible
-// file set. The walk never follows symlinks and excludes Git's private metadata.
+// RepositoryFiles returns one bounded page of the worktree's tracked and
+// non-ignored untracked files. Git's standard excludes keep local build output,
+// private notes, and other intentionally ignored files out of the Explorer.
 // after is the last slash-separated path from the previous page.
-func (r Repository) RepositoryFiles(ctx context.Context, after string, limit int) (protocol.RepositoryFiles, error) {
+func (r Repository) RepositoryFiles(ctx context.Context, runner Runner, after string, limit int) (protocol.RepositoryFiles, error) {
 	result := protocol.RepositoryFiles{Paths: make([]string, 0)}
 	if limit <= 0 {
 		return result, nil
 	}
 
-	err := filepath.WalkDir(r.Root, func(path string, entry fs.DirEntry, walkErr error) error {
-		if walkErr != nil {
-			return walkErr
-		}
-		if err := ctx.Err(); err != nil {
-			return err
-		}
-		if path == r.Root {
-			return nil
-		}
+	res, err := runner.Run(ctx, r.Root, "ls-files", "-z", "--cached", "--others", "--exclude-standard")
+	if err != nil {
+		return protocol.RepositoryFiles{}, err
+	}
+	if res.ExitCode != 0 {
+		return protocol.RepositoryFiles{}, fmt.Errorf("gitx: list repository files: %s", strings.TrimSpace(string(res.Stderr)))
+	}
 
-		rel, err := filepath.Rel(r.Root, path)
-		if err != nil {
-			return err
+	rawPaths := bytes.Split(res.Stdout, []byte{0})
+	paths := make([]string, 0, len(rawPaths))
+	for _, raw := range rawPaths {
+		if len(raw) > 0 {
+			paths = append(paths, string(raw))
 		}
-		if rel == ".git" {
-			if entry.IsDir() {
-				return filepath.SkipDir
+	}
+	sort.Strings(paths)
+
+	for _, path := range paths {
+		if err := ctx.Err(); err != nil {
+			return protocol.RepositoryFiles{}, err
+		}
+		if path <= after {
+			continue
+		}
+		if _, err := os.Lstat(filepath.Join(r.Root, filepath.FromSlash(path))); err != nil {
+			if os.IsNotExist(err) {
+				continue
 			}
-			return nil
-		}
-		if entry.IsDir() {
-			return nil
-		}
-		rel = filepath.ToSlash(rel)
-		if rel <= after {
-			return nil
+			return protocol.RepositoryFiles{}, err
 		}
 		if len(result.Paths) == limit {
 			result.Truncated = true
 			result.NextCursor = result.Paths[len(result.Paths)-1]
-			return fs.SkipAll
+			break
 		}
-		result.Paths = append(result.Paths, rel)
-		return nil
-	})
-	if err != nil {
-		return protocol.RepositoryFiles{}, err
+		result.Paths = append(result.Paths, path)
 	}
 	return result, nil
 }

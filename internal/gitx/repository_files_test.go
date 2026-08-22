@@ -8,8 +8,8 @@ import (
 	"testing"
 )
 
-func TestRepositoryFilesListsWorktreeWithoutGitMetadata(t *testing.T) {
-	root := t.TempDir()
+func TestRepositoryFilesListsTrackedAndNonIgnoredWorktreeFiles(t *testing.T) {
+	root := initTestRepo(t)
 	mustWrite := func(path, content string) {
 		t.Helper()
 		full := filepath.Join(root, filepath.FromSlash(path))
@@ -20,10 +20,14 @@ func TestRepositoryFilesListsWorktreeWithoutGitMetadata(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	mustWrite(".git/config", "private")
+	mustWrite(".gitignore", "ignored/\n")
+	mustWrite(".git/info/exclude", "/docs\n")
 	mustWrite(".env", "visible")
-	mustWrite("ignored/generated.js", "visible")
+	mustWrite("docs/design.md", "private notes")
+	mustWrite("ignored/generated.js", "generated")
 	mustWrite("src/main.go", "package main")
+	runGit(t, root, "add", ".gitignore", "src/main.go")
+	runGit(t, root, "commit", "-q", "-m", "add files")
 
 	external := t.TempDir()
 	mustExternal := filepath.Join(external, "secret")
@@ -34,11 +38,11 @@ func TestRepositoryFilesListsWorktreeWithoutGitMetadata(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	files, err := (Repository{Root: root, GitDir: filepath.Join(root, ".git")}).RepositoryFiles(context.Background(), "", 100)
+	files, err := (Repository{Root: root, GitDir: filepath.Join(root, ".git")}).RepositoryFiles(context.Background(), &ExecRunner{}, "", 100)
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := []string{".env", "external-link", "ignored/generated.js", "src/main.go"}
+	want := []string{".env", ".gitignore", "external-link", "src/main.go"}
 	if !reflect.DeepEqual(files.Paths, want) {
 		t.Fatalf("paths = %#v, want %#v", files.Paths, want)
 	}
@@ -48,13 +52,13 @@ func TestRepositoryFilesListsWorktreeWithoutGitMetadata(t *testing.T) {
 }
 
 func TestRepositoryFilesReportsTruncation(t *testing.T) {
-	root := t.TempDir()
+	root := initTestRepo(t)
 	for _, name := range []string{"a.txt", "b.txt", "c.txt"} {
 		if err := os.WriteFile(filepath.Join(root, name), []byte(name), 0o644); err != nil {
 			t.Fatal(err)
 		}
 	}
-	files, err := (Repository{Root: root}).RepositoryFiles(context.Background(), "", 2)
+	files, err := (Repository{Root: root}).RepositoryFiles(context.Background(), &ExecRunner{}, "", 2)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -62,7 +66,7 @@ func TestRepositoryFilesReportsTruncation(t *testing.T) {
 		t.Fatalf("files = %#v", files)
 	}
 
-	next, err := (Repository{Root: root}).RepositoryFiles(context.Background(), files.NextCursor, 2)
+	next, err := (Repository{Root: root}).RepositoryFiles(context.Background(), &ExecRunner{}, files.NextCursor, 2)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -74,7 +78,7 @@ func TestRepositoryFilesReportsTruncation(t *testing.T) {
 func TestRepositoryFilesHonorsCanceledContext(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
-	_, err := (Repository{Root: t.TempDir()}).RepositoryFiles(ctx, "", 10)
+	_, err := (Repository{Root: initTestRepo(t)}).RepositoryFiles(ctx, &ExecRunner{}, "", 10)
 	if err != context.Canceled {
 		t.Fatalf("error = %v, want context canceled", err)
 	}

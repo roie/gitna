@@ -40,7 +40,7 @@ func (w *workbenchRepo) Snapshot(ctx context.Context) (protocol.RepoSnapshot, er
 }
 
 func (w *workbenchRepo) RepositoryFiles(ctx context.Context, after string, limit int) (protocol.RepositoryFiles, error) {
-	return w.repo.RepositoryFiles(ctx, after, limit)
+	return w.repo.RepositoryFiles(ctx, w.runner, after, limit)
 }
 
 func (w *workbenchRepo) Diff(ctx context.Context, scope protocol.DiffScope, opts protocol.DiffOptions) (protocol.FileDiff, error) {
