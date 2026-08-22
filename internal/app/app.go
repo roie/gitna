@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"os"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/roie/gitna/internal/browser"
@@ -16,7 +17,6 @@ import (
 	"github.com/roie/gitna/internal/protocol"
 	"github.com/roie/gitna/internal/server"
 	"github.com/roie/gitna/internal/session"
-	"github.com/roie/gitna/internal/watch"
 	"github.com/roie/gitna/internal/webui"
 )
 
@@ -25,78 +25,95 @@ import (
 // interleave Git index operations.
 type repoAdapter struct {
 	runner *gitx.ExecRunner
-	repo   gitx.Repository
 	queue  *gitx.MutationQueue
+
+	mu   sync.RWMutex
+	repo gitx.Repository
 }
 
-func (a repoAdapter) Snapshot(ctx context.Context) (protocol.RepoSnapshot, error) {
-	return a.repo.Status(ctx, a.runner)
+func (a *repoAdapter) current() gitx.Repository {
+	a.mu.RLock()
+	defer a.mu.RUnlock()
+	return a.repo
 }
 
-func (a repoAdapter) RepositoryFiles(ctx context.Context, limit int) (protocol.RepositoryFiles, error) {
-	return a.repo.RepositoryFiles(ctx, limit)
-}
-
-func (a repoAdapter) Diff(ctx context.Context, scope protocol.DiffScope, opts protocol.DiffOptions) (protocol.FileDiff, error) {
-	return a.repo.Diff(ctx, a.runner, scope, opts)
-}
-
-func (a repoAdapter) Review(ctx context.Context, scope protocol.DiffScope, opts protocol.DiffOptions) (protocol.ReviewResponse, error) {
-	return a.repo.Review(ctx, a.runner, scope, opts)
-}
-
-func (a repoAdapter) History(ctx context.Context, skip, limit int) ([]protocol.GraphCommit, error) {
-	return a.repo.History(ctx, a.runner, skip, limit)
-}
-
-func (a repoAdapter) FilesChanged(ctx context.Context, oid string) ([]protocol.CommitFile, error) {
-	return a.repo.ChangedFiles(ctx, a.runner, oid)
-}
-
-func (a repoAdapter) Branches(ctx context.Context) ([]protocol.Branch, error) {
-	return a.repo.ListBranches(ctx, a.runner)
-}
-
-func (a repoAdapter) StagePaths(ctx context.Context, paths []string) error {
-	return a.queue.Do(ctx, func(ctx context.Context) error {
-		return a.repo.Stage(ctx, a.runner, paths)
+func (a *repoAdapter) switchTo(ctx context.Context, repo gitx.Repository) error {
+	return a.queue.Do(ctx, func(context.Context) error {
+		a.mu.Lock()
+		a.repo = repo
+		a.mu.Unlock()
+		return nil
 	})
 }
 
-func (a repoAdapter) UnstagePaths(ctx context.Context, paths []string) error {
+func (a *repoAdapter) Snapshot(ctx context.Context) (protocol.RepoSnapshot, error) {
+	return a.current().Status(ctx, a.runner)
+}
+
+func (a *repoAdapter) RepositoryFiles(ctx context.Context, after string, limit int) (protocol.RepositoryFiles, error) {
+	return a.current().RepositoryFiles(ctx, after, limit)
+}
+
+func (a *repoAdapter) Diff(ctx context.Context, scope protocol.DiffScope, opts protocol.DiffOptions) (protocol.FileDiff, error) {
+	return a.current().Diff(ctx, a.runner, scope, opts)
+}
+
+func (a *repoAdapter) Review(ctx context.Context, scope protocol.DiffScope, opts protocol.DiffOptions) (protocol.ReviewResponse, error) {
+	return a.current().Review(ctx, a.runner, scope, opts)
+}
+
+func (a *repoAdapter) History(ctx context.Context, skip, limit int) ([]protocol.GraphCommit, error) {
+	return a.current().History(ctx, a.runner, skip, limit)
+}
+
+func (a *repoAdapter) FilesChanged(ctx context.Context, oid string) (protocol.CommitFiles, error) {
+	return a.current().CommitDetails(ctx, a.runner, oid)
+}
+
+func (a *repoAdapter) Branches(ctx context.Context) ([]protocol.Branch, error) {
+	return a.current().ListBranches(ctx, a.runner)
+}
+
+func (a *repoAdapter) StagePaths(ctx context.Context, paths []string) error {
 	return a.queue.Do(ctx, func(ctx context.Context) error {
-		return a.repo.Unstage(ctx, a.runner, paths)
+		return a.current().Stage(ctx, a.runner, paths)
 	})
 }
 
-func (a repoAdapter) DiscardTracked(ctx context.Context, paths []string) error {
+func (a *repoAdapter) UnstagePaths(ctx context.Context, paths []string) error {
 	return a.queue.Do(ctx, func(ctx context.Context) error {
-		return a.repo.DiscardTracked(ctx, a.runner, paths)
+		return a.current().Unstage(ctx, a.runner, paths)
 	})
 }
 
-func (a repoAdapter) DeleteUntracked(ctx context.Context, paths []string) error {
+func (a *repoAdapter) DiscardTracked(ctx context.Context, paths []string) error {
 	return a.queue.Do(ctx, func(ctx context.Context) error {
-		return a.repo.DeleteUntracked(ctx, a.runner, paths)
+		return a.current().DiscardTracked(ctx, a.runner, paths)
 	})
 }
 
-func (a repoAdapter) StagePatch(ctx context.Context, patch []byte) error {
+func (a *repoAdapter) DeleteUntracked(ctx context.Context, paths []string) error {
 	return a.queue.Do(ctx, func(ctx context.Context) error {
-		return a.repo.ApplyPatch(ctx, a.runner, patch, false)
+		return a.current().DeleteUntracked(ctx, a.runner, paths)
 	})
 }
 
-func (a repoAdapter) UnstagePatch(ctx context.Context, patch []byte) error {
+func (a *repoAdapter) StagePatch(ctx context.Context, patch []byte) error {
 	return a.queue.Do(ctx, func(ctx context.Context) error {
-		return a.repo.ApplyPatch(ctx, a.runner, patch, true)
+		return a.current().ApplyPatch(ctx, a.runner, patch, false)
 	})
 }
 
-func (a repoAdapter) Commit(ctx context.Context, req protocol.CommitRequest) (protocol.OperationResult, error) {
+func (a *repoAdapter) UnstagePatch(ctx context.Context, patch []byte) error {
+	return a.queue.Do(ctx, func(ctx context.Context) error {
+		return a.current().ApplyPatch(ctx, a.runner, patch, true)
+	})
+}
+
+func (a *repoAdapter) Commit(ctx context.Context, req protocol.CommitRequest) (protocol.OperationResult, error) {
 	var result protocol.OperationResult
 	err := a.queue.Do(ctx, func(ctx context.Context) error {
-		res, err := a.repo.Commit(ctx, a.runner, req.Message, req.Amend)
+		res, err := a.current().Commit(ctx, a.runner, req.Message, req.Amend)
 		result.OK = res.ExitCode == 0
 		result.ExitCode = res.ExitCode
 		result.Stdout = strings.TrimSpace(string(res.Stdout))
@@ -106,193 +123,193 @@ func (a repoAdapter) Commit(ctx context.Context, req protocol.CommitRequest) (pr
 	return result, err
 }
 
-func (a repoAdapter) CreateBranch(ctx context.Context, name, start string) error {
+func (a *repoAdapter) CreateBranch(ctx context.Context, name, start string) error {
 	return a.queue.Do(ctx, func(ctx context.Context) error {
-		return a.repo.CreateBranch(ctx, a.runner, name, start)
+		return a.current().CreateBranch(ctx, a.runner, name, start)
 	})
 }
 
-func (a repoAdapter) SwitchBranch(ctx context.Context, name string) error {
+func (a *repoAdapter) SwitchBranch(ctx context.Context, name string) error {
 	return a.queue.Do(ctx, func(ctx context.Context) error {
-		return a.repo.SwitchBranch(ctx, a.runner, name)
+		return a.current().SwitchBranch(ctx, a.runner, name)
 	})
 }
 
-func (a repoAdapter) DeleteBranch(ctx context.Context, name string, force bool) error {
+func (a *repoAdapter) DeleteBranch(ctx context.Context, name string, force bool) error {
 	return a.queue.Do(ctx, func(ctx context.Context) error {
-		return a.repo.DeleteBranch(ctx, a.runner, name, force)
+		return a.current().DeleteBranch(ctx, a.runner, name, force)
 	})
 }
 
-func (a repoAdapter) Fetch(ctx context.Context) error {
+func (a *repoAdapter) Fetch(ctx context.Context) error {
 	return a.queue.Do(ctx, func(ctx context.Context) error {
-		return a.repo.Fetch(ctx, a.runner)
+		return a.current().Fetch(ctx, a.runner)
 	})
 }
 
-func (a repoAdapter) Pull(ctx context.Context) error {
+func (a *repoAdapter) Pull(ctx context.Context) error {
 	return a.queue.Do(ctx, func(ctx context.Context) error {
-		return a.repo.Pull(ctx, a.runner)
+		return a.current().Pull(ctx, a.runner)
 	})
 }
 
-func (a repoAdapter) Push(ctx context.Context) error {
+func (a *repoAdapter) Push(ctx context.Context) error {
 	return a.queue.Do(ctx, func(ctx context.Context) error {
-		return a.repo.Push(ctx, a.runner)
+		return a.current().Push(ctx, a.runner)
 	})
 }
 
-func (a repoAdapter) PushSetUpstream(ctx context.Context, remote, branch string) error {
+func (a *repoAdapter) PushSetUpstream(ctx context.Context, remote, branch string) error {
 	return a.queue.Do(ctx, func(ctx context.Context) error {
-		return a.repo.PushSetUpstream(ctx, a.runner, remote, branch)
+		return a.current().PushSetUpstream(ctx, a.runner, remote, branch)
 	})
 }
 
-func (a repoAdapter) Stashes(ctx context.Context) ([]protocol.StashEntry, error) {
-	return a.repo.ListStashes(ctx, a.runner)
+func (a *repoAdapter) Stashes(ctx context.Context) ([]protocol.StashEntry, error) {
+	return a.current().ListStashes(ctx, a.runner)
 }
 
-func (a repoAdapter) StashPush(ctx context.Context, message string, includeUntracked bool) error {
+func (a *repoAdapter) StashPush(ctx context.Context, message string, includeUntracked bool) error {
 	return a.queue.Do(ctx, func(ctx context.Context) error {
-		return a.repo.StashPush(ctx, a.runner, message, includeUntracked)
+		return a.current().StashPush(ctx, a.runner, message, includeUntracked)
 	})
 }
 
-func (a repoAdapter) StashApply(ctx context.Context, ref string) error {
+func (a *repoAdapter) StashApply(ctx context.Context, ref string) error {
 	return a.queue.Do(ctx, func(ctx context.Context) error {
-		return a.repo.StashApply(ctx, a.runner, ref)
+		return a.current().StashApply(ctx, a.runner, ref)
 	})
 }
 
-func (a repoAdapter) StashPop(ctx context.Context, ref string) error {
+func (a *repoAdapter) StashPop(ctx context.Context, ref string) error {
 	return a.queue.Do(ctx, func(ctx context.Context) error {
-		return a.repo.StashPop(ctx, a.runner, ref)
+		return a.current().StashPop(ctx, a.runner, ref)
 	})
 }
 
-func (a repoAdapter) StashDrop(ctx context.Context, ref string) error {
+func (a *repoAdapter) StashDrop(ctx context.Context, ref string) error {
 	return a.queue.Do(ctx, func(ctx context.Context) error {
-		return a.repo.StashDrop(ctx, a.runner, ref)
+		return a.current().StashDrop(ctx, a.runner, ref)
 	})
 }
 
-func (a repoAdapter) Tags(ctx context.Context) ([]protocol.Tag, error) {
-	return a.repo.ListTags(ctx, a.runner)
+func (a *repoAdapter) Tags(ctx context.Context) ([]protocol.Tag, error) {
+	return a.current().ListTags(ctx, a.runner)
 }
 
-func (a repoAdapter) CreateTag(ctx context.Context, name, target, message string) error {
+func (a *repoAdapter) CreateTag(ctx context.Context, name, target, message string) error {
 	return a.queue.Do(ctx, func(ctx context.Context) error {
-		return a.repo.CreateTag(ctx, a.runner, name, target, message)
+		return a.current().CreateTag(ctx, a.runner, name, target, message)
 	})
 }
 
-func (a repoAdapter) DeleteTag(ctx context.Context, name string) error {
+func (a *repoAdapter) DeleteTag(ctx context.Context, name string) error {
 	return a.queue.Do(ctx, func(ctx context.Context) error {
-		return a.repo.DeleteTag(ctx, a.runner, name)
+		return a.current().DeleteTag(ctx, a.runner, name)
 	})
 }
 
-func (a repoAdapter) PushTag(ctx context.Context, remote, name string) error {
+func (a *repoAdapter) PushTag(ctx context.Context, remote, name string) error {
 	return a.queue.Do(ctx, func(ctx context.Context) error {
-		return a.repo.PushTag(ctx, a.runner, remote, name)
+		return a.current().PushTag(ctx, a.runner, remote, name)
 	})
 }
 
-func (a repoAdapter) CherryPick(ctx context.Context, oid string) error {
+func (a *repoAdapter) CherryPick(ctx context.Context, oid string) error {
 	return a.queue.Do(ctx, func(ctx context.Context) error {
-		return a.repo.CherryPick(ctx, a.runner, oid)
+		return a.current().CherryPick(ctx, a.runner, oid)
 	})
 }
 
-func (a repoAdapter) CherryPickAbort(ctx context.Context) error {
+func (a *repoAdapter) CherryPickAbort(ctx context.Context) error {
 	return a.queue.Do(ctx, func(ctx context.Context) error {
-		return a.repo.CherryPickAbort(ctx, a.runner)
+		return a.current().CherryPickAbort(ctx, a.runner)
 	})
 }
 
-func (a repoAdapter) CherryPickContinue(ctx context.Context) error {
+func (a *repoAdapter) CherryPickContinue(ctx context.Context) error {
 	return a.queue.Do(ctx, func(ctx context.Context) error {
-		return a.repo.CherryPickContinue(ctx, a.runner)
+		return a.current().CherryPickContinue(ctx, a.runner)
 	})
 }
 
-func (a repoAdapter) Revert(ctx context.Context, oid string) error {
+func (a *repoAdapter) Revert(ctx context.Context, oid string) error {
 	return a.queue.Do(ctx, func(ctx context.Context) error {
-		return a.repo.Revert(ctx, a.runner, oid)
+		return a.current().Revert(ctx, a.runner, oid)
 	})
 }
 
-func (a repoAdapter) RevertAbort(ctx context.Context) error {
+func (a *repoAdapter) RevertAbort(ctx context.Context) error {
 	return a.queue.Do(ctx, func(ctx context.Context) error {
-		return a.repo.RevertAbort(ctx, a.runner)
+		return a.current().RevertAbort(ctx, a.runner)
 	})
 }
 
-func (a repoAdapter) RevertContinue(ctx context.Context) error {
+func (a *repoAdapter) RevertContinue(ctx context.Context) error {
 	return a.queue.Do(ctx, func(ctx context.Context) error {
-		return a.repo.RevertContinue(ctx, a.runner)
+		return a.current().RevertContinue(ctx, a.runner)
 	})
 }
 
-func (a repoAdapter) Reset(ctx context.Context, target, mode string) error {
+func (a *repoAdapter) Reset(ctx context.Context, target, mode string) error {
 	return a.queue.Do(ctx, func(ctx context.Context) error {
-		return a.repo.Reset(ctx, a.runner, target, mode)
+		return a.current().Reset(ctx, a.runner, target, mode)
 	})
 }
 
-func (a repoAdapter) CompareFiles(ctx context.Context, from, to string) ([]protocol.CommitFile, error) {
-	return a.repo.CompareFiles(ctx, a.runner, from, to)
+func (a *repoAdapter) CompareFiles(ctx context.Context, from, to string) ([]protocol.CommitFile, error) {
+	return a.current().CompareFiles(ctx, a.runner, from, to)
 }
 
-func (a repoAdapter) Conflicts(ctx context.Context) ([]protocol.ConflictEntry, error) {
-	return a.repo.ListConflicts(ctx, a.runner)
+func (a *repoAdapter) Conflicts(ctx context.Context) ([]protocol.ConflictEntry, error) {
+	return a.current().ListConflicts(ctx, a.runner)
 }
 
-func (a repoAdapter) Merge(ctx context.Context, branch string) error {
+func (a *repoAdapter) Merge(ctx context.Context, branch string) error {
 	return a.queue.Do(ctx, func(ctx context.Context) error {
-		return a.repo.Merge(ctx, a.runner, branch)
+		return a.current().Merge(ctx, a.runner, branch)
 	})
 }
 
-func (a repoAdapter) MergeAbort(ctx context.Context) error {
+func (a *repoAdapter) MergeAbort(ctx context.Context) error {
 	return a.queue.Do(ctx, func(ctx context.Context) error {
-		return a.repo.MergeAbort(ctx, a.runner)
+		return a.current().MergeAbort(ctx, a.runner)
 	})
 }
 
-func (a repoAdapter) MergeContinue(ctx context.Context) error {
+func (a *repoAdapter) MergeContinue(ctx context.Context) error {
 	return a.queue.Do(ctx, func(ctx context.Context) error {
-		return a.repo.MergeContinue(ctx, a.runner)
+		return a.current().MergeContinue(ctx, a.runner)
 	})
 }
 
-func (a repoAdapter) Rebase(ctx context.Context, upstream string) error {
+func (a *repoAdapter) Rebase(ctx context.Context, upstream string) error {
 	return a.queue.Do(ctx, func(ctx context.Context) error {
-		return a.repo.Rebase(ctx, a.runner, upstream)
+		return a.current().Rebase(ctx, a.runner, upstream)
 	})
 }
 
-func (a repoAdapter) RebaseAbort(ctx context.Context) error {
+func (a *repoAdapter) RebaseAbort(ctx context.Context) error {
 	return a.queue.Do(ctx, func(ctx context.Context) error {
-		return a.repo.RebaseAbort(ctx, a.runner)
+		return a.current().RebaseAbort(ctx, a.runner)
 	})
 }
 
-func (a repoAdapter) RebaseContinue(ctx context.Context) error {
+func (a *repoAdapter) RebaseContinue(ctx context.Context) error {
 	return a.queue.Do(ctx, func(ctx context.Context) error {
-		return a.repo.RebaseContinue(ctx, a.runner)
+		return a.current().RebaseContinue(ctx, a.runner)
 	})
 }
 
-func (a repoAdapter) ResolveConflict(ctx context.Context, path string, theirs bool) error {
+func (a *repoAdapter) ResolveConflict(ctx context.Context, path string, theirs bool) error {
 	return a.queue.Do(ctx, func(ctx context.Context) error {
-		return a.repo.ResolveConflictSide(ctx, a.runner, path, theirs)
+		return a.current().ResolveConflictSide(ctx, a.runner, path, theirs)
 	})
 }
 
-func (a repoAdapter) ResolveConflictBoth(ctx context.Context, path string) error {
+func (a *repoAdapter) ResolveConflictBoth(ctx context.Context, path string) error {
 	return a.queue.Do(ctx, func(ctx context.Context) error {
-		return a.repo.ResolveConflictBoth(ctx, a.runner, path)
+		return a.current().ResolveConflictBoth(ctx, a.runner, path)
 	})
 }
 
@@ -327,17 +344,19 @@ func Run(ctx context.Context, path string) error {
 		return fmt.Errorf("app: load embedded assets: %w", err)
 	}
 
-	watcher, err := watch.New(ctx, repo, runner, watch.Options{})
+	repositorySession, err := newRepositorySession(ctx, runner, repo)
 	if err != nil {
-		return fmt.Errorf("app: create watcher: %w", err)
+		return fmt.Errorf("app: create repository session: %w", err)
 	}
-	defer watcher.Close()
+	defer repositorySession.close()
 
 	srv, err := server.New(staticFS, server.Options{
-		Token:  token,
-		Host:   host,
-		Repo:   repoAdapter{runner: runner, repo: repo, queue: gitx.NewMutationQueue()},
-		Events: watcher.Events(),
+		Token:            token,
+		Host:             host,
+		Repo:             repositorySession.adapter,
+		Events:           repositorySession.events,
+		SwitchRepository: repositorySession.switchRepository,
+		RevealRepository: repositorySession.revealRepository,
 	})
 	if err != nil {
 		return fmt.Errorf("app: create server: %w", err)

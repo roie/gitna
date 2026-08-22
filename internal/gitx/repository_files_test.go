@@ -34,7 +34,7 @@ func TestRepositoryFilesListsWorktreeWithoutGitMetadata(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	files, err := (Repository{Root: root, GitDir: filepath.Join(root, ".git")}).RepositoryFiles(context.Background(), 100)
+	files, err := (Repository{Root: root, GitDir: filepath.Join(root, ".git")}).RepositoryFiles(context.Background(), "", 100)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -54,19 +54,27 @@ func TestRepositoryFilesReportsTruncation(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	files, err := (Repository{Root: root}).RepositoryFiles(context.Background(), 2)
+	files, err := (Repository{Root: root}).RepositoryFiles(context.Background(), "", 2)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !reflect.DeepEqual(files.Paths, []string{"a.txt", "b.txt"}) || !files.Truncated {
+	if !reflect.DeepEqual(files.Paths, []string{"a.txt", "b.txt"}) || !files.Truncated || files.NextCursor != "b.txt" {
 		t.Fatalf("files = %#v", files)
+	}
+
+	next, err := (Repository{Root: root}).RepositoryFiles(context.Background(), files.NextCursor, 2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(next.Paths, []string{"c.txt"}) || next.Truncated || next.NextCursor != "" {
+		t.Fatalf("next = %#v", next)
 	}
 }
 
 func TestRepositoryFilesHonorsCanceledContext(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
-	_, err := (Repository{Root: t.TempDir()}).RepositoryFiles(ctx, 10)
+	_, err := (Repository{Root: t.TempDir()}).RepositoryFiles(ctx, "", 10)
 	if err != context.Canceled {
 		t.Fatalf("error = %v, want context canceled", err)
 	}

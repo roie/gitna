@@ -34,8 +34,16 @@ export interface CommitFile {
   kind: ChangeKind
 }
 
+export interface CommitStats {
+  files: number
+  additions: number
+  deletions: number
+  binaryFiles: number
+}
+
 export interface CommitFiles {
   files: CommitFile[]
+  stats?: CommitStats
 }
 
 export type ChangeScope = 'unstaged' | 'staged'
@@ -90,6 +98,7 @@ export interface RepositoryFiles {
   generation: number
   paths: string[]
   truncated: boolean
+  nextCursor?: string
 }
 
 export interface RepoSnapshot {

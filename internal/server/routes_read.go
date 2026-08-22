@@ -47,6 +47,10 @@ func (s *Server) apiRoutes() http.Handler {
 			s.handleCommitFiles(w, r)
 		case r.Method == http.MethodGet && p == "/events":
 			s.handleEvents(w, r)
+		case r.Method == http.MethodPost && p == "/repository/reveal":
+			s.handleRevealRepository(w, r)
+		case r.Method == http.MethodPost && p == "/repository":
+			s.handleSwitchRepository(w, r)
 		case r.Method == http.MethodPost && p == "/operations":
 			s.handleOperation(w, r)
 		default:
@@ -230,9 +234,10 @@ func (s *Server) handleRepositoryFiles(w http.ResponseWriter, r *http.Request) {
 	defer cancel()
 
 	const maxAttempts = 3
+	cursor := r.URL.Query().Get("cursor")
 	for range maxAttempts {
 		generation := s.gen.Load()
-		files, err := s.repo.RepositoryFiles(ctx, repositoryFileLimit)
+		files, err := s.repo.RepositoryFiles(ctx, cursor, repositoryFileLimit)
 		if err != nil {
 			if timeoutReached(ctx, err) {
 				writeJSON(w, http.StatusGatewayTimeout, map[string]string{"error": "repository files timed out"})
@@ -334,7 +339,7 @@ func (s *Server) handleCommitFiles(w http.ResponseWriter, r *http.Request) {
 	defer cancel()
 	oid := strings.TrimPrefix(strings.TrimPrefix(r.URL.Path, "/api/v1"), "/commit/")
 	oid = strings.TrimSuffix(oid, "/files")
-	files, err := s.repo.FilesChanged(ctx, oid)
+	details, err := s.repo.FilesChanged(ctx, oid)
 	if err != nil {
 		if timeoutReached(ctx, err) {
 			writeJSON(w, http.StatusGatewayTimeout, map[string]string{"error": "commit files timed out"})
@@ -347,7 +352,7 @@ func (s *Server) handleCommitFiles(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, status, map[string]string{"error": err.Error()})
 		return
 	}
-	writeJSON(w, http.StatusOK, protocol.CommitFiles{Files: files})
+	writeJSON(w, http.StatusOK, details)
 }
 
 // handleStashes returns the current stash list with display refs, OIDs, and

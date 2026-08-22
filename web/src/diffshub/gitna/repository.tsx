@@ -14,6 +14,7 @@ import type {
   ChangeKind,
   ChangeScope,
   CommitFile,
+  CommitStats,
   ConflictEntry,
   FileChange,
   GraphCommit,
@@ -58,6 +59,7 @@ const OP_LABELS: Record<string, string> = {
   commit: 'Committing',
   'create-branch': 'Creating branch',
   'switch-branch': 'Switching branch',
+  'switch-repository': 'Switching repository',
   'delete-branch': 'Deleting branch',
   fetch: 'Fetching',
   pull: 'Pulling',
@@ -152,6 +154,7 @@ export class GitnaRepository {
   graphHasMore = false
   expanded: Record<string, boolean> = {}
   commitFiles: Record<string, CommitFile[]> = {}
+  commitStats: Record<string, CommitStats> = {}
   filesLoading: Record<string, boolean> = {}
   filesError: Record<string, string> = {}
   commitDiff: CommitDiffTarget | null = null
@@ -184,6 +187,7 @@ export class GitnaRepository {
   private refreshTimer: ReturnType<typeof setTimeout> | null = null
   private conflictsRequest = 0
   private repositoryFilesGeneration = 0
+  private repositoryFilesRequest = 0
 
   constructor(api: ApiClient = createApi()) {
     this.api = api
@@ -252,23 +256,51 @@ export class GitnaRepository {
   }
 
   async refreshRepositoryFiles(): Promise<void> {
+    const request = ++this.repositoryFilesRequest
     this.repositoryFilesLoading = true
     this.repositoryFilesError = null
     this.emit()
     try {
-      const files = await this.api.repositoryFiles()
-      if (files.generation < this.repositoryFilesGeneration) return
-      this.repositoryFilesGeneration = files.generation
-      this.repositoryPaths = files.paths
-      this.repositoryFilesTruncated = files.truncated
-      if (this.repositoryFilePath != null && !files.paths.includes(this.repositoryFilePath)) {
-        this.repositoryFilePath = null
+      for (let attempt = 0; attempt < 3; attempt += 1) {
+        let cursor: string | undefined
+        let pageGeneration: number | undefined
+        const paths: string[] = []
+        let restart = false
+        do {
+          const files = await this.api.repositoryFiles(cursor)
+          if (request !== this.repositoryFilesRequest) return
+          if (pageGeneration == null) pageGeneration = files.generation
+          if (files.generation !== pageGeneration) {
+            restart = true
+            break
+          }
+          paths.push(...files.paths)
+          this.repositoryPaths = [...paths]
+          this.repositoryFilesTruncated = files.truncated
+          this.emit()
+          cursor = files.nextCursor
+        } while (cursor != null && cursor !== '')
+
+        if (restart) continue
+        if ((pageGeneration ?? 0) < this.repositoryFilesGeneration) return
+        this.repositoryFilesGeneration = pageGeneration ?? this.repositoryFilesGeneration
+        this.repositoryPaths = paths
+        this.repositoryFilesTruncated = false
+        if (this.repositoryFilePath != null && !paths.includes(this.repositoryFilePath)) {
+          this.repositoryFilePath = null
+        }
+        return
       }
+      throw new Error('Repository changed while files were loading')
     } catch (error) {
-      this.repositoryFilesError = errorMessage(error)
+      if (request === this.repositoryFilesRequest) {
+        this.repositoryFilesError = errorMessage(error)
+      }
     } finally {
-      this.repositoryFilesLoading = false
-      this.emit()
+      if (request === this.repositoryFilesRequest) {
+        this.repositoryFilesLoading = false
+        this.emit()
+      }
     }
   }
 
@@ -312,6 +344,9 @@ export class GitnaRepository {
       this.commitFiles = Object.fromEntries(
         Object.entries(this.commitFiles).filter(([oid]) => present.has(oid)),
       )
+      this.commitStats = Object.fromEntries(
+        Object.entries(this.commitStats).filter(([oid]) => present.has(oid)),
+      )
       if (this.commitDiff != null && !present.has(this.commitDiff.oid)) {
         this.commitDiff = null
       }
@@ -344,18 +379,16 @@ export class GitnaRepository {
     }
   }
 
-  async toggleCommit(oid: string): Promise<void> {
-    const open = !this.expanded[oid]
-    this.expanded = { ...this.expanded, [oid]: open }
-    this.emit()
-    if (!open || this.commitFiles[oid] != null || this.filesLoading[oid]) return
+  async loadCommitDetails(oid: string): Promise<void> {
+    if (this.commitFiles[oid] != null || this.filesLoading[oid]) return
     this.filesLoading = { ...this.filesLoading, [oid]: true }
     const { [oid]: _previous, ...remainingErrors } = this.filesError
     this.filesError = remainingErrors
     this.emit()
     try {
-      const { files } = await this.api.commitFiles(oid)
+      const { files, stats } = await this.api.commitFiles(oid)
       this.commitFiles = { ...this.commitFiles, [oid]: files }
+      if (stats != null) this.commitStats = { ...this.commitStats, [oid]: stats }
     } catch (error) {
       this.filesError = { ...this.filesError, [oid]: errorMessage(error) }
     } finally {
@@ -363,6 +396,13 @@ export class GitnaRepository {
       this.filesLoading = remainingLoading
       this.emit()
     }
+  }
+
+  async toggleCommit(oid: string): Promise<void> {
+    const open = !this.expanded[oid]
+    this.expanded = { ...this.expanded, [oid]: open }
+    this.emit()
+    if (open) await this.loadCommitDetails(oid)
   }
 
   select(scope: ChangeScope, path: string | null): void {
@@ -517,6 +557,56 @@ export class GitnaRepository {
       this.activeOp = null
       this.emit()
     }
+  }
+
+  async switchRepository(path: string): Promise<void> {
+    this.busy = true
+    this.activeOp = 'switch-repository'
+    this.mutationError = null
+    this.emit()
+    try {
+      await this.api.switchRepository(path)
+      this.generation = 0
+      this.repositoryFilesGeneration = 0
+      this.repositoryFilesRequest += 1
+      this.snapshot = null
+      this.selection = null
+      this.repositoryFilePath = null
+      this.repositoryPaths = []
+      this.graphCommits = []
+      this.graphRows = []
+      this.expanded = {}
+      this.commitFiles = {}
+      this.commitStats = {}
+      this.filesLoading = {}
+      this.filesError = {}
+      this.commitDiff = null
+      this.branches = []
+      this.stashes = []
+      this.tags = []
+      this.compare = null
+      this.compareFiles = []
+      this.compareDiff = null
+      this.conflicts = []
+      this.emit()
+      await Promise.all([
+        this.refreshSnapshot(),
+        this.refreshRepositoryFiles(),
+        this.refreshGraph(),
+        this.refreshBranches(),
+      ])
+    } catch (error) {
+      this.mutationError = errorMessage(error)
+      throw error
+    } finally {
+      this.busy = false
+      this.activeOp = null
+      this.emit()
+    }
+  }
+
+  revealRepository(): Promise<void> {
+    return this.api.revealRepository()
   }
 
   createBranch(name: string, start?: string): Promise<void> {

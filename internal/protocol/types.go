@@ -57,6 +57,7 @@ type RepositoryFiles struct {
 	Generation uint64   `json:"generation"`
 	Paths      []string `json:"paths"`
 	Truncated  bool     `json:"truncated"`
+	NextCursor string   `json:"nextCursor,omitempty"`
 }
 
 type RepoSnapshot struct {
@@ -215,9 +216,19 @@ type GraphPage struct {
 	HasMore bool          `json:"hasMore"`
 }
 
-// CommitFiles is the changed-file list for one commit.
+// CommitStats summarizes a commit against its first parent. BinaryFiles counts
+// entries whose numstat line has no meaningful line totals.
+type CommitStats struct {
+	Files       int `json:"files"`
+	Additions   int `json:"additions"`
+	Deletions   int `json:"deletions"`
+	BinaryFiles int `json:"binaryFiles"`
+}
+
+// CommitFiles is the changed-file list and lazy diff statistics for one commit.
 type CommitFiles struct {
 	Files []CommitFile `json:"files"`
+	Stats CommitStats  `json:"stats"`
 }
 
 // Branch describes one local or remote branch with its upstream relationship.

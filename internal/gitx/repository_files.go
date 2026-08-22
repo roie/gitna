@@ -8,10 +8,10 @@ import (
 	"github.com/roie/gitna/internal/protocol"
 )
 
-// RepositoryFiles returns the worktree's complete visible file set. The walk
-// never follows symlinks, excludes Git's private metadata entry, and stops at
-// limit so a repository cannot create an unbounded API response.
-func (r Repository) RepositoryFiles(ctx context.Context, limit int) (protocol.RepositoryFiles, error) {
+// RepositoryFiles returns one bounded page of the worktree's complete visible
+// file set. The walk never follows symlinks and excludes Git's private metadata.
+// after is the last slash-separated path from the previous page.
+func (r Repository) RepositoryFiles(ctx context.Context, after string, limit int) (protocol.RepositoryFiles, error) {
 	result := protocol.RepositoryFiles{Paths: make([]string, 0)}
 	if limit <= 0 {
 		return result, nil
@@ -41,11 +41,16 @@ func (r Repository) RepositoryFiles(ctx context.Context, limit int) (protocol.Re
 		if entry.IsDir() {
 			return nil
 		}
+		rel = filepath.ToSlash(rel)
+		if rel <= after {
+			return nil
+		}
 		if len(result.Paths) == limit {
 			result.Truncated = true
+			result.NextCursor = result.Paths[len(result.Paths)-1]
 			return fs.SkipAll
 		}
-		result.Paths = append(result.Paths, filepath.ToSlash(rel))
+		result.Paths = append(result.Paths, rel)
 		return nil
 	})
 	if err != nil {

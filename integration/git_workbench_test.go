@@ -39,8 +39,8 @@ func (w *workbenchRepo) Snapshot(ctx context.Context) (protocol.RepoSnapshot, er
 	return w.repo.Status(ctx, w.runner)
 }
 
-func (w *workbenchRepo) RepositoryFiles(ctx context.Context, limit int) (protocol.RepositoryFiles, error) {
-	return w.repo.RepositoryFiles(ctx, limit)
+func (w *workbenchRepo) RepositoryFiles(ctx context.Context, after string, limit int) (protocol.RepositoryFiles, error) {
+	return w.repo.RepositoryFiles(ctx, after, limit)
 }
 
 func (w *workbenchRepo) Diff(ctx context.Context, scope protocol.DiffScope, opts protocol.DiffOptions) (protocol.FileDiff, error) {
@@ -55,8 +55,8 @@ func (w *workbenchRepo) History(ctx context.Context, skip, limit int) ([]protoco
 	return w.repo.History(ctx, w.runner, skip, limit)
 }
 
-func (w *workbenchRepo) FilesChanged(ctx context.Context, oid string) ([]protocol.CommitFile, error) {
-	return w.repo.ChangedFiles(ctx, w.runner, oid)
+func (w *workbenchRepo) FilesChanged(ctx context.Context, oid string) (protocol.CommitFiles, error) {
+	return w.repo.CommitDetails(ctx, w.runner, oid)
 }
 
 func (w *workbenchRepo) Branches(ctx context.Context) ([]protocol.Branch, error) {

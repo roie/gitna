@@ -22,6 +22,7 @@ type fakeRepo struct {
 
 	graphCommits []protocol.GraphCommit
 	graphFiles   []protocol.CommitFile
+	graphStats   protocol.CommitStats
 	branches     []protocol.Branch
 	stashes      []protocol.StashEntry
 	tags         []protocol.Tag
@@ -70,7 +71,7 @@ func (f *fakeRepo) Snapshot(context.Context) (protocol.RepoSnapshot, error) {
 	return f.snap, nil
 }
 
-func (f *fakeRepo) RepositoryFiles(context.Context, int) (protocol.RepositoryFiles, error) {
+func (f *fakeRepo) RepositoryFiles(context.Context, string, int) (protocol.RepositoryFiles, error) {
 	if f.err != nil {
 		return protocol.RepositoryFiles{}, f.err
 	}
@@ -106,11 +107,11 @@ func (f *fakeRepo) History(context.Context, int, int) ([]protocol.GraphCommit, e
 	return f.graphCommits, nil
 }
 
-func (f *fakeRepo) FilesChanged(context.Context, string) ([]protocol.CommitFile, error) {
+func (f *fakeRepo) FilesChanged(context.Context, string) (protocol.CommitFiles, error) {
 	if f.err != nil {
-		return nil, f.err
+		return protocol.CommitFiles{}, f.err
 	}
-	return f.graphFiles, nil
+	return protocol.CommitFiles{Files: f.graphFiles, Stats: f.graphStats}, nil
 }
 
 func (f *fakeRepo) Branches(context.Context) ([]protocol.Branch, error) {
@@ -736,9 +737,12 @@ func TestGraphRouteError(t *testing.T) {
 }
 
 func TestCommitFilesRouteReturnsFiles(t *testing.T) {
-	repo := &fakeRepo{graphFiles: []protocol.CommitFile{
-		{Path: "c.txt", OldPath: "a.txt", Kind: protocol.KindRenamed},
-	}}
+	repo := &fakeRepo{
+		graphFiles: []protocol.CommitFile{
+			{Path: "c.txt", OldPath: "a.txt", Kind: protocol.KindRenamed},
+		},
+		graphStats: protocol.CommitStats{Files: 1, Additions: 12, Deletions: 3},
+	}
 	h := newSnapshotServer(repo)
 
 	req := httptest.NewRequest(http.MethodGet, "/s/"+testToken+"/api/v1/commit/abc123/files", nil)
@@ -755,6 +759,9 @@ func TestCommitFilesRouteReturnsFiles(t *testing.T) {
 	}
 	if len(got.Files) != 1 || got.Files[0].Path != "c.txt" || got.Files[0].OldPath != "a.txt" {
 		t.Fatalf("files = %+v, want renamed c.txt from a.txt", got.Files)
+	}
+	if got.Stats.Files != 1 || got.Stats.Additions != 12 || got.Stats.Deletions != 3 {
+		t.Fatalf("stats = %+v", got.Stats)
 	}
 }
 

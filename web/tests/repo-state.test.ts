@@ -96,6 +96,10 @@ const auxApi: ApiClient = {
   async conflicts() {
     return []
   },
+  async switchRepository(path) {
+    return { root: path }
+  },
+  async revealRepository() {},
 }
 
 /** API client whose graph pages and commit files are scripted in order. Only
@@ -220,26 +224,84 @@ describe('createRepoState', () => {
     expect(state.selectedChange?.scope).toBe('unstaged')
   })
 
-  it('loads the bounded repository Explorer independently from Git changes', async () => {
+  it('loads every bounded Repository Explorer page independently from Git changes', async () => {
+    const cursors: Array<string | undefined> = []
     const state = createRepoState({
       api: {
         ...auxApi,
-        async repositoryFiles() {
-          return {
-            generation: 3,
-            paths: ['.env', 'src/main.ts', 'vendor/generated.js'],
-            truncated: true,
-          }
+        async repositoryFiles(cursor) {
+          cursors.push(cursor)
+          return cursor == null
+            ? {
+                generation: 3,
+                paths: ['.env', 'src/main.ts'],
+                truncated: true,
+                nextCursor: 'src/main.ts',
+              }
+            : {
+                generation: 3,
+                paths: ['vendor/generated.js'],
+                truncated: false,
+              }
         },
       },
     })
 
     await state.refreshRepositoryFiles()
 
+    expect(cursors).toEqual([undefined, 'src/main.ts'])
     expect(state.repositoryPaths).toEqual(['.env', 'src/main.ts', 'vendor/generated.js'])
-    expect(state.repositoryFilesTruncated).toBe(true)
+    expect(state.repositoryFilesTruncated).toBe(false)
     expect(state.repositoryFilesLoading).toBe(false)
     expect(state.repositoryFilesError).toBeNull()
+  })
+
+  it('switches repositories and clears repository-scoped state before refreshing', async () => {
+    const switchRepository = vi.fn(async (path: string) => ({ root: path }))
+    const state = createRepoState({
+      api: {
+        ...auxApi,
+        switchRepository,
+        async snapshot() {
+          return snapshot({ root: '/tmp/next', generation: 4, headBranch: 'next' })
+        },
+        async repositoryFiles() {
+          return { generation: 4, paths: ['next.txt'], truncated: false }
+        },
+        async graph() {
+          return { commits: [graphCommit('next')], hasMore: false }
+        },
+        async branches() {
+          return [{ name: 'next', oid: 'next', current: true, remote: false, ahead: 0, behind: 0 }]
+        },
+      },
+    })
+    state.repositoryPaths = ['old.txt']
+    state.graphCommits = [graphCommit('old')]
+
+    await state.switchRepository('/tmp/next')
+
+    expect(switchRepository).toHaveBeenCalledWith('/tmp/next')
+    expect(state.snapshot?.root).toBe('/tmp/next')
+    expect(state.repositoryPaths).toEqual(['next.txt'])
+    expect(state.graphCommits.map((commit) => commit.oid)).toEqual(['next'])
+    expect(state.branches[0]?.name).toBe('next')
+    expect(state.busy).toBe(false)
+  })
+
+  it('loads and caches commit files with lazy graph statistics', async () => {
+    const commitFiles = vi.fn(async () => ({
+      files: [commitFile('a.txt')],
+      stats: { files: 1, additions: 12, deletions: 3, binaryFiles: 0 },
+    }))
+    const state = createRepoState({ api: { ...auxApi, commitFiles } })
+
+    await state.loadCommitDetails('abc')
+    await state.loadCommitDetails('abc')
+
+    expect(commitFiles).toHaveBeenCalledTimes(1)
+    expect(state.commitFiles.abc?.[0]?.path).toBe('a.txt')
+    expect(state.commitStats.abc).toEqual({ files: 1, additions: 12, deletions: 3, binaryFiles: 0 })
   })
 
   it('ignores stale responses whose generation is not newer', async () => {

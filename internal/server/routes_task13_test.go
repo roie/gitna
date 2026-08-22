@@ -75,8 +75,8 @@ func TestOperationTagOps(t *testing.T) {
 func TestOperationHistoryOps(t *testing.T) {
 	repo := &fakeRepo{}
 	tests := []struct {
-		op   string
-		req  mutationRequest
+		op  string
+		req mutationRequest
 	}{
 		{OpCherryPick, mutationRequest{Ref: "abc123"}},
 		{OpRevert, mutationRequest{Ref: "abc123"}},

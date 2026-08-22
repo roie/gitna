@@ -20,11 +20,11 @@ import (
 // shared mutation queue wired at the app layer.
 type Repo interface {
 	Snapshot(ctx context.Context) (protocol.RepoSnapshot, error)
-	RepositoryFiles(ctx context.Context, limit int) (protocol.RepositoryFiles, error)
+	RepositoryFiles(ctx context.Context, after string, limit int) (protocol.RepositoryFiles, error)
 	Diff(ctx context.Context, scope protocol.DiffScope, opts protocol.DiffOptions) (protocol.FileDiff, error)
 	Review(ctx context.Context, scope protocol.DiffScope, opts protocol.DiffOptions) (protocol.ReviewResponse, error)
 	History(ctx context.Context, skip, limit int) ([]protocol.GraphCommit, error)
-	FilesChanged(ctx context.Context, oid string) ([]protocol.CommitFile, error)
+	FilesChanged(ctx context.Context, oid string) (protocol.CommitFiles, error)
 	Branches(ctx context.Context) ([]protocol.Branch, error)
 	StagePaths(ctx context.Context, paths []string) error
 	UnstagePaths(ctx context.Context, paths []string) error
@@ -80,16 +80,23 @@ type Options struct {
 	// Events streams repository invalidation kinds. When nil, the events
 	// endpoint closes its stream immediately.
 	Events <-chan watch.InvalidationKind
+	// SwitchRepository replaces the repository behind this capability after an
+	// explicit local UI request.
+	SwitchRepository func(context.Context, string) (string, error)
+	// RevealRepository opens the current repository in the platform file manager.
+	RevealRepository func(context.Context) error
 }
 
 // Server serves the embedded frontend and the repository API.
 type Server struct {
-	static   fs.FS
-	api      http.Handler
-	security Security
-	repo     Repo
-	hub      *eventsHub
-	gen      atomic.Uint64
+	static           fs.FS
+	api              http.Handler
+	security         Security
+	repo             Repo
+	hub              *eventsHub
+	gen              atomic.Uint64
+	switchRepository func(context.Context, string) (string, error)
+	revealRepository func(context.Context) error
 }
 
 // New creates a Server that serves static assets from staticFS (rooted at the
@@ -100,8 +107,10 @@ func New(staticFS fs.FS, opts Options) (*Server, error) {
 		return nil, errors.New("server: nil static filesystem")
 	}
 	s := &Server{
-		static: staticFS,
-		repo:   opts.Repo,
+		static:           staticFS,
+		repo:             opts.Repo,
+		switchRepository: opts.SwitchRepository,
+		revealRepository: opts.RevealRepository,
 		security: Security{
 			Token: opts.Token,
 			Host:  opts.Host,

@@ -35,8 +35,8 @@ const pathBatchLimit = 1_000
 // snapshotFileLimit bounds serialized entries returned in one snapshot.
 const snapshotFileLimit = 10_000
 
-// repositoryFileLimit bounds the filesystem Explorer response. The endpoint
-// reports truncation rather than allocating beyond this limit.
+// repositoryFileLimit bounds each filesystem Explorer page. A cursor allows
+// the client to continue without making any one response unbounded.
 const repositoryFileLimit = 50_000
 
 func operationRequestBodyLimit(op string) int64 {

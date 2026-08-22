@@ -112,7 +112,7 @@ export interface OperationResult {
 
 export interface ApiClient {
   snapshot(): Promise<RepoSnapshot>
-  repositoryFiles(): Promise<RepositoryFiles>
+  repositoryFiles(cursor?: string): Promise<RepositoryFiles>
   diff(request: DiffRequest): Promise<FileDiff>
   review(request: ReviewRequest): Promise<ReviewResponse>
   mutate(request: MutateRequest): Promise<void>
@@ -124,6 +124,8 @@ export interface ApiClient {
   tags(): Promise<Tag[]>
   compare(from: string, to: string): Promise<CommitFiles>
   conflicts(): Promise<ConflictEntry[]>
+  switchRepository(path: string): Promise<{ root: string }>
+  revealRepository(): Promise<void>
 }
 
 /** Error carrying the HTTP status and server message so callers can react to
@@ -193,9 +195,10 @@ export function createApi(): ApiClient {
       )
       return (await res.json()) as RepoSnapshot
     },
-    async repositoryFiles(): Promise<RepositoryFiles> {
+    async repositoryFiles(cursor?: string): Promise<RepositoryFiles> {
+      const query = cursor == null ? '' : `?cursor=${encodeURIComponent(cursor)}`
       const res = await expectOK(
-        await fetch('api/v1/files', { signal: AbortSignal.timeout(FETCH_TIMEOUT) }),
+        await fetch(`api/v1/files${query}`, { signal: AbortSignal.timeout(FETCH_TIMEOUT) }),
       )
       return (await res.json()) as RepositoryFiles
     },
@@ -295,6 +298,27 @@ export function createApi(): ApiClient {
         await fetch('api/v1/conflicts', { signal: AbortSignal.timeout(FETCH_TIMEOUT) }),
       )
       return (await res.json()) as ConflictEntry[]
+    },
+    async switchRepository(path: string): Promise<{ root: string }> {
+      const res = await expectOK(
+        await fetch('api/v1/repository', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ path }),
+          signal: AbortSignal.timeout(MUTATE_TIMEOUT),
+        }),
+      )
+      return (await res.json()) as { root: string }
+    },
+    async revealRepository(): Promise<void> {
+      await expectOK(
+        await fetch('api/v1/repository/reveal', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: '{}',
+          signal: AbortSignal.timeout(MUTATE_TIMEOUT),
+        }),
+      )
     },
   }
 }

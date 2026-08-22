@@ -258,7 +258,7 @@ func (s *slowRepo) block(ctx context.Context) error {
 func (s *slowRepo) Snapshot(ctx context.Context) (protocol.RepoSnapshot, error) {
 	return s.snap, s.block(ctx)
 }
-func (s *slowRepo) RepositoryFiles(ctx context.Context, _ int) (protocol.RepositoryFiles, error) {
+func (s *slowRepo) RepositoryFiles(ctx context.Context, _ string, _ int) (protocol.RepositoryFiles, error) {
 	return protocol.RepositoryFiles{}, s.block(ctx)
 }
 func (s *slowRepo) Diff(ctx context.Context, _ protocol.DiffScope, _ protocol.DiffOptions) (protocol.FileDiff, error) {
@@ -270,8 +270,8 @@ func (s *slowRepo) Review(ctx context.Context, _ protocol.DiffScope, _ protocol.
 func (s *slowRepo) History(ctx context.Context, _, _ int) ([]protocol.GraphCommit, error) {
 	return nil, s.block(ctx)
 }
-func (s *slowRepo) FilesChanged(ctx context.Context, _ string) ([]protocol.CommitFile, error) {
-	return nil, s.block(ctx)
+func (s *slowRepo) FilesChanged(ctx context.Context, _ string) (protocol.CommitFiles, error) {
+	return protocol.CommitFiles{}, s.block(ctx)
 }
 func (s *slowRepo) Branches(ctx context.Context) ([]protocol.Branch, error) {
 	return nil, s.block(ctx)
