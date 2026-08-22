@@ -205,9 +205,12 @@ test('repository path switches the live session and remains fully editable', asy
   const pathInput = page.getByRole('textbox', { name: 'Repository path' })
   await expect(pathInput).toHaveValue(app.repo)
   await pathInput.fill(nextRepo)
-  await pathInput.press('Enter')
+  const switchRepository = page.getByRole('button', { name: 'Switch repository' })
+  await expect(switchRepository).toBeVisible()
+  await switchRepository.click()
 
   await expect(pathInput).toHaveValue(nextRepo)
+  await expect(switchRepository).not.toBeVisible()
   await expect(page.locator('[data-section="workflow"]')).toContainText('trunk')
   await expect(
     page.getByRole('region', { name: 'Source Control workflow' }).getByText('Working tree clean'),
@@ -216,6 +219,7 @@ test('repository path switches the live session and remains fully editable', asy
     'next-repository-with-a-long-location-name',
   )
   const clearPath = page.getByRole('button', { name: 'Clear repository path' })
+  await page.mouse.move(0, 0)
   await expect(clearPath).toHaveCSS('opacity', '0')
   await pathInput.hover()
   await expect(clearPath).toHaveCSS('opacity', '0.5')

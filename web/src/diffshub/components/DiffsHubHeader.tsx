@@ -104,6 +104,9 @@ function LocalRepositoryForm({
 
   useEffect(() => setPath(initialPath), [initialPath]);
 
+  const nextPath = path.trim();
+  const canSwitch =
+    nextPath !== '' && nextPath !== initialPath && onSwitch != null;
   const showClear =
     path.length > 0 && (path === initialPath || error !== null);
 
@@ -112,11 +115,10 @@ function LocalRepositoryForm({
       className="group order-last flex min-w-0 w-full items-center gap-1 overflow-hidden md:order-none md:mr-auto"
       onSubmit={(event) => {
         event.preventDefault();
-        const next = path.trim();
-        if (next === '' || next === initialPath || onSwitch == null) return;
+        if (!canSwitch) return;
         setPending(true);
         setError(null);
-        void onSwitch(next)
+        void onSwitch(nextPath)
           .catch((reason: unknown) => {
             setError(reason instanceof Error ? reason.message : String(reason));
           })
@@ -147,6 +149,19 @@ function LocalRepositoryForm({
           }
         }}
       />
+      {canSwitch && (
+        <Button
+          type="submit"
+          variant="ghost"
+          size="icon-md"
+          aria-label="Switch repository"
+          title="Switch repository"
+          disabled={pending}
+          className="text-primary"
+        >
+          <IconCheck className="size-4" />
+        </Button>
+      )}
       {showClear && (
         <Button
           type="button"
@@ -164,7 +179,6 @@ function LocalRepositoryForm({
           <IconX className="size-4" />
         </Button>
       )}
-      <button type="submit" hidden />
     </form>
   );
 }
