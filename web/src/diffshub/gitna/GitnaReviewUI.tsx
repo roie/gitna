@@ -156,8 +156,14 @@ function GitnaReviewUIInner() {
   }, [repository, repository.generation, target?.key, target?.selectedPath])
 
   useEffect(() => {
-    if (target == null) return
+    if (target == null) {
+      setReviewData(null)
+      setErrorMessage(null)
+      setLoadState('fetching')
+      return
+    }
     let active = true
+    setReviewData(null)
     setLoadState('fetching')
     setErrorMessage(null)
     const dataPromise: Promise<LoadedDiffsHubData> =

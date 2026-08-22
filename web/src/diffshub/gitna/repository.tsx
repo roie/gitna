@@ -185,6 +185,12 @@ export class GitnaRepository {
   private refreshPromise: Promise<void> | null = null
   private refreshAgain = false
   private refreshTimer: ReturnType<typeof setTimeout> | null = null
+  private repositoryEpoch = 0
+  private graphRequest = 0
+  private branchesRequest = 0
+  private stashesRequest = 0
+  private tagsRequest = 0
+  private compareRequest = 0
   private conflictsRequest = 0
   private repositoryFilesGeneration = 0
   private repositoryFilesRequest = 0
@@ -223,9 +229,10 @@ export class GitnaRepository {
         this.loading = true
         this.error = null
         this.emit()
+        const epoch = this.repositoryEpoch
         try {
           const snapshot = await this.api.snapshot()
-          if (snapshot.generation <= this.generation) continue
+          if (epoch !== this.repositoryEpoch || snapshot.generation <= this.generation) continue
           this.generation = snapshot.generation
           this.snapshot = snapshot
           this.selection = reconcileSelection(this.selection, snapshot.staged, snapshot.unstaged)
@@ -240,10 +247,12 @@ export class GitnaRepository {
           this.conflictsLoading = false
           this.conflictsError = null
         } catch (error) {
-          this.error = errorMessage(error)
+          if (epoch === this.repositoryEpoch) this.error = errorMessage(error)
         } finally {
-          this.loading = false
-          this.emit()
+          if (epoch === this.repositoryEpoch) {
+            this.loading = false
+            this.emit()
+          }
         }
       }
     })()
@@ -329,11 +338,14 @@ export class GitnaRepository {
   }
 
   async refreshGraph(): Promise<void> {
+    const request = ++this.graphRequest
+    const epoch = this.repositoryEpoch
     this.graphLoading = true
     this.graphError = null
     this.emit()
     try {
       const page = await this.api.graph(0)
+      if (request !== this.graphRequest || epoch !== this.repositoryEpoch) return
       this.graphCommits = page.commits
       this.graphRows = computeGraph(page.commits)
       this.graphHasMore = page.hasMore
@@ -351,18 +363,26 @@ export class GitnaRepository {
         this.commitDiff = null
       }
     } catch (error) {
-      this.graphError = errorMessage(error)
+      if (request === this.graphRequest && epoch === this.repositoryEpoch) {
+        this.graphError = errorMessage(error)
+      }
     } finally {
-      this.graphLoading = false
-      this.emit()
+      if (request === this.graphRequest && epoch === this.repositoryEpoch) {
+        this.graphLoading = false
+        this.emit()
+      }
     }
   }
 
   async loadMoreGraph(): Promise<void> {
+    const request = ++this.graphRequest
+    const epoch = this.repositoryEpoch
+    const skip = this.graphCommits.length
     this.graphLoading = true
     this.emit()
     try {
-      const page = await this.api.graph(this.graphCommits.length)
+      const page = await this.api.graph(skip)
+      if (request !== this.graphRequest || epoch !== this.repositoryEpoch) return
       const seen = new Set(this.graphCommits.map((commit) => commit.oid))
       this.graphCommits = [
         ...this.graphCommits,
@@ -372,29 +392,39 @@ export class GitnaRepository {
       this.graphHasMore = page.hasMore
       this.graphError = null
     } catch (error) {
-      this.graphError = errorMessage(error)
+      if (request === this.graphRequest && epoch === this.repositoryEpoch) {
+        this.graphError = errorMessage(error)
+      }
     } finally {
-      this.graphLoading = false
-      this.emit()
+      if (request === this.graphRequest && epoch === this.repositoryEpoch) {
+        this.graphLoading = false
+        this.emit()
+      }
     }
   }
 
   async loadCommitDetails(oid: string): Promise<void> {
     if (this.commitFiles[oid] != null || this.filesLoading[oid]) return
+    const epoch = this.repositoryEpoch
     this.filesLoading = { ...this.filesLoading, [oid]: true }
     const { [oid]: _previous, ...remainingErrors } = this.filesError
     this.filesError = remainingErrors
     this.emit()
     try {
       const { files, stats } = await this.api.commitFiles(oid)
+      if (epoch !== this.repositoryEpoch) return
       this.commitFiles = { ...this.commitFiles, [oid]: files }
       if (stats != null) this.commitStats = { ...this.commitStats, [oid]: stats }
     } catch (error) {
-      this.filesError = { ...this.filesError, [oid]: errorMessage(error) }
+      if (epoch === this.repositoryEpoch) {
+        this.filesError = { ...this.filesError, [oid]: errorMessage(error) }
+      }
     } finally {
-      const { [oid]: _loading, ...remainingLoading } = this.filesLoading
-      this.filesLoading = remainingLoading
-      this.emit()
+      if (epoch === this.repositoryEpoch) {
+        const { [oid]: _loading, ...remainingLoading } = this.filesLoading
+        this.filesLoading = remainingLoading
+        this.emit()
+      }
     }
   }
 
@@ -456,44 +486,71 @@ export class GitnaRepository {
   }
 
   async refreshBranches(): Promise<void> {
+    const request = ++this.branchesRequest
+    const epoch = this.repositoryEpoch
     this.branchesLoading = true
     this.branchesError = null
     this.emit()
     try {
-      this.branches = await this.api.branches()
+      const branches = await this.api.branches()
+      if (request === this.branchesRequest && epoch === this.repositoryEpoch) {
+        this.branches = branches
+      }
     } catch (error) {
-      this.branchesError = errorMessage(error)
+      if (request === this.branchesRequest && epoch === this.repositoryEpoch) {
+        this.branchesError = errorMessage(error)
+      }
     } finally {
-      this.branchesLoading = false
-      this.emit()
+      if (request === this.branchesRequest && epoch === this.repositoryEpoch) {
+        this.branchesLoading = false
+        this.emit()
+      }
     }
   }
 
   async refreshStashes(): Promise<void> {
+    const request = ++this.stashesRequest
+    const epoch = this.repositoryEpoch
     this.stashesLoading = true
     this.stashesError = null
     this.emit()
     try {
-      this.stashes = await this.api.stashes()
+      const stashes = await this.api.stashes()
+      if (request === this.stashesRequest && epoch === this.repositoryEpoch) {
+        this.stashes = stashes
+      }
     } catch (error) {
-      this.stashesError = errorMessage(error)
+      if (request === this.stashesRequest && epoch === this.repositoryEpoch) {
+        this.stashesError = errorMessage(error)
+      }
     } finally {
-      this.stashesLoading = false
-      this.emit()
+      if (request === this.stashesRequest && epoch === this.repositoryEpoch) {
+        this.stashesLoading = false
+        this.emit()
+      }
     }
   }
 
   async refreshTags(): Promise<void> {
+    const request = ++this.tagsRequest
+    const epoch = this.repositoryEpoch
     this.tagsLoading = true
     this.tagsError = null
     this.emit()
     try {
-      this.tags = await this.api.tags()
+      const tags = await this.api.tags()
+      if (request === this.tagsRequest && epoch === this.repositoryEpoch) {
+        this.tags = tags
+      }
     } catch (error) {
-      this.tagsError = errorMessage(error)
+      if (request === this.tagsRequest && epoch === this.repositoryEpoch) {
+        this.tagsError = errorMessage(error)
+      }
     } finally {
-      this.tagsLoading = false
-      this.emit()
+      if (request === this.tagsRequest && epoch === this.repositoryEpoch) {
+        this.tagsLoading = false
+        this.emit()
+      }
     }
   }
 
@@ -566,9 +623,16 @@ export class GitnaRepository {
     this.emit()
     try {
       await this.api.switchRepository(path)
+      this.repositoryEpoch += 1
       this.generation = 0
       this.repositoryFilesGeneration = 0
       this.repositoryFilesRequest += 1
+      this.graphRequest += 1
+      this.branchesRequest += 1
+      this.stashesRequest += 1
+      this.tagsRequest += 1
+      this.compareRequest += 1
+      this.conflictsRequest += 1
       this.snapshot = null
       this.selection = null
       this.repositoryFilePath = null
@@ -756,6 +820,8 @@ export class GitnaRepository {
   }
 
   async openCompare(from: string, to: string, label: string): Promise<void> {
+    const request = ++this.compareRequest
+    const epoch = this.repositoryEpoch
     this.compare = { from, to, label }
     this.compareLoading = true
     this.compareError = null
@@ -763,17 +829,24 @@ export class GitnaRepository {
     this.emit()
     try {
       const { files } = await this.api.compare(from, to)
-      this.compareFiles = files
+      if (request === this.compareRequest && epoch === this.repositoryEpoch) {
+        this.compareFiles = files
+      }
     } catch (error) {
-      this.compareError = errorMessage(error)
-      this.compareFiles = []
+      if (request === this.compareRequest && epoch === this.repositoryEpoch) {
+        this.compareError = errorMessage(error)
+        this.compareFiles = []
+      }
     } finally {
-      this.compareLoading = false
-      this.emit()
+      if (request === this.compareRequest && epoch === this.repositoryEpoch) {
+        this.compareLoading = false
+        this.emit()
+      }
     }
   }
 
   clearCompare(): void {
+    this.compareRequest += 1
     this.compare = null
     this.compareFiles = []
     this.compareDiff = null
