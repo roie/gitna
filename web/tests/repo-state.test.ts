@@ -570,6 +570,23 @@ describe('createRepoState', () => {
     expect(state.graphRows.length).toBe(3)
   })
 
+  it('clears a selected commit file when rewritten history removes its commit', async () => {
+    const state = createRepoState({
+      api: graphApi([
+        [graphCommit('old', ['base']), graphCommit('base', [])],
+        [graphCommit('new', ['base']), graphCommit('base', [])],
+      ]),
+    })
+
+    await state.refreshGraph()
+    state.selectCommitFile('old', 'old commit', commitFile('old.txt'))
+    expect(state.commitDiff?.oid).toBe('old')
+
+    await state.refreshGraph()
+    expect(state.commitDiff).toBeNull()
+    expect(state.graphRows[0]?.commit.oid).toBe('new')
+  })
+
   it('loads the next page of history', async () => {
     const state = createRepoState({
       api: graphApi([

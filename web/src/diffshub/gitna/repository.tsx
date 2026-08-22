@@ -312,6 +312,9 @@ export class GitnaRepository {
       this.commitFiles = Object.fromEntries(
         Object.entries(this.commitFiles).filter(([oid]) => present.has(oid)),
       )
+      if (this.commitDiff != null && !present.has(this.commitDiff.oid)) {
+        this.commitDiff = null
+      }
     } catch (error) {
       this.graphError = errorMessage(error)
     } finally {
@@ -483,6 +486,7 @@ export class GitnaRepository {
       this.mutationError = errorMessage(error)
       throw error
     } finally {
+      if (this.commitDiff != null) await this.refreshGraph()
       await Promise.allSettled([this.refreshSnapshot(), this.refreshRepositoryFiles()])
       this.busy = false
       this.activeOp = null
