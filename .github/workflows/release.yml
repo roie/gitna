@@ -1,0 +1,140 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: read
+
+jobs:
+  package-linux:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+      - uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v4.4.0
+        with:
+          version: 11.4.0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # zizmor: ignore[cache-poisoning] pinned release toolchain
+        with:
+          node-version: 24
+      - uses: actions/setup-go@d35c59abb061a4a6fb18e82ac0862c26744d6ab5 # v5.5.0
+        with:
+          go-version-file: go.mod
+          cache: false
+      - name: Package Linux assets
+        run: ./scripts/package.sh "${GITHUB_REF_NAME}" dist
+      - name: Verify packaged versions
+        run: | # zizmor: ignore[adhoc-packages]
+          version="${GITHUB_REF_NAME#v}"
+          mkdir release-smoke npm-smoke
+          tar -xzf "dist/gitna_${version}_linux_x64.tar.gz" -C release-smoke
+          test "$(release-smoke/gitna --version)" = "$version"
+          npm install --prefix npm-smoke --omit=optional \
+            "./dist/gitna-linux-x64-${version}.tgz" \
+            "./dist/gitna-${version}.tgz"
+          test "$(npm-smoke/node_modules/.bin/gitna --version)" = "$version"
+      - name: Install Chromium
+        run: pnpm --dir web exec playwright install --with-deps chromium
+      - name: Smoke test exact Linux release binary
+        env:
+          GITNA_E2E_BINARY: ${{ github.workspace }}/release-smoke/gitna
+        run: pnpm --dir web test:e2e
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: linux-release-assets
+          path: |
+            dist/*.tar.gz
+            dist/*.tgz
+          if-no-files-found: error
+
+  package-windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+      - uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v4.4.0
+        with:
+          version: 11.4.0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # zizmor: ignore[cache-poisoning] pinned release toolchain
+        with:
+          node-version: 24
+      - uses: actions/setup-go@d35c59abb061a4a6fb18e82ac0862c26744d6ab5 # v5.5.0
+        with:
+          go-version-file: go.mod
+          cache: false
+      - name: Package Windows asset
+        shell: pwsh
+        run: ./scripts/package.ps1 $env:GITHUB_REF_NAME dist
+      - name: Verify packaged versions
+        shell: pwsh
+        run: | # zizmor: ignore[adhoc-packages]
+          $Version = $env:GITHUB_REF_NAME.TrimStart("v")
+          New-Item -ItemType Directory npm-smoke | Out-Null
+          Expand-Archive "dist/gitna_${Version}_windows_x64.zip" release-smoke
+          if ((& ./release-smoke/gitna.exe --version) -ne $Version) {
+            throw "packaged binary reported the wrong version"
+          }
+          npm install --prefix npm-smoke --omit=optional `
+            "./dist/gitna-win32-x64-${Version}.tgz" `
+            "./dist/gitna-${Version}.tgz"
+          if ((& ./npm-smoke/node_modules/.bin/gitna.cmd --version) -ne $Version) {
+            throw "npm launcher reported the wrong version"
+          }
+      - name: Install Chromium
+        run: pnpm --dir web exec playwright install chromium
+      - name: Smoke test exact Windows release binary
+        shell: pwsh
+        run: |
+          $env:GITNA_E2E_BINARY = (Resolve-Path ./release-smoke/gitna.exe).Path
+          pnpm --dir web test:e2e
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: windows-release-assets
+          path: |
+            dist/*.zip
+            dist/*.tgz
+          if-no-files-found: error
+
+  publish:
+    needs:
+      - package-linux
+      - package-windows
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      id-token: write
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          pattern: "*-release-assets"
+          path: dist
+          merge-multiple: true
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # zizmor: ignore[cache-poisoning] pinned npm publisher
+        with:
+          node-version: 24
+          registry-url: https://registry.npmjs.org
+      - name: Generate checksums
+        working-directory: dist
+        run: sha256sum gitna_* > checksums.txt
+      - name: Publish GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create "$GITHUB_REF_NAME" dist/gitna_* dist/checksums.txt --verify-tag --generate-notes --title "Gitna ${GITHUB_REF_NAME#v}"
+      - name: Publish npm packages
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          npm publish "dist/gitna-linux-x64-${version}.tgz" --access public --provenance
+          npm publish "dist/gitna-linux-arm64-${version}.tgz" --access public --provenance
+          npm publish "dist/gitna-win32-x64-${version}.tgz" --access public --provenance
+          npm publish "dist/gitna-${version}.tgz" --access public --provenance

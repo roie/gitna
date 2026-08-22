@@ -1,0 +1,15 @@
+{
+  "compilerOptions": {
+    "target": "es2023",
+    "types": ["node"],
+    "typeRoots": ["./web/node_modules/@types"],
+    "module": "nodenext",
+    "moduleResolution": "nodenext",
+    "allowJs": true,
+    "checkJs": true,
+    "noEmit": true,
+    "strict": true,
+    "skipLibCheck": true
+  },
+  "include": ["scripts/package-npm.mjs", "npm/gitna/**/*.mjs"]
+}

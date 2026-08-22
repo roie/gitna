@@ -1,0 +1,29 @@
+{
+  "name": "gitna",
+  "version": "0.0.0",
+  "description": "Local browser-based Git workbench",
+  "homepage": "https://github.com/roie/gitna#readme",
+  "bugs": "https://github.com/roie/gitna/issues",
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/roie/gitna.git"
+  },
+  "bin": {
+    "gitna": "bin/gitna.js"
+  },
+  "files": [
+    "bin",
+    "lib",
+    "LICENSE"
+  ],
+  "type": "module",
+  "optionalDependencies": {
+    "gitna-linux-arm64": "0.0.0",
+    "gitna-linux-x64": "0.0.0",
+    "gitna-win32-x64": "0.0.0"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}

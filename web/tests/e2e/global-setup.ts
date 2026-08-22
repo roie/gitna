@@ -7,6 +7,12 @@ import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 export default function globalSetup(): () => void {
+  const configuredBinary = process.env.GITNA_E2E_BINARY
+  if (configuredBinary) {
+    process.env.GITNA_E2E_BINARY = resolve(configuredBinary)
+    return () => undefined
+  }
+
   const root = resolve(dirname(fileURLToPath(import.meta.url)), '../../..')
   const temp = mkdtempSync(join(tmpdir(), 'gitna-e2e-build-'))
   const binary = join(temp, process.platform === 'win32' ? 'gitna.exe' : 'gitna')
