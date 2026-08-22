@@ -66,12 +66,11 @@ Open Font License 1.1; the verbatim license is at `LICENSES/OFL-1.1.txt`.
 
 ## Distribution requirement
 
-Release archives must include `LICENSE`, this file, and the license texts in
-`LICENSES/`.
-
-Milestone 6 owns packaging automation and the complete dependency-license scan.
-Until that automation exists, these files are explicit release inputs, not proof
-that every non-Pierre transitive frontend dependency has already been audited.
+Release archives include `LICENSE`, this file, the shared license texts in
+`LICENSES/`, and `THIRD_PARTY_LICENSES.txt`. The generated inventory records
+every production npm package, every Go module, and the checked-in Geist font,
+together with their applicable license texts. Regenerate it after dependency changes with
+`node scripts/generate-third-party-licenses.mjs`.
 
 ## Verbatim upstream notices
 
