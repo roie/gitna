@@ -117,7 +117,11 @@ test('real binary renders repository source-control state', async ({ page, app }
       (body) => !body.contains(document.querySelector('[data-section="workflow"]')),
     ),
   ).toBe(true)
-  await expect(sourcePaneHeader).toHaveCSS('height', '22px')
+  await expect(sourcePaneHeader).toHaveCSS('font-size', '14px')
+  await expect(sourcePaneHeader).toHaveCSS('text-transform', 'none')
+  await expect(sourcePaneHeader.locator('svg')).toHaveCount(0)
+  await expect(page.locator('[data-section="repository"] svg')).toHaveCount(0)
+  await expect(page.locator('[data-section="graph"] svg')).toHaveCount(0)
   await expect(page.getByRole('separator', { name: 'Resize sidebar panes' })).toHaveCount(2)
   await page.getByRole('button', { name: /^base fixture/ }).click()
   const graphTree = page.locator('[id^="gitna-graph-"][id$="__tree"]')
@@ -161,8 +165,11 @@ test('real binary renders repository source-control state', async ({ page, app }
     .toBeLessThan(repositoryBefore!.height)
 
   const repositoryResizedHeight = (await repositoryPane.boundingBox())!.height
+  const sourceHeaderHeight = (await sourcePaneHeader.locator('..').boundingBox())!.height
   await sourcePaneHeader.click()
-  await expect(sourcePane).toHaveCSS('height', '22px')
+  await expect
+    .poll(async () => (await sourcePane.boundingBox())?.height ?? 0)
+    .toBeCloseTo(sourceHeaderHeight, 0)
   await expect(sourcePaneBody).toHaveCount(0)
   await expect
     .poll(async () => (await repositoryPane.boundingBox())?.height ?? 0)

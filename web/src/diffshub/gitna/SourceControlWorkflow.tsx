@@ -13,6 +13,7 @@ import {
 import type { FileTree, FileTreeOptions, GitStatus, GitStatusEntry } from '@pierre/trees'
 import { useFileTreeSearch } from '@pierre/trees/react'
 import {
+  type ComponentType,
   Fragment,
   type FormEvent,
   type ReactNode,
@@ -36,6 +37,7 @@ import {
   DropdownMenuTrigger,
 } from '../components/DropdownMenu'
 import { Input } from '../components/Input'
+import { StatusRow } from '../components/StatusRow'
 import { Switch } from '../components/Switch'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '../components/Tooltip'
 import { cn } from '../lib/cn'
@@ -340,17 +342,16 @@ export function GitnaSourceControl() {
         ref={containerRef}
         className="pane-stack grid min-h-0 flex-1 overflow-hidden max-md:block max-md:overflow-y-auto"
         style={{
-          gridTemplateRows: `${workflowOpen ? `minmax(142px, ${sizes[0]}fr)` : '22px'} 0 ${repositoryOpen ? `minmax(142px, ${sizes[1]}fr)` : '22px'} 0 ${graphOpen ? `minmax(142px, ${sizes[2]}fr)` : '22px'}`,
+          gridTemplateRows: `${workflowOpen ? `minmax(142px, ${sizes[0]}fr)` : 'max-content'} 0 ${repositoryOpen ? `minmax(142px, ${sizes[1]}fr)` : 'max-content'} 0 ${graphOpen ? `minmax(142px, ${sizes[2]}fr)` : 'max-content'}`,
         }}
       >
         <section
           data-pane="source-control"
           className="section min-h-0 overflow-hidden md:flex md:flex-col"
         >
-          <WorkflowSectionHeader
-            pane
+          <PaneSectionHeader
             dataSection="workflow"
-            icon={<IconSymbolDiffstatFill className="size-3" />}
+            icon={IconSymbolDiffstatFill}
             open={workflowOpen}
             title="Source Control"
             onOpenChange={setWorkflowOpen}
@@ -478,6 +479,7 @@ export function GitnaSourceControl() {
             </>
           }
           icon={<IconFileTree className="size-3" />}
+          paneIcon={IconFileTree}
           modelId="gitna-repository-tree"
           open={repositoryOpen}
           selectedPath={repository.repositoryFilePath ?? repository.selection?.change.path}
@@ -496,7 +498,6 @@ export function GitnaSourceControl() {
         />
 
         <GraphSection
-          pane
           headerRef={graphHeader}
           open={graphOpen}
           onConfirm={setPendingConfirm}
@@ -798,7 +799,6 @@ interface WorkflowSectionHeaderProps {
   icon: ReactNode
   onOpenChange(open: boolean): void
   open: boolean
-  pane?: boolean
   title: string
 }
 
@@ -810,7 +810,6 @@ function WorkflowSectionHeader({
   icon,
   onOpenChange,
   open,
-  pane = false,
   title,
 }: WorkflowSectionHeaderProps) {
   return (
@@ -818,8 +817,7 @@ function WorkflowSectionHeader({
       ref={headerRef}
       type="button"
       className={cn(
-        'section-header flex w-full min-w-0 cursor-pointer items-center gap-1.5 px-3 text-left hover:bg-muted focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-[var(--diffshub-primary-fg)]',
-        pane ? 'h-[22px] shrink-0 text-[11px] font-bold uppercase' : 'h-8 text-xs',
+        'section-header flex h-8 w-full min-w-0 cursor-pointer items-center gap-1.5 px-3 text-left text-xs hover:bg-muted focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-[var(--diffshub-primary-fg)]',
         className,
       )}
       data-section={dataSection}
@@ -828,13 +826,58 @@ function WorkflowSectionHeader({
     >
       <IconChevronSm className={cn('size-3 transition-transform', !open && '-rotate-90')} />
       {icon}
-      <span className={cn('section-title min-w-0 flex-1 truncate', !pane && 'font-medium')}>
-        {title}
-      </span>
+      <span className="section-title min-w-0 flex-1 truncate font-medium">{title}</span>
       {count != null && (
         <span className="section-count tabular-nums text-muted-foreground">{count}</span>
       )}
     </button>
+  )
+}
+
+interface PaneSectionHeaderProps {
+  actions?: ReactNode
+  count?: number
+  dataSection: string
+  headerRef?: React.Ref<HTMLButtonElement>
+  icon: ComponentType<{ className?: string }>
+  onOpenChange(open: boolean): void
+  open: boolean
+  title: string
+}
+
+function PaneSectionHeader({
+  actions,
+  count,
+  dataSection,
+  headerRef,
+  icon,
+  onOpenChange,
+  open,
+  title,
+}: PaneSectionHeaderProps) {
+  return (
+    <StatusRow icon={icon} className="group/pane-header shrink-0 text-sm md:mr-0">
+      <button
+        ref={headerRef}
+        type="button"
+        className="section-header text-muted-foreground hover:text-foreground flex min-w-0 flex-1 cursor-pointer items-center gap-2 text-left text-sm focus:outline-none"
+        data-section={dataSection}
+        aria-expanded={open}
+        onClick={() => onOpenChange(!open)}
+      >
+        <span className="section-title min-w-0 flex-1 truncate">{title}</span>
+        {count != null && (
+          <span className="section-count tabular-nums text-muted-foreground/75 text-xs">
+            {count}
+          </span>
+        )}
+      </button>
+      {actions != null && (
+        <div className="flex shrink-0 items-center gap-1 opacity-0 group-focus-within/pane-header:opacity-100 group-hover/pane-header:opacity-100 max-md:opacity-100">
+          {actions}
+        </div>
+      )}
+    </StatusRow>
   )
 }
 
@@ -850,6 +893,7 @@ interface TreeSectionProps {
   onSelectPath(path: string): void
   open: boolean
   pane?: boolean
+  paneIcon?: ComponentType<{ className?: string }>
   renderRowActions?: FileTreeOptions['renderRowActions']
   selectedPath?: string | null
   source: DiffsHubFileTreeSource
@@ -868,6 +912,7 @@ function TreeSection({
   onSelectPath,
   open,
   pane = false,
+  paneIcon,
   renderRowActions,
   selectedPath,
   source,
@@ -885,30 +930,49 @@ function TreeSection({
         'section border-t border-border/70 first:border-t-0',
         pane && 'flex h-full min-h-0 flex-col overflow-hidden',
         pane && open && 'max-md:h-[50vh]',
-        pane && !open && 'max-md:h-[22px]',
+        pane && !open && 'max-md:h-auto',
       )}
     >
-      <div className="group/tree-header flex shrink-0 items-center">
-        <WorkflowSectionHeader
-          className="flex-1"
+      {pane ? (
+        <PaneSectionHeader
+          actions={
+            <>
+              {headerActions}
+              {open && model != null && source.pathCount > 0 && (
+                <TreeSearchToggle model={model} title={title} onOpenChange={setSearchOpen} />
+              )}
+            </>
+          }
           count={source.pathCount}
           dataSection={dataSection}
           headerRef={headerRef}
-          icon={icon}
+          icon={paneIcon ?? IconFileTree}
           open={open}
-          pane={pane}
           title={title}
           onOpenChange={onOpenChange}
         />
-        {headerActions != null && (
-          <div className="flex shrink-0 items-center opacity-0 group-focus-within/tree-header:opacity-100 group-hover/tree-header:opacity-100 max-md:opacity-100">
-            {headerActions}
-          </div>
-        )}
-        {open && model != null && source.pathCount > 0 && (
-          <TreeSearchToggle model={model} title={title} onOpenChange={setSearchOpen} />
-        )}
-      </div>
+      ) : (
+        <div className="group/tree-header flex shrink-0 items-center">
+          <WorkflowSectionHeader
+            className="flex-1"
+            count={source.pathCount}
+            dataSection={dataSection}
+            headerRef={headerRef}
+            icon={icon}
+            open={open}
+            title={title}
+            onOpenChange={onOpenChange}
+          />
+          {headerActions != null && (
+            <div className="flex shrink-0 items-center opacity-0 group-focus-within/tree-header:opacity-100 group-hover/tree-header:opacity-100 max-md:opacity-100">
+              {headerActions}
+            </div>
+          )}
+          {open && model != null && source.pathCount > 0 && (
+            <TreeSearchToggle model={model} title={title} onOpenChange={setSearchOpen} />
+          )}
+        </div>
+      )}
       {open && (
         <>
           <div
@@ -1145,7 +1209,6 @@ interface GraphSectionProps {
   onConfirm(confirm: PendingConfirm): void
   onOpenChange(open: boolean): void
   open: boolean
-  pane?: boolean
 }
 
 const GRAPH_LANE_SPACING = 12
@@ -1186,52 +1249,40 @@ function relativeCommitTime(value: string): string {
   return formatter.format(elapsedSeconds, 'second')
 }
 
-function GraphSection({
-  headerRef,
-  onConfirm,
-  onOpenChange,
-  open,
-  pane = false,
-}: GraphSectionProps) {
+function GraphSection({ headerRef, onConfirm, onOpenChange, open }: GraphSectionProps) {
   const repository = useRepository()
   const laneCount = Math.max(1, ...repository.graphRows.map((row) => row.totalColumns))
   return (
     <section
-      data-pane={pane ? 'graph' : undefined}
-      className={cn(
-        'section min-h-0 overflow-hidden',
-        pane && 'border-t border-border/70 md:flex md:flex-col',
-      )}
+      data-pane="graph"
+      className="section min-h-0 overflow-hidden border-t border-border/70 md:flex md:flex-col"
     >
-      <div className="group/graph-header flex items-center">
-        <WorkflowSectionHeader
-          className="flex-1"
-          count={repository.graphRows.length}
-          dataSection="graph"
-          headerRef={headerRef}
-          icon={<IconBranch className="size-3" />}
-          open={open}
-          pane={pane}
-          title="Graph"
-          onOpenChange={onOpenChange}
-        />
-        <Button
-          type="button"
-          variant="ghost"
-          size="icon-only"
-          className="mr-2 opacity-0 group-focus-within/graph-header:opacity-100 group-hover/graph-header:opacity-100 max-md:opacity-100"
-          aria-label="Refresh Graph"
-          title="Refresh Graph"
-          disabled={repository.graphLoading}
-          onClick={() => void repository.refreshGraph()}
-        >
-          <IconRefresh className="size-3" />
-        </Button>
-      </div>
+      <PaneSectionHeader
+        actions={
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon-only"
+            aria-label="Refresh Graph"
+            title="Refresh Graph"
+            disabled={repository.graphLoading}
+            onClick={() => void repository.refreshGraph()}
+          >
+            <IconRefresh className="size-3" />
+          </Button>
+        }
+        count={repository.graphRows.length}
+        dataSection="graph"
+        headerRef={headerRef}
+        icon={IconBranch}
+        open={open}
+        title="Graph"
+        onOpenChange={onOpenChange}
+      />
       {open && (
         <TooltipProvider delayDuration={500} skipDelayDuration={150}>
           <div
-            data-pane-body={pane ? 'graph' : undefined}
+            data-pane-body="graph"
             className="graph-list cv-mini-scrollbar min-h-0 px-2 pb-4 overscroll-contain md:flex-1 md:overflow-y-auto max-md:overflow-visible"
           >
             {repository.graphRows.map((row) => (
