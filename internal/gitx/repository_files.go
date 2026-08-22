@@ -22,7 +22,7 @@ func (r Repository) RepositoryFiles(ctx context.Context, runner Runner, after st
 		return result, nil
 	}
 
-	res, err := runner.Run(ctx, r.Root, "ls-files", "-z", "--cached", "--others", "--exclude-standard")
+	res, err := runner.Run(ctx, r.Root, "ls-files", "-z", "--cached", "--others", "--exclude-standard", "--deduplicate")
 	if err != nil {
 		return protocol.RepositoryFiles{}, err
 	}

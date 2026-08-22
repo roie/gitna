@@ -75,6 +75,35 @@ func TestRepositoryFilesReportsTruncation(t *testing.T) {
 	}
 }
 
+func TestRepositoryFilesDeduplicatesUnmergedPaths(t *testing.T) {
+	root := initTestRepo(t)
+	path := filepath.Join(root, "conflict.txt")
+	if err := os.WriteFile(path, []byte("base\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	runGit(t, root, "add", "conflict.txt")
+	runGit(t, root, "commit", "-q", "-m", "add conflict file")
+	runGit(t, root, "switch", "-q", "-c", "other")
+	if err := os.WriteFile(path, []byte("other\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	runGit(t, root, "commit", "-qam", "change on other")
+	runGit(t, root, "switch", "-q", "main")
+	if err := os.WriteFile(path, []byte("main\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	runGit(t, root, "commit", "-qam", "change on main")
+	runGitErr(t, root, "merge", "other")
+
+	files, err := (Repository{Root: root}).RepositoryFiles(context.Background(), &ExecRunner{}, "", 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(files.Paths, []string{"conflict.txt"}) {
+		t.Fatalf("paths = %#v, want one conflict path", files.Paths)
+	}
+}
+
 func TestRepositoryFilesHonorsCanceledContext(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
