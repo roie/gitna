@@ -7,6 +7,10 @@ const root = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const web = join(root, 'web')
 const output = join(root, 'THIRD_PARTY_LICENSES.txt')
 
+function readText(path) {
+  return readFileSync(path, 'utf8').replace(/\r\n?/g, '\n').trim()
+}
+
 function licenseFile(directory) {
   const names = readdirSync(directory).filter((name) => /^(licen[cs]e|copying)(\..*)?$/i.test(name))
   if (names.length === 0) return null
@@ -16,6 +20,17 @@ function licenseFile(directory) {
 
 function packageFamily(name) {
   return name.startsWith('@') ? name.split('/')[0] : name
+}
+
+function runPnpm(args, options) {
+  if (process.platform === 'win32') {
+    return execFileSync(
+      process.env.ComSpec ?? 'cmd.exe',
+      ['/d', '/s', '/c', 'pnpm.cmd', ...args],
+      options,
+    )
+  }
+  return execFileSync('pnpm', args, options)
 }
 
 function parseJSON(value, source) {
@@ -36,10 +51,10 @@ function classifyLicense(text) {
 
 function packageLicenseText(directory) {
   const path = licenseFile(directory)
-  if (path != null) return readFileSync(path, 'utf8').trim()
+  if (path != null) return readText(path)
   const readmePath = join(directory, 'README.md')
   try {
-    const readme = readFileSync(readmePath, 'utf8')
+    const readme = readText(readmePath)
     const heading = readme.search(/^#{1,3}\s+.*licen[cs]e.*$/im)
     return heading < 0 ? null : readme.slice(heading).trim()
   } catch {
@@ -49,7 +64,7 @@ function packageLicenseText(directory) {
 
 const records = new Map()
 const pnpmLicenses = parseJSON(
-  execFileSync('pnpm', ['licenses', 'list', '--prod', '--json'], {
+  runPnpm(['licenses', 'list', '--prod', '--json'], {
     cwd: web,
     encoding: 'utf8',
   }),
@@ -86,6 +101,8 @@ for (const record of records.values()) {
   if (record.text == null) throw new Error(`No license text found for ${record.name}`)
 }
 
+execFileSync('go', ['mod', 'download', 'all'], { cwd: root, stdio: 'inherit' })
+
 const modules = execFileSync(
   'go',
   ['list', '-m', '-f', '{{if not .Main}}{{.Path}}\t{{.Version}}\t{{.Dir}}{{end}}', 'all'],
@@ -94,7 +111,7 @@ const modules = execFileSync(
 for (const line of modules.trim().split('\n')) {
   if (line === '') continue
   const [name, version, directory] = line.split('\t')
-  const text = readFileSync(licenseFile(directory), 'utf8').trim()
+  const text = readText(licenseFile(directory))
   records.set(`go:${name}@${version}`, {
     name: `${name}@${version}`,
     source: `https://${name}`,
@@ -107,7 +124,7 @@ records.set('font:geist@1.5.1', {
   name: 'Geist font@1.5.1',
   source: 'https://github.com/vercel/geist-font',
   license: 'SIL Open Font License 1.1',
-  text: readFileSync(join(root, 'LICENSES', 'OFL-1.1.txt'), 'utf8').trim(),
+  text: readText(join(root, 'LICENSES', 'OFL-1.1.txt')),
 })
 
 const sections = [...records.entries()]

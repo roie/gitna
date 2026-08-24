@@ -85,7 +85,7 @@ function createRepository(root: string): { repo: string; baseOid: string; headOi
 async function startGitna(
   binary: string,
   repo: string,
-): Promise<{ child: ChildProcess; url: string }> {
+): Promise<{ child: ChildProcess; url: string; root: string }> {
   const child = spawn(binary, [repo], {
     detached: process.platform !== 'win32',
     env: { ...process.env, GITNA_NO_BROWSER: '1' },
@@ -121,7 +121,13 @@ async function startGitna(
   for (let attempt = 0; attempt < 50; attempt += 1) {
     try {
       const response = await fetch(url, { redirect: 'manual' })
-      if (response.status === 200) return { child, url }
+      if (response.status === 200) {
+        const snapshotResponse = await fetch(new URL('api/v1/snapshot', url))
+        if (snapshotResponse.ok) {
+          const snapshot = (await snapshotResponse.json()) as { root: string }
+          return { child, url, root: snapshot.root }
+        }
+      }
     } catch {
       // The serving URL is printed immediately before Serve starts.
     }
@@ -173,6 +179,7 @@ export const test = base.extend<{ app: GitnaFixture }>({
       const parsed = new URL(running.url)
       await use({
         ...fixture,
+        repo: running.root,
         url: running.url,
         origin: parsed.origin,
         token: parsed.pathname.split('/')[2] ?? '',

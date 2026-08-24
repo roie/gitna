@@ -17,7 +17,18 @@ export default function globalSetup(): () => void {
   const temp = mkdtempSync(join(tmpdir(), 'gitna-e2e-build-'))
   const binary = join(temp, process.platform === 'win32' ? 'gitna.exe' : 'gitna')
 
-  execFileSync('pnpm', ['--dir', 'web', 'build'], { cwd: root, stdio: 'inherit' })
+  if (process.platform === 'win32') {
+    execFileSync(
+      process.env.ComSpec ?? 'cmd.exe',
+      ['/d', '/s', '/c', 'pnpm.cmd', '--dir', 'web', 'build'],
+      {
+        cwd: root,
+        stdio: 'inherit',
+      },
+    )
+  } else {
+    execFileSync('pnpm', ['--dir', 'web', 'build'], { cwd: root, stdio: 'inherit' })
+  }
   execFileSync('go', ['build', '-o', binary, './cmd/gitna'], { cwd: root, stdio: 'inherit' })
 
   process.env.GITNA_E2E_BINARY = binary

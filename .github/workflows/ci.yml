@@ -41,10 +41,10 @@ jobs:
           pnpm --dir web check
           pnpm --dir web lint
           pnpm --dir web test
-          pnpm --dir web format:check
-      - name: Check release scripts
+      - name: Check formatting and release scripts
         if: runner.os == 'Linux'
         run: |
+          pnpm --dir web format:check
           web/node_modules/.bin/tsc -p tsconfig.json
           web/node_modules/.bin/oxfmt --config web/.oxfmtrc.json --check scripts/generate-third-party-licenses.mjs scripts/package-npm.mjs npm/gitna
       - name: Test npm launcher
