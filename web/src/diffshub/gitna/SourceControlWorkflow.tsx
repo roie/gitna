@@ -1717,6 +1717,7 @@ function GraphCommitRow({
   const stats = repository.commitStats[row.commit.oid]
   const source = useMemo(() => createTreeSource(files ?? []), [files])
   const [treeModel, setTreeModel] = useState<FileTree | null>(null)
+  const [commitOidCopied, setCommitOidCopied] = useState(false)
   const treeHeight = useNaturalTreeHeight(treeModel)
   const selectedPath =
     repository.commitDiff?.oid === row.commit.oid ? repository.commitDiff.path : null
@@ -1806,7 +1807,26 @@ function GraphCommitRow({
                   )}
                 </>
               )}
-              <span className="ml-auto font-mono text-muted-foreground">{shortOid}</span>
+              <button
+                type="button"
+                className="ml-auto cursor-pointer rounded-sm px-1 font-mono text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                aria-label={
+                  commitOidCopied ? `Copied commit ID ${shortOid}` : `Copy commit ID ${shortOid}`
+                }
+                aria-live="polite"
+                title="Copy full commit ID"
+                onClick={() => {
+                  void navigator.clipboard
+                    .writeText(row.commit.oid)
+                    .then(() => {
+                      setCommitOidCopied(true)
+                      window.setTimeout(() => setCommitOidCopied(false), 1500)
+                    })
+                    .catch(() => undefined)
+                }}
+              >
+                {commitOidCopied ? 'Copied!' : shortOid}
+              </button>
             </div>
           </TooltipContent>
         </Tooltip>

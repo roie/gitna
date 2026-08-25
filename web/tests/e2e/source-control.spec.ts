@@ -31,6 +31,9 @@ function runGit(cwd: string, ...args: string[]): string {
 }
 
 test('real binary renders repository source-control state', async ({ page, app }) => {
+  await page.context().grantPermissions(['clipboard-read', 'clipboard-write'], {
+    origin: new URL(app.url).origin,
+  })
   const response = await page.goto(app.url)
   expect(response?.status()).toBe(200)
   await expect(page.getByPlaceholder('Commit message')).toBeVisible()
@@ -97,7 +100,14 @@ test('real binary renders repository source-control state', async ({ page, app }
   const tooltip = page.getByRole('tooltip')
   await expect(tooltip).toBeVisible()
   await expect(tooltip).toContainText('Gitna E2E')
-  await expect(tooltip).toContainText(app.headOid.slice(0, 8))
+  const copyCommitId = tooltip.getByTitle('Copy full commit ID')
+  await expect(copyCommitId).toHaveAccessibleName(`Copy commit ID ${app.headOid.slice(0, 8)}`)
+  await expect(copyCommitId).toHaveText(app.headOid.slice(0, 8))
+  await copyCommitId.hover()
+  await copyCommitId.click()
+  await expect(copyCommitId).toHaveText('Copied!')
+  await expect(copyCommitId).toHaveAccessibleName(`Copied commit ID ${app.headOid.slice(0, 8)}`)
+  await expect.poll(() => page.evaluate(() => navigator.clipboard.readText())).toBe(app.headOid)
   if (process.env.GITNA_CAPTURE_GRAPH) {
     await page.screenshot({ path: '/tmp/gitna-graph-tooltip.png', fullPage: true })
   }
