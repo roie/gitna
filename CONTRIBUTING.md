@@ -63,7 +63,7 @@ Release archives contain the native executable, README, and required license not
 ## Release process
 
 1. Run CI on the release candidate commit.
-2. Confirm the GitHub repository has the `NPM_TOKEN` Actions secret.
+2. Confirm npm trusted publishing authorizes `.github/workflows/release.yml` in `roie/gitna`.
 3. Perform the WSL receipt below.
 4. Create an annotated `v<version>` tag on the accepted commit.
 5. Push only that tag.
@@ -71,7 +71,7 @@ Release archives contain the native executable, README, and required license not
 
 The tag workflow builds and smoke-tests the exact Linux and Windows release archives before publishing. Do not reuse a published npm version or move a published release tag.
 
-After the first npm release, configure npm trusted publishing for each package and remove the long-lived token when practical.
+npm publishing uses GitHub Actions OIDC trusted publishing; do not add a long-lived publish token.
 
 ## WSL release receipt
 

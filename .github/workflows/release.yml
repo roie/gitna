@@ -124,8 +124,6 @@ jobs:
           npm install --prefix npm-smoke "./dist/gitna-${version}.tgz"
           test "$(npm-smoke/node_modules/.bin/gitna --version)" = "$version"
       - name: Publish npm package
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: |
           version="${GITHUB_REF_NAME#v}"
           npm publish "./dist/gitna-${version}.tgz" --access public --provenance
