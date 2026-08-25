@@ -33,8 +33,8 @@ import {
   useState,
 } from 'react';
 
+import { GitnaLogo } from '../gitna/GitnaLogo';
 import { CHROME_ICON_BUTTON_CLASS } from './chromeButtonStyles';
-import { DiffsHubLogo } from './DiffsHubLogo';
 import { DiffUrlForm } from './DiffUrlForm';
 import { useChromeThemeProps } from './useChromeThemeProps';
 import { Button } from './Button';
@@ -245,7 +245,7 @@ export const DiffsHubHeader = memo(function DiffsHubHeader({
         href="/"
         className="absolute top-4 left-[50%] inline-flex -translate-x-1/2 transition-transform duration-200 hover:scale-110 md:static md:translate-x-0"
       >
-        <DiffsHubLogo />
+        <GitnaLogo />
       </Link>
       {localRepository ? (
         <LocalRepositoryForm

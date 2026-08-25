@@ -24,7 +24,7 @@ Control integration boundaries.
 
 | Exact upstream responsibility | Local destination | Current disposition |
 | --- | --- | --- |
-| Header, logo, display/theme controls and URL form | `web/src/diffshub/components/DiffsHubHeader.tsx`, `DiffsHubLogo.tsx`, `DiffUrlForm.tsx` | Logo is verbatim; header/form retain donor structure with capability-safe Vite links and truthful local repository identity. |
+| Header, display/theme controls and URL form | `web/src/diffshub/components/DiffsHubHeader.tsx`, `DiffUrlForm.tsx`; Gitna branding at `web/src/diffshub/gitna/GitnaLogo.tsx` | Header/form retain donor structure with capability-safe Vite links and truthful local repository identity; the donor logo is replaced by Gitna's theme-aware product mark. |
 | Sidebar, file tree, comments, stats and worker monitor | corresponding files under `web/src/diffshub/components` | Donor source retained. Gitna's sidebar removes the inapplicable Files/Comments tabs, Diff Stats and System Monitor while preserving the themed responsive drawer. The file-tree boundary adds unique IDs and external selection so Repository, Staged Changes, Changes and expanded Graph commits all use Pierre Trees; closed narrow overlays add `aria-hidden`/`inert`. |
 | Continuous CodeView and themed wrappers | `DiffsHubViewer.tsx`, `ThemedCodeView.tsx`, themed hooks/helpers | Donor viewer retained with Gitna file/hunk actions added through its header metadata slot. |
 | Worker pool and preload | `WorkerPoolContext.tsx`, `PreloadHighlighter.tsx` | Vite `?worker` replaces the Next worker URL and Shiki JS preserves the strict CSP without `wasm-unsafe-eval`. |
