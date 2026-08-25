@@ -48,7 +48,10 @@ jobs:
           web/node_modules/.bin/tsc -p tsconfig.json
           web/node_modules/.bin/oxfmt --config web/.oxfmtrc.json --check scripts/generate-third-party-licenses.mjs scripts/package-npm.mjs npm/gitna
       - name: Test npm launcher
-        run: node --test npm/gitna/test/platform.test.mjs
+        run: |
+          node --test npm/gitna/test/platform.test.mjs
+          node scripts/package-npm.mjs 0.0.0 dist-npm
+          node -e "if (!require('node:fs').existsSync('dist-npm/gitna-0.0.0.tgz')) process.exit(1)"
       - name: Build embedded frontend
         run: pnpm --dir web build
       - name: Verify license inventory
@@ -61,6 +64,14 @@ jobs:
           go vet ./...
           go test ./...
           go build -trimpath ./cmd/gitna
+      - name: Smoke test Windows release packaging
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          ./scripts/package.ps1 0.0.0 dist-package
+          if (!(Test-Path dist-package/gitna_0.0.0_windows_x64.zip)) {
+            throw "Windows release packaging smoke test failed"
+          }
       - name: Run Go race tests
         if: runner.os == 'Linux'
         run: go test -race ./...

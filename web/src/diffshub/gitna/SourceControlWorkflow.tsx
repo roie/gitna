@@ -2267,8 +2267,7 @@ function OperationModal({ kind, onClose, onConfirm, onError }: OperationModalPro
               onClick={() =>
                 onConfirm({
                   title: `Delete tag ${tag.name}?`,
-                  message:
-                    'This removes the local tag reference. Gitna cannot undo the deletion.',
+                  message: 'This removes the local tag reference. Gitna cannot undo the deletion.',
                   confirmLabel: 'Delete tag',
                   run: () => repository.operation({ op: 'delete-tag', name: tag.name }),
                 })

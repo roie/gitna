@@ -186,7 +186,7 @@ export const test = base.extend<{ app: GitnaFixture }>({
       })
     } finally {
       if (child) await stopGitna(child)
-      rmSync(temp, { recursive: true, force: true })
+      rmSync(temp, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
     }
   },
 })

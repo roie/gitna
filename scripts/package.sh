@@ -39,11 +39,6 @@ package_linux() {
   cp LICENSE README.md THIRD_PARTY_NOTICES.md THIRD_PARTY_LICENSES.txt "$stage/"
   cp -R LICENSES "$stage/"
   tar -C "$stage" -czf "$output_dir/gitna_${version}_linux_${asset_arch}.tar.gz" .
-  if [[ "$asset_arch" == "x64" ]]; then
-    node scripts/package-npm.mjs "$version" "linux-$asset_arch" "$stage/gitna" "$output_dir" --main
-  else
-    node scripts/package-npm.mjs "$version" "linux-$asset_arch" "$stage/gitna" "$output_dir"
-  fi
   rm -rf "$stage"
   trap - RETURN
 }

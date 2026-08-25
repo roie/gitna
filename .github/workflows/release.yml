@@ -30,13 +30,9 @@ jobs:
       - name: Verify packaged versions
         run: | # zizmor: ignore[adhoc-packages]
           version="${GITHUB_REF_NAME#v}"
-          mkdir release-smoke npm-smoke
+          mkdir release-smoke
           tar -xzf "dist/gitna_${version}_linux_x64.tar.gz" -C release-smoke
           test "$(release-smoke/gitna --version)" = "$version"
-          npm install --prefix npm-smoke --omit=optional \
-            "./dist/gitna-linux-x64-${version}.tgz" \
-            "./dist/gitna-${version}.tgz"
-          test "$(npm-smoke/node_modules/.bin/gitna --version)" = "$version"
       - name: Install Chromium
         run: pnpm --dir web exec playwright install --with-deps chromium
       - name: Smoke test exact Linux release binary
@@ -46,9 +42,7 @@ jobs:
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: linux-release-assets
-          path: |
-            dist/*.tar.gz
-            dist/*.tgz
+          path: dist/*.tar.gz
           if-no-files-found: error
 
   package-windows:
@@ -74,16 +68,9 @@ jobs:
         shell: pwsh
         run: | # zizmor: ignore[adhoc-packages]
           $Version = $env:GITHUB_REF_NAME.TrimStart("v")
-          New-Item -ItemType Directory npm-smoke | Out-Null
           Expand-Archive "dist/gitna_${Version}_windows_x64.zip" release-smoke
           if ((& ./release-smoke/gitna.exe --version) -ne $Version) {
             throw "packaged binary reported the wrong version"
-          }
-          npm install --prefix npm-smoke --omit=optional `
-            "./dist/gitna-win32-x64-${Version}.tgz" `
-            "./dist/gitna-${Version}.tgz"
-          if ((& ./npm-smoke/node_modules/.bin/gitna.cmd --version) -ne $Version) {
-            throw "npm launcher reported the wrong version"
           }
       - name: Install Chromium
         run: pnpm --dir web exec playwright install chromium
@@ -95,9 +82,7 @@ jobs:
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: windows-release-assets
-          path: |
-            dist/*.zip
-            dist/*.tgz
+          path: dist/*.zip
           if-no-files-found: error
 
   publish:
@@ -129,12 +114,26 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: gh release create "$GITHUB_REF_NAME" dist/gitna_* dist/checksums.txt --verify-tag --generate-notes --title "Gitna ${GITHUB_REF_NAME#v}"
-      - name: Publish npm packages
+      - name: Package and smoke test npm launcher
+        env:
+          GITNA_CACHE_DIR: ${{ runner.temp }}/gitna-npm-cache
+        run: | # zizmor: ignore[adhoc-packages]
+          version="${GITHUB_REF_NAME#v}"
+          node scripts/package-npm.mjs "$version" dist
+          mkdir npm-smoke
+          npm install --prefix npm-smoke "./dist/gitna-${version}.tgz"
+          test "$(npm-smoke/node_modules/.bin/gitna --version)" = "$version"
+      - name: Publish npm package
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: |
           version="${GITHUB_REF_NAME#v}"
-          npm publish "dist/gitna-linux-x64-${version}.tgz" --access public --provenance
-          npm publish "dist/gitna-linux-arm64-${version}.tgz" --access public --provenance
-          npm publish "dist/gitna-win32-x64-${version}.tgz" --access public --provenance
-          npm publish "dist/gitna-${version}.tgz" --access public --provenance
+          npm publish "./dist/gitna-${version}.tgz" --access public --provenance
+      - name: Hide incomplete GitHub release
+        if: failure()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
+            gh release edit "$GITHUB_REF_NAME" --draft
+          fi

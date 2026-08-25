@@ -45,7 +45,7 @@ gitna /path/to/repository
 npm install -g gitna
 ```
 
-The npm package uses a small Node.js launcher to select the native binary for your platform.
+The single npm package downloads the matching native binary from GitHub Releases, verifies its SHA-256 checksum, and caches it locally. Node.js is required only for npm installations.
 
 ### mise
 

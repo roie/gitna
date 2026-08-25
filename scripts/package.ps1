@@ -48,10 +48,6 @@ try {
   Copy-Item LICENSES -Destination $Stage -Recurse
   $Archive = Join-Path $OutputDirectory "gitna_${Version}_windows_x64.zip"
   Compress-Archive -Path (Join-Path $Stage "*") -DestinationPath $Archive -Force
-  node scripts/package-npm.mjs $Version win32-x64 (Join-Path $Stage "gitna.exe") $OutputDirectory
-  if ($LASTEXITCODE -ne 0) {
-    throw "npm packaging failed"
-  }
 } finally {
   Remove-Item Env:GOOS -ErrorAction SilentlyContinue
   Remove-Item Env:GOARCH -ErrorAction SilentlyContinue

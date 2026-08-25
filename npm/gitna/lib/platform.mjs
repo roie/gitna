@@ -1,13 +1,16 @@
 const targets = new Map([
-  ['linux-arm64', { packageName: 'gitna-linux-arm64', executable: 'bin/gitna' }],
-  ['linux-x64', { packageName: 'gitna-linux-x64', executable: 'bin/gitna' }],
-  ['win32-x64', { packageName: 'gitna-win32-x64', executable: 'bin/gitna.exe' }],
+  ['linux-arm64', { asset: 'gitna_{version}_linux_arm64.tar.gz', executable: 'gitna' }],
+  ['linux-x64', { asset: 'gitna_{version}_linux_x64.tar.gz', executable: 'gitna' }],
+  ['win32-x64', { asset: 'gitna_{version}_windows_x64.zip', executable: 'gitna.exe' }],
 ])
 
-export function packageFor(platform = process.platform, arch = process.arch) {
+/**
+ * @param {string} version
+ * @param {NodeJS.Platform} [platform]
+ * @param {string} [arch]
+ */
+export function targetFor(version, platform = process.platform, arch = process.arch) {
   const target = targets.get(`${platform}-${arch}`)
-  if (!target) {
-    throw new Error(`Gitna does not provide an npm binary for ${platform}-${arch}`)
-  }
-  return target
+  if (!target) throw new Error(`Gitna does not provide a native binary for ${platform}-${arch}`)
+  return { ...target, asset: target.asset.replace('{version}', version) }
 }

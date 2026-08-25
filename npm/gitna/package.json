@@ -18,11 +18,6 @@
     "LICENSE"
   ],
   "type": "module",
-  "optionalDependencies": {
-    "gitna-linux-arm64": "0.0.0",
-    "gitna-linux-x64": "0.0.0",
-    "gitna-win32-x64": "0.0.0"
-  },
   "engines": {
     "node": ">=18"
   }

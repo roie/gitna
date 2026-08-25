@@ -51,6 +51,7 @@ test('narrow review switches to a single usable CodeView surface', async ({ page
   await page.goto(app.url)
   await expect(page.getByRole('region', { name: 'Review' })).toBeVisible()
   await expect(page.locator('diffs-container').first()).toBeVisible({ timeout: 30_000 })
+  await expect(page.locator('.code-view')).toHaveCount(1)
   await expect(page.getByRole('button', { name: 'Switch to unified view' })).toHaveCount(0)
   const geometry = await page.evaluate(() => ({
     bodyWidth: document.body.scrollWidth,
