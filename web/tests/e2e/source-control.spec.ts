@@ -348,10 +348,10 @@ test('repository tree keeps a bounded virtualized viewport for thousands of file
   ).toBeGreaterThan(10)
 })
 
-test('embedded binary serves the pinned DiffsHub React frontend', async ({ page, app }) => {
+test('embedded binary serves the branded React frontend', async ({ page, app }) => {
   const response = await page.goto(app.url)
   expect(response?.status()).toBe(200)
-  await expect(page.getByRole('img', { name: 'DiffsHub' })).toBeVisible()
+  await expect(page.getByRole('img', { name: 'Gitna' })).toBeVisible()
   await expect(page.getByRole('button', { name: 'Collapse all files' })).toBeVisible()
   await expect(page.getByRole('button', { name: 'Theme settings' })).toBeVisible()
   await expect(page.getByRole('button', { name: 'Display settings' })).toBeVisible()
