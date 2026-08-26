@@ -448,9 +448,13 @@ function GitnaReviewUIInner() {
       </ReviewGrid>
       {pendingFileAction != null && (
         <Confirm
-          title={`${pendingFileAction.action === 'delete' ? 'Delete' : 'Discard changes in'} ${pendingFileAction.path}?`}
-          message={`${repository.snapshot?.root ?? 'Repository'} · ${repository.snapshot?.headBranch ?? 'detached'}. This action cannot be undone by Gitna.`}
-          confirmLabel={pendingFileAction.action === 'delete' ? 'Delete' : 'Discard'}
+          title={`${pendingFileAction.action === 'delete' ? 'Delete untracked file' : 'Discard changes to'} ${pendingFileAction.path}?`}
+          message={
+            pendingFileAction.action === 'delete'
+              ? 'This permanently deletes the file. This cannot be undone.'
+              : 'The file will be restored to its staged version. This cannot be undone.'
+          }
+          confirmLabel={pendingFileAction.action === 'delete' ? 'Delete file' : 'Discard changes'}
           onCancel={() => setPendingFileAction(null)}
           onConfirm={() => {
             const pending = pendingFileAction

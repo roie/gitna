@@ -1,25 +1,17 @@
 import { type ReactNode, useEffect, useRef } from 'react'
 
+import * as AlertDialog from '@radix-ui/react-alert-dialog'
 import { IconX } from '@pierre/icons'
 
 import { Button } from '../components/Button'
-import { cn } from '../lib/cn'
 
 interface ModalProps {
   children: ReactNode
-  destructive?: boolean
   onClose(): void
-  role?: 'dialog' | 'alertdialog'
   title: string
 }
 
-export function Modal({
-  children,
-  destructive = false,
-  onClose,
-  role = 'dialog',
-  title,
-}: ModalProps) {
+export function Modal({ children, onClose, title }: ModalProps) {
   const dialogRef = useRef<HTMLDialogElement>(null)
 
   useEffect(() => {
@@ -38,11 +30,7 @@ export function Modal({
     <dialog
       ref={dialogRef}
       aria-label={title}
-      role={role}
-      className={cn(
-        'm-auto max-h-[min(720px,calc(100dvh-2rem))] w-[min(560px,calc(100vw-2rem))] overflow-hidden rounded-xl border border-border bg-background p-0 text-foreground shadow-2xl backdrop:bg-black/45',
-        destructive && 'border-red-500/40',
-      )}
+      className="m-auto max-h-[min(720px,calc(100dvh-2rem))] w-[min(560px,calc(100vw-2rem))] overflow-hidden rounded-xl border border-border bg-background p-0 text-foreground shadow-2xl backdrop:bg-black/45"
       onClick={(event) => {
         if (event.target === dialogRef.current) onClose()
       }}
@@ -68,21 +56,35 @@ interface ConfirmProps {
 
 export function Confirm({ confirmLabel, message, onCancel, onConfirm, title }: ConfirmProps) {
   return (
-    <Modal destructive onClose={onCancel} role="alertdialog" title={title}>
-      <p className="text-sm leading-6 text-muted-foreground">{message}</p>
-      <div className="mt-5 flex justify-end gap-2">
-        <Button variant="outline" size="sm" onClick={onCancel}>
-          Cancel
-        </Button>
-        <Button
-          variant="destructive"
-          size="sm"
-          className="bg-red-600 text-white hover:bg-red-700"
-          onClick={onConfirm}
-        >
-          {confirmLabel}
-        </Button>
-      </div>
-    </Modal>
+    <AlertDialog.Root
+      open
+      onOpenChange={(open) => {
+        if (!open) onCancel()
+      }}
+    >
+      <AlertDialog.Portal>
+        <AlertDialog.Overlay className="fixed inset-0 z-50 bg-black/50" />
+        <AlertDialog.Content className="fixed left-1/2 top-1/2 z-50 w-[min(440px,calc(100vw-2rem))] -translate-x-1/2 -translate-y-1/2 rounded-lg border border-border bg-background p-5 text-foreground shadow-2xl outline-none">
+          <AlertDialog.Title className="text-base font-semibold leading-none">
+            {title}
+          </AlertDialog.Title>
+          <AlertDialog.Description className="mt-3 text-sm leading-6 text-muted-foreground">
+            {message}
+          </AlertDialog.Description>
+          <div className="mt-6 flex justify-end gap-2">
+            <AlertDialog.Cancel asChild>
+              <Button variant="outline" size="sm">
+                Cancel
+              </Button>
+            </AlertDialog.Cancel>
+            <AlertDialog.Action asChild>
+              <Button variant="destructive" size="sm" onClick={onConfirm}>
+                {confirmLabel}
+              </Button>
+            </AlertDialog.Action>
+          </div>
+        </AlertDialog.Content>
+      </AlertDialog.Portal>
+    </AlertDialog.Root>
   )
 }

@@ -78,6 +78,49 @@ interface TreeFile {
   path: string
 }
 
+interface DiscardConfirmationCopy {
+  confirmLabel: string
+  message: string
+  title: string
+}
+
+function discardConfirmationCopy(
+  name: string | null,
+  changes: readonly TreeFile[],
+  group: boolean,
+): DiscardConfirmationCopy {
+  const untracked = changes.filter((change) => change.kind === 'untracked').length
+  const tracked = changes.length - untracked
+
+  if (!group && name != null && changes.length === 1) {
+    return untracked === 1
+      ? {
+          title: `Delete untracked file ${name}?`,
+          message: 'This permanently deletes the file. This cannot be undone.',
+          confirmLabel: 'Delete file',
+        }
+      : {
+          title: `Discard changes to ${name}?`,
+          message: 'The file will be restored to its staged version. This cannot be undone.',
+          confirmLabel: 'Discard changes',
+        }
+  }
+
+  const scope = name == null ? 'all changes' : `changes in ${name}`
+  const effects = [
+    tracked > 0 ? `restore ${tracked} tracked ${tracked === 1 ? 'file' : 'files'}` : null,
+    untracked > 0
+      ? `permanently delete ${untracked} untracked ${untracked === 1 ? 'file' : 'files'}`
+      : null,
+  ].filter((effect): effect is string => effect != null)
+
+  return {
+    title: `Discard ${scope}?`,
+    message: `This will ${effects.join(' and ')}. This cannot be undone.`,
+    confirmLabel: untracked === changes.length ? 'Delete files' : 'Discard changes',
+  }
+}
+
 type RepositoryStatusFilter = 'all' | 'changed' | ChangeKind
 type RepositoryViewMode = 'tree' | 'list'
 
@@ -1380,15 +1423,7 @@ function ChangeSection({
           disabled: repository.busy,
           onAction: () =>
             onConfirm({
-              title: `Discard changes in ${item.name}?`,
-              message: `${repository.snapshot?.root ?? 'Repository'} on ${repository.snapshot?.headBranch ?? 'detached HEAD'}. ${
-                row.kind === 'directory'
-                  ? 'This restores tracked files and permanently deletes untracked files in this folder.'
-                  : itemChanges[0].kind === 'untracked'
-                    ? 'This permanently deletes the untracked file.'
-                    : 'This restores the file from the index.'
-              } Gitna cannot undo this action.`,
-              confirmLabel: 'Discard changes',
+              ...discardConfirmationCopy(item.name, itemChanges, row.kind === 'directory'),
               run: () => discardChanges(itemChanges),
             }),
         },
@@ -1431,9 +1466,7 @@ function ChangeSection({
           disabled={repository.busy}
           onClick={() =>
             onConfirm({
-              title: 'Discard all changes?',
-              message: `${repository.snapshot?.root ?? 'Repository'} on ${repository.snapshot?.headBranch ?? 'detached HEAD'}. This restores tracked files and permanently deletes untracked files. Gitna cannot undo this action.`,
-              confirmLabel: 'Discard all changes',
+              ...discardConfirmationCopy(null, changes, true),
               run: () => discardChanges(changes),
             })
           }
