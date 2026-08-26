@@ -44,7 +44,7 @@ function ImageLightbox({ alt, onClose, src }: { alt: string; onClose(): void; sr
         <img
           src={src}
           alt={alt}
-          className="block max-h-full max-w-full object-contain shadow-2xl"
+          className="block max-h-full max-w-full object-contain"
           onClick={(event) => event.stopPropagation()}
         />
       </div>

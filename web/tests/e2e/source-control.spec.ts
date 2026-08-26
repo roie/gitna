@@ -54,7 +54,8 @@ test('real binary renders repository source-control state', async ({ page, app }
   await expect(staged).toBeVisible()
   await expect(changes).toHaveAttribute('aria-expanded', 'true')
   await expect(staged).toHaveAttribute('aria-expanded', 'true')
-  await expect(page.getByRole('switch', { name: 'Amend' })).toBeVisible()
+  await expect(page.getByRole('switch', { name: 'Amend' })).toBeEnabled()
+  await expect(workflow.locator('.section-count')).toHaveAttribute('title', /changed files?/)
   const switchBranch = page.getByRole('button', { name: 'Switch branch · main' })
   await switchBranch.click()
   await expect(page.getByRole('menuitem', { name: /main.*origin\/main/ })).toBeVisible()
@@ -300,9 +301,11 @@ test('raster images replace the code body', async ({ page, app }) => {
   })
   await expect(imageViewer).toBeVisible()
   await expect(imageViewer).toHaveText('')
-  await expect(
-    imageViewer.getByRole('img', { name: 'Image preview for preview.png' }),
-  ).toBeVisible()
+  const lightboxImage = imageViewer.getByRole('img', {
+    name: 'Image preview for preview.png',
+  })
+  await expect(lightboxImage).toBeVisible()
+  await expect(lightboxImage).not.toHaveClass(/shadow/)
   await expect(imageViewer).toHaveClass(/bg-black\/85/)
   await page.keyboard.press('Escape')
   await expect(imageViewer).not.toBeVisible()
@@ -386,6 +389,7 @@ test('repository path switches the live session and remains fully editable', asy
   await expect(switchRepository).not.toBeVisible()
   await expect(page.locator('[data-section="workflow"]')).toContainText('trunk')
   await expect(page.locator('[data-section="workflow"] .section-count')).toHaveCount(0)
+  await expect(page.getByRole('switch', { name: 'Amend' })).toBeDisabled()
   await expect(
     page.getByRole('region', { name: 'Source Control workflow' }).getByText('Working tree clean'),
   ).toHaveCount(0)
@@ -419,6 +423,18 @@ test('branch picker, repository filters, list view, and graph stats use direct p
   await page.goto(app.url)
   await page.locator('[data-section="repository"]').click()
   await page.locator('[data-section="graph"]').click()
+  await expect(page.getByRole('button', { name: 'Search Repository' })).toHaveAttribute(
+    'title',
+    'Search Repository',
+  )
+  await expect(page.locator('[data-section="repository"] .section-count')).toHaveAttribute(
+    'title',
+    /files in Repository/,
+  )
+  await expect(page.locator('[data-section="graph"] .section-count')).toHaveAttribute(
+    'title',
+    /commits in Graph/,
+  )
   const sourceControlActions = [
     page.getByRole('button', { name: /^Switch branch · main$/ }),
     page.getByRole('button', { name: 'Fetch' }),
@@ -441,8 +457,8 @@ test('branch picker, repository filters, list view, and graph stats use direct p
   await expect(page.locator('button[aria-label="Publish branch"]')).toBeVisible()
 
   await page.getByRole('button', { name: /^Repository actions/ }).click()
-  await page.getByRole('menuitem', { name: /Filter by status/ }).hover()
-  await page.getByRole('menuitem', { name: /Changed files/ }).click()
+  await page.getByRole('menuitem', { name: 'Filter files' }).hover()
+  await page.getByRole('menuitem', { name: 'Changed files' }).click()
   await expect(page.locator('[data-section="repository"] .section-count')).toContainText('/')
   await expect(
     page
@@ -451,8 +467,8 @@ test('branch picker, repository filters, list view, and graph stats use direct p
   ).toHaveCount(0)
 
   await page.getByRole('button', { name: /^Repository actions/ }).click()
-  await page.getByRole('menuitem', { name: /Filter by status/ }).hover()
-  await page.getByRole('menuitem', { name: /All files/ }).click()
+  await page.getByRole('menuitem', { name: 'Filter files' }).hover()
+  await page.getByRole('menuitem', { name: 'All files' }).click()
 
   await page.getByRole('button', { name: /^Repository actions/ }).click()
   await page.getByRole('menuitem', { name: 'Collapse all folders' }).click()

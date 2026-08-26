@@ -493,6 +493,11 @@ export function GitnaSourceControl() {
             dataSection="workflow"
             icon={IconSymbolDiffstatFill}
             count={changedPathCount > 0 ? changedPathCount : null}
+            countTitle={
+              changedPathCount > 0
+                ? `${changedPathCount} changed ${changedPathCount === 1 ? 'file' : 'files'}`
+                : undefined
+            }
             open={workflowOpen}
             title={headTitle}
             onOpenChange={setWorkflowOpen}
@@ -534,6 +539,7 @@ export function GitnaSourceControl() {
                       id="gitna-amend"
                       aria-label="Amend"
                       checked={amend}
+                      disabled={repository.busy || staged.length === 0}
                       onCheckedChange={setAmend}
                     />
                     Amend
@@ -820,7 +826,7 @@ function SourceControlHeaderActions({
             variant="ghost"
             size="icon-only"
             aria-label={`Switch branch · ${repository.snapshot?.headBranch ?? 'detached'}`}
-            title={`Switch branch · ${repository.snapshot?.root ?? ''}`}
+            title={`Switch branch · ${repository.snapshot?.headBranch ?? 'detached'}`}
             className={CHROME_ICON_BUTTON_CLASS}
           >
             <IconBranch className="size-4 md:size-3" />
@@ -1112,6 +1118,7 @@ interface PaneSectionHeaderProps {
   actions?: ReactNode
   className?: string
   count?: ReactNode
+  countTitle?: string
   dataSection: string
   headerRef?: React.Ref<HTMLButtonElement>
   icon: ComponentType<{ className?: string }>
@@ -1124,6 +1131,7 @@ function PaneSectionHeader({
   actions,
   className,
   count,
+  countTitle,
   dataSection,
   headerRef,
   icon,
@@ -1145,7 +1153,10 @@ function PaneSectionHeader({
           {title}
         </span>
         {count != null && (
-          <span className="section-count tabular-nums text-muted-foreground/75 text-xs">
+          <span
+            className="section-count tabular-nums text-muted-foreground/75 text-xs"
+            title={countTitle}
+          >
             {count}
           </span>
         )}
@@ -1236,29 +1247,24 @@ function RepositoryHeaderActions({
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end">
           <DropdownMenuSub>
-            <DropdownMenuSubTrigger>
-              Filter by status
-              <span className="ml-auto mr-1 text-[10px] text-muted-foreground">{filterLabel}</span>
-            </DropdownMenuSubTrigger>
+            <DropdownMenuSubTrigger>Filter files</DropdownMenuSubTrigger>
             <DropdownMenuSubContent>
               {REPOSITORY_FILTERS.map((candidate) => (
                 <DropdownMenuItem
                   key={candidate.value}
+                  selected={candidate.value === filter}
                   onSelect={() => onFilterChange(candidate.value)}
                 >
-                  <span className="w-4">{candidate.value === filter ? '✓' : ''}</span>
                   {candidate.label}
                 </DropdownMenuItem>
               ))}
             </DropdownMenuSubContent>
           </DropdownMenuSub>
           <DropdownMenuSeparator />
-          <DropdownMenuItem onSelect={() => onViewChange('tree')}>
-            <span className="w-4">{view === 'tree' ? '✓' : ''}</span>
+          <DropdownMenuItem selected={view === 'tree'} onSelect={() => onViewChange('tree')}>
             Show as Tree
           </DropdownMenuItem>
-          <DropdownMenuItem onSelect={() => onViewChange('list')}>
-            <span className="w-4">{view === 'list' ? '✓' : ''}</span>
+          <DropdownMenuItem selected={view === 'list'} onSelect={() => onViewChange('list')}>
             Show as List
           </DropdownMenuItem>
           <DropdownMenuSeparator />
@@ -1342,13 +1348,18 @@ function TreeSection({
           actions={
             <>
               {open && model != null && source.pathCount > 0 && (
-                <TreeSearchToggle model={model} title={title} onOpenChange={setSearchOpen} />
+                <TreeSearchToggle
+                  model={model}
+                  title={dataSection === 'repository' ? 'Repository' : title}
+                  onOpenChange={setSearchOpen}
+                />
               )}
               {renderHeaderActions?.(model)}
               {headerActions}
             </>
           }
           count={count ?? source.pathCount}
+          countTitle={`${count ?? source.pathCount} files in ${dataSection === 'repository' ? 'Repository' : title}`}
           dataSection={dataSection}
           headerRef={headerRef}
           icon={paneIcon ?? IconFileTree}
@@ -1429,6 +1440,7 @@ function TreeSearchToggle({
       aria-label={search.isOpen ? `Hide ${title} search` : `Search ${title}`}
       aria-pressed={search.isOpen}
       className={CHROME_ICON_BUTTON_CLASS}
+      title={search.isOpen ? `Hide ${title} search` : `Search ${title}`}
       onPointerDown={(event) => event.preventDefault()}
       onClick={() => (search.isOpen ? search.close() : search.open())}
     >
@@ -1689,6 +1701,7 @@ function GraphSection({ headerRef, onConfirm, onOpenChange, open }: GraphSection
           </>
         }
         count={`${repository.graphRows.length}${repository.graphHasMore ? '+' : ''}`}
+        countTitle={`${repository.graphRows.length}${repository.graphHasMore ? '+' : ''} commits in Graph`}
         dataSection="graph"
         headerRef={headerRef}
         icon={IconBranch}
@@ -1959,6 +1972,7 @@ function GraphCommitRow({
               size="icon-only"
               className="opacity-0 group-focus-within:opacity-100 group-hover:opacity-100"
               aria-label={`Actions for ${row.commit.subject}`}
+              title={`Actions for ${row.commit.subject}`}
             >
               <IconEllipsis className="size-3" />
             </Button>

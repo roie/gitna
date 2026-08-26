@@ -78,6 +78,8 @@ test('staging loop preserves VS Code section order and visibility', async ({ pag
   }
   await discardModified.click()
   const confirmation = page.getByRole('alertdialog')
+  await expect(confirmation).toHaveClass(/shadow-lg/)
+  await expect(confirmation).not.toHaveClass(/shadow-2xl/)
   await expect(confirmation).toContainText('Discard changes to modified.txt?')
   await expect(confirmation).toContainText('restored to its staged version')
   const cancelConfirmation = confirmation.getByRole('button', { name: 'Cancel' })
