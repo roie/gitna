@@ -3,12 +3,14 @@ import {
   IconChevronSm,
   IconEllipsis,
   IconFileTree,
+  IconFilter,
   IconMinus,
   IconPlus,
   IconRefresh,
   IconReply,
   IconSearch,
   IconSymbolDiffstatFill,
+  IconXSquircle,
 } from '@pierre/icons'
 import type {
   FileTree,
@@ -37,8 +39,10 @@ import { CHROME_ICON_BUTTON_CLASS } from '../components/chromeButtonStyles'
 import { DiffsHubFileTree } from '../components/DiffsHubFileTree'
 import {
   DropdownMenu,
+  DropdownMenuCheckboxItem,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuLabel,
   DropdownMenuSeparator,
   DropdownMenuSub,
   DropdownMenuSubContent,
@@ -121,18 +125,44 @@ function discardConfirmationCopy(
   }
 }
 
-type RepositoryStatusFilter = 'all' | 'changed' | ChangeKind
 type RepositoryViewMode = 'tree' | 'list'
 
-const REPOSITORY_FILTERS: readonly { label: string; value: RepositoryStatusFilter }[] = [
-  { label: 'All files', value: 'all' },
-  { label: 'Changed files', value: 'changed' },
-  { label: 'Modified', value: 'modified' },
-  { label: 'Added', value: 'added' },
-  { label: 'Deleted', value: 'deleted' },
-  { label: 'Renamed', value: 'renamed' },
-  { label: 'Untracked', value: 'untracked' },
-  { label: 'Conflicted', value: 'conflicted' },
+const REPOSITORY_FILTERS: readonly {
+  color: string
+  label: string
+  short: string
+  status: GitStatus
+}[] = [
+  {
+    status: 'added',
+    label: 'Added',
+    short: 'A',
+    color: 'light-dark(#16a994, #00cab1)',
+  },
+  {
+    status: 'modified',
+    label: 'Modified',
+    short: 'M',
+    color: 'light-dark(#1ca1c7, #08c0ef)',
+  },
+  {
+    status: 'untracked',
+    label: 'Untracked',
+    short: 'U',
+    color: 'light-dark(#16a994, #00cab1)',
+  },
+  {
+    status: 'renamed',
+    label: 'Renamed',
+    short: 'R',
+    color: 'light-dark(#d5a910, #ffd452)',
+  },
+  {
+    status: 'deleted',
+    label: 'Deleted',
+    short: 'D',
+    color: 'light-dark(#ff2e3f, #ff6762)',
+  },
 ]
 
 function mutationPaths(changes: readonly TreeFile[]): string[] {
@@ -146,7 +176,8 @@ function mutationPaths(changes: readonly TreeFile[]): string[] {
 }
 
 function gitStatus(kind: ChangeKind): GitStatus {
-  if (kind === 'added' || kind === 'untracked') return 'added'
+  if (kind === 'added') return 'added'
+  if (kind === 'untracked') return 'untracked'
   if (kind === 'deleted') return 'deleted'
   if (kind === 'renamed') return 'renamed'
   return 'modified'
@@ -204,12 +235,14 @@ function createRepositoryListSource(
 function filterRepositoryPaths(
   paths: readonly string[],
   changes: readonly TreeFile[],
-  filter: RepositoryStatusFilter,
+  selectedStatuses: ReadonlySet<GitStatus>,
 ): string[] {
-  if (filter === 'all') return [...paths]
-  const kinds = new Map(changes.map((change) => [change.path, change.kind]))
-  if (filter === 'changed') return paths.filter((path) => kinds.has(path))
-  return paths.filter((path) => kinds.get(path) === filter)
+  if (selectedStatuses.size === 0) return [...paths]
+  const statuses = new Map(changes.map((change) => [change.path, gitStatus(change.kind)]))
+  return paths.filter((path) => {
+    const status = statuses.get(path)
+    return status != null && selectedStatuses.has(status)
+  })
 }
 
 function createTreeSource(files: readonly TreeFile[]): DiffsHubFileTreeSource {
@@ -357,7 +390,9 @@ export function GitnaSourceControl() {
   const [changesOpen, setChangesOpen] = useState(true)
   const [stagedOpen, setStagedOpen] = useState(true)
   const [graphOpen, setGraphOpen] = useState(false)
-  const [repositoryFilter, setRepositoryFilter] = useState<RepositoryStatusFilter>('all')
+  const [repositoryFilters, setRepositoryFilters] = useState<ReadonlySet<GitStatus>>(
+    () => new Set(),
+  )
   const [repositoryView, setRepositoryView] = useState<RepositoryViewMode>('tree')
   const [commitMessage, setCommitMessage] = useState('')
   const [amend, setAmend] = useState(false)
@@ -380,9 +415,13 @@ export function GitnaSourceControl() {
     snapshot?.headBranch ??
     (snapshot?.headOid == null ? 'Detached HEAD' : `Detached at ${snapshot.headOid.slice(0, 8)}`)
   const repositoryChanges = useMemo(() => [...staged, ...unstaged], [staged, unstaged])
+  const availableRepositoryStatuses = useMemo(
+    () => new Set(repositoryChanges.map((change) => gitStatus(change.kind))),
+    [repositoryChanges],
+  )
   const filteredRepositoryPaths = useMemo(
-    () => filterRepositoryPaths(repository.repositoryPaths, repositoryChanges, repositoryFilter),
-    [repository.repositoryPaths, repositoryChanges, repositoryFilter],
+    () => filterRepositoryPaths(repository.repositoryPaths, repositoryChanges, repositoryFilters),
+    [repository.repositoryPaths, repositoryChanges, repositoryFilters],
   )
   const repositorySource = useMemo(
     () =>
@@ -393,7 +432,7 @@ export function GitnaSourceControl() {
   )
   const workflowCompact = changedPathCount === 0 && repository.conflicts.length === 0
   const repositoryCount =
-    repositoryFilter === 'all'
+    repositoryFilters.size === 0
       ? `${repository.repositoryPaths.length}${repository.repositoryFilesLoading ? '+' : ''}`
       : `${filteredRepositoryPaths.length} / ${repository.repositoryPaths.length}${repository.repositoryFilesLoading ? '+' : ''}`
   const stagedSource = useMemo(() => createTreeSource(staged), [staged])
@@ -621,13 +660,23 @@ export function GitnaSourceControl() {
           }
           renderHeaderActions={(model) => (
             <RepositoryHeaderActions
-              filter={repositoryFilter}
+              availableStatuses={availableRepositoryStatuses}
               loading={repository.repositoryFilesLoading}
               model={model}
               paths={repositoryView === 'tree' ? filteredRepositoryPaths : []}
+              selectedStatuses={repositoryFilters}
               view={repositoryView}
-              onFilterChange={setRepositoryFilter}
+              onClearFilters={() => setRepositoryFilters(new Set())}
+              onIsolateFilter={(status) => setRepositoryFilters(new Set([status]))}
               onRefresh={() => void repository.refreshRepositoryFiles()}
+              onToggleFilter={(status) =>
+                setRepositoryFilters((current) => {
+                  const next = new Set(current)
+                  if (next.has(status)) next.delete(status)
+                  else next.add(status)
+                  return next
+                })
+              }
               onViewChange={setRepositoryView}
             />
           )}
@@ -1194,28 +1243,100 @@ function setRepositoryFoldersExpanded(
 }
 
 function RepositoryHeaderActions({
-  filter,
+  availableStatuses,
   loading,
   model,
-  onFilterChange,
+  onClearFilters,
+  onIsolateFilter,
   onRefresh,
+  onToggleFilter,
   onViewChange,
   paths,
+  selectedStatuses,
   view,
 }: {
-  filter: RepositoryStatusFilter
+  availableStatuses: ReadonlySet<GitStatus>
   loading: boolean
   model: FileTree | null
-  onFilterChange(filter: RepositoryStatusFilter): void
+  onClearFilters(): void
+  onIsolateFilter(status: GitStatus): void
   onRefresh(): void
+  onToggleFilter(status: GitStatus): void
   onViewChange(view: RepositoryViewMode): void
   paths: readonly string[]
+  selectedStatuses: ReadonlySet<GitStatus>
   view: RepositoryViewMode
 }) {
-  const filterLabel = REPOSITORY_FILTERS.find((candidate) => candidate.value === filter)?.label
-  const filtered = filter !== 'all'
+  const filtered = selectedStatuses.size > 0
+  const visibleFilters = REPOSITORY_FILTERS.filter(({ status }) => availableStatuses.has(status))
+  const [isMac] = useState(
+    () => typeof navigator !== 'undefined' && /mac/i.test(navigator.platform),
+  )
+  const altKeyRef = useRef(false)
   return (
     <>
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon-only"
+            aria-label="Filter by Git status"
+            aria-pressed={filtered}
+            className={cn(CHROME_ICON_BUTTON_CLASS, 'relative')}
+            title="Filter by Git status"
+          >
+            <IconFilter className="size-4 md:size-3" />
+            {filtered && (
+              <span
+                aria-hidden="true"
+                className="absolute -right-0.5 -top-0.5 size-2 rounded-full border-[1px] border-[var(--diffshub-sidebar-bg)] bg-blue-500 dark:bg-blue-400"
+              />
+            )}
+          </Button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="end" className="p-2">
+          <DropdownMenuLabel className="flex flex-col px-2 font-normal">
+            Filter by Git status
+            <small className="text-xs text-muted-foreground">
+              {isMac ? 'Option' : 'Alt'}-click to show only one status
+            </small>
+          </DropdownMenuLabel>
+          <DropdownMenuSeparator className="mx-2" />
+          {visibleFilters.map(({ status, label, short, color }) => (
+            <DropdownMenuCheckboxItem
+              key={status}
+              checked={selectedStatuses.has(status)}
+              indicatorSide="right"
+              className={filtered && !selectedStatuses.has(status) ? 'text-muted-foreground' : ''}
+              onPointerDown={(event) => {
+                altKeyRef.current = event.altKey
+              }}
+              onSelect={(event) => event.preventDefault()}
+              onCheckedChange={() => {
+                if (altKeyRef.current) onIsolateFilter(status)
+                else onToggleFilter(status)
+              }}
+            >
+              <span
+                className="mr-2 w-4 shrink-0 rounded-sm text-center font-mono text-xs font-semibold"
+                style={{
+                  color,
+                  backgroundColor: `color-mix(in srgb, ${color} 15%, transparent)`,
+                }}
+              >
+                {short}
+              </span>
+              {label}
+            </DropdownMenuCheckboxItem>
+          ))}
+          <DropdownMenuSeparator className="mx-2" />
+          <DropdownMenuItem className="px-2" disabled={!filtered} onSelect={onClearFilters}>
+            <IconXSquircle className="mr-2 opacity-50" />
+            Clear filter
+          </DropdownMenuItem>
+        </DropdownMenuContent>
+      </DropdownMenu>
       <Button
         variant="ghost"
         size="icon-only"
@@ -1232,35 +1353,14 @@ function RepositoryHeaderActions({
           <Button
             variant="ghost"
             size="icon-only"
-            className={cn(CHROME_ICON_BUTTON_CLASS, 'relative')}
-            aria-label={`Repository actions · ${filterLabel ?? 'All files'}`}
-            title={`Repository actions · ${filterLabel ?? 'All files'}`}
+            className={CHROME_ICON_BUTTON_CLASS}
+            aria-label="Repository actions"
+            title="Repository actions"
           >
             <IconEllipsis className="size-4 md:size-3" />
-            {filtered && (
-              <span
-                aria-hidden="true"
-                className="absolute -right-0.5 -top-0.5 size-2 rounded-full border-[1px] border-[var(--diffshub-sidebar-bg)] bg-blue-500 dark:bg-blue-400"
-              />
-            )}
           </Button>
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end">
-          <DropdownMenuSub>
-            <DropdownMenuSubTrigger>Filter files</DropdownMenuSubTrigger>
-            <DropdownMenuSubContent>
-              {REPOSITORY_FILTERS.map((candidate) => (
-                <DropdownMenuItem
-                  key={candidate.value}
-                  selected={candidate.value === filter}
-                  onSelect={() => onFilterChange(candidate.value)}
-                >
-                  {candidate.label}
-                </DropdownMenuItem>
-              ))}
-            </DropdownMenuSubContent>
-          </DropdownMenuSub>
-          <DropdownMenuSeparator />
           <DropdownMenuItem selected={view === 'tree'} onSelect={() => onViewChange('tree')}>
             Show as Tree
           </DropdownMenuItem>
@@ -1406,6 +1506,7 @@ function TreeSection({
                   onSelectItem={onSelectPath}
                   renderRowActions={renderRowActions}
                   selectedPath={selectedPath}
+                  showFolderGitStatus={pane}
                   source={source}
                 />
               </div>
@@ -1656,6 +1757,7 @@ function relativeCommitTime(value: string): string {
 
 function GraphSection({ headerRef, onConfirm, onOpenChange, open }: GraphSectionProps) {
   const repository = useRepository()
+  const [view, setView] = useState<RepositoryViewMode>('tree')
   const laneCount = Math.max(1, ...repository.graphRows.map((row) => row.totalColumns))
   return (
     <section data-pane="graph" className="section min-h-0 overflow-hidden md:flex md:flex-col">
@@ -1687,14 +1789,18 @@ function GraphSection({ headerRef, onConfirm, onOpenChange, open }: GraphSection
                 </Button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end">
+                <DropdownMenuItem selected={view === 'tree'} onSelect={() => setView('tree')}>
+                  Show as Tree
+                </DropdownMenuItem>
+                <DropdownMenuItem selected={view === 'list'} onSelect={() => setView('list')}>
+                  Show as List
+                </DropdownMenuItem>
+                <DropdownMenuSeparator />
                 <DropdownMenuItem
                   disabled={!repository.graphHasMore || repository.graphLoading}
                   onSelect={() => void repository.loadMoreGraph()}
                 >
                   Load more commits
-                </DropdownMenuItem>
-                <DropdownMenuItem onSelect={() => void repository.refreshGraph()}>
-                  Reload history
                 </DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>
@@ -1720,6 +1826,7 @@ function GraphSection({ headerRef, onConfirm, onOpenChange, open }: GraphSection
                 key={row.commit.oid}
                 laneCount={laneCount}
                 row={row}
+                view={view}
                 onConfirm={onConfirm}
               />
             ))}
@@ -1839,10 +1946,12 @@ function GraphLaneGutter({
 function GraphCommitRow({
   laneCount,
   row,
+  view,
   onConfirm,
 }: {
   laneCount: number
   row: GraphRow
+  view: RepositoryViewMode
   onConfirm(confirm: PendingConfirm): void
 }) {
   const repository = useRepository()
@@ -1850,7 +1959,16 @@ function GraphCommitRow({
   const shortOid = row.commit.oid.slice(0, 8)
   const files = repository.commitFiles[row.commit.oid]
   const stats = repository.commitStats[row.commit.oid]
-  const source = useMemo(() => createTreeSource(files ?? []), [files])
+  const source = useMemo(
+    () =>
+      view === 'tree'
+        ? createTreeSource(files ?? [])
+        : createRepositoryListSource(
+            (files ?? []).map((file) => file.path),
+            files ?? [],
+          ),
+    [files, view],
+  )
   const [treeModel, setTreeModel] = useState<FileTree | null>(null)
   const [commitOidCopied, setCommitOidCopied] = useState(false)
   const treeHeight = useNaturalTreeHeight(treeModel)

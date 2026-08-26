@@ -155,6 +155,8 @@ const FILE_TREE_ACTION_SPRITE_SHEET = `
   <symbol id="gitna-action-discard" viewBox="0 0 16 16"><path d="M6 3v2h4a4 4 0 1 1 0 8H8v-2h2a2 2 0 1 0 0-4H6v2L2 6l4-4v1z" /></symbol>
 </svg>`;
 
+const SHARED_FILE_TREE_UNSAFE_CSS = `${HIDDEN_SEARCH_UNSAFE_CSS}\n${SIDEBAR_VIRTUALIZED_SCROLL_UNSAFE_CSS}\n${FOLDER_LABEL_UNSAFE_CSS}`;
+
 // Options shared across all mounts of this tree. Lives at module scope so the
 // reference stays stable and useFileTree() never churns its initial snapshot.
 export const BASE_FILE_TREE_OPTIONS = {
@@ -165,5 +167,12 @@ export const BASE_FILE_TREE_OPTIONS = {
   presorted: true,
   search: true,
   stickyFolders: true,
-  unsafeCSS: `${HIDDEN_SEARCH_UNSAFE_CSS}\n${SIDEBAR_VIRTUALIZED_SCROLL_UNSAFE_CSS}\n${SUPPRESS_FOLDER_DOT_UNSAFE_CSS}\n${FOLDER_LABEL_UNSAFE_CSS}`,
+  unsafeCSS: `${SHARED_FILE_TREE_UNSAFE_CSS}\n${SUPPRESS_FOLDER_DOT_UNSAFE_CSS}`,
+} as const satisfies Omit<FileTreeOptions, 'paths' | 'preparedInput'>;
+
+// Unlike diff-only trees, the repository mixes changed and unchanged files,
+// so changed-descendant dots carry useful information and stay visible.
+export const REPOSITORY_FILE_TREE_OPTIONS = {
+  ...BASE_FILE_TREE_OPTIONS,
+  unsafeCSS: SHARED_FILE_TREE_UNSAFE_CSS,
 } as const satisfies Omit<FileTreeOptions, 'paths' | 'preparedInput'>;

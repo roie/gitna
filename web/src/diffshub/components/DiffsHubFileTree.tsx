@@ -17,6 +17,7 @@ import {
   BASE_FILE_TREE_OPTIONS,
   CODE_VIEW_FILE_TREE_ITEM_HEIGHT,
   getInitialBatchSize,
+  REPOSITORY_FILE_TREE_OPTIONS,
 } from '@/lib/constants';
 import { cn } from '@/lib/cn';
 import type { DiffsHubFileTreeSource } from '@/lib/types';
@@ -49,6 +50,7 @@ interface DiffsHubFileTreeProps {
   onSelectItem(itemId: string): void;
   renderRowActions?: FileTreeOptions['renderRowActions'];
   selectedPath?: string | null;
+  showFolderGitStatus?: boolean;
   source: DiffsHubFileTreeSource;
 }
 
@@ -59,6 +61,7 @@ export const DiffsHubFileTree = memo(function DiffsHubFileTree({
   onSelectItem,
   renderRowActions,
   selectedPath,
+  showFolderGitStatus = false,
   source,
 }: DiffsHubFileTreeProps) {
   const sourceRef = useRef(source);
@@ -93,7 +96,7 @@ export const DiffsHubFileTree = memo(function DiffsHubFileTree({
   );
 
   const { model } = useFileTree({
-    ...BASE_FILE_TREE_OPTIONS,
+    ...(showFolderGitStatus ? REPOSITORY_FILE_TREE_OPTIONS : BASE_FILE_TREE_OPTIONS),
     id: modelId,
     gitStatus: source.gitStatus,
     paths: initialPathsRef.current,

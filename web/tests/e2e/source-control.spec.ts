@@ -72,6 +72,12 @@ test('real binary renders repository source-control state', async ({ page, app }
     }),
   ).toBeVisible()
   await expect(
+    page
+      .locator('#gitna-unstaged-tree__tree')
+      .getByRole('treeitem', { name: 'untracked.txt', exact: true })
+      .getByTitle('Git status: untracked'),
+  ).toBeVisible()
+  await expect(
     page.locator('#gitna-staged-tree__tree').getByRole('treeitem', {
       name: 'staged.txt',
       exact: true,
@@ -88,6 +94,33 @@ test('real binary renders repository source-control state', async ({ page, app }
   await repositoryTree.getByRole('treeitem', { name: 'feature.txt', exact: true }).click()
   await expect(page.locator('diffs-container').filter({ hasText: 'feature.txt' })).toBeVisible()
   await expect(page.getByText('feature branch', { exact: true })).toBeVisible()
+  const repositoryTabs = page.getByRole('tablist', { name: 'Open repository files' })
+  const featureTab = repositoryTabs.getByRole('tab', { name: 'feature.txt' })
+  await expect(featureTab).toHaveAttribute('aria-selected', 'true')
+  await expect(featureTab.locator('svg use')).toHaveAttribute('href', /^#file-tree-/)
+  const featureIconHref = await featureTab.locator('svg use').getAttribute('href')
+  expect(featureIconHref).toBe(
+    await repositoryTree
+      .getByRole('treeitem', { name: 'feature.txt', exact: true })
+      .locator('svg use')
+      .getAttribute('href'),
+  )
+  await expect.poll(() => page.locator(`symbol${featureIconHref}`).count()).toBeGreaterThan(0)
+  await repositoryTree.getByRole('treeitem', { name: 'main.txt', exact: true }).click()
+  await expect(repositoryTabs.getByRole('tab')).toHaveCount(2)
+  await expect(repositoryTabs.getByRole('tab', { name: 'main.txt' })).toHaveAttribute(
+    'aria-selected',
+    'true',
+  )
+  await repositoryTabs.getByRole('tab', { name: 'feature.txt' }).click()
+  await expect(page.getByText('feature branch', { exact: true })).toBeVisible()
+  await repositoryTabs.getByRole('button', { name: 'Close feature.txt' }).click()
+  await expect(repositoryTabs.getByRole('tab', { name: 'feature.txt' })).toHaveCount(0)
+  await expect(repositoryTabs.getByRole('tab', { name: 'main.txt' })).toHaveAttribute(
+    'aria-selected',
+    'true',
+  )
+  await expect(page.getByText('main branch', { exact: true })).toBeVisible()
   await expect(
     repositoryTree.getByRole('treeitem', { name: 'delete.txt', exact: true }),
   ).toHaveCount(0)
@@ -154,12 +187,13 @@ test('real binary renders repository source-control state', async ({ page, app }
   await expect(page.getByRole('separator', { name: 'Resize sidebar panes' })).toHaveCount(2)
   await page.getByRole('button', { name: /^base fixture/ }).click()
   const graphTree = page.locator('[id^="gitna-graph-"][id$="__tree"]')
-  await expect(
-    graphTree.getByRole('treeitem', {
-      name: 'modified.txt',
-      exact: true,
-    }),
-  ).toBeVisible()
+  const graphFile = graphTree.getByRole('treeitem', {
+    name: 'modified.txt',
+    exact: true,
+  })
+  await expect(graphFile).toBeVisible()
+  await graphFile.click()
+  await expect(repositoryTabs).toHaveCount(0)
   expect(
     await graphTree.evaluate((tree) => tree.scrollHeight - tree.clientHeight),
   ).toBeLessThanOrEqual(1)
@@ -435,6 +469,12 @@ test('branch picker, repository filters, list view, and graph stats use direct p
     'title',
     /commits in Graph/,
   )
+  await expect(
+    page
+      .locator('#gitna-repository-tree__tree')
+      .getByRole('treeitem', { name: 'nested', exact: true })
+      .getByTitle('Contains git status items'),
+  ).toBeVisible()
   const sourceControlActions = [
     page.getByRole('button', { name: /^Switch branch · main$/ }),
     page.getByRole('button', { name: 'Fetch' }),
@@ -456,9 +496,28 @@ test('branch picker, repository filters, list view, and graph stats use direct p
   await expect(page.locator('[data-section="workflow"] .section-title')).toHaveText('topic')
   await expect(page.locator('button[aria-label="Publish branch"]')).toBeVisible()
 
-  await page.getByRole('button', { name: /^Repository actions/ }).click()
-  await page.getByRole('menuitem', { name: 'Filter files' }).hover()
-  await page.getByRole('menuitem', { name: 'Changed files' }).click()
+  const repositoryFilter = page.getByRole('button', { name: 'Filter by Git status' })
+  await expect(repositoryFilter).toHaveAttribute('aria-pressed', 'false')
+  await repositoryFilter.click()
+  await expect(page.getByText('Filter by Git status')).toBeVisible()
+  await expect(page.getByText('Alt-click to show only one status')).toBeVisible()
+  const statusFilters = Object.fromEntries(
+    ['Modified', 'Untracked', 'Renamed', 'Deleted'].map((status) => [
+      status,
+      page.getByRole('menuitemcheckbox', { name: status }),
+    ]),
+  )
+  for (const status of Object.values(statusFilters)) await expect(status).toBeVisible()
+  const clearFilter = page.getByRole('menuitem', { name: 'Clear filter' })
+  await expect(clearFilter).toBeDisabled()
+  await statusFilters.Modified.click()
+  await statusFilters.Untracked.click()
+  await expect(statusFilters.Modified).toBeChecked()
+  await expect(statusFilters.Untracked).toBeChecked()
+  await statusFilters.Deleted.click({ modifiers: ['Alt'] })
+  await expect(statusFilters.Deleted).toBeChecked()
+  await expect(statusFilters.Modified).not.toBeChecked()
+  await expect(statusFilters.Untracked).not.toBeChecked()
   await expect(page.locator('[data-section="repository"] .section-count')).toContainText('/')
   await expect(
     page
@@ -466,11 +525,10 @@ test('branch picker, repository filters, list view, and graph stats use direct p
       .getByRole('treeitem', { name: 'main.txt', exact: true }),
   ).toHaveCount(0)
 
-  await page.getByRole('button', { name: /^Repository actions/ }).click()
-  await page.getByRole('menuitem', { name: 'Filter files' }).hover()
-  await page.getByRole('menuitem', { name: 'All files' }).click()
+  await clearFilter.click()
+  await expect(repositoryFilter).toHaveAttribute('aria-pressed', 'false')
 
-  await page.getByRole('button', { name: /^Repository actions/ }).click()
+  await page.getByRole('button', { name: 'Repository actions' }).click()
   await page.getByRole('menuitem', { name: 'Collapse all folders' }).click()
   await expect(
     page.locator('#gitna-repository-tree__tree').getByRole('treeitem', {
@@ -478,10 +536,10 @@ test('branch picker, repository filters, list view, and graph stats use direct p
       exact: true,
     }),
   ).toHaveCount(0)
-  await page.getByRole('button', { name: /^Repository actions/ }).click()
+  await page.getByRole('button', { name: 'Repository actions' }).click()
   await page.getByRole('menuitem', { name: 'Expand all folders' }).click()
 
-  await page.getByRole('button', { name: /^Repository actions/ }).click()
+  await page.getByRole('button', { name: 'Repository actions' }).click()
   await page.getByRole('menuitem', { name: /Show as List/ }).click()
   await expect(
     page.locator('#gitna-repository-tree__tree').getByRole('treeitem', {
@@ -489,6 +547,20 @@ test('branch picker, repository filters, list view, and graph stats use direct p
       exact: true,
     }),
   ).toBeVisible()
+
+  await page.getByRole('button', { name: 'Graph actions' }).click()
+  await expect(page.getByRole('menuitem', { name: 'Show as Tree' })).toHaveAttribute(
+    'data-selected',
+    'true',
+  )
+  await page.getByRole('menuitem', { name: 'Show as List' }).click()
+  await page.getByRole('button', { name: 'Graph actions' }).click()
+  await expect(page.getByRole('menuitem', { name: 'Show as List' })).toHaveAttribute(
+    'data-selected',
+    'true',
+  )
+  await expect(page.getByRole('menuitem', { name: 'Reload history' })).toHaveCount(0)
+  await page.keyboard.press('Escape')
 
   const mergeCommit = page.getByRole('button', { name: /^merge feature/ }).first()
   await mergeCommit.hover()

@@ -141,6 +141,7 @@ export class GitnaRepository {
   generation = 0
   selection: Selection | null = null
   repositoryFilePath: string | null = null
+  repositoryOpenPaths: string[] = []
 
   repositoryPaths: string[] = []
   repositoryFilesLoading = false
@@ -295,6 +296,7 @@ export class GitnaRepository {
         this.repositoryFilesGeneration = pageGeneration ?? this.repositoryFilesGeneration
         this.repositoryPaths = paths
         this.repositoryFilesTruncated = false
+        this.repositoryOpenPaths = this.repositoryOpenPaths.filter((path) => paths.includes(path))
         if (this.repositoryFilePath != null && !paths.includes(this.repositoryFilePath)) {
           this.repositoryFilePath = null
         }
@@ -461,6 +463,20 @@ export class GitnaRepository {
     this.commitDiff = null
     this.compareDiff = null
     this.repositoryFilePath = path
+    if (!this.repositoryOpenPaths.includes(path)) {
+      this.repositoryOpenPaths = [...this.repositoryOpenPaths, path]
+    }
+    this.emit()
+  }
+
+  closeRepositoryFile(path: string): void {
+    const index = this.repositoryOpenPaths.indexOf(path)
+    if (index < 0) return
+    const nextOpenPaths = this.repositoryOpenPaths.filter((candidate) => candidate !== path)
+    this.repositoryOpenPaths = nextOpenPaths
+    if (this.repositoryFilePath === path) {
+      this.repositoryFilePath = nextOpenPaths[Math.min(index, nextOpenPaths.length - 1)] ?? null
+    }
     this.emit()
   }
 
@@ -636,6 +652,7 @@ export class GitnaRepository {
       this.snapshot = null
       this.selection = null
       this.repositoryFilePath = null
+      this.repositoryOpenPaths = []
       this.repositoryPaths = []
       this.graphCommits = []
       this.graphRows = []

@@ -1,6 +1,8 @@
 import type { CodeViewLineSelection, DiffIndicators } from '@pierre/diffs'
 import { type CodeViewHandle, useWorkerPool } from '@pierre/diffs/react'
+import { IconX } from '@pierre/icons'
 import type { ColorMode } from '@pierre/theming'
+import { createFileTreeIconResolver, getBuiltInSpriteSheet } from '@pierre/trees'
 import { useThemeController } from '@pierre/theming/react'
 import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
@@ -19,6 +21,7 @@ import type { DiffRequest, ReviewRequest } from '../../lib/api'
 import type { FileDiff } from '../../lib/types'
 import type { DarkThemeName, LightThemeName } from '../lib/themeNames'
 import type { LoadedDiffsHubData } from '../lib/diffsHubDataAccumulator'
+import { cn } from '../lib/cn'
 import { GitnaSourceControl } from './SourceControlWorkflow'
 import { Confirm } from './Modal'
 import { adaptGitnaFile, adaptGitnaReview, diffImageAnnotations } from './reviewAdapter'
@@ -33,6 +36,8 @@ interface ReviewTarget {
 }
 
 const rasterImagePattern = /\.(?:gif|jpe?g|png|webp)$/i
+const repositoryTabIconResolver = createFileTreeIconResolver('complete')
+const repositoryTabIconSprite = getBuiltInSpriteSheet('complete')
 
 function imageDiffRequest(target: ReviewTarget | null): DiffRequest | null {
   const path = target?.selectedPath ?? target?.filePath
@@ -405,38 +410,43 @@ function GitnaReviewUIInner() {
             <GitnaSourceControl />
           </DiffsHubSidebar>
         )}
-        {viewerAvailable && reviewData != null && reviewData.items.length > 0 ? (
-          <DiffsHubViewer
-            key={reviewKey}
-            className="code-view [grid-area:viewer]"
-            commentsEnabled={false}
-            diffStyle={diffStyle}
-            overflow={overflow}
-            showBackgrounds={showBackgrounds}
-            diffIndicators={diffIndicators}
-            lineNumbers={lineNumbers}
-            scrollRef={scrollRef}
-            themeType={colorMode}
-            viewerRef={viewerRef}
-            initialItems={reviewData.items}
-            gitnaActions={gitnaActions}
-            onCommentDeleted={() => {}}
-            onCommentSaved={() => {}}
-            onLineLinkChange={handleLineLinkChange}
-            onViewerReady={handleViewerReady}
-          />
-        ) : viewerAvailable && reviewData != null ? (
-          <GitnaEmptyState scope={target?.request?.scope} />
-        ) : (
-          <div className="grid min-h-0 [grid-area:viewer] [&>*]:h-full">
-            <DiffsHubStatusPanel
-              errorMessage={errorMessage ?? repository.error}
-              localRepository
-              onRetry={() => setReviewAttempt((attempt) => attempt + 1)}
-              state={loadState}
-            />
+        <div className="flex min-h-0 flex-col [grid-area:viewer]">
+          <RepositoryFileTabs />
+          <div className="min-h-0 flex-1">
+            {viewerAvailable && reviewData != null && reviewData.items.length > 0 ? (
+              <DiffsHubViewer
+                key={reviewKey}
+                className="code-view h-full"
+                commentsEnabled={false}
+                diffStyle={diffStyle}
+                overflow={overflow}
+                showBackgrounds={showBackgrounds}
+                diffIndicators={diffIndicators}
+                lineNumbers={lineNumbers}
+                scrollRef={scrollRef}
+                themeType={colorMode}
+                viewerRef={viewerRef}
+                initialItems={reviewData.items}
+                gitnaActions={gitnaActions}
+                onCommentDeleted={() => {}}
+                onCommentSaved={() => {}}
+                onLineLinkChange={handleLineLinkChange}
+                onViewerReady={handleViewerReady}
+              />
+            ) : viewerAvailable && reviewData != null ? (
+              <GitnaEmptyState scope={target?.request?.scope} />
+            ) : (
+              <div className="grid h-full min-h-0 [&>*]:h-full">
+                <DiffsHubStatusPanel
+                  errorMessage={errorMessage ?? repository.error}
+                  localRepository
+                  onRetry={() => setReviewAttempt((attempt) => attempt + 1)}
+                  state={loadState}
+                />
+              </div>
+            )}
           </div>
-        )}
+        </div>
         {reviewActionError != null && (
           <p
             className="fixed right-3 bottom-3 z-50 max-w-md rounded-md bg-red-600 px-3 py-2 text-xs text-white shadow-lg"
@@ -471,10 +481,109 @@ function GitnaReviewUIInner() {
   )
 }
 
+function RepositoryTabIconSprite() {
+  const hostRef = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    const host = hostRef.current
+    if (host == null) return
+    const parsed = new DOMParser().parseFromString(repositoryTabIconSprite, 'text/html')
+    const sprites = [...parsed.body.children].filter(
+      (element): element is SVGSVGElement => element.localName === 'svg',
+    )
+    if (sprites.length === 0) return
+    for (const sprite of sprites) {
+      for (const element of sprite.querySelectorAll('script, foreignObject')) element.remove()
+      for (const element of sprite.querySelectorAll('*')) {
+        for (let index = element.attributes.length - 1; index >= 0; index -= 1) {
+          const attribute = element.attributes.item(index)
+          if (attribute?.name.toLowerCase().startsWith('on')) {
+            element.removeAttribute(attribute.name)
+          }
+        }
+      }
+    }
+    host.replaceChildren(...sprites.map((sprite) => document.importNode(sprite, true)))
+    return () => host.replaceChildren()
+  }, [])
+  return <div ref={hostRef} aria-hidden="true" className="absolute size-0 overflow-hidden" />
+}
+
+function RepositoryFileTabs() {
+  const repository = useRepository()
+  if (repository.repositoryFilePath == null || repository.repositoryOpenPaths.length === 0)
+    return null
+  return (
+    <div
+      role="tablist"
+      aria-label="Open repository files"
+      className="no-scrollbar flex h-9 shrink-0 items-center gap-1 overflow-x-auto border-b border-border bg-muted/20 px-2"
+    >
+      <RepositoryTabIconSprite />
+      {repository.repositoryOpenPaths.map((path) => {
+        const active = repository.repositoryFilePath === path
+        const name = path.split('/').at(-1) ?? path
+        const icon = repositoryTabIconResolver.resolveIcon('file-tree-icon-file', path)
+        const iconHref = `#${icon.name.replace(/^#/, '')}`
+        const iconViewBox =
+          icon.viewBox ?? `0 0 ${String(icon.width ?? 16)} ${String(icon.height ?? 16)}`
+        return (
+          <div
+            key={path}
+            className={cn(
+              'group/tab flex h-7 max-w-56 shrink-0 items-center rounded-md text-xs',
+              active
+                ? 'bg-muted text-foreground'
+                : 'text-muted-foreground hover:bg-muted/60 hover:text-foreground',
+            )}
+          >
+            <button
+              type="button"
+              role="tab"
+              aria-selected={active}
+              className="flex min-w-0 flex-1 cursor-pointer items-center gap-1.5 py-1 pl-2.5 text-left"
+              title={path}
+              onClick={() => repository.selectRepositoryFile(path)}
+            >
+              <svg
+                aria-hidden="true"
+                data-icon-name={icon.name}
+                data-icon-token={icon.token}
+                viewBox={iconViewBox}
+                width={icon.width ?? 16}
+                height={icon.height ?? 16}
+                className="size-4 shrink-0"
+                style={
+                  icon.token == null
+                    ? undefined
+                    : {
+                        color: `var(--trees-file-icon-color-${icon.token}, var(--trees-file-icon-color))`,
+                      }
+                }
+              >
+                <use href={iconHref} />
+              </svg>
+              <span className="truncate">{name}</span>
+            </button>
+            <button
+              type="button"
+              className="mr-1 flex size-5 shrink-0 cursor-pointer items-center justify-center rounded text-muted-foreground opacity-0 hover:bg-background/70 hover:text-foreground group-focus-within/tab:opacity-100 group-hover/tab:opacity-100"
+              aria-label={`Close ${path}`}
+              title={`Close ${path}`}
+              onClick={() => repository.closeRepositoryFile(path)}
+            >
+              <IconX className="size-3" />
+            </button>
+          </div>
+        )
+      })}
+    </div>
+  )
+}
+
 function GitnaEmptyState({ scope }: { scope?: ReviewRequest['scope'] }) {
   const workingTree = scope === 'staged' || scope === 'unstaged'
   return (
-    <div className="flex min-h-0 items-center justify-center bg-background p-6 [grid-area:viewer]">
+    <div className="flex h-full min-h-0 items-center justify-center bg-background p-6 [grid-area:viewer]">
       <section role="status" className="max-w-md text-center">
         <h2 className="text-sm font-medium text-foreground">
           {workingTree ? 'Working tree clean' : 'No differences'}
