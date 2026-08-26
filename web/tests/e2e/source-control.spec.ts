@@ -49,12 +49,20 @@ test('real binary renders repository source-control state', async ({ page, app }
   await repository.click()
   await graph.click()
   await expect(workflow).toBeVisible()
-  await expect(workflow).toContainText('main')
+  await expect(workflow.locator('.section-title')).toHaveText('main')
   await expect(changes).toBeVisible()
   await expect(staged).toBeVisible()
   await expect(changes).toHaveAttribute('aria-expanded', 'true')
   await expect(staged).toHaveAttribute('aria-expanded', 'true')
   await expect(page.getByRole('switch', { name: 'Amend' })).toBeVisible()
+  const switchBranch = page.getByRole('button', { name: 'Switch branch · main' })
+  await switchBranch.click()
+  await expect(page.getByRole('menuitem', { name: /main.*origin\/main/ })).toBeVisible()
+  await expect(page.getByText('Select a remote branch to check it out locally.')).toBeVisible()
+  await expect(
+    page.getByRole('menuitem', { name: 'Checkout origin/feature as feature' }),
+  ).toBeVisible()
+  await page.keyboard.press('Escape')
   await expect(page.locator('.section-title', { hasText: /^Graph$/ })).toBeVisible()
   await expect(
     page.locator('#gitna-unstaged-tree__tree').getByRole('treeitem', {
@@ -201,6 +209,21 @@ test('real binary renders repository source-control state', async ({ page, app }
     await graphTree.getByRole('treeitem').last().scrollIntoViewIfNeeded()
     await page.screenshot({ path: '/tmp/gitna-graph-refined.png', fullPage: true })
   }
+})
+
+test('sync status exposes outgoing review', async ({ page, app }) => {
+  runGit(app.repo, 'commit', '-qm', 'outgoing fixture')
+
+  await page.goto(app.url)
+  await expect(page.locator('[data-section="workflow"] .section-title')).toHaveText('main')
+  await expect(page.getByRole('button', { name: '1 outgoing commit · origin/main' })).toHaveText(
+    '↑1',
+  )
+
+  await page.getByRole('button', { name: 'More actions' }).click()
+  await page.getByRole('menuitem', { name: 'Review outgoing (1)' }).click()
+  await expect(page.getByText('staged change', { exact: true })).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Stage file staged.txt' })).toHaveCount(0)
 })
 
 test('raster images replace the code body', async ({ page, app }) => {
@@ -411,7 +434,8 @@ test('branch picker, repository filters, list view, and graph stats use direct p
   const branchInput = page.getByRole('textbox', { name: 'Search or create branch' })
   await branchInput.fill('topic')
   await page.getByRole('button', { name: 'New' }).click()
-  await expect(page.locator('[data-section="workflow"]')).toContainText('topic')
+  await expect(page.locator('[data-section="workflow"] .section-title')).toHaveText('topic')
+  await expect(page.locator('button[aria-label="Publish branch"]')).toBeVisible()
 
   await page.getByRole('button', { name: /^Repository actions/ }).click()
   await page.getByRole('menuitem', { name: /Filter by status/ }).hover()

@@ -376,7 +376,7 @@ export function GitnaSourceControl() {
   const changedPathCount = new Set(
     [...staged, ...unstaged, ...(snapshot?.conflicts ?? [])].map((change) => change.path),
   ).size
-  const branchTitle =
+  const headTitle =
     snapshot?.headBranch ??
     (snapshot?.headOid == null ? 'Detached HEAD' : `Detached at ${snapshot.headOid.slice(0, 8)}`)
   const repositoryChanges = useMemo(() => [...staged, ...unstaged], [staged, unstaged])
@@ -494,7 +494,7 @@ export function GitnaSourceControl() {
             icon={IconSymbolDiffstatFill}
             count={changedPathCount}
             open={workflowOpen}
-            title={branchTitle}
+            title={headTitle}
             onOpenChange={setWorkflowOpen}
           />
           {workflowOpen && (
@@ -785,6 +785,32 @@ function SourceControlHeaderActions({
     }
   }, [onError, remotes, repository])
 
+  const snapshot = repository.snapshot
+  const upstream = snapshot?.upstream
+  const unpublished = snapshot?.headBranch != null && upstream == null
+  const syncLabel =
+    upstream == null || snapshot == null || (snapshot.ahead === 0 && snapshot.behind === 0)
+      ? null
+      : [
+          snapshot.ahead > 0 ? `↑${snapshot.ahead}` : '',
+          snapshot.behind > 0 ? `↓${snapshot.behind}` : '',
+        ]
+          .filter(Boolean)
+          .join(' ')
+  const syncDescription =
+    upstream == null || snapshot == null
+      ? ''
+      : [
+          snapshot.ahead > 0
+            ? `${snapshot.ahead} outgoing ${snapshot.ahead === 1 ? 'commit' : 'commits'}`
+            : null,
+          snapshot.behind > 0
+            ? `${snapshot.behind} incoming ${snapshot.behind === 1 ? 'commit' : 'commits'}`
+            : null,
+        ]
+          .filter((part): part is string => part != null)
+          .join(', ') + ` · ${upstream}`
+
   return (
     <>
       <DropdownMenu
@@ -837,6 +863,13 @@ function SourceControlHeaderActions({
               <DropdownMenuItem key={branch.name} disabled>
                 <span className="w-4">●</span>
                 <span className="min-w-0 flex-1 truncate">{branch.name}</span>
+                {branch.upstream != null && (
+                  <span className="text-[10px] text-muted-foreground">
+                    {branch.upstream}
+                    {branch.ahead > 0 ? ` ↑${branch.ahead}` : ''}
+                    {branch.behind > 0 ? ` ↓${branch.behind}` : ''}
+                  </span>
+                )}
               </DropdownMenuItem>
             ) : (
               <DropdownMenuSub key={branch.name}>
@@ -872,16 +905,23 @@ function SourceControlHeaderActions({
               <p className="px-2 py-1 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
                 Remote branches
               </p>
+              <p className="px-2 py-1 text-[11px] text-muted-foreground">
+                Select a remote branch to check it out locally.
+              </p>
               {remoteBranches.map((branch) => {
                 const localName = branch.name.slice(branch.name.indexOf('/') + 1)
                 return (
                   <DropdownMenuItem
                     key={branch.name}
+                    aria-label={`Checkout ${branch.name} as ${localName}`}
                     disabled={repository.busy}
                     onSelect={() => void run(() => repository.createBranch(localName, branch.name))}
                   >
                     <span className="w-4" />
                     <span className="min-w-0 flex-1 truncate">{branch.name}</span>
+                    <span className="text-[10px] text-muted-foreground">
+                      Checkout as {localName}
+                    </span>
                   </DropdownMenuItem>
                 )
               })}
@@ -903,6 +943,30 @@ function SourceControlHeaderActions({
       >
         <IconRefresh className="size-4 md:size-3" />
       </Button>
+      {unpublished && (
+        <Button
+          variant="ghost"
+          size="xs"
+          disabled={repository.busy}
+          aria-label="Publish branch"
+          title="Publish branch"
+          onClick={() => void push()}
+        >
+          Publish
+        </Button>
+      )}
+      {syncLabel != null && (
+        <Button
+          variant="ghost"
+          size="xs"
+          disabled={repository.busy}
+          aria-label={syncDescription}
+          title={syncDescription}
+          onClick={() => setMoreOpen(true)}
+        >
+          {syncLabel}
+        </Button>
+      )}
       <DropdownMenu
         open={moreOpen}
         onOpenChange={(open) => {
@@ -930,6 +994,24 @@ function SourceControlHeaderActions({
             Pull
           </DropdownMenuItem>
           <DropdownMenuItem onSelect={() => void push()}>Push</DropdownMenuItem>
+          {upstream != null && snapshot != null && snapshot.behind > 0 && (
+            <DropdownMenuItem
+              onSelect={() =>
+                void repository.openCompare('HEAD', upstream, `Incoming from ${upstream}`)
+              }
+            >
+              Review incoming ({snapshot.behind})
+            </DropdownMenuItem>
+          )}
+          {upstream != null && snapshot != null && snapshot.ahead > 0 && (
+            <DropdownMenuItem
+              onSelect={() =>
+                void repository.openCompare(upstream, 'HEAD', `Outgoing to ${upstream}`)
+              }
+            >
+              Review outgoing ({snapshot.ahead})
+            </DropdownMenuItem>
+          )}
           <DropdownMenuSeparator />
           <DropdownMenuItem onSelect={() => void repository.refreshGraph()}>
             Refresh Graph
@@ -1054,7 +1136,9 @@ function PaneSectionHeader({
         aria-expanded={open}
         onClick={() => onOpenChange(!open)}
       >
-        <span className="section-title min-w-0 flex-1 truncate">{title}</span>
+        <span className="section-title min-w-0 flex-1 truncate" title={title}>
+          {title}
+        </span>
         {count != null && (
           <span className="section-count tabular-nums text-muted-foreground/75 text-xs">
             {count}
