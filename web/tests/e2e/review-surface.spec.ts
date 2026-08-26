@@ -23,6 +23,7 @@ test('continuous Pierre CodeView renders the complete working-tree review', asyn
   await expect(page.locator('diffs-container')).toHaveCount(5, { timeout: 30_000 })
   await expect(page.getByText('modified.txt', { exact: true }).last()).toBeVisible()
   await expect(page.getByText('two-hunk.txt', { exact: true }).last()).toBeVisible()
+  await page.locator('[data-section="repository"]').click()
   await expect(
     page
       .locator('#gitna-repository-tree__tree')

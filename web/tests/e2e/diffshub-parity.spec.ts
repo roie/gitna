@@ -19,6 +19,7 @@ test('DiffsHub controls, Pierre repository search, and theme persist', async ({ 
   await page.reload()
   await expect(page.locator('html')).toHaveClass(/dark/)
   await expect(page.locator('diffs-container').first()).toBeVisible({ timeout: 30_000 })
+  await page.locator('[data-section="repository"]').click()
 
   await page.getByRole('button', { name: 'Display settings' }).click()
   await expect(page.getByRole('switch', { name: 'Backgrounds' })).toBeVisible()

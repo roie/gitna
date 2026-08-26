@@ -309,11 +309,11 @@ function useNaturalTreeHeight(model: FileTree | null, enabled = true): number {
 
 export function GitnaSourceControl() {
   const repository = useRepository()
-  const [repositoryOpen, setRepositoryOpen] = useState(true)
+  const [repositoryOpen, setRepositoryOpen] = useState(false)
   const [workflowOpen, setWorkflowOpen] = useState(true)
   const [changesOpen, setChangesOpen] = useState(true)
   const [stagedOpen, setStagedOpen] = useState(true)
-  const [graphOpen, setGraphOpen] = useState(true)
+  const [graphOpen, setGraphOpen] = useState(false)
   const [repositoryFilter, setRepositoryFilter] = useState<RepositoryStatusFilter>('all')
   const [repositoryView, setRepositoryView] = useState<RepositoryViewMode>('tree')
   const [commitMessage, setCommitMessage] = useState('')

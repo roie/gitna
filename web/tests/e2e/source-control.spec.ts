@@ -38,11 +38,16 @@ test('real binary renders repository source-control state', async ({ page, app }
   expect(response?.status()).toBe(200)
   await expect(page.getByPlaceholder('Commit message')).toBeVisible()
   const repository = page.locator('[data-section="repository"]')
+  const graph = page.locator('[data-section="graph"]')
   const workflow = page.locator('[data-section="workflow"]')
   const changes = page.locator('[data-section="changes"]')
   const staged = page.locator('[data-section="staged"]')
   await expect(repository).toBeVisible()
   await expect(repository).toContainText('repo')
+  await expect(repository).toHaveAttribute('aria-expanded', 'false')
+  await expect(graph).toHaveAttribute('aria-expanded', 'false')
+  await repository.click()
+  await graph.click()
   await expect(workflow).toBeVisible()
   await expect(workflow).toContainText('main')
   await expect(changes).toBeVisible()
@@ -287,6 +292,7 @@ test('raster images replace the code body', async ({ page, app }) => {
   await imageHeader.getByRole('button', { name: 'Expand diff' }).click()
   await expect(current).toBeVisible()
 
+  await page.locator('[data-section="repository"]').click()
   await page
     .locator('#gitna-repository-tree__tree')
     .getByRole('treeitem', { name: 'preview.png', exact: true })
@@ -311,6 +317,7 @@ test('raster images replace the code body', async ({ page, app }) => {
   ])
   expect(imageBackground).toBe(textBackground)
 
+  await page.locator('[data-section="graph"]').click()
   await page.getByRole('button', { name: /^add preview image/ }).click()
   await page
     .locator('[id^="gitna-graph-"][id$="__tree"]')
@@ -319,6 +326,7 @@ test('raster images replace the code body', async ({ page, app }) => {
   await expect(current).toBeVisible()
 
   await page.reload()
+  await page.locator('[data-section="repository"]').click()
   await page
     .locator('#gitna-repository-tree__tree')
     .getByRole('treeitem', { name: 'preview.png', exact: true })
@@ -383,6 +391,8 @@ test('branch picker, repository filters, list view, and graph stats use direct p
   writeFileSync(join(nested, 'clean.txt'), 'nested file\n')
 
   await page.goto(app.url)
+  await page.locator('[data-section="repository"]').click()
+  await page.locator('[data-section="graph"]').click()
   const sourceControlActions = [
     page.getByRole('button', { name: /^Switch branch · main$/ }),
     page.getByRole('button', { name: 'Fetch' }),
@@ -458,6 +468,7 @@ test('repository tree keeps a bounded virtualized viewport for thousands of file
 
   await page.goto(app.url)
   const repositoryHeader = page.locator('[data-section="repository"]')
+  await repositoryHeader.click()
   await expect
     .poll(
       async () => {
