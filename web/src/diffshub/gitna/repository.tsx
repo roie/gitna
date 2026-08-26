@@ -146,6 +146,7 @@ export class GitnaRepository {
   selection: Selection | null = null
   repositoryFilePath: string | null = null
   repositoryOpenPaths: string[] = []
+  repositoryFileRevealVersion = 0
   worktreeRename: { source: string; destination: string; version: number } | null = null
 
   repositoryPaths: string[] = []
@@ -462,8 +463,17 @@ export class GitnaRepository {
     this.emit()
   }
 
-  selectRepositoryFile(path: string): void {
-    if (!this.repositoryPaths.includes(path)) return
+  canOpenRepositoryFile(path: string): boolean {
+    if (this.repositoryPaths.includes(path)) return true
+    const snapshot = this.snapshot
+    if (snapshot == null) return false
+    return [...snapshot.staged, ...snapshot.unstaged].some(
+      (change) => change.path === path && change.kind !== 'deleted',
+    )
+  }
+
+  selectRepositoryFile(path: string, reveal = false): void {
+    if (!this.canOpenRepositoryFile(path)) return
     this.selection = null
     this.commitDiff = null
     this.compareDiff = null
@@ -471,6 +481,7 @@ export class GitnaRepository {
     if (!this.repositoryOpenPaths.includes(path)) {
       this.repositoryOpenPaths = [...this.repositoryOpenPaths, path]
     }
+    if (reveal) this.repositoryFileRevealVersion += 1
     this.emit()
   }
 

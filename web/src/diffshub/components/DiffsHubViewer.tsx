@@ -17,10 +17,16 @@ import {
 } from '@pierre/diffs';
 import { Editor, type EditorOptions } from '@pierre/diffs/edit';
 import { EditProvider, type CodeViewHandle, useStableCallback } from '@pierre/diffs/react';
-import { IconChevronSm } from '@pierre/icons';
-import { memo, type RefObject, useMemo, useRef, useState } from 'react';
+import { IconCheck, IconChevronSm } from '@pierre/icons';
+import { memo, type ComponentProps, type RefObject, useMemo, useRef, useState } from 'react';
 
 import { Button } from './Button';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from './DropdownMenu';
 import { DraftAnnotation } from './DraftAnnotation';
 import { ExampleAnnotation } from './ExampleAnnotation';
 import { ThemedCodeView } from './ThemedCodeView';
@@ -43,21 +49,26 @@ import type {
 } from '@/lib/types';
 import type { MutateRequest } from '../../lib/api';
 import { splitHunkPatches } from '../../lib/hunk-patches';
-import type { ChangeKind, FileDiff } from '../../lib/types';
+import type { ChangeKind, ChangeScope, FileDiff } from '../../lib/types';
 
 export type GitnaFileAction = 'stage' | 'unstage' | 'discard' | 'delete';
 
 export interface GitnaEditorActions {
+  changeScopes(path: string): readonly ChangeScope[];
   dirtyPaths: ReadonlySet<string>;
+  recentlySavedPath: string | null;
   saving: boolean;
   onChange(path: string, file: FileContents): void;
+  onOpenChange(scope: ChangeScope, path: string): void;
   onSave(path: string): void;
 }
 
 export interface GitnaViewerActions {
+  canOpenFile(path: string): boolean;
   kindForPath(path: string): ChangeKind | undefined;
   loadDiff(path: string): Promise<FileDiff>;
   onFileAction(action: GitnaFileAction, path: string, kind: ChangeKind): void;
+  onOpenFile(path: string): void;
   onPatch(request: MutateRequest): Promise<void>;
   onError(error: string): void;
   scope: 'staged' | 'unstaged';
@@ -578,6 +589,20 @@ function createWorktreeEditor(options: EditorOptions<CommentMetadata>) {
   return new Editor<CommentMetadata>(options);
 }
 
+function FileHeaderAction({ className, ...props }: ComponentProps<typeof Button>) {
+  return (
+    <Button
+      variant="ghost"
+      size="xs"
+      className={cn(
+        'h-6 rounded px-1.5 text-[10px] font-normal text-muted-foreground hover:text-foreground',
+        className
+      )}
+      {...props}
+    />
+  );
+}
+
 function WorktreeHeaderActions({
   actions,
   path,
@@ -586,17 +611,62 @@ function WorktreeHeaderActions({
   path: string;
 }) {
   const dirty = actions.dirtyPaths.has(path);
+  const recentlySaved = actions.recentlySavedPath === path;
+  const scopes = actions.changeScopes(path);
+  const openChange = (scope: ChangeScope) => actions.onOpenChange(scope, path);
   return (
-    <Button
-      type="button"
-      variant="ghost"
-      size="sm"
-      disabled={!dirty || actions.saving}
-      title={dirty ? `Save ${path}` : `${path} is saved`}
-      onClick={() => actions.onSave(path)}
-    >
-      {actions.saving && dirty ? 'Saving…' : dirty ? 'Save' : 'Saved'}
-    </Button>
+    <span className="inline-flex items-center gap-0.5">
+      {scopes.length === 1 && (
+        <FileHeaderAction
+          type="button"
+          aria-label={`${scopes[0] === 'staged' ? 'View staged changes' : 'View changes'} for ${path}`}
+          onClick={() => openChange(scopes[0]!)}
+        >
+          {scopes[0] === 'staged' ? 'View Staged' : 'View Changes'}
+        </FileHeaderAction>
+      )}
+      {scopes.length > 1 && (
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <FileHeaderAction type="button" aria-label={`Choose changes to view for ${path}`}>
+              View Changes…
+            </FileHeaderAction>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end">
+            <DropdownMenuItem onSelect={() => openChange('unstaged')}>
+              View Unstaged Changes
+            </DropdownMenuItem>
+            <DropdownMenuItem onSelect={() => openChange('staged')}>
+              View Staged Changes
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
+      )}
+      <FileHeaderAction
+        type="button"
+        aria-hidden={!dirty && !recentlySaved}
+        className={cn(!dirty && !recentlySaved && 'invisible')}
+        disabled={!dirty || actions.saving}
+        tabIndex={dirty ? 0 : -1}
+        title={dirty ? `Save ${path}` : undefined}
+        onClick={() => actions.onSave(path)}
+      >
+        {dirty ? (
+          actions.saving ? (
+            'Saving…'
+          ) : (
+            'Save'
+          )
+        ) : recentlySaved ? (
+          <span className="flex items-center gap-1" role="status">
+            <IconCheck className="size-3" />
+            Saved
+          </span>
+        ) : (
+          'Save'
+        )}
+      </FileHeaderAction>
+    </span>
   );
 }
 
@@ -634,8 +704,6 @@ function GitnaHeaderActions({
   const primaryLabel = actions.scope === 'staged' ? 'Unstage' : 'Stage';
   const destructive = kind === 'untracked' ? 'delete' : 'discard';
   const destructiveLabel = kind === 'untracked' ? 'Delete' : 'Discard';
-  const buttonClass =
-    'inline-flex h-6 cursor-pointer items-center rounded px-1.5 text-[10px] text-muted-foreground hover:bg-muted hover:text-foreground disabled:pointer-events-none disabled:opacity-50';
 
   const loadHunks = async () => {
     setLoading(true);
@@ -653,42 +721,47 @@ function GitnaHeaderActions({
 
   return (
     <span className="inline-flex items-center gap-0.5">
-      <button
+      {actions.canOpenFile(path) && (
+        <FileHeaderAction
+          type="button"
+          aria-label={`Open ${path} in Repository`}
+          onClick={() => actions.onOpenFile(path)}
+        >
+          Open File
+        </FileHeaderAction>
+      )}
+      <FileHeaderAction
         type="button"
-        className={buttonClass}
         aria-label={`${primaryLabel} file ${path}`}
         onClick={() => actions.onFileAction(primary, path, kind)}
       >
         {primaryLabel}
-      </button>
+      </FileHeaderAction>
       {actions.scope === 'unstaged' && (
-        <button
+        <FileHeaderAction
           type="button"
-          className={buttonClass}
           aria-label={`${destructiveLabel} file ${path}`}
           onClick={() => actions.onFileAction(destructive, path, kind)}
         >
           {destructiveLabel}
-        </button>
+        </FileHeaderAction>
       )}
       {item.fileDiff.hunks.length > 0 && kind === 'modified' && hunks == null && (
-        <button
+        <FileHeaderAction
           type="button"
-          className={buttonClass}
           disabled={loading}
           aria-label={`Show hunk actions for ${path}`}
           onClick={() => void loadHunks()}
         >
           {loading ? 'Loading…' : 'Hunks'}
-        </button>
+        </FileHeaderAction>
       )}
       {hunks?.map((hunk, index) => {
         const verb = actions.scope === 'staged' ? 'Unstage' : 'Stage';
         return (
-          <button
+          <FileHeaderAction
             key={hunk.range}
             type="button"
-            className={buttonClass}
             disabled={patchId == null}
             aria-label={`${verb} hunk ${index + 1} in ${path}`}
             title={hunk.range}
@@ -711,7 +784,7 @@ function GitnaHeaderActions({
             }}
           >
             {verb} {index + 1}
-          </button>
+          </FileHeaderAction>
         );
       })}
     </span>

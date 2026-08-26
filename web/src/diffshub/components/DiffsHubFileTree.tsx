@@ -4,10 +4,21 @@ import { useStableCallback } from '@pierre/diffs/react';
 import type {
   FileTreeBatchOperation,
   FileTree as FileTreeModel,
+  FileTreeDirectoryHandle,
+  FileTreeDragAndDropConfig,
+  FileTreeDropContext,
+  FileTreeDropResult,
   FileTreeOptions,
 } from '@pierre/trees';
-import { useFileTree } from '@pierre/trees/react';
-import { type CSSProperties, memo, useEffect, useRef, useState } from 'react';
+import { type FileTreeProps, useFileTree } from '@pierre/trees/react';
+import {
+  type CSSProperties,
+  type MouseEvent as ReactMouseEvent,
+  memo,
+  useEffect,
+  useRef,
+  useState,
+} from 'react';
 
 // Modified from the pinned DiffsHub donor: the monorepo-private public-id
 // import is replaced by its package-level string contract for standalone Vite.
@@ -42,12 +53,14 @@ const DENSITY_OVERRIDE_STYLES = {
 
 interface DiffsHubFileTreeProps {
   className?: string;
+  dragAndDrop?: FileTreeDragAndDropConfig;
   modelId?: string;
   // Callback invoked with the underlying tree model once it's mounted, and
   // again with `null` on unmount. Lets parents drive imperative APIs like
   // search open/close without owning the model creation.
   onModelReady(model: FileTreeModel | null): void;
   onSelectItem(itemId: string): void;
+  renderContextMenu?: FileTreeProps['renderContextMenu'];
   renderRowActions?: FileTreeOptions['renderRowActions'];
   selectedPath?: string | null;
   showFolderGitStatus?: boolean;
@@ -56,18 +69,27 @@ interface DiffsHubFileTreeProps {
 
 export const DiffsHubFileTree = memo(function DiffsHubFileTree({
   className,
+  dragAndDrop,
   modelId = 'gh-code-view-tree',
   onModelReady,
   onSelectItem,
+  renderContextMenu,
   renderRowActions,
   selectedPath,
   showFolderGitStatus = false,
   source,
 }: DiffsHubFileTreeProps) {
   const sourceRef = useRef(source);
+  const dragAndDropRef = useRef(dragAndDrop);
+  const renderContextMenuRef = useRef(renderContextMenu);
+  const selectedPathRef = useRef(selectedPath);
+  const syncingSelectionRef = useRef(false);
   const previousSourceRef = useRef(source);
   const [initialVisibleRowCount] = useState(getInitialBatchSize);
   sourceRef.current = source;
+  dragAndDropRef.current = dragAndDrop;
+  renderContextMenuRef.current = renderContextMenu;
+  selectedPathRef.current = selectedPath;
   // `source.paths` aliases the streaming accumulator's live array, so it keeps
   // growing on later publishes. The FileTree model consumes its path list
   // exactly once via useFileTree's useState initializer; capture a bounded
@@ -78,14 +100,57 @@ export const DiffsHubFileTree = memo(function DiffsHubFileTree({
   initialPathsRef.current ??= source.paths.slice(0, source.pathCount);
   const onSelectionChange = useStableCallback(
     (selectedPaths: readonly FileTreePublicId[]) => {
-      if (selectedPaths.length !== 1 || onSelectItem == null) {
+      if (syncingSelectionRef.current || onSelectItem == null) return;
+      if (selectedPaths.length === 0 && selectedPathRef.current != null) {
+        onSelectItem(selectedPathRef.current);
         return;
       }
+      if (selectedPaths.length !== 1) return;
       const [path] = selectedPaths;
       const itemId = sourceRef.current.pathToItemId.get(path);
       if (itemId != null) {
         onSelectItem(itemId);
       }
+    }
+  );
+
+  const stableCanDrag = useStableCallback((paths: readonly string[]) => {
+    return dragAndDropRef.current?.canDrag?.(paths) ?? true;
+  });
+  const stableCanDrop = useStableCallback((event: FileTreeDropContext) => {
+    const config = dragAndDropRef.current;
+    return config?.canDrop?.(event) ?? true;
+  });
+  const stableOnDropComplete = useStableCallback((event: FileTreeDropResult) => {
+    dragAndDropRef.current?.onDropComplete?.(event);
+  });
+  const stableOnDropError = useStableCallback((error: string, event: FileTreeDropContext) => {
+    dragAndDropRef.current?.onDropError?.(error, event);
+  });
+
+  const handleClickCapture = useStableCallback((event: ReactMouseEvent<HTMLElement>) => {
+    if (event.button !== 0 || selectedPathRef.current == null) return;
+    const row = event.nativeEvent
+      .composedPath()
+      .find(
+        (target): target is HTMLElement =>
+          target instanceof HTMLElement && target.dataset.type === 'item'
+      );
+    const rowPath = row?.dataset.itemPath;
+    if (rowPath == null) return;
+    const canonicalPath = sourceRef.current.pathToItemId.get(rowPath) ?? rowPath;
+    if (canonicalPath === selectedPathRef.current) onSelectItem(canonicalPath);
+  });
+
+  const stableRenderContextMenu = useStableCallback(
+    (
+      item: Parameters<NonNullable<FileTreeProps['renderContextMenu']>>[0],
+      context: Parameters<NonNullable<FileTreeProps['renderContextMenu']>>[1]
+    ) => {
+      const canonicalPath = sourceRef.current.pathToItemId.get(item.path) ?? item.path;
+      const canonicalItem =
+        canonicalPath === item.path ? item : { ...item, path: canonicalPath };
+      return renderContextMenuRef.current?.(canonicalItem, context) ?? null;
     }
   );
 
@@ -99,6 +164,16 @@ export const DiffsHubFileTree = memo(function DiffsHubFileTree({
     ...(showFolderGitStatus ? REPOSITORY_FILE_TREE_OPTIONS : BASE_FILE_TREE_OPTIONS),
     id: modelId,
     gitStatus: source.gitStatus,
+    dragAndDrop:
+      dragAndDrop == null
+        ? undefined
+        : {
+            canDrag: stableCanDrag,
+            canDrop: stableCanDrop,
+            onDropComplete: stableOnDropComplete,
+            onDropError: stableOnDropError,
+            openOnDropDelay: dragAndDrop.openOnDropDelay,
+          },
     paths: initialPathsRef.current,
     sort: PRESERVE_INPUT_ORDER_SORT,
     onSelectionChange,
@@ -159,17 +234,33 @@ export const DiffsHubFileTree = memo(function DiffsHubFileTree({
       selectedPath == null
         ? null
         : (source.itemIdToPath?.get(selectedPath) ?? selectedPath);
+    syncingSelectionRef.current = true;
     for (const path of model.getSelectedPaths()) {
       if (path !== modelPath) model.getItem(path)?.deselect();
     }
-    if (modelPath != null) model.getItem(modelPath)?.select();
+    if (modelPath == null) {
+      syncingSelectionRef.current = false;
+      return;
+    }
+    const segments = modelPath.split('/');
+    let directoryPath = '';
+    for (const segment of segments.slice(0, -1)) {
+      directoryPath += `${segment}/`;
+      const item = model.getItem(directoryPath);
+      if (item?.isDirectory()) (item as FileTreeDirectoryHandle).expand();
+    }
+    model.getItem(modelPath)?.select();
+    syncingSelectionRef.current = false;
+    queueMicrotask(() => model.scrollToPath(modelPath, { focus: false, offset: 'nearest' }));
   }, [model, selectedPath, source]);
 
   return (
     <ThemedFileTree
       className={cn('h-full min-h-0 overflow-auto overscroll-contain md:ml-3', className)}
       model={model}
+      onClickCapture={handleClickCapture}
       reconcileForegroundFromChrome
+      renderContextMenu={renderContextMenu == null ? undefined : stableRenderContextMenu}
       style={DENSITY_OVERRIDE_STYLES}
     />
   );

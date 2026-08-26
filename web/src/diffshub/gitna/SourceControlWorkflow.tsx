@@ -13,8 +13,13 @@ import {
   IconXSquircle,
 } from '@pierre/icons'
 import type {
+  ContextMenuItem,
+  ContextMenuOpenContext,
   FileTree,
   FileTreeDirectoryHandle,
+  FileTreeDragAndDropConfig,
+  FileTreeDropContext,
+  FileTreeDropResult,
   FileTreeOptions,
   GitStatus,
   GitStatusEntry,
@@ -22,6 +27,7 @@ import type {
 import { useFileTreeSearch } from '@pierre/trees/react'
 import {
   type ComponentType,
+  type CSSProperties,
   type FormEvent,
   type ReactNode,
   useCallback,
@@ -80,6 +86,23 @@ function message(error: unknown): string {
 
 function repositoryName(root: string): string {
   return root.split(/[\\/]/).filter(Boolean).at(-1) ?? root
+}
+
+function trimDirectoryPath(path: string): string {
+  return path.replace(/\/$/, '')
+}
+
+function repositoryItemParent(item: ContextMenuItem): string {
+  if (item.kind === 'directory') return `${trimDirectoryPath(item.path)}/`
+  const separator = item.path.lastIndexOf('/')
+  return separator < 0 ? '' : item.path.slice(0, separator + 1)
+}
+
+function repositoryDropDestination(source: string, directoryPath: string | null): string {
+  const normalizedSource = trimDirectoryPath(source)
+  const name = normalizedSource.slice(normalizedSource.lastIndexOf('/') + 1)
+  const directory = directoryPath == null ? '' : trimDirectoryPath(directoryPath)
+  return directory.length === 0 ? name : `${directory}/${name}`
 }
 
 interface TreeFile {
@@ -444,6 +467,8 @@ export function GitnaSourceControl() {
       : `${filteredRepositoryPaths.length} / ${repository.repositoryPaths.length}${repository.repositoryFilesLoading ? '+' : ''}`
   const stagedSource = useMemo(() => createTreeSource(staged), [staged])
   const unstagedSource = useMemo(() => createTreeSource(unstaged), [unstaged])
+  const selectedScope = repository.selection?.scope
+  const selectedChangePath = repository.selection?.change.path
 
   const run = useCallback(async (action: () => Promise<void>) => {
     setLocalError(null)
@@ -470,6 +495,108 @@ export function GitnaSourceControl() {
     (path: string) => repository.selectRepositoryFile(path),
     [repository],
   )
+  const changeScopesForPath = useCallback(
+    (path: string): readonly ChangeScope[] => {
+      const scopes: ChangeScope[] = []
+      if (unstaged.some((change) => change.path === path)) scopes.push('unstaged')
+      if (staged.some((change) => change.path === path)) scopes.push('staged')
+      return scopes
+    },
+    [staged, unstaged],
+  )
+  const canDropRepositoryPath = useCallback(
+    ({ draggedPaths, target }: FileTreeDropContext) => {
+      if (
+        repository.busy ||
+        repositoryView !== 'tree' ||
+        repositoryFilters.size > 0 ||
+        draggedPaths.length !== 1
+      ) {
+        return false
+      }
+      const [rawSource] = draggedPaths
+      const source = trimDirectoryPath(rawSource)
+      const destination = repositoryDropDestination(rawSource, target.directoryPath)
+      const targetDirectory =
+        target.directoryPath == null ? '' : trimDirectoryPath(target.directoryPath)
+      if (
+        destination === source ||
+        (rawSource.endsWith('/') &&
+          (targetDirectory === source || targetDirectory.startsWith(`${source}/`)))
+      ) {
+        return false
+      }
+      return !repository.repositoryPaths.some(
+        (path) => path === destination || path.startsWith(`${destination}/`),
+      )
+    },
+    [repository.busy, repository.repositoryPaths, repositoryFilters.size, repositoryView],
+  )
+  const moveRepositoryPath = useCallback(
+    ({ draggedPaths, target }: FileTreeDropResult) => {
+      const [rawSource] = draggedPaths
+      if (rawSource == null) return
+      const source = trimDirectoryPath(rawSource)
+      const destination = repositoryDropDestination(rawSource, target.directoryPath)
+      void run(() => repository.renameWorktreeEntry(source, destination))
+    },
+    [repository, run],
+  )
+  const repositoryDragAndDrop = useMemo<FileTreeDragAndDropConfig>(
+    () => ({
+      canDrag: (paths) =>
+        !repository.busy &&
+        repositoryView === 'tree' &&
+        repositoryFilters.size === 0 &&
+        paths.length === 1,
+      canDrop: canDropRepositoryPath,
+      onDropComplete: moveRepositoryPath,
+      onDropError: (error) => setLocalError(error),
+      openOnDropDelay: 600,
+    }),
+    [
+      canDropRepositoryPath,
+      moveRepositoryPath,
+      repository.busy,
+      repositoryFilters.size,
+      repositoryView,
+    ],
+  )
+  const renderRepositoryContextMenu = useCallback(
+    (item: ContextMenuItem, context: ContextMenuOpenContext) => (
+      <RepositoryContextMenu
+        context={context}
+        item={item}
+        changeScopes={item.kind === 'file' ? changeScopesForPath(item.path) : []}
+        onCopyPath={(path) => {
+          void navigator.clipboard
+            .writeText(path)
+            .catch((error) => setLocalError(`Could not copy path: ${message(error)}`))
+        }}
+        onCreate={(kind, initialPath) => setRepositoryEntryDialog({ kind, initialPath })}
+        onOpen={selectRepositoryPath}
+        onOpenChange={(scope, path) => repository.select(scope, path)}
+        onRefresh={() => void repository.refreshRepositoryFiles()}
+        onRename={(source) =>
+          setRepositoryEntryDialog({ kind: 'rename', source, initialPath: source })
+        }
+      />
+    ),
+    [changeScopesForPath, repository, selectRepositoryPath],
+  )
+
+  useEffect(() => {
+    if (repository.repositoryFileRevealVersion === 0) return
+    setRepositoryOpen(true)
+    setRepositoryFilters((current) => (current.size === 0 ? current : new Set()))
+  }, [repository.repositoryFileRevealVersion])
+
+  useEffect(() => {
+    if (selectedScope == null || selectedChangePath == null) return
+    setWorkflowOpen(true)
+    if (selectedScope === 'staged') setStagedOpen(true)
+    else setChangesOpen(true)
+  }, [selectedChangePath, selectedScope])
 
   useEffect(() => {
     if (window.matchMedia('(max-width: 767px)').matches) setGraphOpen(false)
@@ -639,6 +766,7 @@ export function GitnaSourceControl() {
         <TreeSection
           pane
           count={repositoryCount}
+          dragAndDrop={repositoryDragAndDrop}
           dataSection="repository"
           emptyMessage="No repository files"
           footer={
@@ -657,6 +785,7 @@ export function GitnaSourceControl() {
               )}
             </>
           }
+          renderContextMenu={renderRepositoryContextMenu}
           renderHeaderActions={(model) => (
             <RepositoryHeaderActions
               availableStatuses={availableRepositoryStatuses}
@@ -1270,6 +1399,192 @@ function repositoryCreationParent(model: FileTree | null): string {
   return separator < 0 ? '' : selected.slice(0, separator + 1)
 }
 
+function contextMenuTriggerStyle(anchorRect: ContextMenuOpenContext['anchorRect']): CSSProperties {
+  return {
+    border: 0,
+    height: 1,
+    left: anchorRect.left,
+    opacity: 0,
+    padding: 0,
+    pointerEvents: 'none',
+    position: 'fixed',
+    top: anchorRect.bottom - 1,
+    width: 1,
+  }
+}
+
+function RepositoryContextMenu({
+  changeScopes,
+  context,
+  item,
+  onCopyPath,
+  onCreate,
+  onOpen,
+  onOpenChange,
+  onRefresh,
+  onRename,
+}: {
+  changeScopes: readonly ChangeScope[]
+  context: ContextMenuOpenContext
+  item: ContextMenuItem
+  onCopyPath(path: string): void
+  onCreate(kind: 'file' | 'folder', initialPath: string): void
+  onOpen(path: string): void
+  onOpenChange(scope: ChangeScope, path: string): void
+  onRefresh(): void
+  onRename(source: string): void
+}) {
+  const closeForDialog = () => context.close({ restoreFocus: false })
+  return (
+    <DropdownMenu
+      open
+      modal={false}
+      onOpenChange={(open) => {
+        if (!open) context.close()
+      }}
+    >
+      <DropdownMenuTrigger asChild>
+        <button
+          aria-hidden="true"
+          tabIndex={-1}
+          type="button"
+          style={contextMenuTriggerStyle(context.anchorRect)}
+        />
+      </DropdownMenuTrigger>
+      <DropdownMenuContent
+        align="start"
+        side="bottom"
+        sideOffset={context.anchorRect.width === 0 && context.anchorRect.height === 0 ? 0 : -2}
+        className="min-w-44"
+        data-file-tree-context-menu-root="true"
+        onCloseAutoFocus={(event) => {
+          event.preventDefault()
+          context.restoreFocus()
+        }}
+      >
+        {item.kind === 'file' && (
+          <>
+            <DropdownMenuItem
+              onSelect={() => {
+                context.close()
+                onOpen(item.path)
+              }}
+            >
+              Open
+            </DropdownMenuItem>
+            {changeScopes.map((scope) => (
+              <DropdownMenuItem
+                key={scope}
+                onSelect={() => {
+                  onOpenChange(scope, item.path)
+                  context.close({ restoreFocus: false })
+                }}
+              >
+                {scope === 'staged' ? 'View Staged Changes' : 'View Unstaged Changes'}
+              </DropdownMenuItem>
+            ))}
+            <DropdownMenuSeparator />
+          </>
+        )}
+        <DropdownMenuItem
+          onSelect={() => {
+            closeForDialog()
+            onCreate('file', repositoryItemParent(item))
+          }}
+        >
+          New File
+        </DropdownMenuItem>
+        <DropdownMenuItem
+          onSelect={() => {
+            closeForDialog()
+            onCreate('folder', repositoryItemParent(item))
+          }}
+        >
+          New Folder
+        </DropdownMenuItem>
+        <DropdownMenuItem
+          onSelect={() => {
+            closeForDialog()
+            onRename(trimDirectoryPath(item.path))
+          }}
+        >
+          Rename
+        </DropdownMenuItem>
+        <DropdownMenuSeparator />
+        <DropdownMenuItem
+          onSelect={() => {
+            context.close()
+            onCopyPath(trimDirectoryPath(item.path))
+          }}
+        >
+          Copy Relative Path
+        </DropdownMenuItem>
+        <DropdownMenuSeparator />
+        <DropdownMenuItem
+          onSelect={() => {
+            context.close()
+            onRefresh()
+          }}
+        >
+          Refresh Repository
+        </DropdownMenuItem>
+      </DropdownMenuContent>
+    </DropdownMenu>
+  )
+}
+
+function ChangeContextMenu({
+  canOpen,
+  context,
+  path,
+  onOpen,
+}: {
+  canOpen: boolean
+  context: ContextMenuOpenContext
+  path: string
+  onOpen(path: string): void
+}) {
+  return (
+    <DropdownMenu
+      open
+      modal={false}
+      onOpenChange={(open) => {
+        if (!open) context.close()
+      }}
+    >
+      <DropdownMenuTrigger asChild>
+        <button
+          aria-hidden="true"
+          tabIndex={-1}
+          type="button"
+          style={contextMenuTriggerStyle(context.anchorRect)}
+        />
+      </DropdownMenuTrigger>
+      <DropdownMenuContent
+        align="start"
+        side="bottom"
+        sideOffset={context.anchorRect.width === 0 && context.anchorRect.height === 0 ? 0 : -2}
+        className="min-w-44"
+        data-file-tree-context-menu-root="true"
+        onCloseAutoFocus={(event) => {
+          event.preventDefault()
+          context.restoreFocus()
+        }}
+      >
+        <DropdownMenuItem
+          disabled={!canOpen}
+          onSelect={() => {
+            context.close()
+            onOpen(path)
+          }}
+        >
+          Open in Repository
+        </DropdownMenuItem>
+      </DropdownMenuContent>
+    </DropdownMenu>
+  )
+}
+
 function RepositoryHeaderActions({
   availableStatuses,
   loading,
@@ -1437,6 +1752,7 @@ function RepositoryHeaderActions({
 interface TreeSectionProps {
   count?: ReactNode
   dataSection: string
+  dragAndDrop?: FileTreeDragAndDropConfig
   emptyMessage: string
   footer?: ReactNode
   headerActions?: ReactNode
@@ -1448,6 +1764,7 @@ interface TreeSectionProps {
   open: boolean
   pane?: boolean
   paneIcon?: ComponentType<{ className?: string }>
+  renderContextMenu?: (item: ContextMenuItem, context: ContextMenuOpenContext) => ReactNode
   renderHeaderActions?: (model: FileTree | null) => ReactNode
   renderRowActions?: FileTreeOptions['renderRowActions']
   selectedPath?: string | null
@@ -1458,6 +1775,7 @@ interface TreeSectionProps {
 function TreeSection({
   count,
   dataSection,
+  dragAndDrop,
   emptyMessage,
   footer,
   headerActions,
@@ -1469,6 +1787,7 @@ function TreeSection({
   open,
   pane = false,
   paneIcon,
+  renderContextMenu,
   renderHeaderActions,
   renderRowActions,
   selectedPath,
@@ -1549,9 +1868,11 @@ function TreeSection({
               >
                 <DiffsHubFileTree
                   className={cn(pane ? 'h-full overflow-hidden' : 'overflow-visible', 'md:ml-2')}
+                  dragAndDrop={dragAndDrop}
                   modelId={modelId}
                   onModelReady={setModel}
                   onSelectItem={onSelectPath}
+                  renderContextMenu={renderContextMenu}
                   renderRowActions={renderRowActions}
                   selectedPath={selectedPath}
                   showFolderGitStatus={pane}
@@ -1640,6 +1961,21 @@ function ChangeSection({
       if (untracked.length > 0) {
         await repository.mutate({ op: 'delete', paths: mutationPaths(untracked) })
       }
+    },
+    [repository],
+  )
+  const renderContextMenu = useCallback(
+    (item: ContextMenuItem, context: ContextMenuOpenContext) => {
+      if (item.kind !== 'file') return null
+      const path = trimDirectoryPath(item.path)
+      return (
+        <ChangeContextMenu
+          canOpen={repository.canOpenRepositoryFile(path)}
+          context={context}
+          path={path}
+          onOpen={(nextPath) => repository.selectRepositoryFile(nextPath, true)}
+        />
+      )
     },
     [repository],
   )
@@ -1748,6 +2084,7 @@ function ChangeSection({
       icon={<IconSymbolDiffstatFill className="size-3" />}
       modelId={modelId}
       open={open}
+      renderContextMenu={renderContextMenu}
       renderRowActions={renderRowActions}
       selectedPath={selectedPath}
       source={source}

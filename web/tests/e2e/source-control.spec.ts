@@ -246,6 +246,64 @@ test('real binary renders repository source-control state', async ({ page, app }
   }
 })
 
+test('working files and staged or unstaged diffs navigate as one file', async ({ page, app }) => {
+  writeFileSync(join(app.repo, 'staged.txt'), 'unstaged change after staging\n')
+  mkdirSync(join(app.repo, 'nested'))
+  writeFileSync(join(app.repo, 'nested/navigation.txt'), 'navigate from list view\n')
+
+  await page.goto(app.url)
+  const repositoryHeader = page.locator('[data-section="repository"]')
+  const repositoryTree = page.locator('#gitna-repository-tree__tree')
+  const changesTree = page.locator('#gitna-unstaged-tree__tree')
+  const stagedTree = page.locator('#gitna-staged-tree__tree')
+
+  await changesTree.getByRole('treeitem', { name: 'modified.txt', exact: true }).click()
+  await page.getByRole('button', { name: 'Open modified.txt in Repository' }).click()
+  await expect(repositoryHeader).toHaveAttribute('aria-expanded', 'true')
+  await expect(page.getByRole('textbox', { name: 'modified.txt' })).toBeVisible()
+  await expect(
+    repositoryTree.getByRole('treeitem', { name: 'modified.txt', exact: true }),
+  ).toHaveAttribute('aria-selected', 'true')
+
+  await page.getByRole('button', { name: 'View changes for modified.txt' }).click()
+  await expect(
+    changesTree.getByRole('treeitem', { name: 'modified.txt', exact: true }),
+  ).toHaveAttribute('aria-selected', 'true')
+  await expect(page.getByRole('button', { name: 'Open modified.txt in Repository' })).toBeVisible()
+
+  await repositoryTree.getByRole('treeitem', { name: 'staged.txt', exact: true }).click()
+  await expect(page.getByRole('textbox', { name: 'staged.txt' })).toBeVisible()
+  await page.getByRole('button', { name: 'Choose changes to view for staged.txt' }).click()
+  await expect(page.getByRole('menuitem', { name: 'View Unstaged Changes' })).toBeVisible()
+  await page.getByRole('menuitem', { name: 'View Staged Changes' }).click()
+  await expect(
+    stagedTree.getByRole('treeitem', { name: 'staged.txt', exact: true }),
+  ).toHaveAttribute('aria-selected', 'true')
+
+  await stagedTree
+    .getByRole('treeitem', { name: 'staged.txt', exact: true })
+    .click({ button: 'right' })
+  await page.getByRole('menuitem', { name: 'Open in Repository' }).click()
+  await expect(page.getByRole('textbox', { name: 'staged.txt' })).toBeVisible()
+
+  await repositoryTree
+    .getByRole('treeitem', { name: 'staged.txt', exact: true })
+    .click({ button: 'right' })
+  await expect(page.getByRole('menuitem', { name: 'View Unstaged Changes' })).toBeVisible()
+  await expect(page.getByRole('menuitem', { name: 'View Staged Changes' })).toBeVisible()
+  await page.keyboard.press('Escape')
+
+  await page.getByRole('button', { name: 'Repository actions' }).click()
+  await page.getByRole('menuitem', { name: /Show as List/ }).click()
+  await repositoryTree
+    .getByRole('treeitem', { name: 'nested › navigation.txt', exact: true })
+    .click({ button: 'right' })
+  await page.getByRole('menuitem', { name: 'View Unstaged Changes' }).click()
+  await expect(
+    page.getByRole('button', { name: 'Open nested/navigation.txt in Repository' }),
+  ).toBeVisible()
+})
+
 test('sync status exposes outgoing review', async ({ page, app }) => {
   runGit(app.repo, 'commit', '-qm', 'outgoing fixture')
 
@@ -454,17 +512,48 @@ test('repository files can be edited, created in folders, and renamed', async ({
   writeFileSync(join(nextRepo, 'other.txt'), 'other repository\n')
   runGit(nextRepo, 'add', '--', 'other.txt')
   runGit(nextRepo, 'commit', '-qm', 'other repository')
+  mkdirSync(join(app.repo, 'archive'))
+  writeFileSync(join(app.repo, 'archive/keep.txt'), 'archive\n')
 
   await page.goto(app.url)
+  await page.evaluate(() => {
+    Object.defineProperty(navigator, 'clipboard', {
+      configurable: true,
+      value: {
+        writeText: (value: string) => {
+          document.documentElement.dataset.copiedPath = value
+          return Promise.resolve()
+        },
+      },
+    })
+  })
   await page.locator('[data-section="repository"]').click()
 
   const repositoryTree = page.locator('#gitna-repository-tree__tree')
-  await repositoryTree.getByRole('treeitem', { name: 'main.txt', exact: true }).click()
+  const mainTreeItem = repositoryTree.getByRole('treeitem', { name: 'main.txt', exact: true })
+  await mainTreeItem.click({ button: 'right' })
+  const copyRelativePath = page.getByRole('menuitem', { name: 'Copy Relative Path' })
+  await expect(copyRelativePath).toBeVisible()
+  await copyRelativePath.click()
+  await expect(page.locator('html')).toHaveAttribute('data-copied-path', 'main.txt')
+
+  await repositoryTree
+    .getByRole('treeitem', { name: 'feature.txt', exact: true })
+    .dragTo(repositoryTree.getByRole('treeitem', { name: 'archive', exact: true }))
+  await expect.poll(() => existsSync(join(app.repo, 'archive/feature.txt'))).toBe(true)
+  expect(existsSync(join(app.repo, 'feature.txt'))).toBe(false)
+  await expect(page.getByRole('button', { name: 'Close archive/feature.txt' })).toBeVisible()
+
+  await mainTreeItem.click()
   const mainEditor = page.getByRole('textbox', { name: 'main.txt' })
-  await mainEditor.click()
-  await page.keyboard.press('Control+End')
-  await page.keyboard.type('\nedited in Gitna')
-  await expect(page.getByRole('tab', { name: /main\.txt Unsaved changes/ })).toBeVisible()
+  await expect(async () => {
+    await mainEditor.click()
+    await page.keyboard.press('Control+End')
+    await page.keyboard.type('\nedited in Gitna')
+    await expect(page.getByRole('tab', { name: /main\.txt Unsaved changes/ })).toBeVisible({
+      timeout: 1_000,
+    })
+  }).toPass()
   await page.getByRole('button', { name: 'Close main.txt' }).click()
   const discardDraft = page.getByRole('alertdialog', {
     name: 'Discard unsaved changes to main.txt?',
@@ -503,7 +592,9 @@ test('repository files can be edited, created in folders, and renamed', async ({
   await expect
     .poll(() => readFileSync(join(app.repo, 'main.txt'), 'utf8'))
     .toContain('edited in Gitna while saving')
-  await expect(page.getByRole('button', { name: 'Saved', exact: true })).toBeDisabled()
+  const savedStatus = page.getByRole('status').filter({ hasText: 'Saved' })
+  await expect(savedStatus).toBeVisible()
+  await expect(savedStatus).not.toBeVisible({ timeout: 3_000 })
 
   const repositoryActions = page.getByRole('button', { name: 'Repository actions' })
   await repositoryActions.click()
@@ -519,8 +610,15 @@ test('repository files can be edited, created in folders, and renamed', async ({
   await page.getByRole('button', { name: 'Create', exact: true }).click()
 
   const newEditor = page.getByRole('textbox', { name: 'notes/new.txt' })
-  await newEditor.click()
-  await page.keyboard.type('new file from Gitna')
+  await expect(async () => {
+    await newEditor.click()
+    await page.keyboard.press('Control+a')
+    await page.keyboard.type('new file from Gitna')
+    await expect(page.getByRole('tab', { name: /new\.txt Unsaved changes/ })).toBeVisible({
+      timeout: 1_000,
+    })
+  }).toPass()
+  await expect(page.getByRole('button', { name: 'Save', exact: true })).toBeEnabled()
   await page.keyboard.press('Control+s')
   await expect
     .poll(() => readFileSync(join(app.repo, 'notes/new.txt'), 'utf8'))
@@ -536,9 +634,14 @@ test('repository files can be edited, created in folders, and renamed', async ({
   await expect(page.getByRole('tab', { name: 'renamed.txt', exact: true })).toBeVisible()
 
   const renamedEditor = page.getByRole('textbox', { name: 'notes/renamed.txt' })
-  await renamedEditor.click()
-  await page.keyboard.press('Control+End')
-  await page.keyboard.type(' unsaved')
+  await expect(async () => {
+    await renamedEditor.click()
+    await page.keyboard.press('Control+End')
+    await page.keyboard.type(' unsaved')
+    await expect(page.getByRole('tab', { name: /renamed\.txt Unsaved changes/ })).toBeVisible({
+      timeout: 1_000,
+    })
+  }).toPass()
   const repositoryPath = page.getByRole('textbox', { name: 'Repository path' })
   await repositoryPath.fill(nextRepo)
   await page.getByRole('button', { name: 'Switch repository' }).click()

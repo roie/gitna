@@ -141,6 +141,7 @@ function GitnaReviewUIInner() {
     () => new Map(),
   )
   const [savingPath, setSavingPath] = useState<string | null>(null)
+  const [recentlySavedPath, setRecentlySavedPath] = useState<string | null>(null)
   const [pendingClosePath, setPendingClosePath] = useState<string | null>(null)
   const [pendingRepositoryPath, setPendingRepositoryPath] = useState<string | null>(null)
   const editorRepositoryRootRef = useRef<string | null>(null)
@@ -165,9 +166,16 @@ function GitnaReviewUIInner() {
     if (editorRepositoryRootRef.current != null && editorRepositoryRootRef.current !== root) {
       setWorktreeFiles(new Map())
       setWorktreeDrafts(new Map())
+      setRecentlySavedPath(null)
     }
     editorRepositoryRootRef.current = root
   }, [repository.snapshot?.root])
+
+  useEffect(() => {
+    if (recentlySavedPath == null) return
+    const timer = window.setTimeout(() => setRecentlySavedPath(null), 1500)
+    return () => window.clearTimeout(timer)
+  }, [recentlySavedPath])
 
   useEffect(() => {
     const rename = repository.worktreeRename
@@ -406,6 +414,9 @@ function GitnaReviewUIInner() {
       ? undefined
       : {
           scope: workingScope,
+          canOpenFile(path) {
+            return repository.canOpenRepositoryFile(path)
+          },
           kindForPath(path) {
             const list =
               workingScope === 'staged'
@@ -443,6 +454,9 @@ function GitnaReviewUIInner() {
                 setReviewActionError(error instanceof Error ? error.message : String(error)),
               )
           },
+          onOpenFile(path) {
+            repository.selectRepositoryFile(path, true)
+          },
           onPatch(request) {
             setReviewActionError(null)
             return repository.mutate(request)
@@ -452,6 +466,7 @@ function GitnaReviewUIInner() {
 
   const dirtyPaths = useMemo(() => new Set(worktreeDrafts.keys()), [worktreeDrafts])
   const handleWorktreeEditChange = useCallback((path: string, file: FileContents) => {
+    setRecentlySavedPath((current) => (current === path ? null : current))
     const next = new Map(worktreeDraftsRef.current)
     const baseline = worktreeFilesRef.current.get(path)
     if (baseline != null && baseline.content === file.contents) next.delete(path)
@@ -478,6 +493,7 @@ function GitnaReviewUIInner() {
           nextDrafts.delete(path)
           worktreeDraftsRef.current = nextDrafts
           setWorktreeDrafts(nextDrafts)
+          setRecentlySavedPath(path)
         }
       } catch (error) {
         setReviewActionError(error instanceof Error ? error.message : String(error))
@@ -490,9 +506,21 @@ function GitnaReviewUIInner() {
   const gitnaEditorActions: GitnaEditorActions | undefined =
     target?.filePath != null && worktreeFiles.has(target.filePath)
       ? {
+          changeScopes(path) {
+            const scopes: Array<'unstaged' | 'staged'> = []
+            if (repository.snapshot?.unstaged.some((change) => change.path === path)) {
+              scopes.push('unstaged')
+            }
+            if (repository.snapshot?.staged.some((change) => change.path === path)) {
+              scopes.push('staged')
+            }
+            return scopes
+          },
           dirtyPaths,
+          recentlySavedPath,
           saving: savingPath != null,
           onChange: handleWorktreeEditChange,
+          onOpenChange: (scope, path) => repository.select(scope, path),
           onSave: (path) => void saveWorktreeFile(path),
         }
       : undefined
@@ -503,7 +531,7 @@ function GitnaReviewUIInner() {
     if (item?.type !== 'file') return
     item.version = typeof item.version === 'number' ? item.version + 1 : 1
     viewerRef.current?.updateItem(item)
-  }, [dirtyPaths, savingPath, target?.filePath])
+  }, [dirtyPaths, recentlySavedPath, savingPath, target?.filePath])
 
   useEffect(() => {
     const onSave = (event: KeyboardEvent) => {
