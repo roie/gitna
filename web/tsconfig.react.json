@@ -12,12 +12,10 @@
     "isolatedModules": true,
     "allowArbitraryExtensions": true,
     "types": ["vite/client"],
-    "baseUrl": ".",
-    "ignoreDeprecations": "6.0",
     "paths": {
-      "@/*": ["src/diffshub/*"],
-      "next/link": ["src/diffshub/vite/next.tsx"],
-      "next/navigation": ["src/diffshub/vite/next.tsx"]
+      "@/*": ["./src/diffshub/*"],
+      "next/link": ["./src/diffshub/vite/next.tsx"],
+      "next/navigation": ["./src/diffshub/vite/next.tsx"]
     }
   },
   "include": ["src/diffshub/**/*.ts", "src/diffshub/**/*.tsx"]
