@@ -10,6 +10,7 @@ import type {
   ReviewResponse,
   StashEntry,
   Tag,
+  WorktreeFile,
 } from './types'
 
 export interface DiffRequest {
@@ -113,6 +114,10 @@ export interface OperationResult {
 export interface ApiClient {
   snapshot(): Promise<RepoSnapshot>
   repositoryFiles(cursor?: string): Promise<RepositoryFiles>
+  readWorktreeFile(path: string): Promise<WorktreeFile>
+  writeWorktreeFile(path: string, content: string, expectedHash: string): Promise<WorktreeFile>
+  createWorktreeEntry(path: string, directory: boolean): Promise<void>
+  renameWorktreeEntry(source: string, destination: string): Promise<void>
   diff(request: DiffRequest): Promise<FileDiff>
   review(request: ReviewRequest): Promise<ReviewResponse>
   mutate(request: MutateRequest): Promise<void>
@@ -201,6 +206,49 @@ export function createApi(): ApiClient {
         await fetch(`api/v1/files${query}`, { signal: AbortSignal.timeout(FETCH_TIMEOUT) }),
       )
       return (await res.json()) as RepositoryFiles
+    },
+    async readWorktreeFile(path: string): Promise<WorktreeFile> {
+      const res = await expectOK(
+        await fetch(`api/v1/worktree/file?path=${encodeURIComponent(path)}`, {
+          signal: AbortSignal.timeout(FETCH_TIMEOUT),
+        }),
+      )
+      return (await res.json()) as WorktreeFile
+    },
+    async writeWorktreeFile(
+      path: string,
+      content: string,
+      expectedHash: string,
+    ): Promise<WorktreeFile> {
+      const res = await expectOK(
+        await fetch('api/v1/worktree/file', {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ path, content, expectedHash }),
+          signal: AbortSignal.timeout(MUTATE_TIMEOUT),
+        }),
+      )
+      return (await res.json()) as WorktreeFile
+    },
+    async createWorktreeEntry(path: string, directory: boolean): Promise<void> {
+      await expectOK(
+        await fetch('api/v1/worktree/entry', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ path, directory }),
+          signal: AbortSignal.timeout(MUTATE_TIMEOUT),
+        }),
+      )
+    },
+    async renameWorktreeEntry(source: string, destination: string): Promise<void> {
+      await expectOK(
+        await fetch('api/v1/worktree/entry', {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ source, destination }),
+          signal: AbortSignal.timeout(MUTATE_TIMEOUT),
+        }),
+      )
     },
     async diff(request: DiffRequest): Promise<FileDiff> {
       const res = await expectOK(

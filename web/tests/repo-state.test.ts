@@ -63,6 +63,18 @@ const auxApi: ApiClient = {
   async repositoryFiles() {
     return { generation: 1, paths: [], truncated: false }
   },
+  async readWorktreeFile() {
+    throw new Error('readWorktreeFile not used')
+  },
+  async writeWorktreeFile() {
+    throw new Error('writeWorktreeFile not used')
+  },
+  async createWorktreeEntry() {
+    throw new Error('createWorktreeEntry not used')
+  },
+  async renameWorktreeEntry() {
+    throw new Error('renameWorktreeEntry not used')
+  },
   async diff() {
     throw new Error('diff not used')
   },

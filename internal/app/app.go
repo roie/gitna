@@ -54,6 +54,32 @@ func (a *repoAdapter) RepositoryFiles(ctx context.Context, after string, limit i
 	return a.current().RepositoryFiles(ctx, a.runner, after, limit)
 }
 
+func (a *repoAdapter) ReadWorktreeFile(ctx context.Context, path string) (protocol.WorktreeFile, error) {
+	return a.current().ReadWorktreeFile(ctx, path)
+}
+
+func (a *repoAdapter) WriteWorktreeFile(ctx context.Context, path, content, expectedHash string) (protocol.WorktreeFile, error) {
+	var file protocol.WorktreeFile
+	err := a.queue.Do(ctx, func(ctx context.Context) error {
+		var err error
+		file, err = a.current().WriteWorktreeFile(ctx, path, content, expectedHash)
+		return err
+	})
+	return file, err
+}
+
+func (a *repoAdapter) CreateWorktreeEntry(ctx context.Context, path string, directory bool) error {
+	return a.queue.Do(ctx, func(ctx context.Context) error {
+		return a.current().CreateWorktreeEntry(ctx, path, directory)
+	})
+}
+
+func (a *repoAdapter) RenameWorktreeEntry(ctx context.Context, source, destination string) error {
+	return a.queue.Do(ctx, func(ctx context.Context) error {
+		return a.current().RenameWorktreeEntry(ctx, source, destination)
+	})
+}
+
 func (a *repoAdapter) Diff(ctx context.Context, scope protocol.DiffScope, opts protocol.DiffOptions) (protocol.FileDiff, error) {
 	return a.current().Diff(ctx, a.runner, scope, opts)
 }

@@ -13,7 +13,7 @@ import {
   type LoadedDiffsHubData,
 } from '../lib/diffsHubDataAccumulator'
 import type { CommentMetadata, ImageAnnotationMetadata } from '../lib/types'
-import type { FileDiff, FileVersion, ReviewResponse } from '../../lib/types'
+import type { FileDiff, FileVersion, ReviewResponse, WorktreeFile } from '../../lib/types'
 
 function imageMetadata(version: FileVersion, alt: string): ImageAnnotationMetadata | null {
   return version.image == null
@@ -41,6 +41,33 @@ export function diffImageAnnotations(
 function reviewIdentityKey(review: ReviewResponse): string {
   const { identity } = review
   return [identity.scope, identity.commit, identity.from, identity.to].filter(Boolean).join(':')
+}
+
+export function adaptWorktreeFile(
+  source: WorktreeFile,
+  generation: number,
+  draft?: FileContents,
+): LoadedDiffsHubData {
+  const file: FileContents = draft ?? {
+    name: source.path,
+    contents: source.content,
+    cacheKey: `worktree:${source.hash}:${source.path}`,
+  }
+  const lineCount =
+    file.contents.length === 0
+      ? 0
+      : file.contents.split('\n').length - (file.contents.endsWith('\n') ? 1 : 0)
+  return {
+    diffStats: { addedLines: 0, deletedLines: 0, fileCount: 1, totalLinesOfCode: lineCount },
+    itemIdToFile: new Map([[source.path, { fileOrder: 0, path: source.path }]]),
+    items: [{ id: source.path, type: 'file', file, edit: true, version: generation }],
+    treeSource: {
+      gitStatus: [],
+      pathCount: 1,
+      paths: [source.path],
+      pathToItemId: new Map([[source.path, source.path]]),
+    },
+  }
 }
 
 export function adaptGitnaFile(diff: FileDiff, generation: number): LoadedDiffsHubData {

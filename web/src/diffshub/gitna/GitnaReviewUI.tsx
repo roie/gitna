@@ -1,4 +1,4 @@
-import type { CodeViewLineSelection, DiffIndicators } from '@pierre/diffs'
+import type { CodeViewLineSelection, DiffIndicators, FileContents } from '@pierre/diffs'
 import { type CodeViewHandle, useWorkerPool } from '@pierre/diffs/react'
 import { IconX } from '@pierre/icons'
 import type { ColorMode } from '@pierre/theming'
@@ -11,20 +11,26 @@ import { DiffsHubSidebar } from '../components/DiffsHubSidebar'
 import { DiffsHubStatusPanel } from '../components/DiffsHubStatusPanel'
 import {
   DiffsHubViewer,
+  type GitnaEditorActions,
   type GitnaFileAction,
   type GitnaViewerActions,
 } from '../components/DiffsHubViewer'
 import { ThemeSourceProvider } from '../components/ThemeSourceProvider'
 import { docsThemeCatalog, themeController } from '../components/themeController'
 import type { CommentMetadata, ViewerLoadState } from '../lib/types'
-import type { DiffRequest, ReviewRequest } from '../../lib/api'
-import type { FileDiff } from '../../lib/types'
+import { ApiError, type DiffRequest, type ReviewRequest } from '../../lib/api'
+import type { FileDiff, WorktreeFile } from '../../lib/types'
 import type { DarkThemeName, LightThemeName } from '../lib/themeNames'
 import type { LoadedDiffsHubData } from '../lib/diffsHubDataAccumulator'
 import { cn } from '../lib/cn'
 import { GitnaSourceControl } from './SourceControlWorkflow'
 import { Confirm } from './Modal'
-import { adaptGitnaFile, adaptGitnaReview, diffImageAnnotations } from './reviewAdapter'
+import {
+  adaptGitnaFile,
+  adaptGitnaReview,
+  adaptWorktreeFile,
+  diffImageAnnotations,
+} from './reviewAdapter'
 import { useRepository } from './repository'
 
 interface ReviewTarget {
@@ -38,6 +44,17 @@ interface ReviewTarget {
 const rasterImagePattern = /\.(?:gif|jpe?g|png|webp)$/i
 const repositoryTabIconResolver = createFileTreeIconResolver('complete')
 const repositoryTabIconSprite = getBuiltInSpriteSheet('complete')
+
+function remapWorktreePath(path: string, source: string, destination: string): string {
+  if (path === source) return destination
+  const sourcePrefix = `${source.replace(/\/$/, '')}/`
+  if (!path.startsWith(sourcePrefix)) return path
+  return `${destination.replace(/\/$/, '')}/${path.slice(sourcePrefix.length)}`
+}
+
+function previousWorktreePath(path: string, source: string, destination: string): string {
+  return remapWorktreePath(path, destination, source)
+}
 
 function imageDiffRequest(target: ReviewTarget | null): DiffRequest | null {
   const path = target?.selectedPath ?? target?.filePath
@@ -69,19 +86,19 @@ function useReviewTarget(): ReviewTarget | null {
       oldPath: repository.commitDiff.oldPath,
     }
   }
+  if (repository.repositoryFilePath != null) {
+    return {
+      filePath: repository.repositoryFilePath,
+      key: `file:${repository.repositoryFilePath}`,
+      selectedPath: repository.repositoryFilePath,
+    }
+  }
   if (repository.selection != null) {
     return {
       key: repository.selection.scope,
       request: { scope: repository.selection.scope },
       selectedPath: repository.selection.change.path,
       oldPath: repository.selection.change.oldPath,
-    }
-  }
-  if (repository.repositoryFilePath != null) {
-    return {
-      filePath: repository.repositoryFilePath,
-      key: `file:${repository.repositoryFilePath}`,
-      selectedPath: repository.repositoryFilePath,
     }
   }
   const snapshot = repository.snapshot
@@ -117,6 +134,20 @@ function GitnaReviewUIInner() {
   const [reviewAttempt, setReviewAttempt] = useState(0)
   const [reviewKey, setReviewKey] = useState(0)
   const [reviewActionError, setReviewActionError] = useState<string | null>(null)
+  const [worktreeFiles, setWorktreeFiles] = useState<ReadonlyMap<string, WorktreeFile>>(
+    () => new Map(),
+  )
+  const [worktreeDrafts, setWorktreeDrafts] = useState<ReadonlyMap<string, FileContents>>(
+    () => new Map(),
+  )
+  const [savingPath, setSavingPath] = useState<string | null>(null)
+  const [pendingClosePath, setPendingClosePath] = useState<string | null>(null)
+  const [pendingRepositoryPath, setPendingRepositoryPath] = useState<string | null>(null)
+  const editorRepositoryRootRef = useRef<string | null>(null)
+  const worktreeFilesRef = useRef(worktreeFiles)
+  const worktreeDraftsRef = useRef(worktreeDrafts)
+  worktreeFilesRef.current = worktreeFiles
+  worktreeDraftsRef.current = worktreeDrafts
   const [pendingFileAction, setPendingFileAction] = useState<{
     action: 'discard' | 'delete'
     path: string
@@ -127,6 +158,37 @@ function GitnaReviewUIInner() {
   const themeState = useThemeController(themeController)
 
   useEffect(() => setThemesHydrated(true), [])
+
+  useEffect(() => {
+    const root = repository.snapshot?.root
+    if (root == null) return
+    if (editorRepositoryRootRef.current != null && editorRepositoryRootRef.current !== root) {
+      setWorktreeFiles(new Map())
+      setWorktreeDrafts(new Map())
+    }
+    editorRepositoryRootRef.current = root
+  }, [repository.snapshot?.root])
+
+  useEffect(() => {
+    const rename = repository.worktreeRename
+    if (rename == null) return
+    setWorktreeFiles((current) => {
+      const next = new Map<string, WorktreeFile>()
+      for (const [path, file] of current) {
+        const destination = remapWorktreePath(path, rename.source, rename.destination)
+        next.set(destination, { ...file, path: destination })
+      }
+      return next
+    })
+    setWorktreeDrafts((current) => {
+      const next = new Map<string, FileContents>()
+      for (const [path, file] of current) {
+        const destination = remapWorktreePath(path, rename.source, rename.destination)
+        next.set(destination, { ...file, name: destination })
+      }
+      return next
+    })
+  }, [repository.worktreeRename?.version])
 
   useEffect(() => {
     const mediaQuery = window.matchMedia('(max-width: 767px)')
@@ -187,12 +249,41 @@ function GitnaReviewUIInner() {
     setReviewData(null)
     setLoadState('fetching')
     setErrorMessage(null)
+    const loadRepositoryFile = async (path: string): Promise<LoadedDiffsHubData> => {
+      try {
+        const loaded = await repository.api.readWorktreeFile(path)
+        const rename = repository.worktreeRename
+        const previousPath =
+          rename == null ? path : previousWorktreePath(path, rename.source, rename.destination)
+        const previousDraft = worktreeDraftsRef.current.get(previousPath)
+        const draft =
+          worktreeDraftsRef.current.get(path) ??
+          (previousDraft == null ? undefined : { ...previousDraft, name: path })
+        if (draft == null) {
+          setWorktreeFiles((current) => new Map(current).set(path, loaded))
+        }
+        const baseline =
+          draft == null
+            ? loaded
+            : (worktreeFilesRef.current.get(path) ??
+              worktreeFilesRef.current.get(previousPath) ??
+              loaded)
+        return adaptWorktreeFile({ ...baseline, path }, repository.generation, draft)
+      } catch (error) {
+        if (
+          !(error instanceof ApiError) ||
+          (error.code !== 'binary-file' && error.code !== 'file-too-large')
+        ) {
+          throw error
+        }
+        const diff = await repository.api.diff({ scope: 'unstaged', path })
+        return adaptGitnaFile(diff, repository.generation)
+      }
+    }
     const dataPromise: Promise<LoadedDiffsHubData> =
       target.filePath == null
         ? repository.api.review(target.request!).then(adaptGitnaReview)
-        : repository.api
-            .diff({ scope: 'unstaged', path: target.filePath })
-            .then((diff) => adaptGitnaFile(diff, repository.generation))
+        : loadRepositoryFile(target.filePath)
     dataPromise
       .then((data) => {
         if (!active) return
@@ -359,6 +450,73 @@ function GitnaReviewUIInner() {
           onError: setReviewActionError,
         }
 
+  const dirtyPaths = useMemo(() => new Set(worktreeDrafts.keys()), [worktreeDrafts])
+  const handleWorktreeEditChange = useCallback((path: string, file: FileContents) => {
+    const next = new Map(worktreeDraftsRef.current)
+    const baseline = worktreeFilesRef.current.get(path)
+    if (baseline != null && baseline.content === file.contents) next.delete(path)
+    else next.set(path, file)
+    worktreeDraftsRef.current = next
+    setWorktreeDrafts(next)
+  }, [])
+  const saveWorktreeFile = useCallback(
+    async (path: string) => {
+      const baseline = worktreeFilesRef.current.get(path)
+      const draft = worktreeDraftsRef.current.get(path)
+      if (baseline == null || draft == null || savingPath != null) return
+      const submittedContent = draft.contents
+      setSavingPath(path)
+      setReviewActionError(null)
+      try {
+        const saved = await repository.saveWorktreeFile(path, submittedContent, baseline.hash)
+        const nextFiles = new Map(worktreeFilesRef.current).set(path, saved)
+        worktreeFilesRef.current = nextFiles
+        setWorktreeFiles(nextFiles)
+        const activeDraft = worktreeDraftsRef.current.get(path)
+        if (activeDraft?.contents === submittedContent) {
+          const nextDrafts = new Map(worktreeDraftsRef.current)
+          nextDrafts.delete(path)
+          worktreeDraftsRef.current = nextDrafts
+          setWorktreeDrafts(nextDrafts)
+        }
+      } catch (error) {
+        setReviewActionError(error instanceof Error ? error.message : String(error))
+      } finally {
+        setSavingPath(null)
+      }
+    },
+    [repository, savingPath],
+  )
+  const gitnaEditorActions: GitnaEditorActions | undefined =
+    target?.filePath != null && worktreeFiles.has(target.filePath)
+      ? {
+          dirtyPaths,
+          saving: savingPath != null,
+          onChange: handleWorktreeEditChange,
+          onSave: (path) => void saveWorktreeFile(path),
+        }
+      : undefined
+
+  useEffect(() => {
+    const path = target?.filePath
+    const item = path == null ? null : viewerRef.current?.getItem(path)
+    if (item?.type !== 'file') return
+    item.version = typeof item.version === 'number' ? item.version + 1 : 1
+    viewerRef.current?.updateItem(item)
+  }, [dirtyPaths, savingPath, target?.filePath])
+
+  useEffect(() => {
+    const onSave = (event: KeyboardEvent) => {
+      if (!(event.ctrlKey || event.metaKey) || event.key.toLowerCase() !== 's') return
+      const path = target?.filePath
+      if (path == null || !worktreeDraftsRef.current.has(path)) return
+      event.preventDefault()
+      void saveWorktreeFile(path)
+    }
+    window.addEventListener('keydown', onSave)
+    return () => window.removeEventListener('keydown', onSave)
+  }, [dirtyPaths, saveWorktreeFile, target?.filePath])
+
   return (
     <>
       <ReviewGrid>
@@ -379,7 +537,13 @@ function GitnaReviewUIInner() {
           overflow={overflow}
           onClearGitHubToken={() => {}}
           onSaveGitHubToken={() => {}}
-          onSwitchRepository={(path) => repository.switchRepository(path)}
+          onSwitchRepository={async (path) => {
+            if (dirtyPaths.size > 0) {
+              setPendingRepositoryPath(path)
+              return
+            }
+            await repository.switchRepository(path)
+          }}
           onRevealRepository={async () => {
             setReviewActionError(null)
             try {
@@ -411,7 +575,13 @@ function GitnaReviewUIInner() {
           </DiffsHubSidebar>
         )}
         <div className="flex min-h-0 flex-col [grid-area:viewer]">
-          <RepositoryFileTabs />
+          <RepositoryFileTabs
+            dirtyPaths={dirtyPaths}
+            onClose={(path) => {
+              if (dirtyPaths.has(path)) setPendingClosePath(path)
+              else repository.closeRepositoryFile(path)
+            }}
+          />
           <div className="min-h-0 flex-1">
             {viewerAvailable && reviewData != null && reviewData.items.length > 0 ? (
               <DiffsHubViewer
@@ -428,6 +598,7 @@ function GitnaReviewUIInner() {
                 viewerRef={viewerRef}
                 initialItems={reviewData.items}
                 gitnaActions={gitnaActions}
+                gitnaEditorActions={gitnaEditorActions}
                 onCommentDeleted={() => {}}
                 onCommentSaved={() => {}}
                 onLineLinkChange={handleLineLinkChange}
@@ -456,6 +627,43 @@ function GitnaReviewUIInner() {
           </p>
         )}
       </ReviewGrid>
+      {pendingRepositoryPath != null && (
+        <Confirm
+          title="Discard unsaved changes and switch repository?"
+          message={`${dirtyPaths.size} unsaved ${dirtyPaths.size === 1 ? 'file' : 'files'} will be discarded.`}
+          confirmLabel="Discard and switch"
+          onCancel={() => setPendingRepositoryPath(null)}
+          onConfirm={() => {
+            const path = pendingRepositoryPath
+            setPendingRepositoryPath(null)
+            setWorktreeFiles(new Map())
+            setWorktreeDrafts(new Map())
+            void repository
+              .switchRepository(path)
+              .catch((error: unknown) =>
+                setReviewActionError(error instanceof Error ? error.message : String(error)),
+              )
+          }}
+        />
+      )}
+      {pendingClosePath != null && (
+        <Confirm
+          title={`Discard unsaved changes to ${pendingClosePath}?`}
+          message="Your unsaved edits will be lost. The file on disk will not be changed."
+          confirmLabel="Discard changes"
+          onCancel={() => setPendingClosePath(null)}
+          onConfirm={() => {
+            const path = pendingClosePath
+            setPendingClosePath(null)
+            setWorktreeDrafts((current) => {
+              const next = new Map(current)
+              next.delete(path)
+              return next
+            })
+            repository.closeRepositoryFile(path)
+          }}
+        />
+      )}
       {pendingFileAction != null && (
         <Confirm
           title={`${pendingFileAction.action === 'delete' ? 'Delete untracked file' : 'Discard changes to'} ${pendingFileAction.path}?`}
@@ -508,7 +716,13 @@ function RepositoryTabIconSprite() {
   return <div ref={hostRef} aria-hidden="true" className="absolute size-0 overflow-hidden" />
 }
 
-function RepositoryFileTabs() {
+function RepositoryFileTabs({
+  dirtyPaths,
+  onClose,
+}: {
+  dirtyPaths: ReadonlySet<string>
+  onClose(path: string): void
+}) {
   const repository = useRepository()
   if (repository.repositoryFilePath == null || repository.repositoryOpenPaths.length === 0)
     return null
@@ -563,13 +777,19 @@ function RepositoryFileTabs() {
                 <use href={iconHref} />
               </svg>
               <span className="truncate">{name}</span>
+              {dirtyPaths.has(path) && (
+                <span
+                  aria-label="Unsaved changes"
+                  className="size-1.5 shrink-0 rounded-full bg-current"
+                />
+              )}
             </button>
             <button
               type="button"
               className="mr-1 flex size-5 shrink-0 cursor-pointer items-center justify-center rounded text-muted-foreground opacity-0 hover:bg-background/70 hover:text-foreground group-focus-within/tab:opacity-100 group-hover/tab:opacity-100"
               aria-label={`Close ${path}`}
               title={`Close ${path}`}
-              onClick={() => repository.closeRepositoryFile(path)}
+              onClick={() => onClose(path)}
             >
               <IconX className="size-3" />
             </button>

@@ -27,6 +27,14 @@ func (s *Server) apiRoutes() http.Handler {
 			s.handleSnapshot(w, r)
 		case r.Method == http.MethodGet && p == "/files":
 			s.handleRepositoryFiles(w, r)
+		case r.Method == http.MethodGet && p == "/worktree/file":
+			s.handleReadWorktreeFile(w, r)
+		case r.Method == http.MethodPut && p == "/worktree/file":
+			s.handleWriteWorktreeFile(w, r)
+		case r.Method == http.MethodPost && p == "/worktree/entry":
+			s.handleCreateWorktreeEntry(w, r)
+		case r.Method == http.MethodPatch && p == "/worktree/entry":
+			s.handleRenameWorktreeEntry(w, r)
 		case r.Method == http.MethodGet && p == "/diff":
 			s.handleDiff(w, r)
 		case r.Method == http.MethodGet && p == "/review":

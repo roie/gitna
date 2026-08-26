@@ -66,7 +66,7 @@ test('DiffsHub controls, Pierre repository search, and theme persist', async ({ 
 
   await expect(
     repositoryTree.getByRole('treeitem', { name: 'untracked.txt', exact: true }),
-  ).toHaveAttribute('data-item-git-status', 'added')
+  ).toHaveAttribute('data-item-git-status', 'untracked')
   await expect(page.getByRole('button', { name: 'Files', exact: true })).toHaveCount(0)
   await expect(page.getByRole('button', { name: 'Comments', exact: true })).toHaveCount(0)
 })

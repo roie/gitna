@@ -108,6 +108,12 @@ export interface RepositoryFiles {
   nextCursor?: string
 }
 
+export interface WorktreeFile {
+  path: string
+  content: string
+  hash: string
+}
+
 export interface RepoSnapshot {
   root: string
   headOid?: string

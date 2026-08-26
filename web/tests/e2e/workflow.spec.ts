@@ -209,6 +209,7 @@ test('commit text survives hook failure and clears after authoritative success',
   await expect(composer).toBeFocused()
   await page.keyboard.press('Control+Enter')
   await expect(composer).toHaveValue('')
+  await page.locator('[data-section="graph"]').click()
   await expect(page.getByText('milestone commit', { exact: true })).toBeVisible()
 })
 

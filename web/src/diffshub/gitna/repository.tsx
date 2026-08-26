@@ -21,6 +21,7 @@ import type {
   RepoSnapshot,
   StashEntry,
   Tag,
+  WorktreeFile,
 } from '../../lib/types'
 
 export interface Selection {
@@ -60,6 +61,9 @@ const OP_LABELS: Record<string, string> = {
   'create-branch': 'Creating branch',
   'switch-branch': 'Switching branch',
   'switch-repository': 'Switching repository',
+  'save-file': 'Saving file',
+  'create-entry': 'Creating entry',
+  'rename-entry': 'Renaming entry',
   'delete-branch': 'Deleting branch',
   fetch: 'Fetching',
   pull: 'Pulling',
@@ -142,6 +146,7 @@ export class GitnaRepository {
   selection: Selection | null = null
   repositoryFilePath: string | null = null
   repositoryOpenPaths: string[] = []
+  worktreeRename: { source: string; destination: string; version: number } | null = null
 
   repositoryPaths: string[] = []
   repositoryFilesLoading = false
@@ -607,6 +612,67 @@ export class GitnaRepository {
     }
   }
 
+  async saveWorktreeFile(
+    path: string,
+    content: string,
+    expectedHash: string,
+  ): Promise<WorktreeFile> {
+    return this.runWorktreeOperation('save-file', () =>
+      this.api.writeWorktreeFile(path, content, expectedHash),
+    )
+  }
+
+  async createWorktreeEntry(path: string, directory: boolean): Promise<void> {
+    await this.runWorktreeOperation('create-entry', () =>
+      this.api.createWorktreeEntry(path, directory),
+    )
+    if (!directory) this.selectRepositoryFile(path)
+  }
+
+  async renameWorktreeEntry(source: string, destination: string): Promise<void> {
+    const sourcePrefix = source.endsWith('/') ? source : `${source}/`
+    const destinationPrefix = destination.endsWith('/') ? destination : `${destination}/`
+    const remap = (path: string) =>
+      path === source
+        ? destination
+        : path.startsWith(sourcePrefix)
+          ? `${destinationPrefix}${path.slice(sourcePrefix.length)}`
+          : path
+    const openPaths = this.repositoryOpenPaths.map(remap)
+    const selectedPath = this.repositoryFilePath == null ? null : remap(this.repositoryFilePath)
+    await this.runWorktreeOperation('rename-entry', () =>
+      this.api.renameWorktreeEntry(source, destination),
+    )
+    this.repositoryOpenPaths = openPaths.filter((path) => this.repositoryPaths.includes(path))
+    this.repositoryFilePath =
+      selectedPath != null && this.repositoryPaths.includes(selectedPath) ? selectedPath : null
+    this.worktreeRename = {
+      source,
+      destination,
+      version: (this.worktreeRename?.version ?? 0) + 1,
+    }
+    this.emit()
+  }
+
+  private async runWorktreeOperation<T>(label: string, run: () => Promise<T>): Promise<T> {
+    this.busy = true
+    this.activeOp = label
+    this.emit()
+    try {
+      const result = await run()
+      this.mutationError = null
+      return result
+    } catch (error) {
+      this.mutationError = errorMessage(error)
+      throw error
+    } finally {
+      await Promise.allSettled([this.refreshSnapshot(), this.refreshRepositoryFiles()])
+      this.busy = false
+      this.activeOp = null
+      this.emit()
+    }
+  }
+
   async operation(request: MutateRequest): Promise<void> {
     this.busy = true
     this.activeOp = request.op
@@ -653,6 +719,7 @@ export class GitnaRepository {
       this.selection = null
       this.repositoryFilePath = null
       this.repositoryOpenPaths = []
+      this.worktreeRename = null
       this.repositoryPaths = []
       this.graphCommits = []
       this.graphRows = []

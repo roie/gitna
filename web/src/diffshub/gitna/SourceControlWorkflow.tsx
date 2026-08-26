@@ -57,6 +57,7 @@ import { cn } from '../lib/cn'
 import { CODE_VIEW_FILE_TREE_SEARCH_OPEN_HEIGHT } from '../lib/constants'
 import type { DiffsHubFileTreeSource } from '../lib/types'
 import { Confirm, Modal } from './Modal'
+import { RepositoryEntryModal } from './RepositoryEntryModal'
 import { useRepository } from './repository'
 
 interface PendingConfirm {
@@ -67,6 +68,11 @@ interface PendingConfirm {
 }
 
 type OperationDialog = 'compare' | 'integrate' | 'stash' | 'tags' | null
+
+type RepositoryEntryDialog =
+  | { kind: 'file' | 'folder'; initialPath: string }
+  | { kind: 'rename'; initialPath: string; source: string }
+  | null
 
 function message(error: unknown): string {
   return error instanceof Error ? error.message : String(error)
@@ -399,6 +405,7 @@ export function GitnaSourceControl() {
   const [localError, setLocalError] = useState<string | null>(null)
   const [pendingConfirm, setPendingConfirm] = useState<PendingConfirm | null>(null)
   const [operationDialog, setOperationDialog] = useState<OperationDialog>(null)
+  const [repositoryEntryDialog, setRepositoryEntryDialog] = useState<RepositoryEntryDialog>(null)
   const changesHeader = useRef<HTMLButtonElement>(null)
   const graphHeader = useRef<HTMLButtonElement>(null)
   const composer = useRef<HTMLTextAreaElement>(null)
@@ -460,16 +467,8 @@ export function GitnaSourceControl() {
   }, [amend, commitMessage, repository])
 
   const selectRepositoryPath = useCallback(
-    (path: string) => {
-      if (unstaged.some((change) => change.path === path)) {
-        repository.select('unstaged', path)
-      } else if (staged.some((change) => change.path === path)) {
-        repository.select('staged', path)
-      } else {
-        repository.selectRepositoryFile(path)
-      }
-    },
-    [repository, staged, unstaged],
+    (path: string) => repository.selectRepositoryFile(path),
+    [repository],
   )
 
   useEffect(() => {
@@ -668,7 +667,15 @@ export function GitnaSourceControl() {
               view={repositoryView}
               onClearFilters={() => setRepositoryFilters(new Set())}
               onIsolateFilter={(status) => setRepositoryFilters(new Set([status]))}
+              onCreate={(kind, initialPath) => setRepositoryEntryDialog({ kind, initialPath })}
               onRefresh={() => void repository.refreshRepositoryFiles()}
+              onRename={(source) =>
+                setRepositoryEntryDialog({
+                  kind: 'rename',
+                  source: source.replace(/\/$/, ''),
+                  initialPath: source.replace(/\/$/, ''),
+                })
+              }
               onToggleFilter={(status) =>
                 setRepositoryFilters((current) => {
                   const next = new Set(current)
@@ -716,6 +723,19 @@ export function GitnaSourceControl() {
         </p>
       )}
 
+      {repositoryEntryDialog != null && (
+        <RepositoryEntryModal
+          key={`${repositoryEntryDialog.kind}:${repositoryEntryDialog.initialPath}`}
+          kind={repositoryEntryDialog.kind}
+          initialPath={repositoryEntryDialog.initialPath}
+          source={'source' in repositoryEntryDialog ? repositoryEntryDialog.source : undefined}
+          onClose={() => setRepositoryEntryDialog(null)}
+          onError={(error) => setLocalError(error || null)}
+          onCreatedFolder={(path) =>
+            setRepositoryEntryDialog({ kind: 'file', initialPath: `${path.replace(/\/$/, '')}/` })
+          }
+        />
+      )}
       {operationDialog != null && (
         <OperationModal
           kind={operationDialog}
@@ -1242,13 +1262,23 @@ function setRepositoryFoldersExpanded(
   }
 }
 
+function repositoryCreationParent(model: FileTree | null): string {
+  const selected = model?.getSelectedPaths()[0]
+  if (selected == null) return ''
+  if (selected.endsWith('/')) return selected
+  const separator = selected.lastIndexOf('/')
+  return separator < 0 ? '' : selected.slice(0, separator + 1)
+}
+
 function RepositoryHeaderActions({
   availableStatuses,
   loading,
   model,
   onClearFilters,
+  onCreate,
   onIsolateFilter,
   onRefresh,
+  onRename,
   onToggleFilter,
   onViewChange,
   paths,
@@ -1259,8 +1289,10 @@ function RepositoryHeaderActions({
   loading: boolean
   model: FileTree | null
   onClearFilters(): void
+  onCreate(kind: 'file' | 'folder', initialPath: string): void
   onIsolateFilter(status: GitStatus): void
   onRefresh(): void
+  onRename(source: string): void
   onToggleFilter(status: GitStatus): void
   onViewChange(view: RepositoryViewMode): void
   paths: readonly string[]
@@ -1361,6 +1393,22 @@ function RepositoryHeaderActions({
           </Button>
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end">
+          <DropdownMenuItem onSelect={() => onCreate('file', repositoryCreationParent(model))}>
+            New File
+          </DropdownMenuItem>
+          <DropdownMenuItem onSelect={() => onCreate('folder', repositoryCreationParent(model))}>
+            New Folder
+          </DropdownMenuItem>
+          <DropdownMenuItem
+            disabled={model == null}
+            onSelect={() => {
+              const source = model?.getSelectedPaths()[0]
+              if (source != null) onRename(source)
+            }}
+          >
+            Rename
+          </DropdownMenuItem>
+          <DropdownMenuSeparator />
           <DropdownMenuItem selected={view === 'tree'} onSelect={() => onViewChange('tree')}>
             Show as Tree
           </DropdownMenuItem>

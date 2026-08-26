@@ -55,6 +55,10 @@ interface ConfirmProps {
 }
 
 export function Confirm({ confirmLabel, message, onCancel, onConfirm, title }: ConfirmProps) {
+  const portalContainer =
+    typeof document === 'undefined'
+      ? undefined
+      : (document.querySelector('dialog[open]') ?? undefined)
   return (
     <AlertDialog.Root
       open
@@ -62,7 +66,7 @@ export function Confirm({ confirmLabel, message, onCancel, onConfirm, title }: C
         if (!open) onCancel()
       }}
     >
-      <AlertDialog.Portal>
+      <AlertDialog.Portal container={portalContainer}>
         <AlertDialog.Overlay className="fixed inset-0 z-50 bg-black/50" />
         <AlertDialog.Content className="fixed left-1/2 top-1/2 z-50 w-[min(440px,calc(100vw-2rem))] -translate-x-1/2 -translate-y-1/2 rounded-lg border border-border bg-background p-5 text-foreground shadow-lg outline-none">
           <AlertDialog.Title className="text-base font-semibold leading-none">

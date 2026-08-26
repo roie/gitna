@@ -9,15 +9,18 @@ import {
   type CodeViewOptions,
   type DiffIndicators,
   type DiffLineAnnotation,
+  type FileContents,
   type FileDiffContentsLoader,
   type LineAnnotation,
   type SelectedLineRange,
   type ThemeTypes,
 } from '@pierre/diffs';
-import { type CodeViewHandle, useStableCallback } from '@pierre/diffs/react';
+import { Editor, type EditorOptions } from '@pierre/diffs/edit';
+import { EditProvider, type CodeViewHandle, useStableCallback } from '@pierre/diffs/react';
 import { IconChevronSm } from '@pierre/icons';
 import { memo, type RefObject, useMemo, useRef, useState } from 'react';
 
+import { Button } from './Button';
 import { DraftAnnotation } from './DraftAnnotation';
 import { ExampleAnnotation } from './ExampleAnnotation';
 import { ThemedCodeView } from './ThemedCodeView';
@@ -43,6 +46,13 @@ import { splitHunkPatches } from '../../lib/hunk-patches';
 import type { ChangeKind, FileDiff } from '../../lib/types';
 
 export type GitnaFileAction = 'stage' | 'unstage' | 'discard' | 'delete';
+
+export interface GitnaEditorActions {
+  dirtyPaths: ReadonlySet<string>;
+  saving: boolean;
+  onChange(path: string, file: FileContents): void;
+  onSave(path: string): void;
+}
 
 export interface GitnaViewerActions {
   kindForPath(path: string): ChangeKind | undefined;
@@ -98,6 +108,7 @@ interface DiffsHubViewerProps {
   onLineLinkChange(selection: CodeViewLineSelection | null): void;
   onViewerReady(): void;
   gitnaActions?: GitnaViewerActions;
+  gitnaEditorActions?: GitnaEditorActions;
 }
 
 export const DiffsHubViewer = memo(function DiffsHubViewer({
@@ -118,6 +129,7 @@ export const DiffsHubViewer = memo(function DiffsHubViewer({
   onLineLinkChange,
   onViewerReady,
   gitnaActions,
+  gitnaEditorActions,
 }: DiffsHubViewerProps) {
   const nextCommentKeyRef = useRef(0);
   const activeDraftRef = useRef<ActiveDraftComment | null>(null);
@@ -454,9 +466,10 @@ export const DiffsHubViewer = memo(function DiffsHubViewer({
 
   const renderHeaderMetadata = useStableCallback(
     (item: CodeViewItem<CommentMetadata>) => {
-      if (item.type !== 'diff' || gitnaActions == null) {
-        return null;
+      if (item.type === 'file' && gitnaEditorActions != null) {
+        return <WorktreeHeaderActions actions={gitnaEditorActions} path={item.file.name} />;
       }
+      if (item.type !== 'diff' || gitnaActions == null) return null;
       return <GitnaHeaderActions actions={gitnaActions} item={item} />;
     }
   );
@@ -528,8 +541,15 @@ export const DiffsHubViewer = memo(function DiffsHubViewer({
       themeType,
     ]
   );
+  const handleItemEditChange = useStableCallback(
+    (item: CodeViewItem<CommentMetadata>, file: FileContents) => {
+      gitnaEditorActions?.onChange(item.id, file);
+    }
+  );
+
   return (
-    <ThemedCodeView<CommentMetadata>
+    <EditProvider<CommentMetadata> createEditor={createWorktreeEditor}>
+      <ThemedCodeView<CommentMetadata>
       ref={handleViewerRef}
       containerRef={scrollRef}
       initialItems={initialItems}
@@ -538,6 +558,8 @@ export const DiffsHubViewer = memo(function DiffsHubViewer({
         'cv-scrollbar relative h-full min-h-0 min-w-0 flex-1 overflow-y-auto overflow-x-clip overscroll-contain border-b border-border w-full [contain:strict] [overflow-anchor:none] [will-change:scroll-position] md:border-b-0 [&_diffs-container]:overflow-clip [&_diffs-container]:[contain:layout_paint_style] [&_diffs-container]:shadow-[0_-1px_0_var(--diffshub-diff-separator,var(--color-border-opaque)),0_1px_0_var(--diffshub-diff-separator,var(--color-border-opaque))]'
       )}
       options={options}
+      editorOptions={WORKTREE_EDITOR_OPTIONS}
+      onItemEditChange={gitnaEditorActions == null ? undefined : handleItemEditChange}
       style={annotationThemeStyle}
       selectedLines={commentsEnabled ? selectedLines : null}
       onSelectedLinesChange={handleSetSelection}
@@ -545,9 +567,38 @@ export const DiffsHubViewer = memo(function DiffsHubViewer({
       renderBody={renderBody}
       renderHeaderMetadata={renderHeaderMetadata}
       renderHeaderPrefix={renderHeaderPrefix}
-    />
+      />
+    </EditProvider>
   );
 });
+
+const WORKTREE_EDITOR_OPTIONS = { persistState: true } satisfies EditorOptions<CommentMetadata>;
+
+function createWorktreeEditor(options: EditorOptions<CommentMetadata>) {
+  return new Editor<CommentMetadata>(options);
+}
+
+function WorktreeHeaderActions({
+  actions,
+  path,
+}: {
+  actions: GitnaEditorActions;
+  path: string;
+}) {
+  const dirty = actions.dirtyPaths.has(path);
+  return (
+    <Button
+      type="button"
+      variant="ghost"
+      size="sm"
+      disabled={!dirty || actions.saving}
+      title={dirty ? `Save ${path}` : `${path} is saved`}
+      onClick={() => actions.onSave(path)}
+    >
+      {actions.saving && dirty ? 'Saving…' : dirty ? 'Save' : 'Saved'}
+    </Button>
+  );
+}
 
 function inferGitnaKind(
   item: CodeViewDiffItem<CommentMetadata>

@@ -12,10 +12,14 @@ import (
 // Sentinel errors returned by repository operations and classified by the API
 // layer into HTTP status codes.
 var (
-	ErrInvalidPath    = errors.New("invalid repository path")
-	ErrInvalidRef     = errors.New("invalid ref or oid")
-	ErrNotInRepo      = errors.New("path escapes repository")
-	ErrReviewTooLarge = errors.New("review exceeds bounded response limits")
+	ErrInvalidPath          = errors.New("invalid repository path")
+	ErrInvalidRef           = errors.New("invalid ref or oid")
+	ErrNotInRepo            = errors.New("path escapes repository")
+	ErrReviewTooLarge       = errors.New("review exceeds bounded response limits")
+	ErrWorktreeBinary       = errors.New("binary worktree file")
+	ErrWorktreeConflict     = errors.New("worktree file changed")
+	ErrWorktreeEntryExists  = errors.New("worktree entry already exists")
+	ErrWorktreeFileTooLarge = errors.New("worktree file exceeds edit limit")
 )
 
 // ChangeKind enumerates the change types a file can carry.
@@ -58,6 +62,14 @@ type RepositoryFiles struct {
 	Paths      []string `json:"paths"`
 	Truncated  bool     `json:"truncated"`
 	NextCursor string   `json:"nextCursor,omitempty"`
+}
+
+// WorktreeFile is an editable text file read directly from the worktree.
+// Hash is an optimistic-concurrency token supplied again when saving.
+type WorktreeFile struct {
+	Path    string `json:"path"`
+	Content string `json:"content"`
+	Hash    string `json:"hash"`
 }
 
 type RepoSnapshot struct {
