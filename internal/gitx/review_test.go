@@ -66,6 +66,7 @@ func TestReviewUntrackedBinaryAndTooLarge(t *testing.T) {
 	repo := Repository{Root: root, GitDir: filepath.Join(root, ".git")}
 	runner := &ExecRunner{}
 	writeFile(t, filepath.Join(root, "binary.dat"), "a\x00b")
+	writeFile(t, filepath.Join(root, "image.png"), "\x89PNG\r\n\x1a\nimage")
 	writeFile(t, filepath.Join(root, "large.txt"), strings.Repeat("x", DefaultDiffBytes+1))
 
 	review, err := repo.Review(context.Background(), runner, protocol.DiffUnstaged, protocol.DiffOptions{})
@@ -78,6 +79,10 @@ func TestReviewUntrackedBinaryAndTooLarge(t *testing.T) {
 	}
 	if !byPath["binary.dat"].Diff.Binary || byPath["binary.dat"].Diff.After.Content != "" {
 		t.Fatalf("binary supplement = %+v", byPath["binary.dat"])
+	}
+	image := byPath["image.png"].Diff
+	if !image.Binary || image.After.Image == nil || image.After.Image.MIME != "image/png" {
+		t.Fatalf("image supplement = %+v", byPath["image.png"])
 	}
 	if !byPath["large.txt"].Diff.TooLarge || byPath["large.txt"].Diff.After.Content != "" {
 		t.Fatalf("large supplement = %+v", byPath["large.txt"])

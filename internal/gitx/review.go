@@ -60,7 +60,7 @@ func (r Repository) Review(ctx context.Context, runner Runner, scope protocol.Di
 		if err := ctx.Err(); err != nil {
 			return protocol.ReviewResponse{}, err
 		}
-		content, tooLarge, present, err := r.readWorktree(change.Path, DefaultDiffBytes)
+		content, tooLarge, present, err := r.readWorktree(change.Path, MaxImageBytes)
 		if err != nil {
 			return protocol.ReviewResponse{}, err
 		}
@@ -73,9 +73,16 @@ func (r Repository) Review(ctx context.Context, runner Runner, scope protocol.Di
 			TooLarge: tooLarge,
 		}
 		if !tooLarge {
-			diff.Binary = isBinary(content)
-			if !diff.Binary {
-				diff.After.Content = string(content)
+			if image := rasterImageContent(content); image != nil {
+				diff.Binary = true
+				diff.After.Image = image
+			} else if len(content) > DefaultDiffBytes {
+				diff.TooLarge = true
+			} else {
+				diff.Binary = isBinary(content)
+				if !diff.Binary {
+					diff.After.Content = string(content)
+				}
 			}
 		}
 		review.Supplements = append(review.Supplements, protocol.ReviewSupplement{

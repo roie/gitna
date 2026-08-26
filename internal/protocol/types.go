@@ -137,15 +137,25 @@ type ReviewResponse struct {
 	Supplements []ReviewSupplement `json:"supplements"`
 }
 
+// ImageContent is a bounded raster image embedded in a single-file diff. Data
+// is standard base64 without a data-URL prefix.
+type ImageContent struct {
+	MIME string `json:"mime"`
+	Data string `json:"data"`
+	Size int    `json:"size"`
+}
+
 // FileVersion is one side of a single-file diff.
 type FileVersion struct {
-	Path     string `json:"path"`
-	Language string `json:"language,omitempty"`
-	Content  string `json:"content"`
+	Path     string        `json:"path"`
+	Language string        `json:"language,omitempty"`
+	Content  string        `json:"content"`
+	Image    *ImageContent `json:"image,omitempty"`
 }
 
 // FileDiff is the normalized before/after pair for one changed file. Binary and
-// oversized files carry empty content; Binary/TooLarge explain why. Patch is
+// oversized files carry empty text content; supported raster images instead
+// carry bounded image data. Binary/TooLarge explain why. Patch is
 // the exact unified diff Git shows for this file in its scope, used to apply
 // whole-hunk stages back through git apply; it is empty when unavailable.
 type FileDiff struct {

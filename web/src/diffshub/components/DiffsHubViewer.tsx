@@ -22,6 +22,7 @@ import { DraftAnnotation } from './DraftAnnotation';
 import { ExampleAnnotation } from './ExampleAnnotation';
 import { ThemedCodeView } from './ThemedCodeView';
 import { useChromeThemeProps } from './useChromeThemeProps';
+import { ImageAnnotation } from '../gitna/ImageAnnotation';
 import type { AvatarName } from '@/lib/annotation';
 import { buildAnnotationThemeStyle } from '@/lib/annotationThemeStyle';
 import { classifyCommentLineType } from '@/lib/classifyCommentLineType';
@@ -131,7 +132,6 @@ export const DiffsHubViewer = memo(function DiffsHubViewer({
     () => buildAnnotationThemeStyle(themeChromeStyle),
     [themeChromeStyle]
   );
-
   const handleSetSelection = useStableCallback(
     (selection: CodeViewLineSelection | null) => {
       setSelectedLines(selection);
@@ -394,7 +394,7 @@ export const DiffsHubViewer = memo(function DiffsHubViewer({
         | LineAnnotation<CommentMetadata>,
       item: CodeViewItem<CommentMetadata>
     ) => {
-      if (!('side' in annotation) || item.type !== 'diff') {
+      if (annotation.metadata.kind === 'image' || !commentsEnabled || !('side' in annotation) || item.type !== 'diff') {
         return null;
       }
 
@@ -424,6 +424,34 @@ export const DiffsHubViewer = memo(function DiffsHubViewer({
     }
   );
 
+  const renderBody = useStableCallback((item: CodeViewItem<CommentMetadata>) => {
+    const images = item.annotations?.flatMap((annotation) =>
+      annotation.metadata.kind === 'image'
+        ? [{ metadata: annotation.metadata, side: 'side' in annotation ? annotation.side : undefined }]
+        : []
+    );
+    if (images == null || images.length === 0) {
+      return null;
+    }
+    const split = images.length > 1;
+    const framed = item.type === 'diff';
+    return (
+      <div className={split ? 'grid grid-cols-2' : undefined}>
+        {images.map(({ metadata, side }) => (
+          <div
+            key={metadata.key}
+            className={cn(
+              split && side === 'deletions' && 'border-r border-[var(--diffs-bg-separator)]',
+              split && side === 'additions' && 'border-l border-[var(--diffs-bg-separator)]'
+            )}
+          >
+            <ImageAnnotation fill={framed} metadata={metadata} />
+          </div>
+        ))}
+      </div>
+    );
+  });
+
   const renderHeaderMetadata = useStableCallback(
     (item: CodeViewItem<CommentMetadata>) => {
       if (item.type !== 'diff' || gitnaActions == null) {
@@ -442,6 +470,7 @@ export const DiffsHubViewer = memo(function DiffsHubViewer({
       return (
         <CollapseDiffButton
           disabled={
+            !item.annotations?.some((annotation) => annotation.metadata.kind === 'image') &&
             item.fileDiff.splitLineCount === 0 &&
             item.fileDiff.unifiedLineCount === 0
           }
@@ -512,7 +541,8 @@ export const DiffsHubViewer = memo(function DiffsHubViewer({
       style={annotationThemeStyle}
       selectedLines={commentsEnabled ? selectedLines : null}
       onSelectedLinesChange={handleSetSelection}
-      renderAnnotation={commentsEnabled ? renderCommentAnnotation : undefined}
+      renderAnnotation={renderCommentAnnotation}
+      renderBody={renderBody}
       renderHeaderMetadata={renderHeaderMetadata}
       renderHeaderPrefix={renderHeaderPrefix}
     />

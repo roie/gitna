@@ -59,10 +59,17 @@ export interface FileChange {
   conflicted: boolean
 }
 
+export interface ImageContent {
+  mime: 'image/gif' | 'image/jpeg' | 'image/png' | 'image/webp'
+  data: string
+  size: number
+}
+
 export interface FileVersion {
   path: string
   language?: string
   content: string
+  image?: ImageContent
 }
 
 export interface FileDiff {

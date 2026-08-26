@@ -157,6 +157,57 @@ func TestDiffBinaryStaged(t *testing.T) {
 	}
 }
 
+func TestDiffUnstagedRasterImage(t *testing.T) {
+	root := initTestRepo(t)
+	before := "\x89PNG\r\n\x1a\nold"
+	after := "\x89PNG\r\n\x1a\nnew-image"
+	writeFile(t, filepath.Join(root, "image.png"), before)
+	runGit(t, root, "add", "image.png")
+	runGit(t, root, "commit", "-qm", "add image")
+	writeFile(t, filepath.Join(root, "image.png"), after)
+	repo := Repository{Root: root, GitDir: filepath.Join(root, ".git")}
+
+	d, err := repo.Diff(context.Background(), &ExecRunner{}, protocol.DiffUnstaged, protocol.DiffOptions{Path: "image.png"})
+	if err != nil {
+		t.Fatalf("Diff: %v", err)
+	}
+	if !d.Binary || d.TooLarge {
+		t.Fatalf("image flags binary=%v tooLarge=%v", d.Binary, d.TooLarge)
+	}
+	if d.Before.Image == nil || d.After.Image == nil {
+		t.Fatalf("image payloads = before %#v after %#v", d.Before.Image, d.After.Image)
+	}
+	if d.Before.Image.MIME != "image/png" || d.After.Image.MIME != "image/png" {
+		t.Fatalf("image MIME types = %q / %q", d.Before.Image.MIME, d.After.Image.MIME)
+	}
+	if d.Before.Image.Size != len(before) || d.After.Image.Size != len(after) {
+		t.Fatalf("image sizes = %d / %d", d.Before.Image.Size, d.After.Image.Size)
+	}
+	if d.Before.Image.Data == "" || d.After.Image.Data == "" {
+		t.Fatal("image data should be populated")
+	}
+	if d.Before.Content != "" || d.After.Content != "" {
+		t.Fatalf("image text content = %q / %q", d.Before.Content, d.After.Content)
+	}
+}
+
+func TestDiffRasterImageUsesLargerBoundedLimit(t *testing.T) {
+	repo, runner := diffRepo(t)
+	image := "\x89PNG\r\n\x1a\n" + strings.Repeat("x", DefaultDiffBytes)
+	writeFile(t, filepath.Join(repo.Root, "large.png"), image)
+
+	d, err := repo.Diff(context.Background(), runner, protocol.DiffUnstaged, protocol.DiffOptions{Path: "large.png"})
+	if err != nil {
+		t.Fatalf("Diff: %v", err)
+	}
+	if d.TooLarge || d.After.Image == nil {
+		t.Fatalf("large image = tooLarge %v payload %#v", d.TooLarge, d.After.Image)
+	}
+	if d.After.Image.Size != len(image) {
+		t.Fatalf("image size = %d, want %d", d.After.Image.Size, len(image))
+	}
+}
+
 func TestDiffOversizedUntracked(t *testing.T) {
 	repo, runner := diffRepo(t)
 	writeFile(t, filepath.Join(repo.Root, "big.txt"), strings.Repeat("x", DefaultDiffBytes+1))

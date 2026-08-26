@@ -1,4 +1,10 @@
-import { parseDiffFromFile, parsePatchFiles, type FileContents } from '@pierre/diffs'
+import {
+  parseDiffFromFile,
+  parsePatchFiles,
+  type DiffLineAnnotation,
+  type FileContents,
+  type LineAnnotation,
+} from '@pierre/diffs'
 
 import {
   appendFileDiffToDiffsHubData,
@@ -6,7 +12,31 @@ import {
   snapshotDiffsHubData,
   type LoadedDiffsHubData,
 } from '../lib/diffsHubDataAccumulator'
-import type { FileDiff, ReviewResponse } from '../../lib/types'
+import type { CommentMetadata, ImageAnnotationMetadata } from '../lib/types'
+import type { FileDiff, FileVersion, ReviewResponse } from '../../lib/types'
+
+function imageMetadata(version: FileVersion, alt: string): ImageAnnotationMetadata | null {
+  return version.image == null
+    ? null
+    : { kind: 'image', key: `image:${version.path}:${alt}`, alt, image: version.image }
+}
+
+function fileImageAnnotations(diff: FileDiff, path: string): LineAnnotation<CommentMetadata>[] {
+  const metadata = imageMetadata(diff.after.image == null ? diff.before : diff.after, path)
+  return metadata == null ? [] : [{ lineNumber: 0, metadata }]
+}
+
+export function diffImageAnnotations(
+  diff: FileDiff,
+  path: string,
+): DiffLineAnnotation<CommentMetadata>[] {
+  const annotations: DiffLineAnnotation<CommentMetadata>[] = []
+  const before = imageMetadata(diff.before, `Previous image for ${path}`)
+  const after = imageMetadata(diff.after, `Image preview for ${path}`)
+  if (before != null) annotations.push({ lineNumber: 0, side: 'deletions', metadata: before })
+  if (after != null) annotations.push({ lineNumber: 0, side: 'additions', metadata: after })
+  return annotations
+}
 
 function reviewIdentityKey(review: ReviewResponse): string {
   const { identity } = review
@@ -27,7 +57,15 @@ export function adaptGitnaFile(diff: FileDiff, generation: number): LoadedDiffsH
   return {
     diffStats: { addedLines: 0, deletedLines: 0, fileCount: 1, totalLinesOfCode: lineCount },
     itemIdToFile: new Map([[path, { fileOrder: 0, path }]]),
-    items: [{ id: path, type: 'file', file, version: generation }],
+    items: [
+      {
+        id: path,
+        type: 'file',
+        file,
+        annotations: fileImageAnnotations(diff, path),
+        version: generation,
+      },
+    ],
     treeSource: {
       gitStatus: [],
       pathCount: 1,
@@ -77,6 +115,9 @@ export function adaptGitnaReview(review: ReviewResponse): LoadedDiffsHubData {
           }
     const fileDiff = parseDiffFromFile(before, after, undefined, true)
     appendFileDiffToDiffsHubData(accumulator, fileDiff, undefined)
+    const item = accumulator.items.at(-1)
+    const annotations = diffImageAnnotations(supplement.diff, supplement.path)
+    if (item?.type === 'diff' && annotations.length > 0) item.annotations = annotations
   }
 
   return snapshotDiffsHubData(accumulator)

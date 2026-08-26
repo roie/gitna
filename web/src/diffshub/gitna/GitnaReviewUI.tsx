@@ -2,7 +2,7 @@ import type { CodeViewLineSelection, DiffIndicators } from '@pierre/diffs'
 import { type CodeViewHandle, useWorkerPool } from '@pierre/diffs/react'
 import type { ColorMode } from '@pierre/theming'
 import { useThemeController } from '@pierre/theming/react'
-import { type ReactNode, useCallback, useEffect, useRef, useState } from 'react'
+import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
 import { DiffsHubHeader } from '../components/DiffsHubHeader'
 import { DiffsHubSidebar } from '../components/DiffsHubSidebar'
@@ -15,19 +15,31 @@ import {
 import { ThemeSourceProvider } from '../components/ThemeSourceProvider'
 import { docsThemeCatalog, themeController } from '../components/themeController'
 import type { CommentMetadata, ViewerLoadState } from '../lib/types'
-import type { ReviewRequest } from '../../lib/api'
+import type { DiffRequest, ReviewRequest } from '../../lib/api'
+import type { FileDiff } from '../../lib/types'
 import type { DarkThemeName, LightThemeName } from '../lib/themeNames'
 import type { LoadedDiffsHubData } from '../lib/diffsHubDataAccumulator'
 import { GitnaSourceControl } from './SourceControlWorkflow'
 import { Confirm } from './Modal'
-import { adaptGitnaFile, adaptGitnaReview } from './reviewAdapter'
+import { adaptGitnaFile, adaptGitnaReview, diffImageAnnotations } from './reviewAdapter'
 import { useRepository } from './repository'
 
 interface ReviewTarget {
   filePath?: string
   key: string
+  oldPath?: string
   request?: ReviewRequest
   selectedPath?: string
+}
+
+const rasterImagePattern = /\.(?:gif|jpe?g|png|webp)$/i
+
+function imageDiffRequest(target: ReviewTarget | null): DiffRequest | null {
+  const path = target?.selectedPath ?? target?.filePath
+  if (path == null || !rasterImagePattern.test(path)) return null
+  if (target?.filePath != null) return { scope: 'unstaged', path }
+  if (target?.request == null) return null
+  return { ...target.request, path, oldPath: target.oldPath }
 }
 
 function useReviewTarget(): ReviewTarget | null {
@@ -41,6 +53,7 @@ function useReviewTarget(): ReviewTarget | null {
         to: repository.compare.to,
       },
       selectedPath: repository.compareDiff?.path,
+      oldPath: repository.compareDiff?.oldPath,
     }
   }
   if (repository.commitDiff != null) {
@@ -48,6 +61,7 @@ function useReviewTarget(): ReviewTarget | null {
       key: `commit:${repository.commitDiff.oid}`,
       request: { scope: 'commit', commit: repository.commitDiff.oid },
       selectedPath: repository.commitDiff.path,
+      oldPath: repository.commitDiff.oldPath,
     }
   }
   if (repository.selection != null) {
@@ -55,6 +69,7 @@ function useReviewTarget(): ReviewTarget | null {
       key: repository.selection.scope,
       request: { scope: repository.selection.scope },
       selectedPath: repository.selection.change.path,
+      oldPath: repository.selection.change.oldPath,
     }
   }
   if (repository.repositoryFilePath != null) {
@@ -93,6 +108,7 @@ function GitnaReviewUIInner() {
   const [loadState, setLoadState] = useState<ViewerLoadState>('fetching')
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
   const [reviewData, setReviewData] = useState<LoadedDiffsHubData | null>(null)
+  const [imageDiff, setImageDiff] = useState<FileDiff | null>(null)
   const [reviewAttempt, setReviewAttempt] = useState(0)
   const [reviewKey, setReviewKey] = useState(0)
   const [reviewActionError, setReviewActionError] = useState<string | null>(null)
@@ -190,6 +206,26 @@ function GitnaReviewUIInner() {
     }
   }, [repository.api, repository.generation, reviewAttempt, target?.key])
 
+  const selectedImageRequest = useMemo(
+    () => imageDiffRequest(target),
+    [target?.filePath, target?.key, target?.oldPath, target?.selectedPath],
+  )
+
+  useEffect(() => {
+    setImageDiff(null)
+    if (selectedImageRequest == null) return
+    let active = true
+    repository.api
+      .diff(selectedImageRequest)
+      .then((diff) => {
+        if (active && (diff.before.image != null || diff.after.image != null)) setImageDiff(diff)
+      })
+      .catch(() => undefined)
+    return () => {
+      active = false
+    }
+  }, [repository.api, repository.generation, selectedImageRequest])
+
   const colorMode: ColorMode = themesHydrated ? themeState.mode : 'system'
   const lightThemeName = themesHydrated
     ? themeState.lightThemeName
@@ -249,6 +285,21 @@ function GitnaReviewUIInner() {
 
   const viewerAvailable =
     workerReady && themesHydrated && loadState === 'ready' && reviewData != null
+
+  useEffect(() => {
+    if (!viewerAvailable || imageDiff == null || selectedImageRequest == null) return
+    const viewer = viewerRef.current
+    const itemId = reviewData.treeSource.pathToItemId.get(selectedImageRequest.path)
+    const item = itemId == null ? null : viewer?.getItem(itemId)
+    if (viewer == null || item?.type !== 'diff') return
+    item.annotations = [
+      ...(item.annotations ?? []).filter((annotation) => annotation.metadata.kind !== 'image'),
+      ...diffImageAnnotations(imageDiff, selectedImageRequest.path),
+    ]
+    item.version = typeof item.version === 'number' ? item.version + 1 : 1
+    viewer.updateItem(item)
+    handleViewerReady()
+  }, [handleViewerReady, imageDiff, reviewData, selectedImageRequest, viewerAvailable])
 
   const workingScope =
     target?.request?.scope === 'staged' || target?.request?.scope === 'unstaged'

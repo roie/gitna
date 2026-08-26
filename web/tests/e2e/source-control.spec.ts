@@ -198,6 +198,137 @@ test('real binary renders repository source-control state', async ({ page, app }
   }
 })
 
+test('raster images replace the code body', async ({ page, app }) => {
+  const imagePath = join(app.repo, 'preview.png')
+  const before = Buffer.from(
+    'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=',
+    'base64',
+  )
+  writeFileSync(imagePath, before)
+  runGit(app.repo, 'add', 'preview.png')
+  runGit(app.repo, 'commit', '-qm', 'add preview image')
+  writeFileSync(imagePath, Buffer.concat([before, Buffer.from('changed')]))
+  writeFileSync(join(app.repo, 'untracked-preview.png'), before)
+
+  await page.goto(app.url)
+  await expect(
+    page.getByRole('img', { name: 'Image preview for untracked-preview.png' }),
+  ).toBeVisible()
+  await expect
+    .poll(() =>
+      page.locator('.cv-scrollbar').evaluate((viewer) => viewer.scrollHeight - viewer.clientHeight),
+    )
+    .toBeGreaterThan(0)
+  await page
+    .locator('#gitna-unstaged-tree__tree')
+    .getByRole('treeitem', { name: 'preview.png', exact: true })
+    .click()
+
+  const previous = page.getByRole('img', { name: 'Previous image for preview.png' })
+  const current = page.getByRole('img', { name: 'Image preview for preview.png' })
+  await expect(previous).toBeVisible()
+  await expect(current).toBeVisible()
+  await expect(previous).toHaveCSS('object-fit', 'contain')
+  await expect(current).toHaveCSS('object-fit', 'contain')
+  const previousFrameLocator = previous.locator('../..')
+  const currentFrameLocator = current.locator('../..')
+  const previousPane = previous.locator('../../..')
+  const currentPane = current.locator('../../..')
+  await expect(previousPane).toHaveCSS('border-right-width', '1px')
+  await expect(currentPane).toHaveCSS('border-left-width', '1px')
+  await expect(previousFrameLocator).toHaveCSS('padding', '24px')
+  await expect(currentFrameLocator).toHaveCSS('padding', '24px')
+  const [previousBox, currentBox, previousFrame, currentFrame] = await Promise.all([
+    previous.boundingBox(),
+    current.boundingBox(),
+    previousFrameLocator.boundingBox(),
+    currentFrameLocator.boundingBox(),
+  ])
+  expect(previousBox).not.toBeNull()
+  expect(currentBox).not.toBeNull()
+  expect(previousFrame).not.toBeNull()
+  expect(currentFrame).not.toBeNull()
+  expect(previousBox!.width).toBeCloseTo(currentBox!.width, 0)
+  expect(previousBox!.height).toBeCloseTo(currentBox!.height, 0)
+  expect(previousFrame!.width).toBeCloseTo(currentFrame!.width, 0)
+  expect(previousFrame!.height).toBeCloseTo(currentFrame!.height, 0)
+  expect(previousBox!.x - previousFrame!.x).toBeGreaterThanOrEqual(23)
+  expect(previousBox!.y - previousFrame!.y).toBeGreaterThanOrEqual(23)
+  expect(
+    previousFrame!.x + previousFrame!.width - previousBox!.x - previousBox!.width,
+  ).toBeGreaterThanOrEqual(23)
+  expect(
+    previousFrame!.y + previousFrame!.height - previousBox!.y - previousBox!.height,
+  ).toBeGreaterThanOrEqual(23)
+  expect(previousFrame!.height).toBeGreaterThan((page.viewportSize()?.height ?? 0) * 0.8)
+  await expect(page.getByText(/^(Before|After)$/)).toHaveCount(0)
+
+  await page
+    .getByRole('button', { name: 'Open Image preview for preview.png in image viewer' })
+    .click()
+  const imageViewer = page.getByRole('dialog', {
+    name: 'Image viewer: Image preview for preview.png',
+  })
+  await expect(imageViewer).toBeVisible()
+  await expect(imageViewer).toHaveText('')
+  await expect(
+    imageViewer.getByRole('img', { name: 'Image preview for preview.png' }),
+  ).toBeVisible()
+  await expect(imageViewer).toHaveClass(/bg-black\/85/)
+  await page.keyboard.press('Escape')
+  await expect(imageViewer).not.toBeVisible()
+
+  const imageHeader = page
+    .getByRole('button', { name: 'Stage file preview.png' })
+    .locator('xpath=ancestor::diffs-container')
+  await imageHeader.getByRole('button', { name: 'Collapse diff' }).click()
+  await expect(previous).not.toBeVisible()
+  await expect(current).not.toBeVisible()
+  await imageHeader.getByRole('button', { name: 'Expand diff' }).click()
+  await expect(current).toBeVisible()
+
+  await page
+    .locator('#gitna-repository-tree__tree')
+    .getByRole('treeitem', { name: 'preview.png', exact: true })
+    .click()
+  await expect(current).toBeVisible()
+  const imageContainer = current.locator('xpath=ancestor::diffs-container')
+  await expect(imageContainer.locator('[data-line-number-content]')).toHaveCount(0)
+  await expect(imageContainer.locator('pre:visible')).toHaveCount(0)
+  const [imageBackground, textBackground] = await Promise.all([
+    imageContainer.evaluate(
+      (host) =>
+        getComputedStyle(host.shadowRoot!.querySelector<HTMLElement>('[data-custom-body]')!)
+          .backgroundColor,
+    ),
+    page
+      .getByRole('button', { name: 'Stage file modified.txt' })
+      .locator('xpath=ancestor::diffs-container')
+      .evaluate(
+        (host) =>
+          getComputedStyle(host.shadowRoot!.querySelector<HTMLElement>('pre')!).backgroundColor,
+      ),
+  ])
+  expect(imageBackground).toBe(textBackground)
+
+  await page.getByRole('button', { name: /^add preview image/ }).click()
+  await page
+    .locator('[id^="gitna-graph-"][id$="__tree"]')
+    .getByRole('treeitem', { name: 'preview.png', exact: true })
+    .click()
+  await expect(current).toBeVisible()
+
+  await page.reload()
+  await page
+    .locator('#gitna-repository-tree__tree')
+    .getByRole('treeitem', { name: 'preview.png', exact: true })
+    .click()
+  await expect(current).toBeVisible()
+  await expect(
+    current.locator('xpath=ancestor::diffs-container').locator('pre:visible'),
+  ).toHaveCount(0)
+})
+
 test('repository path switches the live session and remains fully editable', async ({
   page,
   app,

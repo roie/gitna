@@ -1,6 +1,8 @@
 import type { AnnotationSide, SelectedLineRange } from '@pierre/diffs';
 import type { FileTreeGitStatusPatch, GitStatusEntry } from '@pierre/trees';
 
+import type { ImageContent } from '../../lib/types';
+
 export type ViewerLoadState =
   | 'fetching'
   | 'streaming'
@@ -23,7 +25,17 @@ export interface DraftCommentMetadata {
   range: SelectedLineRange;
 }
 
-export type CommentMetadata = SavedCommentMetadata | DraftCommentMetadata;
+export interface ImageAnnotationMetadata {
+  kind: 'image';
+  key: string;
+  alt: string;
+  image: ImageContent;
+}
+
+export type CommentMetadata =
+  | SavedCommentMetadata
+  | DraftCommentMetadata
+  | ImageAnnotationMetadata;
 
 export interface DiffsHubCommentSidebarFile {
   fileOrder: number;

@@ -3,8 +3,10 @@ package gitx
 import (
 	"bytes"
 	"context"
+	"encoding/base64"
 	"fmt"
 	"io"
+	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
@@ -15,6 +17,10 @@ import (
 // DefaultDiffBytes caps the content of a single diff side. Anything larger is
 // reported as too large instead of being shipped to the browser.
 const DefaultDiffBytes = 512 << 10
+
+// MaxImageBytes allows practical raster previews without applying the larger
+// allowance to text diffs or arbitrary binary files.
+const MaxImageBytes = 4 << 20
 
 // maxPatchOutputBytes bounds the unified diff patch shipped for hunk
 // operations. A patch is roughly the change plus context, so this stays a
@@ -55,7 +61,7 @@ func (r Repository) Diff(ctx context.Context, runner Runner, scope protocol.Diff
 		if err != nil {
 			return protocol.FileDiff{}, err
 		}
-		afterRaw, tooLarge, afterPresent, err = r.readWorktree(opts.Path, DefaultDiffBytes)
+		afterRaw, tooLarge, afterPresent, err = r.readWorktree(opts.Path, MaxImageBytes)
 		if err != nil {
 			return protocol.FileDiff{}, err
 		}
@@ -112,10 +118,38 @@ func (r Repository) Diff(ctx context.Context, runner Runner, scope protocol.Diff
 		return protocol.FileDiff{}, fmt.Errorf("gitx: unknown diff scope %q", scope)
 	}
 
+	if len(beforeRaw) > MaxImageBytes {
+		beforeRaw = nil
+		tooLarge = true
+	}
+	if len(afterRaw) > MaxImageBytes {
+		afterRaw = nil
+		tooLarge = true
+	}
+
 	fd := protocol.FileDiff{
 		Before:   protocol.FileVersion{Path: fromPath, Language: languageFor(fromPath)},
 		After:    protocol.FileVersion{Path: opts.Path, Language: languageFor(opts.Path)},
 		TooLarge: tooLarge,
+	}
+	if !tooLarge {
+		beforeImage := rasterImageContent(beforeRaw)
+		afterImage := rasterImageContent(afterRaw)
+		allPresentSidesAreImages := (!beforePresent || beforeImage != nil) && (!afterPresent || afterImage != nil)
+		if allPresentSidesAreImages && (beforeImage != nil || afterImage != nil) {
+			fd.Binary = true
+			fd.Before.Image = beforeImage
+			fd.After.Image = afterImage
+			return fd, nil
+		}
+	}
+	if len(beforeRaw) > DefaultDiffBytes {
+		beforeRaw = nil
+		fd.TooLarge = true
+	}
+	if len(afterRaw) > DefaultDiffBytes {
+		afterRaw = nil
+		fd.TooLarge = true
 	}
 	if isBinary(beforeRaw) || isBinary(afterRaw) {
 		fd.Binary = true
@@ -270,6 +304,23 @@ func validateRef(s string) error {
 		}
 	}
 	return nil
+}
+
+func rasterImageContent(data []byte) *protocol.ImageContent {
+	if len(data) == 0 {
+		return nil
+	}
+	mimeType := http.DetectContentType(data)
+	switch mimeType {
+	case "image/gif", "image/jpeg", "image/png", "image/webp":
+		return &protocol.ImageContent{
+			MIME: mimeType,
+			Data: base64.StdEncoding.EncodeToString(data),
+			Size: len(data),
+		}
+	default:
+		return nil
+	}
 }
 
 func isBinary(data []byte) bool {
