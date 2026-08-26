@@ -134,6 +134,10 @@ test('clean repository renders a truthful empty review state', async ({ page, ap
     timeout: 30_000,
   })
   await expect(page.getByPlaceholder('Commit message')).toBeVisible()
+  await expect(page.locator('[data-section="workflow"] .section-count')).toHaveCount(0)
+  await expect(
+    page.getByRole('region', { name: 'Source Control workflow' }).getByText('Working tree clean'),
+  ).toHaveCount(0)
   await expect(page.locator('[data-section="changes"]')).toHaveCount(0)
   await expect(page.locator('diffs-container')).toHaveCount(0)
 })

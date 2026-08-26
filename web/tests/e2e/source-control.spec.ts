@@ -216,9 +216,10 @@ test('sync status exposes outgoing review', async ({ page, app }) => {
 
   await page.goto(app.url)
   await expect(page.locator('[data-section="workflow"] .section-title')).toHaveText('main')
-  await expect(page.getByRole('button', { name: '1 outgoing commit · origin/main' })).toHaveText(
-    '↑1',
-  )
+  const syncStatus = page.getByRole('button', { name: '1 outgoing commit · origin/main' })
+  await expect(syncStatus).toHaveText('↑1')
+  await syncStatus.hover()
+  await expect(page.getByRole('tooltip')).toHaveText('1 outgoing commit · origin/main')
 
   await page.getByRole('button', { name: 'More actions' }).click()
   await page.getByRole('menuitem', { name: 'Review outgoing (1)' }).click()
@@ -384,9 +385,11 @@ test('repository path switches the live session and remains fully editable', asy
   await expect(pathInput).toHaveValue(nextRepo)
   await expect(switchRepository).not.toBeVisible()
   await expect(page.locator('[data-section="workflow"]')).toContainText('trunk')
+  await expect(page.locator('[data-section="workflow"] .section-count')).toHaveCount(0)
   await expect(
     page.getByRole('region', { name: 'Source Control workflow' }).getByText('Working tree clean'),
-  ).toBeVisible()
+  ).toHaveCount(0)
+  await expect(page.getByRole('status')).toContainText('Working tree clean')
   await expect(page.locator('[data-section="repository"]')).toContainText(
     'next-repository-with-a-long-location-name',
   )

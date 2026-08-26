@@ -492,7 +492,7 @@ export function GitnaSourceControl() {
             }
             dataSection="workflow"
             icon={IconSymbolDiffstatFill}
-            count={changedPathCount}
+            count={changedPathCount > 0 ? changedPathCount : null}
             open={workflowOpen}
             title={headTitle}
             onOpenChange={setWorkflowOpen}
@@ -579,11 +579,6 @@ export function GitnaSourceControl() {
                   title="Changes"
                   onOpenChange={setChangesOpen}
                 />
-              )}
-              {changedPathCount === 0 && repository.conflicts.length === 0 && (
-                <StatusRow icon={IconSymbolDiffstatFill}>
-                  <span className="text-xs">Working tree clean</span>
-                </StatusRow>
               )}
             </div>
           )}
@@ -861,15 +856,19 @@ function SourceControlHeaderActions({
           {localBranches.map((branch) =>
             branch.current ? (
               <DropdownMenuItem key={branch.name} disabled>
-                <span className="w-4">●</span>
-                <span className="min-w-0 flex-1 truncate">{branch.name}</span>
-                {branch.upstream != null && (
-                  <span className="text-[10px] text-muted-foreground">
-                    {branch.upstream}
-                    {branch.ahead > 0 ? ` ↑${branch.ahead}` : ''}
-                    {branch.behind > 0 ? ` ↓${branch.behind}` : ''}
-                  </span>
-                )}
+                <span className="w-4" />
+                <span className="min-w-0 flex-1 truncate font-medium">{branch.name}</span>
+                <span className="text-[10px] text-muted-foreground">
+                  Current
+                  {branch.upstream != null && (
+                    <>
+                      {' · '}
+                      {branch.upstream}
+                      {branch.ahead > 0 ? ` ↑${branch.ahead}` : ''}
+                      {branch.behind > 0 ? ` ↓${branch.behind}` : ''}
+                    </>
+                  )}
+                </span>
               </DropdownMenuItem>
             ) : (
               <DropdownMenuSub key={branch.name}>
@@ -956,16 +955,22 @@ function SourceControlHeaderActions({
         </Button>
       )}
       {syncLabel != null && (
-        <Button
-          variant="ghost"
-          size="xs"
-          disabled={repository.busy}
-          aria-label={syncDescription}
-          title={syncDescription}
-          onClick={() => setMoreOpen(true)}
-        >
-          {syncLabel}
-        </Button>
+        <TooltipProvider delayDuration={400} skipDelayDuration={150}>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                variant="ghost"
+                size="xs"
+                disabled={repository.busy}
+                aria-label={syncDescription}
+                onClick={() => setMoreOpen(true)}
+              >
+                {syncLabel}
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>{syncDescription}</TooltipContent>
+          </Tooltip>
+        </TooltipProvider>
       )}
       <DropdownMenu
         open={moreOpen}
