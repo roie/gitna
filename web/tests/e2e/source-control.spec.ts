@@ -723,14 +723,16 @@ test('repository files can be edited, created in folders, and renamed', async ({
   await page.keyboard.press('Control+End')
   await page.keyboard.type(' while saving')
   releaseSave()
-  expect((await firstSaveResponse).status()).toBe(200)
+  const firstResponse = await firstSaveResponse
+  expect(firstResponse.status(), await firstResponse.text()).toBe(200)
   await expect(save).toBeEnabled()
   const secondSaveResponse = page.waitForResponse(
     (response) =>
       response.request().method() === 'PUT' && response.url().endsWith('/api/v1/worktree/file'),
   )
   await save.click()
-  expect((await secondSaveResponse).status()).toBe(200)
+  const secondResponse = await secondSaveResponse
+  expect(secondResponse.status(), await secondResponse.text()).toBe(200)
   await expect
     .poll(() => readFileSync(join(app.repo, 'main.txt'), 'utf8'))
     .toContain('edited in Gitna while saving')
