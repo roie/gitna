@@ -14,6 +14,7 @@ function deferred<T>() {
 
 function snapshot(root: string, generation: number): RepoSnapshot {
   return {
+    appVersion: 'dev',
     root,
     ahead: 0,
     behind: 0,

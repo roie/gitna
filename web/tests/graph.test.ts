@@ -1,7 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import { computeGraph } from '../src/lib/graph-lanes'
-import type { GraphCommit, GraphRow } from '../src/lib/types'
-import type { GraphLane } from '../src/lib/graph-lanes'
+import { computeGraph, type GraphLane, type GraphRow } from '../src/lib/graph-lanes'
+import type { GraphCommit } from '../src/lib/types'
 
 function commit(oid: string, parents: string[], subject = oid): GraphCommit {
   return {

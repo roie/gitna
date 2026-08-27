@@ -6,6 +6,7 @@ import type { RepoSnapshot } from '../../src/lib/types'
  * in both scopes, a rename, a conflict, and branch tracking counts.
  */
 export const snapshotFixture: RepoSnapshot = {
+  appVersion: 'dev',
   root: '/tmp/example-repo',
   headOid: 'abc123def456',
   headBranch: 'main',
