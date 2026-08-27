@@ -390,17 +390,6 @@ func Run(ctx context.Context, path, version string) error {
 	}
 
 	url := fmt.Sprintf("http://%s/s/%s/", host, token)
-	fmt.Printf("gitna: %s\n", repo.Root)
-	fmt.Printf("gitna: serving %s\n", url)
-
-	// Full-process browser tests drive the emitted capability URL themselves.
-	// Production sessions retain the normal default-browser launch.
-	if os.Getenv("GITNA_NO_BROWSER") != "1" {
-		if err := browser.Open(url); err != nil {
-			fmt.Fprintf(os.Stderr, "gitna: could not open browser: %v\n", err)
-		}
-	}
-
 	httpSrv := &http.Server{
 		Handler:           srv.Handler(),
 		ReadHeaderTimeout: 5 * time.Second,
@@ -411,6 +400,18 @@ func Run(ctx context.Context, path, version string) error {
 
 	errCh := make(chan error, 1)
 	go func() { errCh <- httpSrv.Serve(ln) }()
+
+	fmt.Printf("Gitna %s\n", version)
+	fmt.Printf("Repository  %s\n", repo.Root)
+	fmt.Printf("URL         %s\n", url)
+
+	// Full-process browser tests drive the emitted capability URL themselves.
+	// Production sessions retain the normal default-browser launch.
+	if os.Getenv("GITNA_NO_BROWSER") != "1" {
+		if err := browser.Open(url); err != nil {
+			fmt.Fprintf(os.Stderr, "gitna: could not open browser: %v\n", err)
+		}
+	}
 
 	select {
 	case err := <-errCh:

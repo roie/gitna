@@ -102,7 +102,7 @@ async function startGitna(
     )
     const lines = createInterface({ input: child.stdout! })
     lines.on('line', (line) => {
-      const match = line.match(/^gitna: serving (http:\/\/[^\s]+)$/)
+      const match = line.match(/^URL\s+(http:\/\/[^\s]+)$/)
       if (!match) return
       clearTimeout(timer)
       lines.close()
