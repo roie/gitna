@@ -126,6 +126,20 @@ test('review failure keeps Source Control usable and retry recovers', async ({ p
   await expect(page.locator('diffs-container').first()).toBeVisible({ timeout: 30_000 })
 })
 
+test('a reviewed file opens as an editable repository file', async ({ page, app }) => {
+  const pageErrors: string[] = []
+  page.on('pageerror', (error) => pageErrors.push(error.message))
+
+  await page.goto(app.url)
+  await page
+    .locator('#gitna-unstaged-tree__tree')
+    .getByRole('treeitem', { name: 'modified.txt', exact: true })
+    .click()
+  await page.getByRole('button', { name: 'Open modified.txt in Repository' }).click()
+  await expect(page.getByRole('textbox', { name: 'modified.txt' })).toBeVisible()
+  expect(pageErrors).not.toContainEqual(expect.stringContaining('CodeView.'))
+})
+
 test('clean repository renders a truthful empty review state', async ({ page, app }) => {
   const pageErrors: string[] = []
   page.on('pageerror', (error) => pageErrors.push(error.message))

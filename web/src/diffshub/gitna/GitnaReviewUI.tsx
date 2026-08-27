@@ -72,10 +72,13 @@ function updateViewerItems(
   current: LoadedDiffsHubData,
   next: LoadedDiffsHubData,
 ): void {
-  const sameOrder =
+  const sameItemKinds =
     current.items.length === next.items.length &&
-    current.items.every((item, index) => item.id === next.items[index]?.id)
-  if (!sameOrder) {
+    current.items.every((item, index) => {
+      const nextItem = next.items[index]
+      return item.id === nextItem?.id && item.type === nextItem.type
+    })
+  if (!sameItemKinds) {
     viewer.getInstance()?.setItems(next.items)
     return
   }
