@@ -188,6 +188,8 @@ function GitnaReviewUIInner() {
   const [pendingRepositoryPath, setPendingRepositoryPath] = useState<string | null>(null)
   const editorRepositoryRootRef = useRef<string | null>(null)
   const reviewDataRef = useRef<LoadedDiffsHubData | null>(null)
+  // CodeView owns the imperative header root, so its save callback may outlive a React render.
+  const savingPathRef = useRef<string | null>(null)
   const worktreeFilesRef = useRef(worktreeFiles)
   const worktreeDraftsRef = useRef(worktreeDrafts)
   worktreeFilesRef.current = worktreeFiles
@@ -558,8 +560,9 @@ function GitnaReviewUIInner() {
     async (path: string) => {
       const baseline = worktreeFilesRef.current.get(path)
       const draft = worktreeDraftsRef.current.get(path)
-      if (baseline == null || draft == null || savingPath != null) return
+      if (baseline == null || draft == null || savingPathRef.current != null) return
       const submittedContent = draft.contents
+      savingPathRef.current = path
       setSavingPath(path)
       setReviewActionError(null)
       try {
@@ -578,10 +581,11 @@ function GitnaReviewUIInner() {
       } catch (error) {
         setReviewActionError(error instanceof Error ? error.message : String(error))
       } finally {
+        savingPathRef.current = null
         setSavingPath(null)
       }
     },
-    [repository, savingPath],
+    [repository],
   )
   const gitnaEditorActions: GitnaEditorActions | undefined =
     target?.filePath != null && worktreeFiles.has(target.filePath)
