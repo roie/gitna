@@ -31,6 +31,8 @@ function runGit(cwd: string, ...args: string[]): string {
 }
 
 test('real binary renders repository source-control state', async ({ page, app }) => {
+  const pageErrors: string[] = []
+  page.on('pageerror', (error) => pageErrors.push(error.message))
   await page.context().grantPermissions(['clipboard-read', 'clipboard-write'], {
     origin: new URL(app.url).origin,
   })
@@ -112,6 +114,7 @@ test('real binary renders repository source-control state', async ({ page, app }
     'aria-selected',
     'true',
   )
+  expect(pageErrors).not.toContainEqual(expect.stringContaining('CodeView.addItem: duplicate id'))
   await repositoryTabs.getByRole('tab', { name: 'feature.txt' }).click()
   await expect(page.getByText('feature branch', { exact: true })).toBeVisible()
   await repositoryTabs.getByRole('tab', { name: 'feature.txt' }).click({ button: 'right' })

@@ -76,8 +76,7 @@ function updateViewerItems(
     current.items.length === next.items.length &&
     current.items.every((item, index) => item.id === next.items[index]?.id)
   if (!sameOrder) {
-    for (const item of current.items) viewer.removeItem(item.id)
-    viewer.addItems(next.items)
+    viewer.getInstance()?.setItems(next.items)
     return
   }
   for (const item of next.items) {

@@ -127,6 +127,8 @@ test('review failure keeps Source Control usable and retry recovers', async ({ p
 })
 
 test('clean repository renders a truthful empty review state', async ({ page, app }) => {
+  const pageErrors: string[] = []
+  page.on('pageerror', (error) => pageErrors.push(error.message))
   git(app.repo, 'reset', '--hard', 'HEAD')
   git(app.repo, 'clean', '-fd')
 
@@ -141,4 +143,24 @@ test('clean repository renders a truthful empty review state', async ({ page, ap
   ).toHaveCount(0)
   await expect(page.locator('[data-section="changes"]')).toHaveCount(0)
   await expect(page.locator('diffs-container')).toHaveCount(0)
+
+  await page.locator('[data-section="graph"]').click()
+  await page.getByRole('button', { name: /^base fixture/ }).click()
+  await page
+    .locator('[id^="gitna-graph-"][id$="__tree"]')
+    .getByRole('treeitem', { name: 'modified.txt', exact: true })
+    .click()
+  await expect(page.locator('diffs-container').filter({ hasText: 'modified.txt' })).toBeVisible()
+  expect(pageErrors).not.toContainEqual(expect.stringContaining('CodeView.addItem: duplicate id'))
+
+  await page.reload()
+  await expect(page.getByRole('status')).toContainText('Working tree clean', { timeout: 30_000 })
+  await expect(page.locator('diffs-container')).toHaveCount(0)
+  await page.locator('[data-section="repository"]').click()
+  await page
+    .locator('#gitna-repository-tree__tree')
+    .getByRole('treeitem', { name: 'main.txt', exact: true })
+    .click()
+  await expect(page.getByRole('textbox', { name: 'main.txt' })).toBeVisible()
+  expect(pageErrors).not.toContainEqual(expect.stringContaining('CodeView.addItem: duplicate id'))
 })
