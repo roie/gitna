@@ -63,6 +63,35 @@ function previousWorktreePath(path: string, source: string, destination: string)
   return remapWorktreePath(path, destination, source)
 }
 
+function updateViewerItems(
+  viewer: CodeViewHandle<CommentMetadata>,
+  current: LoadedDiffsHubData,
+  next: LoadedDiffsHubData,
+): void {
+  const sameOrder =
+    current.items.length === next.items.length &&
+    current.items.every((item, index) => item.id === next.items[index]?.id)
+  if (!sameOrder) {
+    for (const item of current.items) viewer.removeItem(item.id)
+    viewer.addItems(next.items)
+    return
+  }
+  for (const item of next.items) {
+    const existing = viewer.getItem(item.id)
+    if (
+      existing?.type === 'file' &&
+      item.type === 'file' &&
+      existing.edit === true &&
+      item.edit === true &&
+      existing.file.cacheKey === item.file.cacheKey &&
+      existing.file.contents === item.file.contents
+    ) {
+      continue
+    }
+    viewer.updateItem(item)
+  }
+}
+
 function imageDiffRequest(target: ReviewTarget | null): DiffRequest | null {
   const path = target?.selectedPath ?? target?.filePath
   if (path == null || !rasterImagePattern.test(path)) return null
@@ -139,7 +168,6 @@ function GitnaReviewUIInner() {
   const [reviewData, setReviewData] = useState<LoadedDiffsHubData | null>(null)
   const [imageDiff, setImageDiff] = useState<FileDiff | null>(null)
   const [reviewAttempt, setReviewAttempt] = useState(0)
-  const [reviewKey, setReviewKey] = useState(0)
   const [reviewActionError, setReviewActionError] = useState<string | null>(null)
   const [worktreeFiles, setWorktreeFiles] = useState<ReadonlyMap<string, WorktreeFile>>(
     () => new Map(),
@@ -155,6 +183,7 @@ function GitnaReviewUIInner() {
   } | null>(null)
   const [pendingRepositoryPath, setPendingRepositoryPath] = useState<string | null>(null)
   const editorRepositoryRootRef = useRef<string | null>(null)
+  const reviewDataRef = useRef<LoadedDiffsHubData | null>(null)
   const worktreeFilesRef = useRef(worktreeFiles)
   const worktreeDraftsRef = useRef(worktreeDrafts)
   worktreeFilesRef.current = worktreeFiles
@@ -253,14 +282,18 @@ function GitnaReviewUIInner() {
 
   useEffect(() => {
     if (target == null) {
+      reviewDataRef.current = null
       setReviewData(null)
       setErrorMessage(null)
       setLoadState('fetching')
       return
     }
     let active = true
-    setReviewData(null)
-    setLoadState('fetching')
+    const refreshingVisibleReview = reviewDataRef.current != null && viewerRef.current != null
+    if (!refreshingVisibleReview) {
+      setReviewData(null)
+      setLoadState('fetching')
+    }
     setErrorMessage(null)
     const loadRepositoryFile = async (path: string): Promise<LoadedDiffsHubData> => {
       try {
@@ -305,15 +338,24 @@ function GitnaReviewUIInner() {
     dataPromise
       .then((data) => {
         if (!active) return
-        setLoadState('parsing')
+        if (!refreshingVisibleReview) setLoadState('parsing')
+        const previousData = reviewDataRef.current
+        const viewer = viewerRef.current
+        if (previousData != null && viewer != null) updateViewerItems(viewer, previousData, data)
+        reviewDataRef.current = data
         setReviewData(data)
-        setReviewKey((key) => key + 1)
         setLoadState('ready')
       })
       .catch((error: unknown) => {
         if (!active) return
-        setErrorMessage(error instanceof Error ? error.message : String(error))
-        setLoadState('error')
+        const nextError = error instanceof Error ? error.message : String(error)
+        if (reviewDataRef.current != null) {
+          setReviewActionError(`Could not refresh review: ${nextError}`)
+          setLoadState('ready')
+        } else {
+          setErrorMessage(nextError)
+          setLoadState('error')
+        }
       })
     return () => {
       active = false
@@ -633,7 +675,6 @@ function GitnaReviewUIInner() {
           <div className="min-h-0 flex-1">
             {viewerAvailable && reviewData != null && reviewData.items.length > 0 ? (
               <DiffsHubViewer
-                key={reviewKey}
                 className="code-view h-full"
                 commentsEnabled={false}
                 diffStyle={diffStyle}

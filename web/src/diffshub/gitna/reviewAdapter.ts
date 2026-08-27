@@ -147,5 +147,7 @@ export function adaptGitnaReview(review: ReviewResponse): LoadedDiffsHubData {
     if (item?.type === 'diff' && annotations.length > 0) item.annotations = annotations
   }
 
-  return snapshotDiffsHubData(accumulator)
+  const data = snapshotDiffsHubData(accumulator)
+  for (const item of data.items) item.version = review.generation
+  return data
 }

@@ -267,6 +267,21 @@ test('real binary renders repository source-control state', async ({ page, app }
   }
 })
 
+test('repository invalidations refresh the review without remounting it', async ({ page, app }) => {
+  await page.goto(app.url)
+  const viewer = page.locator('.code-view')
+  await expect(viewer).toBeVisible()
+  const mountedViewer = await viewer.elementHandle()
+  expect(mountedViewer).not.toBeNull()
+
+  writeFileSync(join(app.repo, 'modified.txt'), 'viewer refresh marker\n')
+
+  await expect(
+    page.locator('diffs-container').filter({ hasText: 'viewer refresh marker' }),
+  ).toBeVisible()
+  expect(await mountedViewer!.evaluate((element) => element.isConnected)).toBe(true)
+})
+
 test('working files and staged or unstaged diffs navigate as one file', async ({ page, app }) => {
   writeFileSync(join(app.repo, 'staged.txt'), 'unstaged change after staging\n')
   mkdirSync(join(app.repo, 'nested'))
@@ -789,12 +804,15 @@ test('dirty repository tabs survive external file removal', async ({ page, app }
   await page.keyboard.press('Control+a')
   await page.keyboard.type('draft remains available')
   await expect(page.getByRole('tab', { name: /external-draft\.txt Unsaved changes/ })).toBeVisible()
+  const mountedEditor = await editor.elementHandle()
+  expect(mountedEditor).not.toBeNull()
   unlinkSync(join(app.repo, 'external-draft.txt'))
   await expect(
     repositoryTree.getByRole('treeitem', { name: 'external-draft.txt', exact: true }),
   ).toHaveCount(0)
   const draftTab = page.getByRole('tab', { name: /external-draft\.txt Unsaved changes/ })
   await expect(draftTab).toBeVisible()
+  expect(await mountedEditor!.evaluate((element) => element.isConnected)).toBe(true)
   await repositoryTree.getByRole('treeitem', { name: 'main.txt', exact: true }).click()
   await draftTab.click()
   await expect(editor).toHaveText('draft remains available')
