@@ -9,8 +9,8 @@ import type { CSSProperties } from 'react';
 // chrome style keeps the menu internals (hover, separators, checkmarks) on the
 // theme, while the overrides swap the wrapper's sidebar background for the
 // elevated popover surface tokens. The base DropdownMenuContent classes
-// (border/shadow/bg-popover) cover the brief window before the theme resolves,
-// so this returns undefined until the chrome is ready.
+// (border/bg-popover) cover the brief window before the theme resolves, so this
+// returns undefined until the chrome is ready.
 export function getDropdownThemeStyle(
   themeChromeStyle: CSSProperties | undefined
 ): CSSProperties | undefined {
@@ -22,7 +22,6 @@ export function getDropdownThemeStyle(
     ...themeChromeStyle,
     backgroundColor: 'var(--diffshub-popover-bg, var(--color-popover))',
     borderColor: 'var(--diffshub-popover-border, var(--color-border))',
-    boxShadow: 'var(--diffshub-popover-shadow, 0 4px 8px rgb(0 0 0 / 0.07))',
     color: 'var(--diffshub-popover-fg, var(--color-popover-foreground))',
   };
 }

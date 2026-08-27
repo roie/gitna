@@ -842,10 +842,18 @@ function RepositoryFileTabs({
                   ? 'bg-muted text-foreground'
                   : 'text-muted-foreground hover:bg-muted/60 hover:text-foreground',
               )}
+              onAuxClick={(event) => {
+                if (event.button !== 1) return
+                event.preventDefault()
+                onClose([path])
+              }}
               onContextMenu={(event) => {
                 event.preventDefault()
                 const tab = event.currentTarget.querySelector<HTMLButtonElement>('[role="tab"]')
                 if (tab != null) openContextMenu(path, index, tab, tab.getBoundingClientRect())
+              }}
+              onMouseDown={(event) => {
+                if (event.button === 1) event.preventDefault()
               }}
             >
               <button

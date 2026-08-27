@@ -287,9 +287,18 @@ test('working files and staged or unstaged diffs navigate as one file', async ({
     stagedTree.getByRole('treeitem', { name: 'staged.txt', exact: true }),
   ).toHaveAttribute('aria-selected', 'true')
 
-  await stagedTree
-    .getByRole('treeitem', { name: 'staged.txt', exact: true })
-    .click({ button: 'right' })
+  const stagedChange = stagedTree.getByRole('treeitem', { name: 'staged.txt', exact: true })
+  const stagedChangeBox = await stagedChange.boundingBox()
+  expect(stagedChangeBox).not.toBeNull()
+  await stagedChange.click({ button: 'right' })
+  const stagedMenuBox = await page.getByRole('menu').boundingBox()
+  expect(stagedMenuBox).not.toBeNull()
+  expect(
+    Math.abs(stagedMenuBox!.x - (stagedChangeBox!.x + stagedChangeBox!.width / 2)),
+  ).toBeLessThan(8)
+  expect(
+    Math.abs(stagedMenuBox!.y - (stagedChangeBox!.y + stagedChangeBox!.height / 2)),
+  ).toBeLessThan(8)
   await page.getByRole('menuitem', { name: 'Open in Repository' }).click()
   await expect(page.getByRole('textbox', { name: 'staged.txt' })).toBeVisible()
 
@@ -362,6 +371,10 @@ test('many repository tabs follow Zed-style horizontal scrolling', async ({ page
   await expect
     .poll(() => repositoryTabs.evaluate((tabs) => tabs.scrollLeft))
     .toBeLessThan(initialScrollLeft)
+
+  const middleClickTab = repositoryTabs.getByRole('tab', { name: 'feature.txt', exact: true })
+  await middleClickTab.click({ button: 'middle' })
+  await expect(middleClickTab).toHaveCount(0)
 
   await activeTab.click({ button: 'right' })
   await page.getByRole('menuitem', { name: 'Close Others' }).click()
@@ -898,6 +911,7 @@ test('embedded binary serves the branded React frontend', async ({ page, app }) 
   await expect(page.getByRole('button', { name: 'Comments', exact: true })).toHaveCount(0)
 
   await page.getByRole('button', { name: 'Display settings' }).click()
+  await expect(page.getByRole('menu')).toHaveCSS('box-shadow', 'none')
   await expect(page.getByText('Backgrounds', { exact: true })).toBeVisible()
   await expect(page.getByText('Line numbers', { exact: true })).toBeVisible()
   await expect(page.getByText('Local browser-based Git workbench', { exact: true })).toHaveCount(0)

@@ -36,6 +36,7 @@ import {
   useRef,
   useState,
 } from 'react'
+import { createPortal } from 'react-dom'
 
 import { ApiError } from '../../lib/api'
 import type { GraphRow } from '../../lib/graph-lanes'
@@ -1413,6 +1414,20 @@ function contextMenuTriggerStyle(anchorRect: ContextMenuOpenContext['anchorRect'
   }
 }
 
+function FileTreeContextMenuTrigger({ context }: { context: ContextMenuOpenContext }) {
+  return createPortal(
+    <DropdownMenuTrigger asChild>
+      <button
+        aria-hidden="true"
+        tabIndex={-1}
+        type="button"
+        style={contextMenuTriggerStyle(context.anchorRect)}
+      />
+    </DropdownMenuTrigger>,
+    context.anchorElement.ownerDocument.body,
+  )
+}
+
 function RepositoryContextMenu({
   changeScopes,
   context,
@@ -1443,14 +1458,7 @@ function RepositoryContextMenu({
         if (!open) context.close()
       }}
     >
-      <DropdownMenuTrigger asChild>
-        <button
-          aria-hidden="true"
-          tabIndex={-1}
-          type="button"
-          style={contextMenuTriggerStyle(context.anchorRect)}
-        />
-      </DropdownMenuTrigger>
+      <FileTreeContextMenuTrigger context={context} />
       <DropdownMenuContent
         align="start"
         side="bottom"
@@ -1552,14 +1560,7 @@ function ChangeContextMenu({
         if (!open) context.close()
       }}
     >
-      <DropdownMenuTrigger asChild>
-        <button
-          aria-hidden="true"
-          tabIndex={-1}
-          type="button"
-          style={contextMenuTriggerStyle(context.anchorRect)}
-        />
-      </DropdownMenuTrigger>
+      <FileTreeContextMenuTrigger context={context} />
       <DropdownMenuContent
         align="start"
         side="bottom"

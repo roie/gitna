@@ -61,7 +61,6 @@ export const diffshubChromeMapping: ChromeMapping = (chrome, theme) => {
   style['--diffshub-popover-hover-bg'] = chrome.surfaceHover;
   style['--diffshub-popover-selected-bg'] = chrome.surfaceSelected;
   style['--diffshub-popover-border'] = chrome.surfaceBorder;
-  style['--diffshub-popover-shadow'] = chrome.surfaceShadow;
   style['--diffshub-annotation-bg'] = chrome.surface;
   style['--diffshub-annotation-fg'] = fg;
   style['--diffshub-annotation-border'] = chrome.surfaceBorder;
