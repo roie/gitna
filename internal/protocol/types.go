@@ -58,10 +58,11 @@ type FileChange struct {
 // RepositoryFiles is a bounded filesystem view of the worktree used by the
 // Explorer tree. Paths are repository-relative and always slash-separated.
 type RepositoryFiles struct {
-	Generation uint64   `json:"generation"`
-	Paths      []string `json:"paths"`
-	Truncated  bool     `json:"truncated"`
-	NextCursor string   `json:"nextCursor,omitempty"`
+	Generation   uint64   `json:"generation"`
+	Paths        []string `json:"paths"`
+	IgnoredPaths []string `json:"ignoredPaths"`
+	Truncated    bool     `json:"truncated"`
+	NextCursor   string   `json:"nextCursor,omitempty"`
 }
 
 // WorktreeFile is an editable text file read directly from the worktree.

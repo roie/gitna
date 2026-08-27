@@ -480,8 +480,9 @@ func TestSnapshotRouteReturnsNormalizedJSON(t *testing.T) {
 
 func TestRepositoryFilesRouteReturnsExplorerPaths(t *testing.T) {
 	h := newSnapshotServer(&fakeRepo{files: protocol.RepositoryFiles{
-		Paths:     []string{".env", "ignored/generated.js", "src/main.go"},
-		Truncated: true,
+		Paths:        []string{".env", "ignored/generated.js", "src/main.go"},
+		IgnoredPaths: []string{"ignored/generated.js"},
+		Truncated:    true,
 	}})
 
 	req := httptest.NewRequest(http.MethodGet, "/s/"+testToken+"/api/v1/files", nil)
@@ -498,6 +499,9 @@ func TestRepositoryFilesRouteReturnsExplorerPaths(t *testing.T) {
 	}
 	if got.Generation == 0 || !got.Truncated || len(got.Paths) != 3 {
 		t.Fatalf("files = %+v", got)
+	}
+	if len(got.IgnoredPaths) != 1 || got.IgnoredPaths[0] != "ignored/generated.js" {
+		t.Fatalf("ignored paths = %#v", got.IgnoredPaths)
 	}
 }
 

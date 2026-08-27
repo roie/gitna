@@ -104,6 +104,7 @@ export interface ReviewResponse {
 export interface RepositoryFiles {
   generation: number
   paths: string[]
+  ignoredPaths?: string[]
   truncated: boolean
   nextCursor?: string
 }

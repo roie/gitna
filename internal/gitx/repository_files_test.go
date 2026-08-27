@@ -8,7 +8,7 @@ import (
 	"testing"
 )
 
-func TestRepositoryFilesListsTrackedAndNonIgnoredWorktreeFiles(t *testing.T) {
+func TestRepositoryFilesListsTrackedUntrackedAndIgnoredWorktreeFiles(t *testing.T) {
 	root := initTestRepo(t)
 	mustWrite := func(path, content string) {
 		t.Helper()
@@ -42,9 +42,13 @@ func TestRepositoryFilesListsTrackedAndNonIgnoredWorktreeFiles(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := []string{".env", ".gitignore", "external-link", "src/main.go"}
+	want := []string{".env", ".gitignore", "docs/design.md", "external-link", "ignored/generated.js", "src/main.go"}
 	if !reflect.DeepEqual(files.Paths, want) {
 		t.Fatalf("paths = %#v, want %#v", files.Paths, want)
+	}
+	wantIgnored := []string{"docs/design.md", "ignored/generated.js"}
+	if !reflect.DeepEqual(files.IgnoredPaths, wantIgnored) {
+		t.Fatalf("ignored paths = %#v, want %#v", files.IgnoredPaths, wantIgnored)
 	}
 	if files.Truncated {
 		t.Fatal("unexpected truncation")
@@ -64,6 +68,9 @@ func TestRepositoryFilesReportsTruncation(t *testing.T) {
 	}
 	if !reflect.DeepEqual(files.Paths, []string{"a.txt", "b.txt"}) || !files.Truncated || files.NextCursor != "b.txt" {
 		t.Fatalf("files = %#v", files)
+	}
+	if len(files.IgnoredPaths) != 0 {
+		t.Fatalf("ignored paths = %#v, want none", files.IgnoredPaths)
 	}
 
 	next, err := (Repository{Root: root}).RepositoryFiles(context.Background(), &ExecRunner{}, files.NextCursor, 2)

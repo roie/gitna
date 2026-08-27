@@ -835,6 +835,56 @@ test('dirty repository tabs survive external file removal', async ({ page, app }
   await expect(editor).toHaveText('draft remains available')
 })
 
+test('repository explorer shows and independently hides hidden and ignored files', async ({
+  page,
+  app,
+}) => {
+  const ignored = join(app.repo, 'ignored')
+  mkdirSync(ignored)
+  writeFileSync(join(app.repo, '.visible-hidden'), 'hidden\n')
+  writeFileSync(join(app.repo, '.ignored-hidden'), 'ignored hidden\n')
+  writeFileSync(join(ignored, 'generated.js'), 'generated\n')
+  writeFileSync(join(app.repo, '.git', 'info', 'exclude'), '.ignored-hidden\nignored/\n')
+
+  await page.goto(app.url)
+  await page.locator('[data-section="repository"]').click()
+  const repositoryTree = page.locator('#gitna-repository-tree__tree')
+  const visibleHidden = repositoryTree.getByRole('treeitem', {
+    name: '.visible-hidden',
+    exact: true,
+  })
+  const ignoredFolder = repositoryTree.getByRole('treeitem', { name: 'ignored', exact: true })
+
+  await expect(visibleHidden).toBeVisible()
+  await expect(ignoredFolder).toBeVisible()
+
+  await page.getByRole('button', { name: 'Repository actions' }).click()
+  const showHidden = page.getByRole('menuitemcheckbox', { name: 'Show hidden files' })
+  const showIgnored = page.getByRole('menuitemcheckbox', { name: 'Show ignored files' })
+  await expect(showHidden).toBeChecked()
+  await expect(showIgnored).toBeChecked()
+
+  await showHidden.click()
+  await expect(showHidden).not.toBeChecked()
+  await expect(showIgnored).toBeChecked()
+  await page.keyboard.press('Escape')
+  await expect(visibleHidden).toHaveCount(0)
+  await expect(ignoredFolder).toBeVisible()
+
+  await page.getByRole('button', { name: 'Repository actions' }).click()
+  await showIgnored.click()
+  await expect(showIgnored).not.toBeChecked()
+  await page.keyboard.press('Escape')
+  await expect(ignoredFolder).toHaveCount(0)
+
+  await page.getByRole('button', { name: 'Repository actions' }).click()
+  await showHidden.click()
+  await showIgnored.click()
+  await page.keyboard.press('Escape')
+  await expect(visibleHidden).toBeVisible()
+  await expect(ignoredFolder).toBeVisible()
+})
+
 test('branch picker, repository filters, list view, and graph stats use direct pane controls', async ({
   page,
   app,

@@ -157,6 +157,10 @@ function discardConfirmationCopy(
 
 type RepositoryViewMode = 'tree' | 'list'
 
+function isHiddenRepositoryPath(path: string): boolean {
+  return path.split('/').some((segment) => segment.length > 1 && segment.startsWith('.'))
+}
+
 const REPOSITORY_FILTERS: readonly {
   color: string
   label: string
@@ -476,6 +480,8 @@ export function GitnaSourceControl() {
     () => new Set(),
   )
   const [repositoryView, setRepositoryView] = useState<RepositoryViewMode>('tree')
+  const [showHiddenFiles, setShowHiddenFiles] = useState(true)
+  const [showIgnoredFiles, setShowIgnoredFiles] = useState(true)
   const [commitMessage, setCommitMessage] = useState('')
   const [amend, setAmend] = useState(false)
   const [localError, setLocalError] = useState<string | null>(null)
@@ -512,9 +518,23 @@ export function GitnaSourceControl() {
     () => new Set(repositoryChanges.map((change) => gitStatus(change.kind))),
     [repositoryChanges],
   )
+  const visibleRepositoryPaths = useMemo(
+    () =>
+      repository.repositoryPaths.filter(
+        (path) =>
+          (showHiddenFiles || !isHiddenRepositoryPath(path)) &&
+          (showIgnoredFiles || !repository.repositoryIgnoredPaths.has(path)),
+      ),
+    [
+      repository.repositoryIgnoredPaths,
+      repository.repositoryPaths,
+      showHiddenFiles,
+      showIgnoredFiles,
+    ],
+  )
   const filteredRepositoryPaths = useMemo(
-    () => filterRepositoryPaths(repository.repositoryPaths, repositoryChanges, repositoryFilters),
-    [repository.repositoryPaths, repositoryChanges, repositoryFilters],
+    () => filterRepositoryPaths(visibleRepositoryPaths, repositoryChanges, repositoryFilters),
+    [visibleRepositoryPaths, repositoryChanges, repositoryFilters],
   )
   const repositorySource = useMemo(
     () =>
@@ -530,8 +550,9 @@ export function GitnaSourceControl() {
     measuredWorkflowHeight || 142,
     Math.max(142, (paneStackHeight * sizes[0]) / 100),
   )
+  const repositoryVisibilityFiltered = !showHiddenFiles || !showIgnoredFiles
   const repositoryCount =
-    repositoryFilters.size === 0
+    repositoryFilters.size === 0 && !repositoryVisibilityFiltered
       ? `${repository.repositoryPaths.length}${repository.repositoryFilesLoading ? '+' : ''}`
       : `${filteredRepositoryPaths.length} / ${repository.repositoryPaths.length}${repository.repositoryFilesLoading ? '+' : ''}`
   const stagedSource = useMemo(() => createTreeSource(staged), [staged])
@@ -579,6 +600,7 @@ export function GitnaSourceControl() {
         repository.busy ||
         repositoryView !== 'tree' ||
         repositoryFilters.size > 0 ||
+        repositoryVisibilityFiltered ||
         draggedPaths.length !== 1
       ) {
         return false
@@ -599,7 +621,13 @@ export function GitnaSourceControl() {
         (path) => path === destination || path.startsWith(`${destination}/`),
       )
     },
-    [repository.busy, repository.repositoryPaths, repositoryFilters.size, repositoryView],
+    [
+      repository.busy,
+      repository.repositoryPaths,
+      repositoryFilters.size,
+      repositoryView,
+      repositoryVisibilityFiltered,
+    ],
   )
   const moveRepositoryPath = useCallback(
     ({ draggedPaths, target }: FileTreeDropResult) => {
@@ -617,6 +645,7 @@ export function GitnaSourceControl() {
         !repository.busy &&
         repositoryView === 'tree' &&
         repositoryFilters.size === 0 &&
+        !repositoryVisibilityFiltered &&
         paths.length === 1,
       canDrop: canDropRepositoryPath,
       onDropComplete: moveRepositoryPath,
@@ -629,6 +658,7 @@ export function GitnaSourceControl() {
       repository.busy,
       repositoryFilters.size,
       repositoryView,
+      repositoryVisibilityFiltered,
     ],
   )
   const renderRepositoryContextMenu = useCallback(
@@ -658,6 +688,8 @@ export function GitnaSourceControl() {
     if (repository.repositoryFileRevealVersion === 0) return
     setRepositoryOpen(true)
     setRepositoryFilters((current) => (current.size === 0 ? current : new Set()))
+    setShowHiddenFiles(true)
+    setShowIgnoredFiles(true)
   }, [repository.repositoryFileRevealVersion])
 
   useEffect(() => {
@@ -864,11 +896,15 @@ export function GitnaSourceControl() {
               model={model}
               paths={repositoryView === 'tree' ? filteredRepositoryPaths : []}
               selectedStatuses={repositoryFilters}
+              showHiddenFiles={showHiddenFiles}
+              showIgnoredFiles={showIgnoredFiles}
               view={repositoryView}
               onClearFilters={() => setRepositoryFilters(new Set())}
               onIsolateFilter={(status) => setRepositoryFilters(new Set([status]))}
               onCreate={(kind, initialPath) => setRepositoryEntryDialog({ kind, initialPath })}
               onRefresh={() => void repository.refreshRepositoryFiles()}
+              onShowHiddenFilesChange={setShowHiddenFiles}
+              onShowIgnoredFilesChange={setShowIgnoredFiles}
               onRename={(source) =>
                 setRepositoryEntryDialog({
                   kind: 'rename',
@@ -1665,10 +1701,14 @@ function RepositoryHeaderActions({
   onIsolateFilter,
   onRefresh,
   onRename,
+  onShowHiddenFilesChange,
+  onShowIgnoredFilesChange,
   onToggleFilter,
   onViewChange,
   paths,
   selectedStatuses,
+  showHiddenFiles,
+  showIgnoredFiles,
   view,
 }: {
   availableStatuses: ReadonlySet<GitStatus>
@@ -1679,10 +1719,14 @@ function RepositoryHeaderActions({
   onIsolateFilter(status: GitStatus): void
   onRefresh(): void
   onRename(source: string): void
+  onShowHiddenFilesChange(show: boolean): void
+  onShowIgnoredFilesChange(show: boolean): void
   onToggleFilter(status: GitStatus): void
   onViewChange(view: RepositoryViewMode): void
   paths: readonly string[]
   selectedStatuses: ReadonlySet<GitStatus>
+  showHiddenFiles: boolean
+  showIgnoredFiles: boolean
   view: RepositoryViewMode
 }) {
   const filtered = selectedStatuses.size > 0
@@ -1794,6 +1838,23 @@ function RepositoryHeaderActions({
           >
             Rename
           </DropdownMenuItem>
+          <DropdownMenuSeparator />
+          <DropdownMenuCheckboxItem
+            checked={showHiddenFiles}
+            indicatorSide="right"
+            onSelect={(event) => event.preventDefault()}
+            onCheckedChange={() => onShowHiddenFilesChange(!showHiddenFiles)}
+          >
+            Show hidden files
+          </DropdownMenuCheckboxItem>
+          <DropdownMenuCheckboxItem
+            checked={showIgnoredFiles}
+            indicatorSide="right"
+            onSelect={(event) => event.preventDefault()}
+            onCheckedChange={() => onShowIgnoredFilesChange(!showIgnoredFiles)}
+          >
+            Show ignored files
+          </DropdownMenuCheckboxItem>
           <DropdownMenuSeparator />
           <DropdownMenuItem selected={view === 'tree'} onSelect={() => onViewChange('tree')}>
             Show as Tree

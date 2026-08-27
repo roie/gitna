@@ -150,6 +150,7 @@ export class GitnaRepository {
   worktreeRename: { source: string; destination: string; version: number } | null = null
 
   repositoryPaths: string[] = []
+  repositoryIgnoredPaths = new Set<string>()
   repositoryFilesLoading = false
   repositoryFilesError: string | null = null
   repositoryFilesTruncated = false
@@ -281,6 +282,7 @@ export class GitnaRepository {
         let cursor: string | undefined
         let pageGeneration: number | undefined
         const paths: string[] = []
+        const ignoredPaths = new Set<string>()
         let restart = false
         do {
           const files = await this.api.repositoryFiles(cursor)
@@ -291,7 +293,9 @@ export class GitnaRepository {
             break
           }
           paths.push(...files.paths)
+          for (const path of files.ignoredPaths ?? []) ignoredPaths.add(path)
           this.repositoryPaths = [...paths]
+          this.repositoryIgnoredPaths = new Set(ignoredPaths)
           this.repositoryFilesTruncated = files.truncated
           this.emit()
           cursor = files.nextCursor
@@ -301,6 +305,7 @@ export class GitnaRepository {
         if ((pageGeneration ?? 0) < this.repositoryFilesGeneration) return
         this.repositoryFilesGeneration = pageGeneration ?? this.repositoryFilesGeneration
         this.repositoryPaths = paths
+        this.repositoryIgnoredPaths = ignoredPaths
         this.repositoryFilesTruncated = false
         return
       }
@@ -733,6 +738,7 @@ export class GitnaRepository {
       this.repositoryOpenPaths = []
       this.worktreeRename = null
       this.repositoryPaths = []
+      this.repositoryIgnoredPaths = new Set()
       this.graphCommits = []
       this.graphRows = []
       this.expanded = {}
