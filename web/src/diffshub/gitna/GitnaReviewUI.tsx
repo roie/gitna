@@ -7,6 +7,13 @@ import { useThemeController } from '@pierre/theming/react'
 import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
 import { DiffsHubHeader } from '../components/DiffsHubHeader'
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from '../components/DropdownMenu'
 import { DiffsHubSidebar } from '../components/DiffsHubSidebar'
 import { DiffsHubStatusPanel } from '../components/DiffsHubStatusPanel'
 import {
@@ -142,7 +149,10 @@ function GitnaReviewUIInner() {
   )
   const [savingPath, setSavingPath] = useState<string | null>(null)
   const [recentlySavedPath, setRecentlySavedPath] = useState<string | null>(null)
-  const [pendingClosePath, setPendingClosePath] = useState<string | null>(null)
+  const [pendingTabClose, setPendingTabClose] = useState<{
+    paths: string[]
+    dirtyPaths: string[]
+  } | null>(null)
   const [pendingRepositoryPath, setPendingRepositoryPath] = useState<string | null>(null)
   const editorRepositoryRootRef = useRef<string | null>(null)
   const worktreeFilesRef = useRef(worktreeFiles)
@@ -465,6 +475,21 @@ function GitnaReviewUIInner() {
         }
 
   const dirtyPaths = useMemo(() => new Set(worktreeDrafts.keys()), [worktreeDrafts])
+  const closeRepositoryFiles = useCallback(
+    (paths: readonly string[]) => {
+      const uniquePaths = [...new Set(paths)].filter((path) =>
+        repository.repositoryOpenPaths.includes(path),
+      )
+      if (uniquePaths.length === 0) return
+      const dirty = uniquePaths.filter((path) => dirtyPaths.has(path))
+      if (dirty.length > 0) {
+        setPendingTabClose({ paths: uniquePaths, dirtyPaths: dirty })
+        return
+      }
+      repository.closeRepositoryFiles(uniquePaths)
+    },
+    [dirtyPaths, repository],
+  )
   const handleWorktreeEditChange = useCallback((path: string, file: FileContents) => {
     setRecentlySavedPath((current) => (current === path ? null : current))
     const next = new Map(worktreeDraftsRef.current)
@@ -603,13 +628,7 @@ function GitnaReviewUIInner() {
           </DiffsHubSidebar>
         )}
         <div className="flex min-h-0 flex-col [grid-area:viewer]">
-          <RepositoryFileTabs
-            dirtyPaths={dirtyPaths}
-            onClose={(path) => {
-              if (dirtyPaths.has(path)) setPendingClosePath(path)
-              else repository.closeRepositoryFile(path)
-            }}
-          />
+          <RepositoryFileTabs dirtyPaths={dirtyPaths} onClose={closeRepositoryFiles} />
           <div className="min-h-0 flex-1">
             {viewerAvailable && reviewData != null && reviewData.items.length > 0 ? (
               <DiffsHubViewer
@@ -674,21 +693,29 @@ function GitnaReviewUIInner() {
           }}
         />
       )}
-      {pendingClosePath != null && (
+      {pendingTabClose != null && (
         <Confirm
-          title={`Discard unsaved changes to ${pendingClosePath}?`}
-          message="Your unsaved edits will be lost. The file on disk will not be changed."
+          title={
+            pendingTabClose.dirtyPaths.length === 1
+              ? `Discard unsaved changes to ${pendingTabClose.dirtyPaths[0]}?`
+              : `Discard unsaved changes in ${pendingTabClose.dirtyPaths.length} files?`
+          }
+          message={
+            pendingTabClose.dirtyPaths.length === 1
+              ? 'Your unsaved edits will be lost. The file on disk will not be changed.'
+              : 'Your unsaved edits in these tabs will be lost. Files on disk will not be changed.'
+          }
           confirmLabel="Discard changes"
-          onCancel={() => setPendingClosePath(null)}
+          onCancel={() => setPendingTabClose(null)}
           onConfirm={() => {
-            const path = pendingClosePath
-            setPendingClosePath(null)
+            const pending = pendingTabClose
+            setPendingTabClose(null)
             setWorktreeDrafts((current) => {
               const next = new Map(current)
-              next.delete(path)
+              for (const path of pending.dirtyPaths) next.delete(path)
               return next
             })
-            repository.closeRepositoryFile(path)
+            repository.closeRepositoryFiles(pending.paths)
           }}
         />
       )}
@@ -749,81 +776,204 @@ function RepositoryFileTabs({
   onClose,
 }: {
   dirtyPaths: ReadonlySet<string>
-  onClose(path: string): void
+  onClose(paths: readonly string[]): void
 }) {
   const repository = useRepository()
-  if (repository.repositoryFilePath == null || repository.repositoryOpenPaths.length === 0)
-    return null
+  const tablistRef = useRef<HTMLDivElement>(null)
+  const [contextMenu, setContextMenu] = useState<{
+    anchorRect: DOMRect
+    focusTarget: HTMLButtonElement
+    index: number
+    path: string
+  } | null>(null)
+  const openPaths = repository.repositoryOpenPaths
+  useEffect(() => {
+    const activeIndex = openPaths.indexOf(repository.repositoryFilePath ?? '')
+    if (activeIndex < 0) return
+    queueMicrotask(() =>
+      tablistRef.current
+        ?.querySelector<HTMLElement>(`[data-tab-index="${activeIndex}"]`)
+        ?.scrollIntoView({ block: 'nearest', inline: 'nearest' }),
+    )
+  }, [openPaths, repository.repositoryFilePath])
+  if (repository.repositoryFilePath == null || openPaths.length === 0) return null
+  const openContextMenu = (
+    path: string,
+    index: number,
+    focusTarget: HTMLButtonElement,
+    anchorRect: DOMRect,
+  ) => setContextMenu({ anchorRect, focusTarget, index, path })
+  const closeFromMenu = (paths: readonly string[]) => {
+    setContextMenu(null)
+    onClose(paths)
+  }
   return (
-    <div
-      role="tablist"
-      aria-label="Open repository files"
-      className="no-scrollbar flex h-9 shrink-0 items-center gap-1 overflow-x-auto border-b border-border bg-muted/20 px-2"
-    >
+    <div className="flex h-9 shrink-0 items-center border-b border-border bg-muted/20">
       <RepositoryTabIconSprite />
-      {repository.repositoryOpenPaths.map((path) => {
-        const active = repository.repositoryFilePath === path
-        const name = path.split('/').at(-1) ?? path
-        const icon = repositoryTabIconResolver.resolveIcon('file-tree-icon-file', path)
-        const iconHref = `#${icon.name.replace(/^#/, '')}`
-        const iconViewBox =
-          icon.viewBox ?? `0 0 ${String(icon.width ?? 16)} ${String(icon.height ?? 16)}`
-        return (
-          <div
-            key={path}
-            className={cn(
-              'group/tab flex h-7 max-w-56 shrink-0 items-center rounded-md text-xs',
-              active
-                ? 'bg-muted text-foreground'
-                : 'text-muted-foreground hover:bg-muted/60 hover:text-foreground',
-            )}
-          >
-            <button
-              type="button"
-              role="tab"
-              aria-selected={active}
-              className="flex min-w-0 flex-1 cursor-pointer items-center gap-1.5 py-1 pl-2.5 text-left"
-              title={path}
-              onClick={() => repository.selectRepositoryFile(path)}
-            >
-              <svg
-                aria-hidden="true"
-                data-icon-name={icon.name}
-                data-icon-token={icon.token}
-                viewBox={iconViewBox}
-                width={icon.width ?? 16}
-                height={icon.height ?? 16}
-                className="size-4 shrink-0"
-                style={
-                  icon.token == null
-                    ? undefined
-                    : {
-                        color: `var(--trees-file-icon-color-${icon.token}, var(--trees-file-icon-color))`,
-                      }
-                }
-              >
-                <use href={iconHref} />
-              </svg>
-              <span className="truncate">{name}</span>
-              {dirtyPaths.has(path) && (
-                <span
-                  aria-label="Unsaved changes"
-                  className="size-1.5 shrink-0 rounded-full bg-current"
-                />
+      <div
+        ref={tablistRef}
+        role="tablist"
+        aria-label="Open repository files"
+        className="no-scrollbar flex min-w-0 flex-1 items-center gap-1 overflow-x-auto overscroll-contain px-2"
+        onWheel={(event) => {
+          const delta =
+            Math.abs(event.deltaX) > Math.abs(event.deltaY) ? event.deltaX : event.deltaY
+          if (delta === 0) return
+          const previousScrollLeft = event.currentTarget.scrollLeft
+          event.currentTarget.scrollLeft += delta
+          if (event.currentTarget.scrollLeft !== previousScrollLeft) event.preventDefault()
+        }}
+      >
+        {openPaths.map((path, index) => {
+          const active = repository.repositoryFilePath === path
+          const name = path.split('/').at(-1) ?? path
+          const icon = repositoryTabIconResolver.resolveIcon('file-tree-icon-file', path)
+          const iconHref = `#${icon.name.replace(/^#/, '')}`
+          const iconViewBox =
+            icon.viewBox ?? `0 0 ${String(icon.width ?? 16)} ${String(icon.height ?? 16)}`
+          return (
+            <div
+              key={path}
+              data-tab-index={index}
+              className={cn(
+                'group/tab flex h-7 max-w-56 shrink-0 items-center rounded-md text-xs',
+                active
+                  ? 'bg-muted text-foreground'
+                  : 'text-muted-foreground hover:bg-muted/60 hover:text-foreground',
               )}
-            </button>
-            <button
-              type="button"
-              className="mr-1 flex size-5 shrink-0 cursor-pointer items-center justify-center rounded text-muted-foreground opacity-0 hover:bg-background/70 hover:text-foreground group-focus-within/tab:opacity-100 group-hover/tab:opacity-100"
-              aria-label={`Close ${path}`}
-              title={`Close ${path}`}
-              onClick={() => onClose(path)}
+              onContextMenu={(event) => {
+                event.preventDefault()
+                const tab = event.currentTarget.querySelector<HTMLButtonElement>('[role="tab"]')
+                if (tab != null) openContextMenu(path, index, tab, tab.getBoundingClientRect())
+              }}
             >
-              <IconX className="size-3" />
-            </button>
-          </div>
-        )
-      })}
+              <button
+                type="button"
+                role="tab"
+                aria-selected={active}
+                className="flex min-w-0 flex-1 cursor-pointer items-center gap-1.5 py-1 pl-2.5 text-left"
+                title={path}
+                onClick={() => repository.selectRepositoryFile(path)}
+                onKeyDown={(event) => {
+                  if (event.key !== 'ContextMenu' && !(event.shiftKey && event.key === 'F10'))
+                    return
+                  event.preventDefault()
+                  openContextMenu(
+                    path,
+                    index,
+                    event.currentTarget,
+                    event.currentTarget.getBoundingClientRect(),
+                  )
+                }}
+              >
+                <svg
+                  aria-hidden="true"
+                  data-icon-name={icon.name}
+                  data-icon-token={icon.token}
+                  viewBox={iconViewBox}
+                  width={icon.width ?? 16}
+                  height={icon.height ?? 16}
+                  className="size-4 shrink-0"
+                  style={
+                    icon.token == null
+                      ? undefined
+                      : {
+                          color: `var(--trees-file-icon-color-${icon.token}, var(--trees-file-icon-color))`,
+                        }
+                  }
+                >
+                  <use href={iconHref} />
+                </svg>
+                <span className="truncate">{name}</span>
+                {dirtyPaths.has(path) && (
+                  <span
+                    aria-label="Unsaved changes"
+                    className="size-1.5 shrink-0 rounded-full bg-current"
+                  />
+                )}
+              </button>
+              <button
+                type="button"
+                className="mr-1 flex size-5 shrink-0 cursor-pointer items-center justify-center rounded text-muted-foreground opacity-0 hover:bg-background/70 hover:text-foreground group-focus-within/tab:opacity-100 group-hover/tab:opacity-100"
+                aria-label={`Close ${path}`}
+                title={`Close ${path}`}
+                onClick={() => onClose([path])}
+              >
+                <IconX className="size-3" />
+              </button>
+            </div>
+          )
+        })}
+      </div>
+      {contextMenu != null && (
+        <DropdownMenu
+          open
+          modal={false}
+          onOpenChange={(open) => {
+            if (!open) setContextMenu(null)
+          }}
+        >
+          <DropdownMenuTrigger asChild>
+            <button
+              aria-hidden="true"
+              tabIndex={-1}
+              type="button"
+              className="fixed size-px opacity-0"
+              style={{ left: contextMenu.anchorRect.left, top: contextMenu.anchorRect.bottom }}
+            />
+          </DropdownMenuTrigger>
+          <DropdownMenuContent
+            align="start"
+            side="bottom"
+            sideOffset={0}
+            className="min-w-44"
+            onCloseAutoFocus={(event) => {
+              event.preventDefault()
+              const { focusTarget, path } = contextMenu
+              queueMicrotask(() => {
+                if (repository.repositoryOpenPaths.includes(path) && focusTarget.isConnected) {
+                  focusTarget.focus()
+                  return
+                }
+                tablistRef.current
+                  ?.querySelector<HTMLButtonElement>('[role="tab"][aria-selected="true"]')
+                  ?.focus()
+              })
+            }}
+          >
+            <DropdownMenuItem onSelect={() => closeFromMenu([contextMenu.path])}>
+              Close
+            </DropdownMenuItem>
+            <DropdownMenuItem
+              disabled={openPaths.length === 1}
+              onSelect={() => closeFromMenu(openPaths.filter((path) => path !== contextMenu.path))}
+            >
+              Close Others
+            </DropdownMenuItem>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem
+              disabled={contextMenu.index === 0}
+              onSelect={() => closeFromMenu(openPaths.slice(0, contextMenu.index))}
+            >
+              Close Left
+            </DropdownMenuItem>
+            <DropdownMenuItem
+              disabled={contextMenu.index === openPaths.length - 1}
+              onSelect={() => closeFromMenu(openPaths.slice(contextMenu.index + 1))}
+            >
+              Close Right
+            </DropdownMenuItem>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem
+              disabled={openPaths.every((path) => dirtyPaths.has(path))}
+              onSelect={() => closeFromMenu(openPaths.filter((path) => !dirtyPaths.has(path)))}
+            >
+              Close Clean
+            </DropdownMenuItem>
+            <DropdownMenuItem onSelect={() => closeFromMenu(openPaths)}>Close All</DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
+      )}
     </div>
   )
 }

@@ -486,12 +486,21 @@ export class GitnaRepository {
   }
 
   closeRepositoryFile(path: string): void {
-    const index = this.repositoryOpenPaths.indexOf(path)
-    if (index < 0) return
-    const nextOpenPaths = this.repositoryOpenPaths.filter((candidate) => candidate !== path)
+    this.closeRepositoryFiles([path])
+  }
+
+  closeRepositoryFiles(paths: readonly string[]): void {
+    const closing = new Set(paths)
+    if (!this.repositoryOpenPaths.some((path) => closing.has(path))) return
+    const openPaths = this.repositoryOpenPaths
+    const currentPath = this.repositoryFilePath
+    const currentIndex = currentPath == null ? -1 : openPaths.indexOf(currentPath)
+    const nextOpenPaths = openPaths.filter((path) => !closing.has(path))
     this.repositoryOpenPaths = nextOpenPaths
-    if (this.repositoryFilePath === path) {
-      this.repositoryFilePath = nextOpenPaths[Math.min(index, nextOpenPaths.length - 1)] ?? null
+    if (currentPath != null && closing.has(currentPath)) {
+      const nextPath = openPaths.slice(currentIndex + 1).find((path) => !closing.has(path))
+      const previousPath = openPaths.slice(0, currentIndex).findLast((path) => !closing.has(path))
+      this.repositoryFilePath = nextPath ?? previousPath ?? null
     }
     this.emit()
   }

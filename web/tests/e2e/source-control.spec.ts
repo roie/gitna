@@ -114,7 +114,14 @@ test('real binary renders repository source-control state', async ({ page, app }
   )
   await repositoryTabs.getByRole('tab', { name: 'feature.txt' }).click()
   await expect(page.getByText('feature branch', { exact: true })).toBeVisible()
-  await repositoryTabs.getByRole('button', { name: 'Close feature.txt' }).click()
+  await repositoryTabs.getByRole('tab', { name: 'feature.txt' }).click({ button: 'right' })
+  await expect(page.getByRole('menuitem', { name: 'Close Others' })).toBeVisible()
+  await expect(page.getByRole('menu')).toHaveCSS('box-shadow', 'none')
+  await expect(page.getByRole('menuitem', { name: 'Close Left' })).toBeDisabled()
+  await expect(page.getByRole('menuitem', { name: 'Close Right' })).toBeEnabled()
+  await expect(page.getByRole('menuitem', { name: 'Close Clean' })).toBeVisible()
+  await expect(page.getByRole('menuitem', { name: 'Close All' })).toBeVisible()
+  await page.getByRole('menuitem', { name: 'Close', exact: true }).click()
   await expect(repositoryTabs.getByRole('tab', { name: 'feature.txt' })).toHaveCount(0)
   await expect(repositoryTabs.getByRole('tab', { name: 'main.txt' })).toHaveAttribute(
     'aria-selected',
@@ -302,6 +309,63 @@ test('working files and staged or unstaged diffs navigate as one file', async ({
   await expect(
     page.getByRole('button', { name: 'Open nested/navigation.txt in Repository' }),
   ).toBeVisible()
+})
+
+test('many repository tabs follow Zed-style horizontal scrolling', async ({ page, app }) => {
+  await page.setViewportSize({ width: 900, height: 720 })
+  await page.goto(app.url)
+  await page.locator('[data-section="repository"]').click()
+
+  const repositoryTree = page.locator('#gitna-repository-tree__tree')
+  const paths = [
+    'feature.txt',
+    'main.txt',
+    'modified.txt',
+    'rename-new.txt',
+    'staged.txt',
+    'two-hunk.txt',
+    'untracked.txt',
+    'large-untracked.txt',
+  ]
+  for (const path of paths) {
+    await repositoryTree.getByRole('treeitem', { name: path, exact: true }).click()
+  }
+
+  const repositoryTabs = page.getByRole('tablist', { name: 'Open repository files' })
+  await expect(repositoryTabs).toHaveClass(/no-scrollbar/)
+  await expect(repositoryTabs).toHaveCSS('scrollbar-width', 'none')
+  await expect(repositoryTabs.getByRole('tab')).toHaveCount(paths.length)
+  await expect
+    .poll(() => repositoryTabs.evaluate((tabs) => tabs.scrollWidth > tabs.clientWidth))
+    .toBe(true)
+  const activeTab = repositoryTabs.getByRole('tab', { name: 'large-untracked.txt', exact: true })
+  await expect(activeTab).toHaveAttribute('aria-selected', 'true')
+  await expect
+    .poll(async () => {
+      const [tabs, active] = await Promise.all([
+        repositoryTabs.boundingBox(),
+        activeTab.boundingBox(),
+      ])
+      return (
+        tabs != null &&
+        active != null &&
+        active.x >= tabs.x &&
+        active.x + active.width <= tabs.x + tabs.width
+      )
+    })
+    .toBe(true)
+
+  const initialScrollLeft = await repositoryTabs.evaluate((tabs) => tabs.scrollLeft)
+  expect(initialScrollLeft).toBeGreaterThan(0)
+  await repositoryTabs.hover()
+  await page.mouse.wheel(0, -300)
+  await expect
+    .poll(() => repositoryTabs.evaluate((tabs) => tabs.scrollLeft))
+    .toBeLessThan(initialScrollLeft)
+
+  await activeTab.click({ button: 'right' })
+  await page.getByRole('menuitem', { name: 'Close Others' }).click()
+  await expect(repositoryTabs.getByRole('tab')).toHaveCount(1)
 })
 
 test('sync status exposes outgoing review', async ({ page, app }) => {
@@ -534,6 +598,7 @@ test('repository files can be edited, created in folders, and renamed', async ({
   await mainTreeItem.click({ button: 'right' })
   const copyRelativePath = page.getByRole('menuitem', { name: 'Copy Relative Path' })
   await expect(copyRelativePath).toBeVisible()
+  await expect(page.getByRole('menu')).toHaveCSS('box-shadow', 'none')
   await copyRelativePath.click()
   await expect(page.locator('html')).toHaveAttribute('data-copied-path', 'main.txt')
 
@@ -835,6 +900,15 @@ test('embedded binary serves the branded React frontend', async ({ page, app }) 
   await page.getByRole('button', { name: 'Display settings' }).click()
   await expect(page.getByText('Backgrounds', { exact: true })).toBeVisible()
   await expect(page.getByText('Line numbers', { exact: true })).toBeVisible()
+  await expect(page.getByText('Local browser-based Git workbench', { exact: true })).toHaveCount(0)
+  await expect(page.getByRole('link', { name: 'GitHub repository' })).toHaveAttribute(
+    'href',
+    'https://github.com/roie/gitna',
+  )
+  const npmPackageLink = page.getByRole('link', { name: 'npm package' })
+  await expect(npmPackageLink).toHaveAttribute('href', 'https://www.npmjs.com/package/gitna')
+  await expect(npmPackageLink.locator('svg path')).toHaveCount(1)
+  await expect(npmPackageLink.locator('svg path')).toHaveAttribute('fill', 'currentColor')
   await page.keyboard.press('Escape')
 })
 

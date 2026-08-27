@@ -2,6 +2,7 @@
 // editor into an explicit local repository switcher and reveal action.
 import type { DiffIndicators } from '@pierre/diffs';
 import {
+  IconBrandGithub,
   IconCheck,
   IconChevronSm,
   IconCodeStyleBars,
@@ -462,6 +463,45 @@ export const DiffsHubHeader = memo(function DiffsHubHeader({
                     </ButtonGroupItem>
                   </ButtonGroup>
                 </DropdownMenuItem>
+                <div className="bg-border/70 my-2 h-px" />
+                <div className="flex items-center gap-3 px-2 py-1.5">
+                  <p className="min-w-0 flex-1 text-sm font-medium text-foreground">Gitna</p>
+                  <div className="flex shrink-0 items-center gap-1">
+                    <Button asChild variant="ghost" size="icon-sm">
+                      <a
+                        aria-label="GitHub repository"
+                        href="https://github.com/roie/gitna"
+                        rel="noreferrer noopener"
+                        target="_blank"
+                        title="GitHub repository"
+                      >
+                        <IconBrandGithub className="size-3.5" />
+                      </a>
+                    </Button>
+                    <Button asChild variant="ghost" size="icon-sm">
+                      <a
+                        aria-label="npm package"
+                        href="https://www.npmjs.com/package/gitna"
+                        rel="noreferrer noopener"
+                        target="_blank"
+                        title="npm package"
+                      >
+                        <svg
+                          aria-hidden="true"
+                          className="size-3.5"
+                          viewBox="0 0 16 16"
+                        >
+                          <path
+                            fill="currentColor"
+                            fillRule="evenodd"
+                            d="M0 0h16v16H0V0Zm3 3v10h5V5h3v8h2V3H3Z"
+                            clipRule="evenodd"
+                          />
+                        </svg>
+                      </a>
+                    </Button>
+                  </div>
+                </div>
               </DropdownMenuContent>
             </DropdownMenu>
           </div>
