@@ -1,10 +1,23 @@
-# Gitna
+<p align="center">
+  <img src="assets/gitna-logo.png" alt="Gitna" width="112" height="112">
+</p>
 
-**A local Git workbench that runs in your browser.**
+<h1 align="center">Gitna</h1>
+
+<p align="center">A local Git workbench that runs in your browser.</p>
+
+<p align="center">
+  <a href="https://www.npmjs.com/package/gitna"><img src="https://img.shields.io/npm/v/gitna?style=flat-square&color=cb3837" alt="npm version"></a>
+  <a href="https://github.com/roie/gitna/actions/workflows/ci.yml"><img src="https://img.shields.io/github/actions/workflow/status/roie/gitna/ci.yml?branch=main&style=flat-square&label=CI" alt="CI status"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/github/license/roie/gitna?style=flat-square" alt="Apache-2.0 license"></a>
+</p>
 
 Gitna brings source control, visual diffs, repository history, and everyday Git operations into one focused interface. It runs on your machine, uses your installed Git, and keeps repository data local.
 
-![Gitna showing staged and unstaged changes with a split diff](assets/gitna.png)
+![Gitna reviewing, staging, editing, and browsing repository history](assets/gitna-demo.gif)
+
+> [!WARNING]
+> Gitna is in early development. Expect bugs, rough edges, and breaking changes.
 
 ## Quick start
 
