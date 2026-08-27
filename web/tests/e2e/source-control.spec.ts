@@ -1,6 +1,6 @@
 import { execFileSync } from 'node:child_process'
 import { existsSync, mkdirSync, readFileSync, unlinkSync, writeFileSync } from 'node:fs'
-import { dirname, join } from 'node:path'
+import { basename, dirname, join } from 'node:path'
 import type { APIRequestContext, Locator } from '@playwright/test'
 import { test, expect } from './fixtures.js'
 
@@ -598,6 +598,7 @@ test('repository path switches the live session and remains fully editable', asy
   runGit(nextRepo, 'commit', '-qm', 'next repository')
 
   await page.goto(app.url)
+  await expect(page).toHaveTitle(`${basename(app.repo)} - Gitna`)
   const pathInput = page.getByRole('textbox', { name: 'Repository path' })
   await expect(pathInput).toHaveValue(app.repo)
   await pathInput.fill(nextRepo)
@@ -606,6 +607,7 @@ test('repository path switches the live session and remains fully editable', asy
   await switchRepository.click()
 
   await expect(pathInput).toHaveValue(nextRepo)
+  await expect(page).toHaveTitle(`${basename(nextRepo)} - Gitna`)
   await expect(switchRepository).not.toBeVisible()
   await expect(page.locator('[data-section="workflow"]')).toContainText('trunk')
   await expect(page.locator('[data-section="workflow"] .section-count')).toHaveCount(0)

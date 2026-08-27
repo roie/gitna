@@ -63,6 +63,10 @@ function previousWorktreePath(path: string, source: string, destination: string)
   return remapWorktreePath(path, destination, source)
 }
 
+function repositoryName(root: string): string {
+  return root.split(/[\\/]/).filter(Boolean).at(-1) ?? root
+}
+
 function updateViewerItems(
   viewer: CodeViewHandle<CommentMetadata>,
   current: LoadedDiffsHubData,
@@ -198,6 +202,11 @@ function GitnaReviewUIInner() {
   const themeState = useThemeController(themeController)
 
   useEffect(() => setThemesHydrated(true), [])
+
+  useEffect(() => {
+    const root = repository.snapshot?.root
+    if (root != null) document.title = `${repositoryName(root)} - Gitna`
+  }, [repository.snapshot?.root])
 
   useEffect(() => {
     const root = repository.snapshot?.root
