@@ -22,6 +22,7 @@ test('DiffsHub controls, Pierre repository search, and theme persist', async ({ 
   await page.locator('[data-section="repository"]').click()
 
   await page.getByRole('button', { name: 'Display settings' }).click()
+  await expect(page.getByRole('switch', { name: 'Word wrap' })).toBeChecked()
   await expect(page.getByRole('switch', { name: 'Backgrounds' })).toBeVisible()
   await expect(page.getByRole('switch', { name: 'Line numbers' })).toBeVisible()
   await expect(page.getByText('GitHub token', { exact: false })).toHaveCount(0)

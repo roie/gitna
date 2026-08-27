@@ -158,7 +158,7 @@ function GitnaReviewUIInner() {
   const [diffStyle, setDiffStyle] = useState<'split' | 'unified'>('split')
   const [collapseMode, setCollapseMode] = useState<'expanded' | 'collapsed'>('expanded')
   const [fileTreeOverlayOpen, setFileTreeOverlayOpen] = useState(false)
-  const [overflow, setOverflow] = useState<'wrap' | 'scroll'>('scroll')
+  const [overflow, setOverflow] = useState<'wrap' | 'scroll'>('wrap')
   const [showBackgrounds, setShowBackgrounds] = useState(true)
   const [diffIndicators, setDiffIndicators] = useState<DiffIndicators>('bars')
   const [lineNumbers, setLineNumbers] = useState(true)
@@ -339,28 +339,32 @@ function GitnaReviewUIInner() {
       .then((data) => {
         if (!active) return
         if (!refreshingVisibleReview) setLoadState('parsing')
-        const previousData = reviewDataRef.current
-        const viewer = viewerRef.current
-        if (previousData != null && viewer != null) updateViewerItems(viewer, previousData, data)
-        reviewDataRef.current = data
         setReviewData(data)
         setLoadState('ready')
       })
       .catch((error: unknown) => {
         if (!active) return
         const nextError = error instanceof Error ? error.message : String(error)
-        if (reviewDataRef.current != null) {
-          setReviewActionError(`Could not refresh review: ${nextError}`)
-          setLoadState('ready')
-        } else {
+        if (reviewDataRef.current == null) {
           setErrorMessage(nextError)
           setLoadState('error')
+        } else {
+          setReviewActionError(`Could not refresh review: ${nextError}`)
+          setLoadState('ready')
         }
       })
     return () => {
       active = false
     }
   }, [repository.api, repository.generation, reviewAttempt, target?.key])
+
+  useEffect(() => {
+    if (reviewData == null) return
+    const previousData = reviewDataRef.current
+    const viewer = viewerRef.current
+    if (previousData != null && viewer != null) updateViewerItems(viewer, previousData, reviewData)
+    reviewDataRef.current = reviewData
+  }, [reviewData])
 
   const selectedImageRequest = useMemo(
     () => imageDiffRequest(target),
