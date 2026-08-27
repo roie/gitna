@@ -38,6 +38,16 @@ test('real binary renders repository source-control state', async ({ page, app }
   })
   const response = await page.goto(app.url)
   expect(response?.status()).toBe(200)
+  const workspaces = await page.evaluate(async () => {
+    const response = await fetch('api/v1/workspaces')
+    if (!response.ok) throw new Error(`workspaces request failed: ${response.status}`)
+    return (await response.json()) as {
+      current: { path: string; repository: boolean }
+      recent: Array<{ path: string }>
+    }
+  })
+  expect(workspaces.current).toMatchObject({ path: app.repo, repository: true })
+  expect(workspaces.recent[0]?.path).toBe(app.repo)
   await expect(page.getByPlaceholder('Commit message')).toBeVisible()
   const repository = page.locator('[data-section="repository"]')
   const graph = page.locator('[data-section="graph"]')

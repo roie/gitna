@@ -87,6 +87,8 @@ type Options struct {
 	SwitchRepository func(context.Context, string) (string, error)
 	// RevealRepository opens the current repository in the platform file manager.
 	RevealRepository func(context.Context) error
+	// Workspaces returns the active and bounded recent workspace catalog.
+	Workspaces func() protocol.WorkspaceCatalog
 }
 
 // Server serves the embedded frontend and the repository API.
@@ -100,6 +102,7 @@ type Server struct {
 	gen              atomic.Uint64
 	switchRepository func(context.Context, string) (string, error)
 	revealRepository func(context.Context) error
+	workspaces       func() protocol.WorkspaceCatalog
 }
 
 // New creates a Server that serves static assets from staticFS (rooted at the
@@ -119,6 +122,7 @@ func New(staticFS fs.FS, opts Options) (*Server, error) {
 		repo:             opts.Repo,
 		switchRepository: opts.SwitchRepository,
 		revealRepository: opts.RevealRepository,
+		workspaces:       opts.Workspaces,
 		security: Security{
 			Token: opts.Token,
 			Host:  opts.Host,

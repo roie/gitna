@@ -109,6 +109,18 @@ export interface RepositoryFiles {
   nextCursor?: string
 }
 
+export interface Workspace {
+  path: string
+  name: string
+  repository: boolean
+  lastOpened: string
+}
+
+export interface WorkspaceCatalog {
+  current: Workspace
+  recent: Workspace[]
+}
+
 export interface WorktreeFile {
   path: string
   content: string

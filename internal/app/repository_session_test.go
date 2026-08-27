@@ -10,6 +10,7 @@ import (
 
 	"github.com/roie/gitna/internal/gitx"
 	"github.com/roie/gitna/internal/watch"
+	"github.com/roie/gitna/internal/workspace"
 )
 
 func initSessionRepository(t *testing.T, parent, name string) string {
@@ -36,7 +37,8 @@ func TestRepositorySessionSwitchesAdapterAndStableEventStream(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	session, err := newRepositorySession(ctx, runner, repo)
+	catalog := workspace.Open(filepath.Join(t.TempDir(), "workspaces.json"), 5)
+	session, err := newRepositorySession(ctx, runner, repo, catalog)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -48,6 +50,13 @@ func TestRepositorySessionSwitchesAdapterAndStableEventStream(t *testing.T) {
 	}
 	if root != second || session.adapter.current().Root != second {
 		t.Fatalf("root = %q adapter = %q", root, session.adapter.current().Root)
+	}
+	workspaces := session.workspaceCatalog()
+	if workspaces.Current.Path != second || len(workspaces.Recent) != 2 {
+		t.Fatalf("workspaces = %#v", workspaces)
+	}
+	if workspaces.Recent[0].Path != second || workspaces.Recent[1].Path != first {
+		t.Fatalf("recent workspaces = %#v", workspaces.Recent)
 	}
 
 	seen := map[watch.InvalidationKind]bool{}

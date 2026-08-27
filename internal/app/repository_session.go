@@ -3,11 +3,14 @@ package app
 import (
 	"context"
 	"fmt"
+	"path/filepath"
 	"sync"
 
 	"github.com/roie/gitna/internal/browser"
 	"github.com/roie/gitna/internal/gitx"
+	"github.com/roie/gitna/internal/protocol"
 	"github.com/roie/gitna/internal/watch"
+	"github.com/roie/gitna/internal/workspace"
 )
 
 // repositorySession keeps the HTTP capability URL stable while the user
@@ -15,10 +18,11 @@ import (
 // replaced together; the public events channel remains stable for existing SSE
 // clients.
 type repositorySession struct {
-	ctx     context.Context
-	runner  *gitx.ExecRunner
-	adapter *repoAdapter
-	events  chan watch.InvalidationKind
+	ctx        context.Context
+	runner     *gitx.ExecRunner
+	adapter    *repoAdapter
+	events     chan watch.InvalidationKind
+	workspaces *workspace.Catalog
 
 	switchMu sync.Mutex
 	mu       sync.Mutex
@@ -29,18 +33,24 @@ func newRepositorySession(
 	ctx context.Context,
 	runner *gitx.ExecRunner,
 	repo gitx.Repository,
+	workspaces *workspace.Catalog,
 ) (*repositorySession, error) {
 	watcher, err := watch.New(ctx, repo, runner, watch.Options{})
 	if err != nil {
 		return nil, err
 	}
-	s := &repositorySession{
-		ctx:     ctx,
-		runner:  runner,
-		adapter: &repoAdapter{runner: runner, repo: repo, queue: gitx.NewMutationQueue()},
-		events:  make(chan watch.InvalidationKind, 16),
-		watcher: watcher,
+	if workspaces == nil {
+		workspaces = workspace.Open("", workspace.DefaultRecentLimit)
 	}
+	s := &repositorySession{
+		ctx:        ctx,
+		runner:     runner,
+		adapter:    &repoAdapter{runner: runner, repo: repo, queue: gitx.NewMutationQueue()},
+		events:     make(chan watch.InvalidationKind, 16),
+		watcher:    watcher,
+		workspaces: workspaces,
+	}
+	s.workspaces.Record(repo.Root, true)
 	s.forward(watcher)
 	return s, nil
 }
@@ -65,6 +75,7 @@ func (s *repositorySession) switchRepository(ctx context.Context, path string) (
 		return "", fmt.Errorf("discover repository: %w", err)
 	}
 	if repo.Root == s.adapter.current().Root {
+		s.workspaces.Record(repo.Root, true)
 		return repo.Root, nil
 	}
 
@@ -86,6 +97,7 @@ func (s *repositorySession) switchRepository(ctx context.Context, path string) (
 		_ = previous.Close()
 	}
 
+	s.workspaces.Record(repo.Root, true)
 	for _, event := range []watch.InvalidationKind{watch.InvalidateSnapshot, watch.InvalidateGraph} {
 		select {
 		case s.events <- event:
@@ -93,6 +105,34 @@ func (s *repositorySession) switchRepository(ctx context.Context, path string) (
 		}
 	}
 	return repo.Root, nil
+}
+
+func (s *repositorySession) workspaceCatalog() protocol.WorkspaceCatalog {
+	currentRoot := s.adapter.current().Root
+	entries := s.workspaces.Recent()
+	recent := make([]protocol.Workspace, 0, len(entries))
+	current := protocol.Workspace{Path: currentRoot, Name: workspaceName(currentRoot), Repository: true}
+	for _, entry := range entries {
+		item := protocol.Workspace{
+			Path:       entry.Path,
+			Name:       entry.Name,
+			Repository: entry.Repository,
+			LastOpened: entry.LastOpened,
+		}
+		recent = append(recent, item)
+		if entry.Path == currentRoot {
+			current = item
+		}
+	}
+	return protocol.WorkspaceCatalog{Current: current, Recent: recent}
+}
+
+func workspaceName(path string) string {
+	name := filepath.Base(path)
+	if name == "." || name == string(filepath.Separator) {
+		return path
+	}
+	return name
 }
 
 func (s *repositorySession) revealRepository(context.Context) error {

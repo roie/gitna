@@ -25,6 +25,8 @@ func (s *Server) apiRoutes() http.Handler {
 		switch {
 		case r.Method == http.MethodGet && p == "/snapshot":
 			s.handleSnapshot(w, r)
+		case r.Method == http.MethodGet && p == "/workspaces":
+			s.handleWorkspaces(w)
 		case r.Method == http.MethodGet && p == "/files":
 			s.handleRepositoryFiles(w, r)
 		case r.Method == http.MethodGet && p == "/worktree/file":
@@ -65,6 +67,14 @@ func (s *Server) apiRoutes() http.Handler {
 			writeJSON(w, http.StatusNotFound, map[string]string{"error": "not found"})
 		}
 	})
+}
+
+func (s *Server) handleWorkspaces(w http.ResponseWriter) {
+	if s.workspaces == nil {
+		writeJSON(w, http.StatusNotImplemented, map[string]string{"error": "workspace catalog unavailable"})
+		return
+	}
+	writeJSON(w, http.StatusOK, s.workspaces())
 }
 
 // handleDiff returns one file diff from a stable repository generation. Mutable

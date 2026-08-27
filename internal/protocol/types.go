@@ -73,6 +73,23 @@ type WorktreeFile struct {
 	Hash    string `json:"hash"`
 }
 
+// Workspace describes one local folder in Gitna's bounded recent-workspace
+// catalog. Repository is false for ordinary folders once non-Git workspaces
+// are enabled.
+type Workspace struct {
+	Path       string    `json:"path"`
+	Name       string    `json:"name"`
+	Repository bool      `json:"repository"`
+	LastOpened time.Time `json:"lastOpened"`
+}
+
+// WorkspaceCatalog identifies the active workspace and the most recently
+// opened local workspaces.
+type WorkspaceCatalog struct {
+	Current Workspace   `json:"current"`
+	Recent  []Workspace `json:"recent"`
+}
+
 type RepoSnapshot struct {
 	AppVersion string          `json:"appVersion"`
 	Root       string          `json:"root"`

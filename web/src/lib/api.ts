@@ -10,6 +10,7 @@ import type {
   ReviewResponse,
   StashEntry,
   Tag,
+  WorkspaceCatalog,
   WorktreeFile,
 } from './types'
 
@@ -113,6 +114,7 @@ export interface OperationResult {
 
 export interface ApiClient {
   snapshot(): Promise<RepoSnapshot>
+  workspaces(): Promise<WorkspaceCatalog>
   repositoryFiles(cursor?: string): Promise<RepositoryFiles>
   readWorktreeFile(path: string): Promise<WorktreeFile>
   writeWorktreeFile(path: string, content: string, expectedHash: string): Promise<WorktreeFile>
@@ -199,6 +201,12 @@ export function createApi(): ApiClient {
         await fetch('api/v1/snapshot', { signal: AbortSignal.timeout(FETCH_TIMEOUT) }),
       )
       return (await res.json()) as RepoSnapshot
+    },
+    async workspaces(): Promise<WorkspaceCatalog> {
+      const res = await expectOK(
+        await fetch('api/v1/workspaces', { signal: AbortSignal.timeout(FETCH_TIMEOUT) }),
+      )
+      return (await res.json()) as WorkspaceCatalog
     },
     async repositoryFiles(cursor?: string): Promise<RepositoryFiles> {
       const query = cursor == null ? '' : `?cursor=${encodeURIComponent(cursor)}`

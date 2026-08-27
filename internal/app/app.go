@@ -18,6 +18,7 @@ import (
 	"github.com/roie/gitna/internal/server"
 	"github.com/roie/gitna/internal/session"
 	"github.com/roie/gitna/internal/webui"
+	"github.com/roie/gitna/internal/workspace"
 )
 
 // repoAdapter bridges the git-backed repository to the server's Repo interface.
@@ -370,7 +371,7 @@ func Run(ctx context.Context, path, version string) error {
 		return fmt.Errorf("app: load embedded assets: %w", err)
 	}
 
-	repositorySession, err := newRepositorySession(ctx, runner, repo)
+	repositorySession, err := newRepositorySession(ctx, runner, repo, workspace.OpenDefault())
 	if err != nil {
 		return fmt.Errorf("app: create repository session: %w", err)
 	}
@@ -384,6 +385,7 @@ func Run(ctx context.Context, path, version string) error {
 		Events:           repositorySession.events,
 		SwitchRepository: repositorySession.switchRepository,
 		RevealRepository: repositorySession.revealRepository,
+		Workspaces:       repositorySession.workspaceCatalog,
 	})
 	if err != nil {
 		return fmt.Errorf("app: create server: %w", err)

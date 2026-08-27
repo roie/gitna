@@ -7,7 +7,43 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+
+	"github.com/roie/gitna/internal/protocol"
 )
+
+func TestWorkspacesRouteReturnsCurrentAndRecentCatalog(t *testing.T) {
+	catalog := protocol.WorkspaceCatalog{
+		Current: protocol.Workspace{Path: "/current", Name: "current", Repository: true},
+		Recent: []protocol.Workspace{
+			{Path: "/current", Name: "current", Repository: true},
+			{Path: "/previous", Name: "previous", Repository: true},
+		},
+	}
+	srv, err := New(newTestFS(), Options{
+		Token:      testToken,
+		Host:       testHost,
+		Repo:       &fakeRepo{},
+		Workspaces: func() protocol.WorkspaceCatalog { return catalog },
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	req := httptest.NewRequest(http.MethodGet, "/s/"+testToken+"/api/v1/workspaces", nil)
+	req.Host = testHost
+	rec := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200 (%s)", rec.Code, rec.Body)
+	}
+	var got protocol.WorkspaceCatalog
+	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
+		t.Fatal(err)
+	}
+	if got.Current.Path != "/current" || len(got.Recent) != 2 || got.Recent[1].Path != "/previous" {
+		t.Fatalf("catalog = %#v", got)
+	}
+}
 
 func TestSwitchRepositoryRouteUsesExplicitSessionCallback(t *testing.T) {
 	var switched string

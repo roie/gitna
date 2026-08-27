@@ -3,7 +3,7 @@
 import { spawn, spawnSync, type ChildProcess } from 'node:child_process'
 import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { dirname, join } from 'node:path'
 import { createInterface } from 'node:readline'
 import { test as base, expect } from '@playwright/test'
 
@@ -86,9 +86,16 @@ async function startGitna(
   binary: string,
   repo: string,
 ): Promise<{ child: ChildProcess; url: string; root: string }> {
+  const fixtureRoot = dirname(repo)
   const child = spawn(binary, [repo], {
     detached: process.platform !== 'win32',
-    env: { ...process.env, GITNA_NO_BROWSER: '1' },
+    env: {
+      ...process.env,
+      APPDATA: join(fixtureRoot, 'config'),
+      GITNA_NO_BROWSER: '1',
+      HOME: process.platform === 'darwin' ? join(fixtureRoot, 'home') : process.env.HOME,
+      XDG_CONFIG_HOME: join(fixtureRoot, 'config'),
+    },
     stdio: ['ignore', 'pipe', 'pipe'],
   })
   let stderr = ''

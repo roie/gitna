@@ -21,6 +21,7 @@ import type {
   RepoSnapshot,
   StashEntry,
   Tag,
+  WorkspaceCatalog,
   WorktreeFile,
 } from '../../lib/types'
 
@@ -137,6 +138,9 @@ export class GitnaRepository {
   readonly api: ApiClient
 
   snapshot: RepoSnapshot | null = null
+  workspaces: WorkspaceCatalog | null = null
+  workspacesLoading = false
+  workspacesError: string | null = null
   loading = false
   error: string | null = null
   mutationError: string | null = null
@@ -194,6 +198,7 @@ export class GitnaRepository {
   private refreshAgain = false
   private refreshTimer: ReturnType<typeof setTimeout> | null = null
   private repositoryEpoch = 0
+  private workspaceRequest = 0
   private graphRequest = 0
   private branchesRequest = 0
   private stashesRequest = 0
@@ -269,6 +274,25 @@ export class GitnaRepository {
       await this.refreshPromise
     } finally {
       this.refreshPromise = null
+    }
+  }
+
+  async refreshWorkspaces(): Promise<void> {
+    const request = ++this.workspaceRequest
+    this.workspacesLoading = true
+    this.workspacesError = null
+    this.emit()
+    try {
+      const workspaces = await this.api.workspaces()
+      if (request !== this.workspaceRequest) return
+      this.workspaces = workspaces
+    } catch (error) {
+      if (request === this.workspaceRequest) this.workspacesError = errorMessage(error)
+    } finally {
+      if (request === this.workspaceRequest) {
+        this.workspacesLoading = false
+        this.emit()
+      }
     }
   }
 
@@ -726,6 +750,7 @@ export class GitnaRepository {
       this.generation = 0
       this.repositoryFilesGeneration = 0
       this.repositoryFilesRequest += 1
+      this.workspaceRequest += 1
       this.graphRequest += 1
       this.branchesRequest += 1
       this.stashesRequest += 1
@@ -757,6 +782,7 @@ export class GitnaRepository {
       this.emit()
       await Promise.all([
         this.refreshSnapshot(),
+        this.refreshWorkspaces(),
         this.refreshRepositoryFiles(),
         this.refreshGraph(),
         this.refreshBranches(),
@@ -971,6 +997,7 @@ export function RepositoryProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     void Promise.all([
       repository.refreshSnapshot(),
+      repository.refreshWorkspaces(),
       repository.refreshRepositoryFiles(),
       repository.refreshGraph(),
       repository.refreshBranches(),

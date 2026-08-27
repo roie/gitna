@@ -61,6 +61,12 @@ const auxApi: ApiClient = {
   async snapshot() {
     throw new Error('snapshot not used')
   },
+  async workspaces() {
+    return {
+      current: { path: '/repo', name: 'repo', repository: true, lastOpened: '' },
+      recent: [],
+    }
+  },
   async repositoryFiles() {
     return { generation: 1, paths: [], truncated: false }
   },
@@ -237,6 +243,39 @@ describe('createRepoState', () => {
     expect(state.selectedChange?.scope).toBe('unstaged')
   })
 
+  it('loads the current and recent workspace catalog independently from Git state', async () => {
+    const state = createRepoState({
+      api: {
+        ...auxApi,
+        async workspaces() {
+          return {
+            current: {
+              path: '/tmp/current',
+              name: 'current',
+              repository: true,
+              lastOpened: '2026-08-27T12:00:00Z',
+            },
+            recent: [
+              {
+                path: '/tmp/current',
+                name: 'current',
+                repository: true,
+                lastOpened: '2026-08-27T12:00:00Z',
+              },
+            ],
+          }
+        },
+      },
+    })
+
+    await state.refreshWorkspaces()
+
+    expect(state.workspaces?.current.path).toBe('/tmp/current')
+    expect(state.workspaces?.recent).toHaveLength(1)
+    expect(state.workspacesLoading).toBe(false)
+    expect(state.workspacesError).toBeNull()
+  })
+
   it('loads every bounded Repository Explorer page independently from Git changes', async () => {
     const cursors: Array<string | undefined> = []
     const state = createRepoState({
@@ -278,6 +317,12 @@ describe('createRepoState', () => {
         async snapshot() {
           return snapshot({ root: '/tmp/next', generation: 4, headBranch: 'next' })
         },
+        async workspaces() {
+          return {
+            current: { path: '/tmp/next', name: 'next', repository: true, lastOpened: '' },
+            recent: [],
+          }
+        },
         async repositoryFiles() {
           return { generation: 4, paths: ['next.txt'], truncated: false }
         },
@@ -296,6 +341,7 @@ describe('createRepoState', () => {
 
     expect(switchRepository).toHaveBeenCalledWith('/tmp/next')
     expect(state.snapshot?.root).toBe('/tmp/next')
+    expect(state.workspaces?.current.path).toBe('/tmp/next')
     expect(state.repositoryPaths).toEqual(['next.txt'])
     expect(state.graphCommits.map((commit) => commit.oid)).toEqual(['next'])
     expect(state.branches[0]?.name).toBe('next')
