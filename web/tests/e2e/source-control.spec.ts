@@ -218,6 +218,19 @@ test('real binary renders repository source-control state', async ({ page, app }
 
   const sourcePane = page.locator('[data-pane="source-control"]')
   const repositoryPane = page.locator('[data-pane="repository"]')
+  await expect
+    .poll(() =>
+      sourcePaneBody.evaluate((body) => {
+        const lastSection = body.lastElementChild
+        if (!(lastSection instanceof HTMLElement)) return Number.POSITIVE_INFINITY
+        return Math.round(
+          body.getBoundingClientRect().bottom - lastSection.getBoundingClientRect().bottom,
+        )
+      }),
+    )
+    .toBeLessThanOrEqual(1)
+  await graph.click()
+  await expect(graph).toHaveAttribute('aria-expanded', 'false')
   const resizeHandle = page.getByRole('separator', { name: 'Resize sidebar panes' }).first()
   const [sourceBefore, repositoryBefore] = await Promise.all([
     sourcePane.boundingBox(),
@@ -248,6 +261,7 @@ test('real binary renders repository source-control state', async ({ page, app }
   await expect(sourcePaneBody).toHaveCount(1)
 
   if (process.env.GITNA_CAPTURE_GRAPH) {
+    await graph.click()
     await graphTree.getByRole('treeitem').last().scrollIntoViewIfNeeded()
     await page.screenshot({ path: '/tmp/gitna-graph-refined.png', fullPage: true })
   }

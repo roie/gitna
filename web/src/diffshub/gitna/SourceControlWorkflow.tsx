@@ -303,7 +303,7 @@ function treeViewportHeight(source: DiffsHubFileTreeSource): number {
   return Math.max(24, (source.pathCount + directories.size) * 24)
 }
 
-const PANE_SIZES_STORAGE_KEY = 'gitna-source-control-pane-sizes'
+const PANE_SIZES_STORAGE_KEY = 'gitna-source-control-pane-sizes-v2'
 const DEFAULT_PANE_SIZES = [52, 28, 20] as const
 
 function readPaneSizes(): [number, number, number] {
@@ -325,7 +325,15 @@ function readPaneSizes(): [number, number, number] {
 function usePaneSizes() {
   const containerRef = useRef<HTMLDivElement>(null)
   const [sizes, setSizes] = useState<[number, number, number]>(readPaneSizes)
+  const [customized, setCustomized] = useState(() => {
+    try {
+      return localStorage.getItem(PANE_SIZES_STORAGE_KEY) != null
+    } catch {
+      return false
+    }
+  })
   const resizeBy = useCallback((index: 0 | 1, delta: number) => {
+    setCustomized(true)
     setSizes((current) => {
       const next = [...current] as [number, number, number]
       const bounded = Math.max(8 - current[index], Math.min(delta, current[index + 1] - 8))
@@ -341,6 +349,7 @@ function usePaneSizes() {
       event.preventDefault()
       const startY = event.clientY
       const startSizes = [...sizes] as [number, number, number]
+      setCustomized(true)
       const height = containerRef.current.getBoundingClientRect().height
       const onPointerMove = (moveEvent: PointerEvent) => {
         const delta = ((moveEvent.clientY - startY) / Math.max(1, height)) * 100
@@ -360,7 +369,7 @@ function usePaneSizes() {
     },
     [sizes],
   )
-  return { containerRef, resizeBy, sizes, startResize }
+  return { containerRef, customized, resizeBy, sizes, startResize }
 }
 
 function PaneResizeHandle({
@@ -413,6 +422,49 @@ function useNaturalTreeHeight(model: FileTree | null, enabled = true): number {
   return height
 }
 
+function useObservedHeight(ref: React.RefObject<HTMLElement | null>): number {
+  const [height, setHeight] = useState(0)
+  useEffect(() => {
+    const element = ref.current
+    if (element == null) return
+    const update = () => setHeight(Math.ceil(element.getBoundingClientRect().height))
+    update()
+    const observer = new ResizeObserver(update)
+    observer.observe(element)
+    return () => observer.disconnect()
+  })
+  return height
+}
+
+function useNaturalPaneHeight(
+  paneRef: React.RefObject<HTMLElement | null>,
+  contentRef: React.RefObject<HTMLElement | null>,
+): number {
+  const [height, setHeight] = useState(0)
+  useEffect(() => {
+    const pane = paneRef.current
+    const content = contentRef.current
+    const header = pane?.firstElementChild
+    if (pane == null || content == null || !(header instanceof HTMLElement)) return
+    const children = [...content.children].filter(
+      (child): child is HTMLElement => child instanceof HTMLElement,
+    )
+    const update = () =>
+      setHeight(
+        Math.ceil(
+          header.getBoundingClientRect().height +
+            children.reduce((total, child) => total + child.getBoundingClientRect().height, 0),
+        ),
+      )
+    update()
+    const observer = new ResizeObserver(update)
+    observer.observe(header)
+    for (const child of children) observer.observe(child)
+    return () => observer.disconnect()
+  })
+  return height
+}
+
 export function GitnaSourceControl() {
   const repository = useRepository()
   const [repositoryOpen, setRepositoryOpen] = useState(false)
@@ -434,7 +486,17 @@ export function GitnaSourceControl() {
   const graphHeader = useRef<HTMLButtonElement>(null)
   const composer = useRef<HTMLTextAreaElement>(null)
   const moreTrigger = useRef<HTMLButtonElement>(null)
-  const { containerRef, resizeBy, sizes, startResize } = usePaneSizes()
+  const workflowPane = useRef<HTMLElement>(null)
+  const workflowContent = useRef<HTMLDivElement>(null)
+  const {
+    containerRef,
+    customized: paneSizesCustomized,
+    resizeBy,
+    sizes,
+    startResize,
+  } = usePaneSizes()
+  const paneStackHeight = useObservedHeight(containerRef)
+  const measuredWorkflowHeight = useNaturalPaneHeight(workflowPane, workflowContent)
 
   const snapshot = repository.snapshot
   const staged = snapshot?.staged ?? []
@@ -462,6 +524,12 @@ export function GitnaSourceControl() {
     [filteredRepositoryPaths, repositoryChanges, repositoryView],
   )
   const workflowCompact = changedPathCount === 0 && repository.conflicts.length === 0
+  const useNaturalWorkflowHeight =
+    workflowOpen && !workflowCompact && (repositoryOpen || graphOpen) && !paneSizesCustomized
+  const naturalWorkflowHeight = Math.min(
+    measuredWorkflowHeight || 142,
+    Math.max(142, (paneStackHeight * sizes[0]) / 100),
+  )
   const repositoryCount =
     repositoryFilters.size === 0
       ? `${repository.repositoryPaths.length}${repository.repositoryFilesLoading ? '+' : ''}`
@@ -639,10 +707,11 @@ export function GitnaSourceControl() {
         ref={containerRef}
         className="pane-stack grid min-h-0 flex-1 overflow-hidden max-md:block max-md:overflow-y-auto"
         style={{
-          gridTemplateRows: `${workflowOpen && !workflowCompact ? `minmax(142px, ${sizes[0]}fr)` : 'max-content'} 0 ${repositoryOpen ? `minmax(142px, ${sizes[1]}fr)` : 'max-content'} 0 ${graphOpen ? `minmax(142px, ${sizes[2]}fr)` : 'max-content'}`,
+          gridTemplateRows: `${workflowOpen && !workflowCompact ? (useNaturalWorkflowHeight ? `${naturalWorkflowHeight}px` : `minmax(142px, ${sizes[0]}fr)`) : 'max-content'} 0 ${repositoryOpen ? `minmax(142px, ${sizes[1]}fr)` : 'max-content'} 0 ${graphOpen ? `minmax(142px, ${sizes[2]}fr)` : 'max-content'}`,
         }}
       >
         <section
+          ref={workflowPane}
           data-pane="source-control"
           className="section min-h-0 overflow-hidden md:flex md:flex-col"
         >
@@ -670,6 +739,7 @@ export function GitnaSourceControl() {
           />
           {workflowOpen && (
             <div
+              ref={workflowContent}
               data-pane-body="source-control"
               className="cv-mini-scrollbar min-h-0 overscroll-contain md:flex-1 md:overflow-y-auto max-md:overflow-visible"
             >

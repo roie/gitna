@@ -293,6 +293,9 @@ test('narrow Source Control uses a dismissible overlay without squeezing review'
   page,
   app,
 }) => {
+  git(app.repo, 'reset', '--hard', 'HEAD')
+  writeFileSync(join(app.repo, 'staged.txt'), 'one staged change\n')
+  git(app.repo, 'add', 'staged.txt')
   await page.setViewportSize({ width: 390, height: 844 })
   await page.goto(app.url)
   const review = page.getByRole('region', { name: 'Review' })
@@ -304,6 +307,19 @@ test('narrow Source Control uses a dismissible overlay without squeezing review'
   await expect(sourceControl).not.toHaveAttribute('aria-hidden', 'true')
   await expect(sourceControl).toBeVisible()
   await expect(page.getByPlaceholder('Commit message')).toBeVisible()
+  await page.locator('[data-section="repository"]').click()
+  const workflowBody = page.locator('[data-pane-body="source-control"]')
+  await expect
+    .poll(() =>
+      workflowBody.evaluate((body) => {
+        const lastSection = body.lastElementChild
+        if (!(lastSection instanceof HTMLElement)) return Number.POSITIVE_INFINITY
+        return Math.round(
+          body.getBoundingClientRect().bottom - lastSection.getBoundingClientRect().bottom,
+        )
+      }),
+    )
+    .toBeLessThanOrEqual(1)
   await expect(review).toHaveCSS('width', '390px')
   if (process.env.GITNA_CAPTURE_M4) {
     await page.screenshot({ path: '/tmp/gitna-m4-mobile-overlay.png', fullPage: true })
