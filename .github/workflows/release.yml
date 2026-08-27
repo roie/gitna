@@ -9,7 +9,46 @@ permissions:
   contents: read
 
 jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+      - uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v4.4.0
+        with:
+          version: 11.4.0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # zizmor: ignore[cache-poisoning] pinned release toolchain
+        with:
+          node-version: 24
+      - uses: actions/setup-go@d35c59abb061a4a6fb18e82ac0862c26744d6ab5 # v5.5.0
+        with:
+          go-version-file: go.mod
+          cache: false
+      - name: Install frontend dependencies
+        run: pnpm --dir web install --frozen-lockfile
+      - name: Verify frontend and release sources
+        run: |
+          pnpm --dir web check
+          pnpm --dir web lint
+          pnpm --dir web test
+          pnpm --dir web format:check
+          web/node_modules/.bin/tsc -p tsconfig.json
+          web/node_modules/.bin/oxfmt --config web/.oxfmtrc.json --check scripts/generate-third-party-licenses.mjs scripts/package-npm.mjs npm/gitna
+          node --test npm/gitna/test/platform.test.mjs
+      - name: Verify embedded frontend and licenses
+        run: |
+          pnpm --dir web build
+          node scripts/generate-third-party-licenses.mjs
+          git diff --exit-code -- THIRD_PARTY_LICENSES.txt
+      - name: Verify Go application
+        run: |
+          go vet ./...
+          go test ./...
+          go test -race ./...
+
   package-linux:
+    needs: verify
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
@@ -46,6 +85,7 @@ jobs:
           if-no-files-found: error
 
   package-windows:
+    needs: verify
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2

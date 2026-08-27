@@ -38,6 +38,8 @@ package_linux() {
 
   cp LICENSE README.md THIRD_PARTY_NOTICES.md THIRD_PARTY_LICENSES.txt "$stage/"
   cp -R LICENSES "$stage/"
+  mkdir "$stage/patches"
+  cp web/patches/*.patch "$stage/patches/"
   tar -C "$stage" -czf "$output_dir/gitna_${version}_linux_${asset_arch}.tar.gz" .
   rm -rf "$stage"
   trap - RETURN

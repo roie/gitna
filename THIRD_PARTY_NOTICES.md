@@ -37,16 +37,17 @@ Control integration boundaries.
 ## Pierre npm packages
 
 These packages are consumed as npm dependencies and bundled into Gitna's
-embedded frontend. `@pierre/trees` is modified under Apache-2.0 through the
-reproducible pnpm patch at `web/patches/@pierre__trees@1.0.0-beta.6.patch`.
-Gitna's modification adds a generic public interactive row-action renderer,
-semantic action buttons, and hover/focus styling while preserving Pierre's row
-rendering, focus, selection and virtualization ownership. The other package
-renderers are distributed unmodified.
+embedded frontend. `@pierre/diffs` and `@pierre/trees` are modified under
+Apache-2.0 through reproducible pnpm patches in `web/patches/`. The Diffs patch
+adds bounded raster-image bodies and working-file editing hooks. The Trees patch
+adds a generic public interactive row-action renderer, semantic action buttons,
+and hover/focus styling while preserving Pierre's row rendering, focus,
+selection and virtualization ownership. The other package renderers are
+distributed unmodified.
 
 | Package | Installed version | Package license evidence | Required distribution material |
 | --- | --- | --- | --- |
-| `@pierre/diffs` | `1.3.5` | `web/node_modules/@pierre/diffs/LICENSE.md`; package metadata declares `apache-2.0` | `LICENSES/Apache-2.0.txt`; the package contains no NOTICE file. |
+| `@pierre/diffs` | `1.3.6` + Gitna raster/editing patch | `web/node_modules/@pierre/diffs/LICENSE.md`; package metadata declares `apache-2.0` | `LICENSES/Apache-2.0.txt`, `web/patches/@pierre__diffs@1.3.6.patch`; the package contains no NOTICE file. |
 | `@pierre/icons` | `0.7.1` | `web/node_modules/@pierre/icons/LICENSE.md`; package metadata declares `apache-2.0` | `LICENSES/Apache-2.0.txt`; the package contains no NOTICE file. |
 | `@pierre/trees` | `1.0.0-beta.6` + Gitna row-actions patch | `web/node_modules/@pierre/trees/LICENSE.md`; package metadata declares `apache-2.0` | `LICENSES/Apache-2.0.txt`, `web/patches/@pierre__trees@1.0.0-beta.6.patch`, and the `@pierre/trees` notice below. |
 | `@pierre/theme` | `2.0.0` | `web/node_modules/@pierre/theme/LICENSE`; package metadata declares `apache-2.0` | `LICENSES/Apache-2.0.txt` and the `@pierre/theme` notice below. |
@@ -67,7 +68,8 @@ Open Font License 1.1; the verbatim license is at `LICENSES/OFL-1.1.txt`.
 ## Distribution requirement
 
 Release archives include `LICENSE`, this file, the shared license texts in
-`LICENSES/`, and `THIRD_PARTY_LICENSES.txt`. The generated inventory records
+`LICENSES/`, the reproducible Pierre patches in `patches/`, and
+`THIRD_PARTY_LICENSES.txt`. The generated inventory records
 every production npm package, every Go module, and the checked-in Geist font,
 together with their applicable license texts. Regenerate it after dependency changes with
 `node scripts/generate-third-party-licenses.mjs`.

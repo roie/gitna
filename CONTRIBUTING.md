@@ -46,19 +46,19 @@ pnpm --dir web test:e2e
 
 ## Packaging
 
-Create Linux x64 and arm64 release archives and npm tarballs with:
+Create Linux x64 and arm64 release archives with:
 
 ```sh
 ./scripts/package.sh 0.1.0
 ```
 
-Create the Windows x64 archive and npm tarball from PowerShell with:
+Create the Windows x64 archive from PowerShell with:
 
 ```powershell
 ./scripts/package.ps1 0.1.0
 ```
 
-Release archives contain the native executable, README, and required license notices. npm distribution uses a small launcher package plus one native package per supported platform.
+Release archives contain the native executable, README, reproducible Pierre patches, and required license notices. Create the npm launcher tarball separately with `node scripts/package-npm.mjs <version> <output-directory>`; it downloads the matching native archive from the GitHub Release during installation.
 
 ## Release process
 

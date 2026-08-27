@@ -46,6 +46,7 @@ try {
 
   Copy-Item LICENSE, README.md, THIRD_PARTY_NOTICES.md, THIRD_PARTY_LICENSES.txt -Destination $Stage
   Copy-Item LICENSES -Destination $Stage -Recurse
+  Copy-Item web/patches -Destination $Stage -Recurse
   $Archive = Join-Path $OutputDirectory "gitna_${Version}_windows_x64.zip"
   Compress-Archive -Path (Join-Path $Stage "*") -DestinationPath $Archive -Force
 } finally {
