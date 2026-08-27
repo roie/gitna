@@ -901,6 +901,14 @@ test('embedded binary serves the branded React frontend', async ({ page, app }) 
   await expect(page.getByText('Backgrounds', { exact: true })).toBeVisible()
   await expect(page.getByText('Line numbers', { exact: true })).toBeVisible()
   await expect(page.getByText('Local browser-based Git workbench', { exact: true })).toHaveCount(0)
+  const appVersion = await page.evaluate(async () => {
+    const response = await fetch('api/v1/snapshot')
+    if (!response.ok) throw new Error(`snapshot request failed: ${response.status}`)
+    return ((await response.json()) as { appVersion: string }).appVersion
+  })
+  await expect(page.locator('[data-gitna-version]')).toHaveText(
+    appVersion === 'dev' ? 'dev' : `v${appVersion}`,
+  )
   await expect(page.getByRole('link', { name: 'GitHub repository' })).toHaveAttribute(
     'href',
     'https://github.com/roie/gitna',

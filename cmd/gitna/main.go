@@ -24,7 +24,7 @@ func main() {
 	os.Exit(runCLI(os.Args[1:], os.Stdout, os.Stderr, func(path string) error {
 		ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 		defer stop()
-		return app.Run(ctx, path)
+		return app.Run(ctx, path, version)
 	}))
 }
 

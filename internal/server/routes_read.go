@@ -220,6 +220,7 @@ func (s *Server) handleSnapshot(w http.ResponseWriter, r *http.Request) {
 			})
 			return
 		}
+		snap.AppVersion = s.version
 		snap.Generation = generation
 		writeJSON(w, http.StatusOK, snap)
 		return

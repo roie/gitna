@@ -26,6 +26,7 @@ function change(
 
 function snapshot(overrides: Partial<RepoSnapshot> = {}): RepoSnapshot {
   return {
+    appVersion: 'dev',
     root: '/tmp/repo',
     headOid: 'abc123',
     headBranch: 'main',

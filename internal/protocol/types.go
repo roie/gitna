@@ -73,6 +73,7 @@ type WorktreeFile struct {
 }
 
 type RepoSnapshot struct {
+	AppVersion string          `json:"appVersion"`
 	Root       string          `json:"root"`
 	HeadOID    string          `json:"headOid,omitempty"`
 	HeadBranch string          `json:"headBranch,omitempty"`

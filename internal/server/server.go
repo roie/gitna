@@ -70,6 +70,8 @@ type Repo interface {
 
 // Options carries server configuration.
 type Options struct {
+	// Version identifies the running Gitna binary.
+	Version string
 	// Token is the capability token required in every session URL. When empty,
 	// the server rejects all requests.
 	Token string
@@ -90,6 +92,7 @@ type Options struct {
 // Server serves the embedded frontend and the repository API.
 type Server struct {
 	static           fs.FS
+	version          string
 	api              http.Handler
 	security         Security
 	repo             Repo
@@ -106,8 +109,13 @@ func New(staticFS fs.FS, opts Options) (*Server, error) {
 	if staticFS == nil {
 		return nil, errors.New("server: nil static filesystem")
 	}
+	version := opts.Version
+	if version == "" {
+		version = "dev"
+	}
 	s := &Server{
 		static:           staticFS,
+		version:          version,
 		repo:             opts.Repo,
 		switchRepository: opts.SwitchRepository,
 		revealRepository: opts.RevealRepository,

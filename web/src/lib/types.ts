@@ -115,6 +115,7 @@ export interface WorktreeFile {
 }
 
 export interface RepoSnapshot {
+  appVersion: string
   root: string
   headOid?: string
   headBranch?: string

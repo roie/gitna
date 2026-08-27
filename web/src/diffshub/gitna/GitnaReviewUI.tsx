@@ -574,6 +574,7 @@ function GitnaReviewUIInner() {
     <>
       <ReviewGrid>
         <DiffsHubHeader
+          appVersion={repository.snapshot?.appVersion ?? 'dev'}
           className="[grid-area:header]"
           collapseMode={collapseMode}
           colorMode={colorMode}

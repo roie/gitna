@@ -342,7 +342,7 @@ func (a *repoAdapter) ResolveConflictBoth(ctx context.Context, path string) erro
 // Run starts the workbench session for path and blocks until ctx is cancelled
 // or the server fails. path must be inside a Git repository; the session binds
 // to a loopback-only OS-assigned port.
-func Run(ctx context.Context, path string) error {
+func Run(ctx context.Context, path, version string) error {
 	runner := &gitx.ExecRunner{}
 	repo, err := gitx.Discover(ctx, runner, path)
 	if err != nil {
@@ -377,6 +377,7 @@ func Run(ctx context.Context, path string) error {
 	defer repositorySession.close()
 
 	srv, err := server.New(staticFS, server.Options{
+		Version:          version,
 		Token:            token,
 		Host:             host,
 		Repo:             repositorySession.adapter,

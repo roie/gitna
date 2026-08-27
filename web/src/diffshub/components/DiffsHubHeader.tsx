@@ -60,6 +60,7 @@ const SETTING_ROW_CLASS =
   'w-full flex cursor-pointer items-center justify-between gap-4 px-2 py-1.5 text-sm';
 
 interface HeaderProps {
+  appVersion: string;
   className?: string;
   collapseMode: 'expanded' | 'collapsed';
   colorMode: ColorMode;
@@ -185,6 +186,7 @@ function LocalRepositoryForm({
 }
 
 export const DiffsHubHeader = memo(function DiffsHubHeader({
+  appVersion,
   className,
   collapseMode,
   colorMode,
@@ -465,7 +467,12 @@ export const DiffsHubHeader = memo(function DiffsHubHeader({
                 </DropdownMenuItem>
                 <div className="bg-border/70 my-2 h-px" />
                 <div className="flex items-center gap-3 px-2 py-1.5">
-                  <p className="min-w-0 flex-1 text-sm font-medium text-foreground">Gitna</p>
+                  <p className="min-w-0 flex-1 text-sm font-medium text-foreground">
+                    Gitna{' '}
+                    <span data-gitna-version className="font-normal text-muted-foreground">
+                      {appVersion === 'dev' ? 'dev' : `v${appVersion}`}
+                    </span>
+                  </p>
                   <div className="flex shrink-0 items-center gap-1">
                     <Button asChild variant="ghost" size="icon-sm">
                       <a

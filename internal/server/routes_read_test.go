@@ -414,7 +414,12 @@ func (f *fakeRepo) Commit(_ context.Context, req protocol.CommitRequest) (protoc
 }
 
 func newSnapshotServer(repo Repo) http.Handler {
-	srv, err := New(newTestFS(), Options{Token: testToken, Host: testHost, Repo: repo})
+	srv, err := New(newTestFS(), Options{
+		Version: "test-version",
+		Token:   testToken,
+		Host:    testHost,
+		Repo:    repo,
+	})
 	if err != nil {
 		panic(err)
 	}
@@ -455,6 +460,9 @@ func TestSnapshotRouteReturnsNormalizedJSON(t *testing.T) {
 	var got protocol.RepoSnapshot
 	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
 		t.Fatalf("unmarshal: %v", err)
+	}
+	if got.AppVersion != "test-version" {
+		t.Fatalf("app version = %q, want test-version", got.AppVersion)
 	}
 	if got.HeadBranch != "main" || got.Ahead != 2 || got.Behind != 1 {
 		t.Fatalf("got %+v, want head main ahead 2 behind 1", got)
