@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"os/exec"
 	"strings"
 	"testing"
 	"time"
@@ -43,9 +44,9 @@ func TestHelperProcess(t *testing.T) {
 func helperRunner(t *testing.T) *ExecRunner {
 	t.Helper()
 	return &ExecRunner{
-		Exec:         os.Args[0],
-		StdoutLimit:  1 << 20,
-		StderrLimit:  1 << 20,
+		Exec:        os.Args[0],
+		StdoutLimit: 1 << 20,
+		StderrLimit: 1 << 20,
 	}
 }
 
@@ -128,6 +129,25 @@ func TestRunCancellationKillsProcess(t *testing.T) {
 	}
 	if elapsed := time.Since(start); elapsed > 5*time.Second {
 		t.Fatalf("Run took %v, want prompt cancellation", elapsed)
+	}
+}
+
+func TestRunBoundsInheritedOutputPipes(t *testing.T) {
+	sh, err := exec.LookPath("sh")
+	if err != nil {
+		t.Skip("sh is unavailable")
+	}
+	r := helperRunner(t)
+	r.Exec = sh
+	r.WaitDelay = 100 * time.Millisecond
+
+	start := time.Now()
+	_, err = r.Run(context.Background(), t.TempDir(), "-c", "sleep 5 &")
+	if !errors.Is(err, exec.ErrWaitDelay) {
+		t.Fatalf("error = %v, want exec.ErrWaitDelay", err)
+	}
+	if elapsed := time.Since(start); elapsed > time.Second {
+		t.Fatalf("Run took %v, want inherited pipe wait bounded", elapsed)
 	}
 }
 

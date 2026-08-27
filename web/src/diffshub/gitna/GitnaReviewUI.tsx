@@ -231,13 +231,8 @@ function GitnaReviewUIInner() {
         return
       }
       const snapshot = repository.snapshot
-      if (snapshot == null) return
-      const scope =
-        target?.request?.scope === 'staged' || target?.request?.scope === 'unstaged'
-          ? target.request.scope
-          : snapshot.unstaged.length > 0
-            ? 'unstaged'
-            : 'staged'
+      const scope = target?.request?.scope
+      if (snapshot == null || (scope !== 'staged' && scope !== 'unstaged')) return
       const changes = scope === 'staged' ? snapshot.staged : snapshot.unstaged
       if (changes.length === 0) return
       event.preventDefault()
@@ -288,6 +283,11 @@ function GitnaReviewUIInner() {
               loaded)
         return adaptWorktreeFile({ ...baseline, path }, repository.generation, draft)
       } catch (error) {
+        const draft = worktreeDraftsRef.current.get(path)
+        const baseline = worktreeFilesRef.current.get(path)
+        if (draft != null && baseline != null) {
+          return adaptWorktreeFile(baseline, repository.generation, draft)
+        }
         if (
           !(error instanceof ApiError) ||
           (error.code !== 'binary-file' && error.code !== 'file-too-large')
@@ -684,10 +684,12 @@ function GitnaReviewUIInner() {
           onConfirm={() => {
             const path = pendingRepositoryPath
             setPendingRepositoryPath(null)
-            setWorktreeFiles(new Map())
-            setWorktreeDrafts(new Map())
             void repository
               .switchRepository(path)
+              .then(() => {
+                setWorktreeFiles(new Map())
+                setWorktreeDrafts(new Map())
+              })
               .catch((error: unknown) =>
                 setReviewActionError(error instanceof Error ? error.message : String(error)),
               )

@@ -924,7 +924,7 @@ function SourceControlHeaderActions({
       const slash = branch.name.indexOf('/')
       if (slash > 0) values.add(branch.name.slice(0, slash))
     }
-    return [...values].sort()
+    return [...values].sort((left, right) => left.localeCompare(right))
   }, [repository.branches])
 
   const run = useCallback(

@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"strings"
+	"time"
 )
 
 // ErrOutputLimit is returned when a Git command produces more output than the
@@ -49,6 +50,9 @@ type ExecRunner struct {
 	StdoutLimit int
 	// StderrLimit caps captured stderr. Zero means DefaultStderrLimit.
 	StderrLimit int
+	// WaitDelay bounds waits for descendant processes that retain Git's output
+	// pipes after Git exits. Zero means two seconds.
+	WaitDelay time.Duration
 }
 
 func (r *ExecRunner) Run(ctx context.Context, repoRoot string, args ...string) (Result, error) {
@@ -79,6 +83,10 @@ func (r *ExecRunner) run(ctx context.Context, repoRoot string, stdin []byte, arg
 	defer cancel()
 
 	cmd := exec.CommandContext(ctx, exe, args...)
+	cmd.WaitDelay = r.WaitDelay
+	if cmd.WaitDelay <= 0 {
+		cmd.WaitDelay = 2 * time.Second
+	}
 	cmd.Dir = repoRoot
 	cmd.Env = envWith(os.Environ(), "GIT_TERMINAL_PROMPT=0")
 	if len(r.Env) > 0 {

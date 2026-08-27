@@ -1,5 +1,5 @@
 import { execFileSync } from 'node:child_process'
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync, unlinkSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import type { APIRequestContext, Locator } from '@playwright/test'
 import { test, expect } from './fixtures.js'
@@ -271,6 +271,8 @@ test('working files and staged or unstaged diffs navigate as one file', async ({
   await expect(
     repositoryTree.getByRole('treeitem', { name: 'modified.txt', exact: true }),
   ).toHaveAttribute('aria-selected', 'true')
+  await page.keyboard.press('Alt+ArrowDown')
+  await expect(page.getByRole('textbox', { name: 'modified.txt' })).toBeVisible()
 
   await page.getByRole('button', { name: 'View changes for modified.txt' }).click()
   await expect(
@@ -376,9 +378,30 @@ test('many repository tabs follow Zed-style horizontal scrolling', async ({ page
   await middleClickTab.click({ button: 'middle' })
   await expect(middleClickTab).toHaveCount(0)
 
-  await activeTab.click({ button: 'right' })
+  let dirtyTab = repositoryTabs.getByRole('tab', { name: /^main\.txt/ })
+  await dirtyTab.click()
+  const dirtyEditor = page.getByRole('textbox', { name: 'main.txt' })
+  await dirtyEditor.click()
+  await page.keyboard.press('Control+a')
+  await page.keyboard.type('unsaved tab draft')
+  dirtyTab = repositoryTabs.getByRole('tab', { name: /main\.txt Unsaved changes/ })
+  await expect(dirtyTab).toBeVisible()
+  const survivingTab = repositoryTabs.getByRole('tab', { name: 'staged.txt', exact: true })
+  await survivingTab.click({ button: 'right' })
   await page.getByRole('menuitem', { name: 'Close Others' }).click()
+  const bulkCloseConfirmation = page.getByRole('alertdialog', {
+    name: 'Discard unsaved changes to main.txt?',
+  })
+  await expect(bulkCloseConfirmation).toBeVisible()
+  await bulkCloseConfirmation.getByRole('button', { name: 'Cancel' }).click()
+  await expect(repositoryTabs.getByRole('tab')).toHaveCount(paths.length - 1)
+  await expect(dirtyTab).toBeVisible()
+
+  await survivingTab.click({ button: 'right' })
+  await page.getByRole('menuitem', { name: 'Close Others' }).click()
+  await bulkCloseConfirmation.getByRole('button', { name: 'Discard changes' }).click()
   await expect(repositoryTabs.getByRole('tab')).toHaveCount(1)
+  await expect(survivingTab).toBeVisible()
 })
 
 test('sync status exposes outgoing review', async ({ page, app }) => {
@@ -715,21 +738,52 @@ test('repository files can be edited, created in folders, and renamed', async ({
   await expect(async () => {
     await renamedEditor.click()
     await page.keyboard.press('Control+End')
-    await page.keyboard.type(' unsaved')
+    await page.keyboard.insertText(' unsaved')
     await expect(page.getByRole('tab', { name: /renamed\.txt Unsaved changes/ })).toBeVisible({
       timeout: 1_000,
     })
   }).toPass()
+  const unsavedContents = (await renamedEditor.textContent()) ?? ''
+  expect(unsavedContents).toContain('unsaved')
   const repositoryPath = page.getByRole('textbox', { name: 'Repository path' })
-  await repositoryPath.fill(nextRepo)
+  await repositoryPath.fill(join(app.repo, 'missing-repository'))
   await page.getByRole('button', { name: 'Switch repository' }).click()
   const switchConfirmation = page.getByRole('alertdialog', {
     name: 'Discard unsaved changes and switch repository?',
   })
   await expect(switchConfirmation).toBeVisible()
   await switchConfirmation.getByRole('button', { name: 'Discard and switch' }).click()
+  await expect(page.getByRole('tab', { name: /renamed\.txt Unsaved changes/ })).toBeVisible()
+  await expect(renamedEditor).toHaveText(unsavedContents)
+
+  await repositoryPath.fill(nextRepo)
+  await page.getByRole('button', { name: 'Switch repository' }).click()
+  await expect(switchConfirmation).toBeVisible()
+  await switchConfirmation.getByRole('button', { name: 'Discard and switch' }).click()
   await expect(repositoryPath).toHaveValue(nextRepo)
   await expect(page.getByRole('tab', { name: 'renamed.txt', exact: true })).toHaveCount(0)
+})
+
+test('dirty repository tabs survive external file removal', async ({ page, app }) => {
+  writeFileSync(join(app.repo, 'external-draft.txt'), 'before external removal\n')
+  await page.goto(app.url)
+  await page.locator('[data-section="repository"]').click()
+  const repositoryTree = page.locator('#gitna-repository-tree__tree')
+  await repositoryTree.getByRole('treeitem', { name: 'external-draft.txt', exact: true }).click()
+  const editor = page.getByRole('textbox', { name: 'external-draft.txt' })
+  await editor.click()
+  await page.keyboard.press('Control+a')
+  await page.keyboard.type('draft remains available')
+  await expect(page.getByRole('tab', { name: /external-draft\.txt Unsaved changes/ })).toBeVisible()
+  unlinkSync(join(app.repo, 'external-draft.txt'))
+  await expect(
+    repositoryTree.getByRole('treeitem', { name: 'external-draft.txt', exact: true }),
+  ).toHaveCount(0)
+  const draftTab = page.getByRole('tab', { name: /external-draft\.txt Unsaved changes/ })
+  await expect(draftTab).toBeVisible()
+  await repositoryTree.getByRole('treeitem', { name: 'main.txt', exact: true }).click()
+  await draftTab.click()
+  await expect(editor).toHaveText('draft remains available')
 })
 
 test('branch picker, repository filters, list view, and graph stats use direct pane controls', async ({

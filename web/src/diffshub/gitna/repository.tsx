@@ -302,10 +302,6 @@ export class GitnaRepository {
         this.repositoryFilesGeneration = pageGeneration ?? this.repositoryFilesGeneration
         this.repositoryPaths = paths
         this.repositoryFilesTruncated = false
-        this.repositoryOpenPaths = this.repositoryOpenPaths.filter((path) => paths.includes(path))
-        if (this.repositoryFilePath != null && !paths.includes(this.repositoryFilePath)) {
-          this.repositoryFilePath = null
-        }
         return
       }
       throw new Error('Repository changed while files were loading')
@@ -473,7 +469,7 @@ export class GitnaRepository {
   }
 
   selectRepositoryFile(path: string, reveal = false): void {
-    if (!this.canOpenRepositoryFile(path)) return
+    if (!this.canOpenRepositoryFile(path) && !this.repositoryOpenPaths.includes(path)) return
     this.selection = null
     this.commitDiff = null
     this.compareDiff = null
@@ -483,10 +479,6 @@ export class GitnaRepository {
     }
     if (reveal) this.repositoryFileRevealVersion += 1
     this.emit()
-  }
-
-  closeRepositoryFile(path: string): void {
-    this.closeRepositoryFiles([path])
   }
 
   closeRepositoryFiles(paths: readonly string[]): void {
