@@ -259,7 +259,7 @@ func createWorktreeTemp(root *os.Root, path string) (string, *os.File, error) {
 		if _, err := cryptorand.Read(random[:]); err != nil {
 			return "", nil, err
 		}
-		name := `.gitna-edit-${hex.EncodeToString(random[:])}`
+		name := ".gitna-edit-" + hex.EncodeToString(random[:])
 		if parent := slashpath.Dir(path); parent != "." {
 			name = slashpath.Join(parent, name)
 		}
