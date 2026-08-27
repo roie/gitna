@@ -30,9 +30,11 @@ gitna /path/to/repository
 ## What you can do
 
 - Review staged and unstaged changes with Pierre-powered split or unified diffs
+- Preview PNG, JPEG, WebP, and GIF changes alongside text diffs
+- Browse and edit working-tree files in repository tabs
 - Stage and unstage files, folders, or individual hunks
 - Commit and amend while preserving normal Git hook behavior
-- Browse repository files, branches, tags, stashes, and commit history
+- Browse branches, tags, stashes, and commit history
 - Fetch, pull, push, compare, merge, rebase, cherry-pick, and revert
 - Resolve conflicts with explicit ours, theirs, or combined content
 - Switch between local repositories without restarting Gitna
@@ -57,7 +59,7 @@ Mise installs the native GitHub Release asset directly; Node.js is not required 
 
 ### Direct download
 
-Download the archive for your platform from GitHub Releases, extract it, and place `gitna` (`gitna.exe` on Windows) on your `PATH`.
+Download the archive for your platform from [GitHub Releases](https://github.com/roie/gitna/releases), extract it, and place `gitna` (`gitna.exe` on Windows) on your `PATH`.
 
 Supported release targets:
 
