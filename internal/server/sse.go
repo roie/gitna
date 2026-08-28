@@ -81,9 +81,9 @@ func (h *eventsHub) wait() {
 }
 
 // subscribe registers a subscriber and returns its event channel along with a
-// function that detaches it. The channel is never closed; it is released for
-// garbage collection once the subscriber stops reading and the unsubscriber
-// has run.
+// function that detaches it. Closing the source closes every remaining
+// subscriber channel so SSE handlers can exit during route retirement or
+// process shutdown.
 func (h *eventsHub) subscribe() (<-chan watch.InvalidationKind, func()) {
 	if h.src == nil {
 		ch := make(chan watch.InvalidationKind)

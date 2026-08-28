@@ -148,6 +148,11 @@ func (s *folderSession) revealFolder(context.Context) error {
 
 func (s *folderSession) close() error {
 	s.closeOnce.Do(func() {
+		// Refresh can replace the watcher. Serialize shutdown with that handoff,
+		// while allowing already-running repository mutations to finish through
+		// the independent adapter and mutation queue.
+		s.refreshMu.Lock()
+		defer s.refreshMu.Unlock()
 		s.mu.Lock()
 		watcher := s.watcher
 		s.watcher = nil

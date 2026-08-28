@@ -394,6 +394,62 @@ func TestFolderRegistryClosePreventsRouteCreationAfterResolution(t *testing.T) {
 	}
 }
 
+func TestFolderRegistryShutdownClosesConnectedEventsStream(t *testing.T) {
+	registry, _ := newLifecycleRegistry(t, true)
+	entry := registry.byRoute[registry.initialRoute]
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	request := httptest.NewRequest(
+		http.MethodGet,
+		"/"+registry.initialRoute+"/api/v1/events",
+		nil,
+	).WithContext(ctx)
+	response := httptest.NewRecorder()
+	streamDone := make(chan struct{})
+	go func() {
+		registry.ServeHTTP(response, request)
+		close(streamDone)
+	}()
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		entry.mu.Lock()
+		subscribers := entry.subscribers
+		entry.mu.Unlock()
+		if subscribers == 1 {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("events subscriber did not connect")
+		}
+		time.Sleep(time.Millisecond)
+	}
+
+	closeDone := make(chan error, 1)
+	go func() { closeDone <- registry.close() }()
+	select {
+	case err := <-closeDone:
+		if err != nil {
+			t.Fatal(err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("registry shutdown blocked on connected events stream")
+	}
+	select {
+	case <-streamDone:
+	case <-time.After(5 * time.Second):
+		t.Fatal("events stream remained connected after registry shutdown")
+	}
+	if response.Code != http.StatusOK {
+		t.Fatalf("events status = %d, want 200", response.Code)
+	}
+	entry.mu.Lock()
+	closed := entry.session == nil && entry.server == nil && entry.subscribers == 0
+	entry.mu.Unlock()
+	if !closed {
+		t.Fatal("shutdown retained backend or events subscriber")
+	}
+}
+
 func TestFolderRegistryShutdownCancelsDormancyAndRejectsRevival(t *testing.T) {
 	registry, scheduler := newLifecycleRegistry(t, true)
 	entry := registry.byRoute[registry.initialRoute]

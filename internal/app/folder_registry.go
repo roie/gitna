@@ -513,22 +513,28 @@ func (r *folderRegistry) close() error {
 		r.cancelDormancyLocked(entry)
 		entry.mu.Unlock()
 	}
+	type routeBackend struct {
+		entry   *folderRoute
+		session *folderSession
+		server  *server.Server
+	}
+	backends := make([]routeBackend, 0, len(entries))
+	var firstErr error
 	for _, entry := range entries {
-		entry.requests.Wait()
 		for {
 			entry.mu.Lock()
 			if entry.transition == nil {
-				session := entry.session
-				srv := entry.server
-				entry.session = nil
-				entry.server = nil
+				backend := routeBackend{entry: entry, session: entry.session, server: entry.server}
 				entry.mu.Unlock()
-				if session != nil {
-					_ = session.close()
+				// Closing the watcher closes the route's event source. SSE handlers
+				// then return and release their request references, while mutations
+				// already using the adapter are allowed to finish.
+				if backend.session != nil {
+					if err := backend.session.close(); err != nil && firstErr == nil {
+						firstErr = err
+					}
 				}
-				if srv != nil {
-					srv.WaitEvents()
-				}
+				backends = append(backends, backend)
 				break
 			}
 			transition := entry.transition
@@ -536,5 +542,17 @@ func (r *folderRegistry) close() error {
 			<-transition
 		}
 	}
-	return nil
+	for _, backend := range backends {
+		backend.entry.requests.Wait()
+		if backend.server != nil {
+			backend.server.WaitEvents()
+		}
+		backend.entry.mu.Lock()
+		if backend.entry.session == backend.session && backend.entry.server == backend.server {
+			backend.entry.session = nil
+			backend.entry.server = nil
+		}
+		backend.entry.mu.Unlock()
+	}
+	return firstErr
 }
