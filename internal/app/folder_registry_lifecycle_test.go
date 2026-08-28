@@ -347,6 +347,57 @@ func TestFolderRegistryShutdownWaitsForActiveRequest(t *testing.T) {
 	}
 }
 
+func TestFolderRegistryShutdownRejectsRefreshAfterSessionClose(t *testing.T) {
+	registry, _ := newLifecycleRegistry(t, false)
+	entry := registry.byRoute[registry.initialRoute]
+	session, release, err := registry.acquire(t.Context(), entry)
+	if err != nil {
+		t.Fatal(err)
+	}
+	root := entry.root
+	command := exec.Command("git", "-C", root, "init", "-q", "-b", "main")
+	if output, err := command.CombinedOutput(); err != nil {
+		t.Fatalf("git init: %v: %s", err, output)
+	}
+	refreshedRepo, err := gitx.OpenFolder(t.Context(), registry.runner, root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	closeDone := make(chan error, 1)
+	go func() { closeDone <- registry.close() }()
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		session.refreshMu.Lock()
+		closed := session.closed
+		session.refreshMu.Unlock()
+		if closed {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("session did not close during registry shutdown")
+		}
+		time.Sleep(time.Millisecond)
+	}
+	if err := session.refresh(t.Context(), refreshedRepo); !errors.Is(err, errFolderSessionClosed) {
+		t.Fatalf("refresh error = %v, want folder session closed", err)
+	}
+	session.mu.Lock()
+	watcher := session.watcher
+	session.mu.Unlock()
+	if watcher != nil {
+		t.Fatal("refresh installed a watcher after session close")
+	}
+	release()
+	select {
+	case err := <-closeDone:
+		if err != nil {
+			t.Fatal(err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("registry shutdown did not finish after rejected refresh")
+	}
+}
+
 func TestFolderRegistryClosePreventsRouteCreationAfterResolution(t *testing.T) {
 	registry, _ := newLifecycleRegistry(t, true)
 	target := filepath.Join(t.TempDir(), "late-folder")
@@ -391,6 +442,56 @@ func TestFolderRegistryClosePreventsRouteCreationAfterResolution(t *testing.T) {
 	registry.mu.RUnlock()
 	if rootExists || routeCount != 1 {
 		t.Fatalf("late route exists = %v route count = %d", rootExists, routeCount)
+	}
+}
+
+func TestFolderRegistryShutdownClosesHubBeforeLateEventsSubscribe(t *testing.T) {
+	registry, _ := newLifecycleRegistry(t, true)
+	entry := registry.byRoute[registry.initialRoute]
+	srv, release, err := registry.acquireServer(t.Context(), entry)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var releaseOnce sync.Once
+	releaseRequest := func() { releaseOnce.Do(release) }
+	defer releaseRequest()
+	closeDone := make(chan error, 1)
+	go func() { closeDone <- registry.close() }()
+	// The route request has acquired its server, but has not subscribed yet.
+	// Wait until shutdown closes and drains the source before entering /events.
+	hubClosed := make(chan struct{})
+	go func() {
+		srv.WaitEvents()
+		close(hubClosed)
+	}()
+	select {
+	case <-hubClosed:
+	case <-time.After(5 * time.Second):
+		t.Fatal("registry shutdown did not close the acquired server event hub")
+	}
+	request := httptest.NewRequest(http.MethodGet, "/api/v1/events", nil)
+	response := httptest.NewRecorder()
+	streamDone := make(chan struct{})
+	go func() {
+		srv.ServeHTTP(response, request)
+		close(streamDone)
+	}()
+	select {
+	case <-streamDone:
+	case <-time.After(5 * time.Second):
+		t.Fatal("late events subscription did not observe the closed hub")
+	}
+	if response.Code != http.StatusOK {
+		t.Fatalf("events status = %d, want 200", response.Code)
+	}
+	releaseRequest()
+	select {
+	case err := <-closeDone:
+		if err != nil {
+			t.Fatal(err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("registry shutdown did not finish after late subscription")
 	}
 }
 

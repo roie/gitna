@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"path/filepath"
 	"sync"
@@ -12,6 +13,8 @@ import (
 	"github.com/roie/gitna/internal/protocol"
 	"github.com/roie/gitna/internal/watch"
 )
+
+var errFolderSessionClosed = errors.New("folder session closed")
 
 // folderSession owns one stable folder backend. Multiple browser documents for
 // the same route share its watcher and mutation queue. If the folder gains or
@@ -25,6 +28,7 @@ type folderSession struct {
 	folders *folder.Catalog
 
 	refreshMu sync.Mutex
+	closed    bool
 	mu        sync.Mutex
 	watcher   watch.Watcher
 	forwards  sync.WaitGroup
@@ -74,6 +78,9 @@ func (s *folderSession) forward(watcher watch.Watcher) {
 func (s *folderSession) refresh(ctx context.Context, repo gitx.Repository) error {
 	s.refreshMu.Lock()
 	defer s.refreshMu.Unlock()
+	if s.closed {
+		return errFolderSessionClosed
+	}
 	current := s.adapter.current()
 	if folder.PathKey(current.Root) != folder.PathKey(repo.Root) {
 		return fmt.Errorf("refresh folder session: root changed from %q to %q", current.Root, repo.Root)
@@ -153,6 +160,7 @@ func (s *folderSession) close() error {
 		// the independent adapter and mutation queue.
 		s.refreshMu.Lock()
 		defer s.refreshMu.Unlock()
+		s.closed = true
 		s.mu.Lock()
 		watcher := s.watcher
 		s.watcher = nil

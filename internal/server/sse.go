@@ -27,6 +27,7 @@ type eventsHub struct {
 	onSubscribersChanged func(int)
 	done                 chan struct{}
 	mu                   sync.Mutex
+	closed               bool
 	subs                 map[chan watch.InvalidationKind]struct{}
 }
 
@@ -48,12 +49,16 @@ func (h *eventsHub) start(onEvent func(watch.InvalidationKind)) {
 		go h.dispatch()
 		return
 	}
+	h.mu.Lock()
+	h.closed = true
+	h.mu.Unlock()
 	close(h.done)
 }
 
 func (h *eventsHub) dispatch() {
 	defer func() {
 		h.mu.Lock()
+		h.closed = true
 		for ch := range h.subs {
 			close(ch)
 			delete(h.subs, ch)
@@ -85,13 +90,13 @@ func (h *eventsHub) wait() {
 // subscriber channel so SSE handlers can exit during route retirement or
 // process shutdown.
 func (h *eventsHub) subscribe() (<-chan watch.InvalidationKind, func()) {
-	if h.src == nil {
-		ch := make(chan watch.InvalidationKind)
-		close(ch)
-		return ch, func() {}
-	}
 	ch := make(chan watch.InvalidationKind, eventsBufferSize)
 	h.mu.Lock()
+	if h.closed || h.src == nil {
+		close(ch)
+		h.mu.Unlock()
+		return ch, func() {}
+	}
 	h.subs[ch] = struct{}{}
 	h.mu.Unlock()
 	if h.onSubscribersChanged != nil {
