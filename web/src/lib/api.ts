@@ -135,6 +135,7 @@ export interface ApiClient {
   compare(from: string, to: string): Promise<CommitFiles>
   conflicts(): Promise<ConflictEntry[]>
   openFolder(path: string): Promise<OpenFolderResult>
+  removeRecentFolder(path: string): Promise<void>
   revealFolder(): Promise<void>
 }
 
@@ -370,6 +371,16 @@ export function createApi(): ApiClient {
         }),
       )
       return (await res.json()) as OpenFolderResult
+    },
+    async removeRecentFolder(path: string): Promise<void> {
+      await expectOK(
+        await fetch('api/v1/folders/recent', {
+          method: 'DELETE',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ path }),
+          signal: AbortSignal.timeout(MUTATE_TIMEOUT),
+        }),
+      )
     },
     async revealFolder(): Promise<void> {
       await expectOK(

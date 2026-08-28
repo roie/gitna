@@ -58,6 +58,85 @@ func TestCatalogPersistsBoundedRecentFolders(t *testing.T) {
 	}
 }
 
+func TestCatalogRemovePersistsAndReopenRestoresEntry(t *testing.T) {
+	root := t.TempDir()
+	statePath := filepath.Join(root, "config", "folders.json")
+	first := filepath.Join(root, "first")
+	second := filepath.Join(root, "second")
+	for _, path := range []string{first, second} {
+		if err := os.Mkdir(path, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	catalog := Open(statePath, 5)
+	catalog.Record(first, true)
+	catalog.Record(second, false)
+	if err := catalog.Remove(first); err != nil {
+		t.Fatal(err)
+	}
+	if recent := catalog.Recent(); len(recent) != 1 || recent[0].Path != second {
+		t.Fatalf("recent after remove = %#v", recent)
+	}
+	if recent := Open(statePath, 5).Recent(); len(recent) != 1 || recent[0].Path != second {
+		t.Fatalf("persisted recent = %#v", recent)
+	}
+
+	catalog.Record(first, true)
+	if recent := catalog.Recent(); len(recent) != 2 || recent[0].Path != first {
+		t.Fatalf("recent after reopen = %#v", recent)
+	}
+}
+
+func TestCatalogRemoveUsesCanonicalAliasAndAllowsMissingFolder(t *testing.T) {
+	root := t.TempDir()
+	target := filepath.Join(root, "target")
+	alias := filepath.Join(root, "alias")
+	if err := os.Mkdir(target, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(target, alias); err != nil {
+		t.Skipf("symlink unavailable: %v", err)
+	}
+
+	catalog := Open("", 5)
+	catalog.Record(alias, true)
+	if err := catalog.Remove(alias); err != nil {
+		t.Fatal(err)
+	}
+	if len(catalog.Recent()) != 0 {
+		t.Fatalf("recent after alias remove = %#v", catalog.Recent())
+	}
+
+	catalog.Record(target, true)
+	if err := os.RemoveAll(target); err != nil {
+		t.Fatal(err)
+	}
+	if err := catalog.Remove(target); err != nil {
+		t.Fatal(err)
+	}
+	if len(catalog.Recent()) != 0 {
+		t.Fatalf("recent after missing remove = %#v", catalog.Recent())
+	}
+}
+
+func TestCatalogRemoveRollsBackWhenPersistenceFails(t *testing.T) {
+	root := t.TempDir()
+	folder := filepath.Join(root, "folder")
+	if err := os.Mkdir(folder, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	catalog := Open("", 5)
+	catalog.Record(folder, true)
+	catalog.path = root // Atomic replacement cannot rename a file over this directory.
+	if err := catalog.Remove(folder); err == nil {
+		t.Fatal("expected persistence error")
+	}
+	if recent := catalog.Recent(); len(recent) != 1 || recent[0].Path != folder {
+		t.Fatalf("recent after failed remove = %#v", recent)
+	}
+}
+
 func TestPathKeyNormalizesWindowsPathCase(t *testing.T) {
 	upper := pathKeyForOS(`C:\Users\Roie\Repo`, "windows")
 	lower := pathKeyForOS(`c:\users\roie\repo`, "windows")

@@ -105,6 +105,38 @@ func (c *Catalog) Record(path string, repository bool) {
 	c.mu.Unlock()
 }
 
+// Remove deletes path from recent-folder history and atomically persists the
+// result. It never removes or modifies the folder itself. Missing folders can
+// still be removed by their last canonical absolute path.
+func (c *Catalog) Remove(path string) error {
+	canonical, err := canonicalRemovalPath(path)
+	if err != nil {
+		c.setError(err)
+		return err
+	}
+
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	next := make([]Entry, 0, len(c.recent))
+	for _, entry := range c.recent {
+		if !samePath(entry.Path, canonical) {
+			next = append(next, entry)
+		}
+	}
+	if len(next) == len(c.recent) {
+		return nil
+	}
+	previous := c.recent
+	c.recent = next
+	if err := c.persistLocked(); err != nil {
+		c.recent = previous
+		c.lastErr = err
+		return err
+	}
+	c.lastErr = nil
+	return nil
+}
+
 // Recent returns a copy ordered from most to least recently opened.
 func (c *Catalog) Recent() []Entry {
 	c.mu.RLock()
@@ -237,6 +269,21 @@ func canonicalPath(path string) (string, error) {
 		return "", err
 	}
 	return filepath.Clean(resolved), nil
+}
+
+func canonicalRemovalPath(path string) (string, error) {
+	absolute, err := filepath.Abs(path)
+	if err != nil {
+		return "", err
+	}
+	resolved, err := filepath.EvalSymlinks(absolute)
+	if err == nil {
+		return filepath.Clean(resolved), nil
+	}
+	if errors.Is(err, os.ErrNotExist) {
+		return filepath.Clean(absolute), nil
+	}
+	return "", err
 }
 
 func folderName(path string) string {

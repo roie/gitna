@@ -77,6 +77,24 @@ func TestFolderRegistryKeepsStableIndependentRoutes(t *testing.T) {
 	assertSnapshotRoot(t, registry, "/shared/api/v1/snapshot", first)
 	assertSnapshotRoot(t, registry, "/shared-2/api/v1/snapshot", second)
 	assertSnapshotRoot(t, registry, "/shared/api/v1/snapshot", first)
+
+	if err := registry.removeRecentFolder(t.Context(), second); err != nil {
+		t.Fatal(err)
+	}
+	for _, recent := range registry.folders.Recent() {
+		if folder.PathKey(recent.Path) == folder.PathKey(second) {
+			t.Fatalf("removed folder remains recent: %#v", registry.folders.Recent())
+		}
+	}
+	// Removing history does not retire the live route.
+	assertSnapshotRoot(t, registry, "/shared-2/api/v1/snapshot", second)
+	reopenedSecond, err := registry.openFolder(t.Context(), second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if reopenedSecond.Href != secondResult.Href || registry.folders.Recent()[0].Path != second {
+		t.Fatalf("reopened = %#v recent = %#v", reopenedSecond, registry.folders.Recent())
+	}
 }
 
 func TestFolderRegistryRefreshesCapabilitiesWithoutChangingRouteOrQueue(t *testing.T) {

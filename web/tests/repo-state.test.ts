@@ -119,6 +119,7 @@ const auxApi: ApiClient = {
   async openFolder(path) {
     return { root: path, href: '../folder/' }
   },
+  async removeRecentFolder() {},
   async revealFolder() {},
 }
 
@@ -358,6 +359,28 @@ describe('createRepoState', () => {
     expect(state.repositoryPaths).toEqual(['old.txt'])
     expect(state.graphCommits.map((commit) => commit.oid)).toEqual(['old'])
     expect(state.busy).toBe(false)
+  })
+
+  it('removes a recent folder and refreshes the catalog', async () => {
+    const removeRecentFolder = vi.fn(async () => {})
+    const folders = vi.fn(async () => ({
+      current: { path: '/tmp/current', name: 'current', repository: true, lastOpened: '' },
+      recent: [{ path: '/tmp/current', name: 'current', repository: true, lastOpened: '' }],
+    }))
+    const state = createRepoState({ api: { ...auxApi, folders, removeRecentFolder } })
+    state.folders = {
+      current: { path: '/tmp/current', name: 'current', repository: true, lastOpened: '' },
+      recent: [
+        { path: '/tmp/current', name: 'current', repository: true, lastOpened: '' },
+        { path: '/tmp/old', name: 'old', repository: false, lastOpened: '' },
+      ],
+    }
+
+    await state.removeRecentFolder('/tmp/old')
+
+    expect(removeRecentFolder).toHaveBeenCalledWith('/tmp/old')
+    expect(folders).toHaveBeenCalledOnce()
+    expect(state.folders.recent.map((folder) => folder.path)).toEqual(['/tmp/current'])
   })
 
   it('loads and caches commit files with lazy graph statistics', async () => {

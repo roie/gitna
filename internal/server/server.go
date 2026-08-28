@@ -88,20 +88,23 @@ type Options struct {
 	RevealFolder func(context.Context) error
 	// Folders returns the active and bounded recent folder catalog.
 	Folders func() protocol.FolderCatalog
+	// RemoveRecentFolder removes one path from shared recent-folder history.
+	RemoveRecentFolder func(context.Context, string) error
 }
 
 // Server serves the embedded frontend and the repository API.
 type Server struct {
-	static       fs.FS
-	version      string
-	api          http.Handler
-	security     Security
-	repo         Repo
-	hub          *eventsHub
-	gen          atomic.Uint64
-	openFolder   func(context.Context, string) (protocol.OpenFolderResult, error)
-	revealFolder func(context.Context) error
-	folders      func() protocol.FolderCatalog
+	static             fs.FS
+	version            string
+	api                http.Handler
+	security           Security
+	repo               Repo
+	hub                *eventsHub
+	gen                atomic.Uint64
+	openFolder         func(context.Context, string) (protocol.OpenFolderResult, error)
+	revealFolder       func(context.Context) error
+	folders            func() protocol.FolderCatalog
+	removeRecentFolder func(context.Context, string) error
 }
 
 // New creates a Server that serves static assets from staticFS (rooted at the
@@ -116,12 +119,13 @@ func New(staticFS fs.FS, opts Options) (*Server, error) {
 		version = "dev"
 	}
 	s := &Server{
-		static:       staticFS,
-		version:      version,
-		repo:         opts.Repo,
-		openFolder:   opts.OpenFolder,
-		revealFolder: opts.RevealFolder,
-		folders:      opts.Folders,
+		static:             staticFS,
+		version:            version,
+		repo:               opts.Repo,
+		openFolder:         opts.OpenFolder,
+		revealFolder:       opts.RevealFolder,
+		folders:            opts.Folders,
+		removeRecentFolder: opts.RemoveRecentFolder,
 		security: Security{
 			Token: opts.Token,
 			Host:  opts.Host,

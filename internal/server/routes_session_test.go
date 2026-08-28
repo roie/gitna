@@ -87,6 +87,55 @@ func TestOpenFolderRouteUsesExplicitSessionCallback(t *testing.T) {
 	}
 }
 
+func TestRemoveRecentFolderRouteUsesBoundedSessionCallback(t *testing.T) {
+	var removed string
+	srv, err := New(newTestFS(), Options{
+		Token: testToken,
+		Host:  testHost,
+		Repo:  &fakeRepo{},
+		RemoveRecentFolder: func(_ context.Context, path string) error {
+			removed = path
+			return nil
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	body, _ := json.Marshal(map[string]string{"path": "/recent/folder"})
+	req := httptest.NewRequest(http.MethodDelete, "/g/"+testToken+"/api/v1/folders/recent", bytes.NewReader(body))
+	req.Host = testHost
+	req.Header.Set("Origin", "http://"+testHost)
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+
+	srv.Handler().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusNoContent || removed != "/recent/folder" {
+		t.Fatalf("status = %d removed = %q", rec.Code, removed)
+	}
+}
+
+func TestRemoveRecentFolderRouteRejectsInvalidBody(t *testing.T) {
+	srv, err := New(newTestFS(), Options{
+		Token:              testToken,
+		Host:               testHost,
+		Repo:               &fakeRepo{},
+		RemoveRecentFolder: func(context.Context, string) error { return nil },
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	req := httptest.NewRequest(http.MethodDelete, "/g/"+testToken+"/api/v1/folders/recent", bytes.NewBufferString(`{"path":""}`))
+	req.Host = testHost
+	req.Header.Set("Origin", "http://"+testHost)
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(rec, req)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want 400 (%s)", rec.Code, rec.Body)
+	}
+}
+
 func TestRevealFolderRouteUsesCurrentSessionCallback(t *testing.T) {
 	called := false
 	srv, err := New(newTestFS(), Options{

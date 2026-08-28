@@ -91,6 +91,10 @@ func (r *folderRegistry) openFolder(ctx context.Context, path string) (protocol.
 	return protocol.OpenFolderResult{Root: repo.Root, Href: "../" + route + "/"}, nil
 }
 
+func (r *folderRegistry) removeRecentFolder(_ context.Context, path string) error {
+	return r.folders.Remove(path)
+}
+
 func (r *folderRegistry) addLocked(repo gitx.Repository) (string, error) {
 	session, err := newFolderSession(r.ctx, r.runner, repo, r.folders)
 	if err != nil {
@@ -98,12 +102,13 @@ func (r *folderRegistry) addLocked(repo gitx.Repository) (string, error) {
 	}
 	route := r.allocateRouteLocked(folderName(repo.Root))
 	srv, err := server.New(r.static, server.Options{
-		Version:      r.version,
-		Repo:         session.adapter,
-		Events:       session.events,
-		OpenFolder:   r.openFolder,
-		RevealFolder: session.revealFolder,
-		Folders:      session.folderCatalog,
+		Version:            r.version,
+		Repo:               session.adapter,
+		Events:             session.events,
+		OpenFolder:         r.openFolder,
+		RevealFolder:       session.revealFolder,
+		Folders:            session.folderCatalog,
+		RemoveRecentFolder: r.removeRecentFolder,
 	})
 	if err != nil {
 		_ = session.close()

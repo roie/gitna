@@ -43,6 +43,37 @@ func (s *Server) handleOpenFolder(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, result)
 }
 
+func (s *Server) handleRemoveRecentFolder(w http.ResponseWriter, r *http.Request) {
+	if s.removeRecentFolder == nil {
+		writeJSON(w, http.StatusNotImplemented, map[string]string{"error": "recent folder removal unavailable"})
+		return
+	}
+
+	r.Body = http.MaxBytesReader(w, r.Body, MaxRequestBody)
+	var request openFolderRequest
+	if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid request body"})
+		return
+	}
+	request.Path = strings.TrimSpace(request.Path)
+	if request.Path == "" {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "folder path is required"})
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(r.Context(), LocalMutationTimeout)
+	defer cancel()
+	if err := s.removeRecentFolder(ctx, request.Path); err != nil {
+		if timeoutReached(ctx, err) {
+			writeJSON(w, http.StatusGatewayTimeout, map[string]string{"error": "recent folder removal timed out"})
+			return
+		}
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
 func (s *Server) handleRevealFolder(w http.ResponseWriter, r *http.Request) {
 	if s.revealFolder == nil {
 		writeJSON(w, http.StatusNotImplemented, map[string]string{"error": "folder reveal unavailable"})

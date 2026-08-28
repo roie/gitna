@@ -27,6 +27,8 @@ func (s *Server) apiRoutes() http.Handler {
 			s.handleSnapshot(w, r)
 		case r.Method == http.MethodGet && p == "/folders":
 			s.handleFolders(w)
+		case r.Method == http.MethodDelete && p == "/folders/recent":
+			s.handleRemoveRecentFolder(w, r)
 		case r.Method == http.MethodGet && p == "/files":
 			s.handleRepositoryFiles(w, r)
 		case r.Method == http.MethodGet && p == "/worktree/file":

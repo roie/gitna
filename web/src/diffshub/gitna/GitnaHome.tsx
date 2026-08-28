@@ -1,11 +1,20 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 
-import { IconArrowLeftBar, IconBrandGit, IconFolder, IconRefresh, IconSearch } from '@pierre/icons'
+import {
+  IconArrowLeftBar,
+  IconArrowUpRight,
+  IconBrandGit,
+  IconFolder,
+  IconRefresh,
+  IconSearch,
+  IconTrash,
+} from '@pierre/icons'
 
 import type { Folder, FolderCatalog } from '../../lib/types'
 import { Button } from '../components/Button'
 import { Input } from '../components/Input'
 import { ThemedSurface } from '../components/ThemedSurface'
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '../components/Tooltip'
 import { GitnaLogo } from './GitnaLogo'
 
 interface GitnaHomeProps {
@@ -17,7 +26,9 @@ interface GitnaHomeProps {
   onBack(): void
   onClearSwitchError(): void
   onOpenFolder(path: string): Promise<void>
+  onOpenFolderInNewTab(path: string): Promise<void>
   onRefresh(): void
+  onRemoveRecentFolder(path: string): Promise<void>
 }
 
 const openedAt = new Intl.DateTimeFormat(undefined, {
@@ -110,51 +121,96 @@ function OpenFolderForm({
   )
 }
 
-function FolderButton({
+function FolderRow({
+  action,
   disabled = false,
   folder,
-  onClick,
+  onOpen,
+  onOpenInNewTab,
+  onRemove,
 }: {
+  action: 'new-tab' | 'remove' | null
   disabled?: boolean
   folder: Folder
-  onClick(): void
+  onOpen(): void
+  onOpenInNewTab(): void
+  onRemove(): void
 }) {
   const opened = formatOpenedAt(folder.lastOpened)
+  const rowDisabled = disabled || action != null
   return (
-    <button
-      type="button"
-      data-recent-folder
-      className="flex w-full cursor-pointer items-center gap-3 px-1 py-4 text-left outline-none transition-colors hover:bg-muted/50 focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset disabled:cursor-wait disabled:opacity-50"
-      disabled={disabled}
-      onClick={onClick}
-    >
-      <span className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-muted text-foreground">
-        {folder.repository ? (
-          <IconBrandGit className="size-4" />
-        ) : (
-          <IconFolder className="size-4" />
-        )}
-      </span>
-      <span className="min-w-0 flex-1">
-        <span className="font-medium text-foreground">{folder.name}</span>
-        <span className="mt-1 block truncate text-sm text-muted-foreground" title={folder.path}>
-          {folder.path}
+    <div className="group flex min-w-0 items-center gap-1 py-1">
+      <button
+        type="button"
+        data-recent-folder
+        className="flex min-w-0 flex-1 cursor-pointer items-center gap-3 rounded-md px-1 py-3 text-left outline-none transition-colors hover:bg-muted/50 focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset disabled:cursor-wait disabled:opacity-50"
+        disabled={rowDisabled}
+        onClick={onOpen}
+      >
+        <span className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-muted text-foreground">
+          {folder.repository ? (
+            <IconBrandGit className="size-4" />
+          ) : (
+            <IconFolder className="size-4" />
+          )}
         </span>
-      </span>
-      <span className="shrink-0 text-right">
-        <span className="block text-xs text-muted-foreground">
-          {folder.repository ? 'Git repository' : 'Folder'}
+        <span className="min-w-0 flex-1">
+          <span className="block truncate font-medium text-foreground">{folder.name}</span>
+          <span className="mt-1 block truncate text-sm text-muted-foreground" title={folder.path}>
+            {folder.path}
+          </span>
         </span>
-        {opened != null && (
-          <time
-            className="mt-1 hidden text-[11px] text-muted-foreground sm:block"
-            dateTime={folder.lastOpened}
-          >
-            {opened}
-          </time>
-        )}
-      </span>
-    </button>
+        <span className="hidden shrink-0 text-right md:block">
+          <span className="block text-xs text-muted-foreground">
+            {folder.repository ? 'Git repository' : 'Folder'}
+          </span>
+          {opened != null && (
+            <time
+              className="mt-1 block text-[11px] text-muted-foreground"
+              dateTime={folder.lastOpened}
+            >
+              {opened}
+            </time>
+          )}
+        </span>
+      </button>
+      <TooltipProvider delayDuration={500}>
+        <span className="flex shrink-0 items-center gap-0.5 opacity-100 transition-opacity sm:opacity-0 sm:group-hover:opacity-100 sm:group-focus-within:opacity-100">
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon-md"
+                aria-label={`Open ${folder.name} in new tab`}
+                className="size-9 shadow-none sm:size-8"
+                disabled={rowDisabled}
+                onClick={onOpenInNewTab}
+              >
+                <IconArrowUpRight className="size-4" />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent className="shadow-none">Open in New Tab</TooltipContent>
+          </Tooltip>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon-md"
+                aria-label={`Remove ${folder.name} from recent folders`}
+                className="size-9 shadow-none hover:text-destructive sm:size-8"
+                disabled={rowDisabled}
+                onClick={onRemove}
+              >
+                <IconTrash className="size-4" />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent className="shadow-none">Remove from Recent</TooltipContent>
+          </Tooltip>
+        </span>
+      </TooltipProvider>
+    </div>
   )
 }
 
@@ -167,9 +223,16 @@ export function GitnaHome({
   onBack,
   onClearSwitchError,
   onOpenFolder,
+  onOpenFolderInNewTab,
   onRefresh,
+  onRemoveRecentFolder,
 }: GitnaHomeProps) {
   const [query, setQuery] = useState('')
+  const [recentAction, setRecentAction] = useState<{
+    path: string
+    type: 'new-tab' | 'remove'
+  } | null>(null)
+  const [recentActionError, setRecentActionError] = useState<string | null>(null)
   const recentListRef = useRef<HTMLUListElement>(null)
   const recentSearchRef = useRef<HTMLInputElement>(null)
   const recent = useMemo(
@@ -337,19 +400,52 @@ export function GitnaHome({
                   buttons[next]?.focus()
                 }}
               >
-                {filteredRecent.map((folder) => (
-                  <li key={folder.path}>
-                    <FolderButton
-                      disabled={opening}
-                      folder={folder}
-                      onClick={() => {
-                        onClearSwitchError()
-                        void onOpenFolder(folder.path)
-                      }}
-                    />
-                  </li>
-                ))}
+                {filteredRecent.map((folder) => {
+                  const action = recentAction?.path === folder.path ? recentAction.type : null
+                  return (
+                    <li key={folder.path}>
+                      <FolderRow
+                        action={action}
+                        disabled={opening || recentAction != null}
+                        folder={folder}
+                        onOpen={() => {
+                          setRecentActionError(null)
+                          onClearSwitchError()
+                          void onOpenFolder(folder.path)
+                        }}
+                        onOpenInNewTab={() => {
+                          setRecentAction({ path: folder.path, type: 'new-tab' })
+                          setRecentActionError(null)
+                          void onOpenFolderInNewTab(folder.path)
+                            .catch((reason: unknown) => {
+                              setRecentActionError(
+                                reason instanceof Error ? reason.message : String(reason),
+                              )
+                            })
+                            .finally(() => setRecentAction(null))
+                        }}
+                        onRemove={() => {
+                          setRecentAction({ path: folder.path, type: 'remove' })
+                          setRecentActionError(null)
+                          void onRemoveRecentFolder(folder.path)
+                            .catch((reason: unknown) => {
+                              setRecentActionError(
+                                reason instanceof Error ? reason.message : String(reason),
+                              )
+                            })
+                            .finally(() => setRecentAction(null))
+                        }}
+                      />
+                    </li>
+                  )
+                })}
               </ul>
+            )}
+
+            {recentActionError != null && (
+              <p className="mt-3 text-sm text-destructive" role="alert">
+                {recentActionError}
+              </p>
             )}
 
             {recent.length > 0 && filteredRecent.length === 0 && (

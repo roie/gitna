@@ -778,6 +778,18 @@ export class GitnaRepository {
     }
   }
 
+  async removeRecentFolder(path: string): Promise<void> {
+    await this.api.removeRecentFolder(path)
+    if (this.folders != null) {
+      this.folders = {
+        ...this.folders,
+        recent: this.folders.recent.filter((folder) => folder.path !== path),
+      }
+      this.emit()
+    }
+    await this.refreshFolders()
+  }
+
   revealFolder(): Promise<void> {
     return this.api.revealFolder()
   }

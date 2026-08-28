@@ -1116,6 +1116,85 @@ test('Gitna Home searches recent folders and protects dirty drafts', async ({ pa
   await expect(recentFolder).toHaveCount(0)
   await expect(recentOtherFolder).toBeVisible()
 
+  const openOtherInNewTab = page.getByRole('button', {
+    name: `Open ${basename(otherFolder)} in new tab`,
+  })
+  const removeOtherFromRecent = page.getByRole('button', {
+    name: `Remove ${basename(otherFolder)} from recent folders`,
+  })
+  await openOtherInNewTab.focus()
+  await expect(openOtherInNewTab).toBeVisible()
+  await removeOtherFromRecent.focus()
+  await expect(removeOtherFromRecent).toBeVisible()
+  await recentOtherFolder.hover()
+  await expect(openOtherInNewTab.locator('svg')).toHaveCount(1)
+  await expect(removeOtherFromRecent.locator('svg')).toHaveCount(1)
+  await openOtherInNewTab.hover()
+  const openTooltip = page.getByRole('tooltip', { name: 'Open in New Tab' })
+  await expect(openTooltip).toBeVisible()
+  expect(
+    await openTooltip.evaluate((element) => {
+      const shadow = getComputedStyle(element).boxShadow
+      if (shadow === 'none') return true
+      return [...shadow.matchAll(/rgba\([^)]*,\s*([\d.]+)\)/g)].every(
+        (match) => Number(match[1]) === 0,
+      )
+    }),
+  ).toBe(true)
+
+  await page.route(
+    '**/api/v1/folder',
+    async (route) => {
+      await route.fulfill({ status: 400, json: { error: 'test route failure' } })
+    },
+    { times: 1 },
+  )
+  const failedPopupPromise = page.waitForEvent('popup')
+  await openOtherInNewTab.click()
+  const failedPopup = await failedPopupPromise
+  await expect(page.getByRole('alert')).toContainText('test route failure')
+  await expect.poll(() => failedPopup.isClosed()).toBe(true)
+
+  const popupPromise = page.waitForEvent('popup')
+  await openOtherInNewTab.click()
+  const otherPage = await popupPromise
+  await expect(otherPage).toHaveTitle(`${basename(otherFolder)} - Gitna`)
+  await expect(otherPage).toHaveURL(/\/home-other-folder\/$/)
+  await expect(
+    page.getByRole('heading', { name: 'Welcome back to Gitna', exact: true }),
+  ).toBeVisible()
+  await expect(page).toHaveURL(capabilityUrl)
+
+  await page.route(
+    '**/api/v1/folders/recent',
+    async (route) => {
+      await route.fulfill({ status: 500, json: { error: 'test removal failure' } })
+    },
+    { times: 1 },
+  )
+  await recentOtherFolder.hover()
+  await removeOtherFromRecent.click()
+  await expect(page.getByRole('alert')).toContainText('test removal failure')
+  await expect(recentOtherFolder).toBeVisible()
+
+  await recentOtherFolder.hover()
+  await removeOtherFromRecent.click()
+  await expect(recentOtherFolder).toHaveCount(0)
+  await otherPage.reload()
+  await expect(otherPage).toHaveTitle(`${basename(otherFolder)} - Gitna`)
+
+  await page.evaluate(async (path) => {
+    const response = await fetch('api/v1/folder', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ path }),
+    })
+    if (!response.ok) throw new Error(await response.text())
+  }, otherFolder)
+  await page.getByRole('button', { name: 'Refresh recent folders' }).click()
+  await expect(recentOtherFolder).toBeVisible()
+  await otherPage.close()
+
   const homeTrigger = page.getByRole('button', { name: 'Open Gitna Home' })
   await page.getByRole('button', { name: `Back to ${basename(app.repo)}` }).click()
   await expect(homeTrigger).toBeFocused()

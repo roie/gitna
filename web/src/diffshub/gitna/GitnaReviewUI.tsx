@@ -701,6 +701,28 @@ function GitnaReviewUIInner() {
     },
     [repository],
   )
+  const openFolderInNewTab = useCallback(
+    (path: string): Promise<void> => {
+      const newTab = window.open('about:blank', '_blank')
+      if (newTab == null) {
+        return Promise.reject(new Error('Allow pop-ups to open this folder in a new tab.'))
+      }
+      return repository
+        .openFolder(path)
+        .then((result) => {
+          const target = new URL(result.href, window.location.href)
+          if (target.origin !== window.location.origin) {
+            throw new Error('folder route must remain on the current Gitna origin')
+          }
+          if (!newTab.closed) newTab.location.replace(target.href)
+        })
+        .catch((error: unknown) => {
+          if (!newTab.closed) newTab.close()
+          throw error
+        })
+    },
+    [repository],
+  )
   const requestFolderSwitch = useCallback(
     async (path: string, returnHome: boolean) => {
       if (path === repository.snapshot?.root) {
@@ -872,7 +894,9 @@ function GitnaReviewUIInner() {
             onBack={closeHome}
             onClearSwitchError={() => setHomeSwitchError(null)}
             onOpenFolder={(path) => requestFolderSwitch(path, true)}
+            onOpenFolderInNewTab={openFolderInNewTab}
             onRefresh={() => void repository.refreshFolders()}
+            onRemoveRecentFolder={(path) => repository.removeRecentFolder(path)}
           />
         )}
         <div
