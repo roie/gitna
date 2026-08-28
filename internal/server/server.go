@@ -25,6 +25,7 @@ type Repo interface {
 	Review(ctx context.Context, scope protocol.DiffScope, opts protocol.DiffOptions, after string) (protocol.ReviewPage, error)
 	History(ctx context.Context, skip, limit int) ([]protocol.GraphCommit, error)
 	FilesChanged(ctx context.Context, oid string) (protocol.CommitFiles, error)
+	CommitFile(ctx context.Context, oid, path string, before bool) (protocol.FileDiff, error)
 	Branches(ctx context.Context) ([]protocol.Branch, error)
 	StagePaths(ctx context.Context, paths []string) error
 	UnstagePaths(ctx context.Context, paths []string) error

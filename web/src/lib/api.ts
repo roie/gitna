@@ -129,6 +129,7 @@ export interface ApiClient {
   commit(request: CommitRequest): Promise<OperationResult>
   graph(skip?: number): Promise<GraphPage>
   commitFiles(oid: string): Promise<CommitFiles>
+  commitFile(oid: string, path: string, before?: boolean): Promise<FileDiff>
   branches(): Promise<Branch[]>
   stashes(): Promise<StashEntry[]>
   tags(): Promise<Tag[]>
@@ -327,6 +328,16 @@ export function createApi(): ApiClient {
         await fetch(`api/v1/commit/${oid}/files`, { signal: AbortSignal.timeout(FETCH_TIMEOUT) }),
       )
       return (await res.json()) as CommitFiles
+    },
+    async commitFile(oid: string, path: string, before = false): Promise<FileDiff> {
+      const query = new URLSearchParams({ path })
+      if (before) query.set('side', 'before')
+      const res = await expectOK(
+        await fetch(`api/v1/commit/${encodeURIComponent(oid)}/file?${query.toString()}`, {
+          signal: AbortSignal.timeout(FETCH_TIMEOUT),
+        }),
+      )
+      return (await res.json()) as FileDiff
     },
     async branches(): Promise<Branch[]> {
       const res = await expectOK(

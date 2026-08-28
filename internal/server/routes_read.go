@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"os"
 	"strconv"
 	"strings"
 
@@ -55,7 +56,9 @@ func (s *Server) apiRoutes() http.Handler {
 			s.handleConflicts(w, r)
 		case r.Method == http.MethodGet && p == "/compare":
 			s.handleCompare(w, r)
-		case r.Method == http.MethodGet && strings.HasPrefix(p, "/commit/") && strings.HasSuffix(p, "/files"):
+		case r.Method == http.MethodGet && isCommitSubroute(p, "file"):
+			s.handleCommitFile(w, r)
+		case r.Method == http.MethodGet && isCommitSubroute(p, "files"):
 			s.handleCommitFiles(w, r)
 		case r.Method == http.MethodGet && p == "/events":
 			s.handleEvents(w, r)
@@ -383,6 +386,46 @@ func (s *Server) handleBranches(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, branches)
+}
+
+func isCommitSubroute(requestPath, action string) bool {
+	rest := strings.TrimPrefix(requestPath, "/commit/")
+	oid, tail, found := strings.Cut(rest, "/")
+	return found && oid != "" && !strings.Contains(oid, "/") && tail == action
+}
+
+// handleCommitFile returns one bounded file exactly as stored in a commit.
+func (s *Server) handleCommitFile(w http.ResponseWriter, r *http.Request) {
+	if s.repo == nil {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "repository unavailable"})
+		return
+	}
+	p := strings.TrimPrefix(r.URL.Path, "/api/v1")
+	rest := strings.TrimPrefix(p, "/commit/")
+	oid, _, _ := strings.Cut(rest, "/")
+	path := r.URL.Query().Get("path")
+	side := r.URL.Query().Get("side")
+	if side != "" && side != "before" {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "side must be before when provided"})
+		return
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), DiffTimeout)
+	defer cancel()
+	file, err := s.repo.CommitFile(ctx, oid, path, side == "before")
+	if err != nil {
+		switch {
+		case timeoutReached(ctx, err):
+			writeJSON(w, http.StatusGatewayTimeout, map[string]string{"error": "commit file timed out"})
+		case errors.Is(err, protocol.ErrInvalidRef), errors.Is(err, protocol.ErrInvalidPath):
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		case errors.Is(err, os.ErrNotExist):
+			writeJSON(w, http.StatusNotFound, map[string]any{"error": err.Error(), "code": "file-not-found"})
+		default:
+			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		}
+		return
+	}
+	writeJSON(w, http.StatusOK, file)
 }
 
 // handleCommitFiles returns the paths changed by one commit. The OID is the

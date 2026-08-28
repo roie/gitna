@@ -153,6 +153,7 @@ const FILE_TREE_ACTION_SPRITE_SHEET = `
   <symbol id="gitna-action-stage" viewBox="0 0 16 16"><path d="M7 3h2v4h4v2H9v4H7V9H3V7h4z" /></symbol>
   <symbol id="gitna-action-unstage" viewBox="0 0 16 16"><path d="M3 7h10v2H3z" /></symbol>
   <symbol id="gitna-action-discard" viewBox="0 0 16 16"><path d="M6 3v2h4a4 4 0 1 1 0 8H8v-2h2a2 2 0 1 0 0-4H6v2L2 6l4-4v1z" /></symbol>
+  <symbol id="gitna-action-open-file" viewBox="0 0 16 16"><path d="M3 2h7l3 3v9H3V2zm2 2v8h6V6H9V4H5zm1 3h4v1.5H6V7zm0 2.5h4V11H6V9.5z" /></symbol>
 </svg>`;
 
 const SHARED_FILE_TREE_UNSAFE_CSS = `${HIDDEN_SEARCH_UNSAFE_CSS}\n${SIDEBAR_VIRTUALIZED_SCROLL_UNSAFE_CSS}\n${FOLDER_LABEL_UNSAFE_CSS}`;

@@ -59,6 +59,10 @@ func (w *workbenchRepo) FilesChanged(ctx context.Context, oid string) (protocol.
 	return w.repo.CommitDetails(ctx, w.runner, oid)
 }
 
+func (w *workbenchRepo) CommitFile(ctx context.Context, oid, path string, before bool) (protocol.FileDiff, error) {
+	return w.repo.ReadCommitFile(ctx, w.runner, oid, path, before)
+}
+
 func (w *workbenchRepo) Branches(ctx context.Context) ([]protocol.Branch, error) {
 	return w.repo.ListBranches(ctx, w.runner)
 }
@@ -854,6 +858,17 @@ func TestGraphViaAPI(t *testing.T) {
 	}
 	if !found {
 		t.Fatalf("merge files = %+v, want added f.txt", cf.Files)
+	}
+	fileRec := h.get("/api/v1/commit/" + merge.OID + "/file?path=f.txt")
+	if fileRec.Code != http.StatusOK {
+		t.Fatalf("commit file status = %d (%s)", fileRec.Code, fileRec.Body)
+	}
+	var committedFile protocol.FileDiff
+	if err := json.Unmarshal(fileRec.Body.Bytes(), &committedFile); err != nil {
+		t.Fatalf("unmarshal commit file: %v", err)
+	}
+	if committedFile.After.Content != "f\n" {
+		t.Fatalf("commit file content = %q, want f", committedFile.After.Content)
 	}
 
 	rootOID := page.Commits[3].OID

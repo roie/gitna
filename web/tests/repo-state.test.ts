@@ -101,6 +101,9 @@ const auxApi: ApiClient = {
   async commitFiles() {
     return { files: [] }
   },
+  async commitFile() {
+    throw new Error('commitFile not used')
+  },
   async branches() {
     return []
   },
@@ -381,6 +384,33 @@ describe('createRepoState', () => {
     expect(removeRecentFolder).toHaveBeenCalledWith('/tmp/old')
     expect(folders).toHaveBeenCalledOnce()
     expect(state.folders.recent.map((folder) => folder.path)).toEqual(['/tmp/current'])
+  })
+
+  it('opens distinct read-only historical file tabs and reads deletes from the parent', () => {
+    const state = createRepoState({ api: auxApi })
+    state.openCommitFile('abcdef123456', 'first commit', {
+      path: 'src/main.ts',
+      kind: 'modified',
+    })
+    state.openCommitFile('fedcba654321', 'delete file', {
+      path: 'src/main.ts',
+      kind: 'deleted',
+    })
+
+    expect(state.historicalFiles).toEqual([
+      expect.objectContaining({
+        key: 'abcdef123456:after:src/main.ts',
+        before: false,
+      }),
+      expect.objectContaining({
+        key: 'fedcba654321:before:src/main.ts',
+        before: true,
+      }),
+    ])
+    expect(state.historicalFileKey).toBe('fedcba654321:before:src/main.ts')
+
+    state.closeHistoricalFiles(['fedcba654321:before:src/main.ts'])
+    expect(state.historicalFileKey).toBe('abcdef123456:after:src/main.ts')
   })
 
   it('loads and caches commit files with lazy graph statistics', async () => {

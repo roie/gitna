@@ -38,6 +38,14 @@ export interface CommitDiffTarget {
   kind: ChangeKind
 }
 
+export interface HistoricalFileTarget {
+  key: string
+  oid: string
+  subject: string
+  path: string
+  before: boolean
+}
+
 export interface CompareTarget {
   from: string
   to: string
@@ -178,6 +186,8 @@ export class GitnaRepository {
   filesLoading: Record<string, boolean> = {}
   filesError: Record<string, string> = {}
   commitDiff: CommitDiffTarget | null = null
+  historicalFiles: HistoricalFileTarget[] = []
+  historicalFileKey: string | null = null
 
   branches: Branch[] = []
   branchesLoading = false
@@ -495,6 +505,7 @@ export class GitnaRepository {
       this.selection = null
       this.repositoryFilePath = null
       this.commitDiff = null
+      this.historicalFileKey = null
       this.emit()
       return
     }
@@ -506,6 +517,7 @@ export class GitnaRepository {
     this.selection = { scope, change }
     this.repositoryFilePath = null
     this.commitDiff = null
+    this.historicalFileKey = null
     this.compareDiff = null
     this.emit()
   }
@@ -523,6 +535,7 @@ export class GitnaRepository {
     if (!this.canOpenRepositoryFile(path) && !this.repositoryOpenPaths.includes(path)) return
     this.selection = null
     this.commitDiff = null
+    this.historicalFileKey = null
     this.compareDiff = null
     this.repositoryFilePath = path
     if (!this.repositoryOpenPaths.includes(path)) {
@@ -544,6 +557,9 @@ export class GitnaRepository {
       const nextPath = openPaths.slice(currentIndex + 1).find((path) => !closing.has(path))
       const previousPath = openPaths.slice(0, currentIndex).findLast((path) => !closing.has(path))
       this.repositoryFilePath = nextPath ?? previousPath ?? null
+      if (this.repositoryFilePath == null && this.historicalFiles.length > 0) {
+        this.historicalFileKey = this.historicalFiles.at(-1)?.key ?? null
+      }
     }
     this.emit()
   }
@@ -551,8 +567,53 @@ export class GitnaRepository {
   selectCommitFile(oid: string, subject: string, file: CommitFile): void {
     this.selection = null
     this.repositoryFilePath = null
+    this.historicalFileKey = null
     this.compareDiff = null
     this.commitDiff = { oid, subject, ...file }
+    this.emit()
+  }
+
+  openCommitFile(oid: string, subject: string, file: CommitFile): void {
+    const before = file.kind === 'deleted'
+    const key = `${oid}:${before ? 'before' : 'after'}:${file.path}`
+    if (!this.historicalFiles.some((candidate) => candidate.key === key)) {
+      this.historicalFiles = [
+        ...this.historicalFiles,
+        { key, oid, subject, path: file.path, before },
+      ]
+    }
+    this.selection = null
+    this.repositoryFilePath = null
+    this.commitDiff = null
+    this.compareDiff = null
+    this.historicalFileKey = key
+    this.emit()
+  }
+
+  selectHistoricalFile(key: string): void {
+    if (!this.historicalFiles.some((file) => file.key === key)) return
+    this.selection = null
+    this.repositoryFilePath = null
+    this.commitDiff = null
+    this.compareDiff = null
+    this.historicalFileKey = key
+    this.emit()
+  }
+
+  closeHistoricalFiles(keys: readonly string[]): void {
+    const closing = new Set(keys)
+    if (!this.historicalFiles.some((file) => closing.has(file.key))) return
+    const openFiles = this.historicalFiles
+    const currentIndex = openFiles.findIndex((file) => file.key === this.historicalFileKey)
+    this.historicalFiles = openFiles.filter((file) => !closing.has(file.key))
+    if (this.historicalFileKey != null && closing.has(this.historicalFileKey)) {
+      const next = openFiles.slice(currentIndex + 1).find((file) => !closing.has(file.key))
+      const previous = openFiles.slice(0, currentIndex).findLast((file) => !closing.has(file.key))
+      this.historicalFileKey = next?.key ?? previous?.key ?? null
+      if (this.historicalFileKey == null && this.repositoryOpenPaths.length > 0) {
+        this.repositoryFilePath = this.repositoryOpenPaths.at(-1) ?? null
+      }
+    }
     this.emit()
   }
 
@@ -561,6 +622,7 @@ export class GitnaRepository {
     this.selection = null
     this.repositoryFilePath = null
     this.commitDiff = null
+    this.historicalFileKey = null
     this.compareDiff = {
       from: this.compare.from,
       to: this.compare.to,

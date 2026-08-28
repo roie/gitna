@@ -41,9 +41,10 @@ import {
   diffImageAnnotations,
   type GitnaReviewAccumulator,
 } from './reviewAdapter'
-import { useRepository } from './repository'
+import { type HistoricalFileTarget, useRepository } from './repository'
 
 interface ReviewTarget {
+  commitFile?: HistoricalFileTarget
   filePath?: string
   key: string
   oldPath?: string
@@ -128,12 +129,23 @@ function repositoryFileErrorMessage(error: unknown): string {
   if (error instanceof ApiError) {
     if (error.code === 'file-too-large') return 'This file is too large to open in Gitna.'
     if (error.code === 'binary-file') return 'Binary files can’t be opened in the editor.'
+    if (error.code === 'file-not-found') return 'This file does not exist at the selected commit.'
   }
   return error instanceof Error ? error.message : String(error)
 }
 
 function useReviewTarget(): ReviewTarget | null {
   const repository = useRepository()
+  const historicalFile = repository.historicalFiles.find(
+    (file) => file.key === repository.historicalFileKey,
+  )
+  if (historicalFile != null) {
+    return {
+      commitFile: historicalFile,
+      key: `historical:${historicalFile.key}`,
+      selectedPath: historicalFile.path,
+    }
+  }
   if (repository.compare != null) {
     return {
       key: `compare:${repository.compare.from}:${repository.compare.to}`,
@@ -199,6 +211,7 @@ function GitnaReviewUIInner() {
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
   const [reviewData, setReviewData] = useState<LoadedDiffsHubData | null>(null)
   const [imageDiff, setImageDiff] = useState<FileDiff | null>(null)
+  const [historicalFileDiff, setHistoricalFileDiff] = useState<FileDiff | null>(null)
   const [reviewAttempt, setReviewAttempt] = useState(0)
   const [reviewActionError, setReviewActionError] = useState<string | null>(null)
   const [homeOpen, setHomeOpen] = useState(false)
@@ -332,6 +345,7 @@ function GitnaReviewUIInner() {
     if (target == null) {
       reviewDataRef.current = null
       setReviewData(null)
+      setHistoricalFileDiff(null)
       setErrorMessage(null)
       setLoadState(repository.snapshot?.repository === false ? 'ready' : 'fetching')
       return
@@ -347,6 +361,13 @@ function GitnaReviewUIInner() {
       setLoadState('fetching')
     }
     setErrorMessage(null)
+    setHistoricalFileDiff(null)
+    let loadedHistoricalFile: FileDiff | null = null
+    const loadHistoricalFile = async (file: HistoricalFileTarget): Promise<LoadedDiffsHubData> => {
+      const diff = await repository.api.commitFile(file.oid, file.path, file.before)
+      loadedHistoricalFile = diff
+      return adaptGitnaFile(diff, repository.generation)
+    }
     const loadRepositoryFile = async (path: string): Promise<LoadedDiffsHubData> => {
       try {
         const loaded = await repository.api.readWorktreeFile(path)
@@ -410,22 +431,28 @@ function GitnaReviewUIInner() {
       }
       return result.data
     }
-    const dataPromise = target.filePath == null ? loadReview() : loadRepositoryFile(target.filePath)
+    const dataPromise =
+      target.commitFile == null
+        ? target.filePath == null
+          ? loadReview()
+          : loadRepositoryFile(target.filePath)
+        : loadHistoricalFile(target.commitFile)
     dataPromise
       .then((data) => {
         if (!active) return
         if (!refreshingVisibleReview) setLoadState('parsing')
+        setHistoricalFileDiff(loadedHistoricalFile)
         setReviewData(data)
         setLoadState('ready')
       })
       .catch((error: unknown) => {
         if (!active) return
         const nextError =
-          target.filePath == null
-            ? error instanceof Error
+          target.filePath != null || target.commitFile != null
+            ? repositoryFileErrorMessage(error)
+            : error instanceof Error
               ? error.message
               : String(error)
-            : repositoryFileErrorMessage(error)
         if (reviewDataRef.current == null) {
           setErrorMessage(nextError)
           setLoadState('error')
@@ -917,7 +944,19 @@ function GitnaReviewUIInner() {
           <div className="flex min-h-0 flex-col [grid-area:viewer]">
             <RepositoryFileTabs dirtyPaths={dirtyPaths} onClose={closeRepositoryFiles} />
             <div className="min-h-0 flex-1">
-              {repository.snapshot?.repository === false && target == null ? (
+              {target?.commitFile != null && historicalFileDiff?.tooLarge === true ? (
+                <HistoricalFilePlaceholder
+                  path={target?.selectedPath ?? ''}
+                  message="This historical file is too large to display."
+                />
+              ) : target?.commitFile != null &&
+                historicalFileDiff?.binary === true &&
+                historicalFileDiff.after.image == null ? (
+                <HistoricalFilePlaceholder
+                  path={target?.selectedPath ?? ''}
+                  message="This historical file is binary and cannot be displayed as text."
+                />
+              ) : repository.snapshot?.repository === false && target == null ? (
                 <FolderEmptyState />
               ) : loadState === 'ready' && reviewData != null && reviewData.items.length === 0 ? (
                 <GitnaEmptyState scope={target?.request?.scope} />
@@ -1074,16 +1113,32 @@ function RepositoryFileTabs({
     path: string
   } | null>(null)
   const openPaths = repository.repositoryOpenPaths
+  const historicalFiles = repository.historicalFiles
+  const tabs = useMemo(
+    () => [
+      ...openPaths.map((path) => ({ key: `working:${path}`, path, historical: false as const })),
+      ...historicalFiles.map((file) => ({ ...file, historical: true as const })),
+    ],
+    [historicalFiles, openPaths],
+  )
   useEffect(() => {
-    const activeIndex = openPaths.indexOf(repository.repositoryFilePath ?? '')
+    const activeIndex = tabs.findIndex((tab) =>
+      tab.historical
+        ? tab.key === repository.historicalFileKey
+        : tab.path === repository.repositoryFilePath && repository.historicalFileKey == null,
+    )
     if (activeIndex < 0) return
     queueMicrotask(() =>
       tablistRef.current
         ?.querySelector<HTMLElement>(`[data-tab-index="${activeIndex}"]`)
         ?.scrollIntoView({ block: 'nearest', inline: 'nearest' }),
     )
-  }, [openPaths, repository.repositoryFilePath])
-  if (repository.repositoryFilePath == null || openPaths.length === 0) return null
+  }, [repository.historicalFileKey, repository.repositoryFilePath, tabs])
+  if (
+    tabs.length === 0 ||
+    (repository.repositoryFilePath == null && repository.historicalFileKey == null)
+  )
+    return null
   const openContextMenu = (
     path: string,
     index: number,
@@ -1111,19 +1166,28 @@ function RepositoryFileTabs({
           if (event.currentTarget.scrollLeft !== previousScrollLeft) event.preventDefault()
         }}
       >
-        {openPaths.map((path, index) => {
-          const active = repository.repositoryFilePath === path
-          const name = path.split('/').at(-1) ?? path
-          const icon = repositoryTabIconResolver.resolveIcon('file-tree-icon-file', path)
+        {tabs.map((tab, index) => {
+          const active = tab.historical
+            ? repository.historicalFileKey === tab.key
+            : repository.historicalFileKey == null && repository.repositoryFilePath === tab.path
+          const name = tab.path.split('/').at(-1) ?? tab.path
+          const label = tab.historical ? `${name} @ ${tab.oid.slice(0, 8)}` : name
+          const title = tab.historical ? `${tab.path} at commit ${tab.oid}` : tab.path
+          const closeLabel = tab.historical ? label : tab.path
+          const icon = repositoryTabIconResolver.resolveIcon('file-tree-icon-file', tab.path)
           const iconHref = `#${icon.name.replace(/^#/, '')}`
           const iconViewBox =
             icon.viewBox ?? `0 0 ${String(icon.width ?? 16)} ${String(icon.height ?? 16)}`
+          const closeTab = () => {
+            if (tab.historical) repository.closeHistoricalFiles([tab.key])
+            else onClose([tab.path])
+          }
           return (
             <div
-              key={path}
+              key={tab.key}
               data-tab-index={index}
               className={cn(
-                'group/tab flex h-7 max-w-56 shrink-0 items-center rounded-md text-xs',
+                'group/tab flex h-7 max-w-64 shrink-0 items-center rounded-md text-xs',
                 active
                   ? 'bg-muted text-foreground'
                   : 'text-muted-foreground hover:bg-muted/60 hover:text-foreground',
@@ -1131,12 +1195,16 @@ function RepositoryFileTabs({
               onAuxClick={(event) => {
                 if (event.button !== 1) return
                 event.preventDefault()
-                onClose([path])
+                closeTab()
               }}
               onContextMenu={(event) => {
+                if (tab.historical) return
                 event.preventDefault()
-                const tab = event.currentTarget.querySelector<HTMLButtonElement>('[role="tab"]')
-                if (tab != null) openContextMenu(path, index, tab, tab.getBoundingClientRect())
+                const target = event.currentTarget.querySelector<HTMLButtonElement>('[role="tab"]')
+                if (target != null) {
+                  const workingIndex = openPaths.indexOf(tab.path)
+                  openContextMenu(tab.path, workingIndex, target, target.getBoundingClientRect())
+                }
               }}
               onMouseDown={(event) => {
                 if (event.button === 1) event.preventDefault()
@@ -1147,15 +1215,23 @@ function RepositoryFileTabs({
                 role="tab"
                 aria-selected={active}
                 className="flex min-w-0 flex-1 cursor-pointer items-center gap-1.5 py-1 pl-2.5 text-left"
-                title={path}
-                onClick={() => repository.selectRepositoryFile(path)}
+                title={title}
+                onClick={() =>
+                  tab.historical
+                    ? repository.selectHistoricalFile(tab.key)
+                    : repository.selectRepositoryFile(tab.path)
+                }
                 onKeyDown={(event) => {
-                  if (event.key !== 'ContextMenu' && !(event.shiftKey && event.key === 'F10'))
+                  if (
+                    tab.historical ||
+                    (event.key !== 'ContextMenu' && !(event.shiftKey && event.key === 'F10'))
+                  )
                     return
                   event.preventDefault()
+                  const workingIndex = openPaths.indexOf(tab.path)
                   openContextMenu(
-                    path,
-                    index,
+                    tab.path,
+                    workingIndex,
                     event.currentTarget,
                     event.currentTarget.getBoundingClientRect(),
                   )
@@ -1179,8 +1255,8 @@ function RepositoryFileTabs({
                 >
                   <use href={iconHref} />
                 </svg>
-                <span className="truncate">{name}</span>
-                {dirtyPaths.has(path) && (
+                <span className="truncate">{label}</span>
+                {!tab.historical && dirtyPaths.has(tab.path) && (
                   <span
                     aria-label="Unsaved changes"
                     className="size-1.5 shrink-0 rounded-full bg-current"
@@ -1190,9 +1266,9 @@ function RepositoryFileTabs({
               <button
                 type="button"
                 className="mr-1 flex size-5 shrink-0 cursor-pointer items-center justify-center rounded text-muted-foreground opacity-0 hover:bg-background/70 hover:text-foreground group-focus-within/tab:opacity-100 group-hover/tab:opacity-100"
-                aria-label={`Close ${path}`}
-                title={`Close ${path}`}
-                onClick={() => onClose([path])}
+                aria-label={`Close ${closeLabel}`}
+                title={`Close ${closeLabel}`}
+                onClick={closeTab}
               >
                 <IconX className="size-3" />
               </button>
@@ -1269,6 +1345,17 @@ function RepositoryFileTabs({
           </DropdownMenuContent>
         </DropdownMenu>
       )}
+    </div>
+  )
+}
+
+function HistoricalFilePlaceholder({ path, message }: { path: string; message: string }) {
+  return (
+    <div className="flex h-full min-h-0 items-center justify-center bg-background p-6">
+      <section role="status" className="max-w-md text-center">
+        <p className="font-medium">{path}</p>
+        <p className="mt-1 text-sm text-muted-foreground">{message}</p>
+      </section>
     </div>
   )
 }

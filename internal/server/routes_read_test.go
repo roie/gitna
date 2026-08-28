@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"os"
 	"strings"
 	"sync"
 	"testing"
@@ -22,13 +23,17 @@ type fakeRepo struct {
 	reviewNextAfter string
 	files           protocol.RepositoryFiles
 
-	graphCommits []protocol.GraphCommit
-	graphFiles   []protocol.CommitFile
-	graphStats   protocol.CommitStats
-	branches     []protocol.Branch
-	stashes      []protocol.StashEntry
-	tags         []protocol.Tag
-	compareFiles []protocol.CommitFile
+	graphCommits     []protocol.GraphCommit
+	graphFiles       []protocol.CommitFile
+	graphStats       protocol.CommitStats
+	commitFile       protocol.FileDiff
+	commitFileOID    string
+	commitFilePath   string
+	commitFileBefore bool
+	branches         []protocol.Branch
+	stashes          []protocol.StashEntry
+	tags             []protocol.Tag
+	compareFiles     []protocol.CommitFile
 
 	mu            sync.Mutex
 	stageOps      []string
@@ -117,6 +122,16 @@ func (f *fakeRepo) FilesChanged(context.Context, string) (protocol.CommitFiles, 
 		return protocol.CommitFiles{}, f.err
 	}
 	return protocol.CommitFiles{Files: f.graphFiles, Stats: f.graphStats}, nil
+}
+
+func (f *fakeRepo) CommitFile(_ context.Context, oid, path string, before bool) (protocol.FileDiff, error) {
+	f.commitFileOID = oid
+	f.commitFilePath = path
+	f.commitFileBefore = before
+	if f.err != nil {
+		return protocol.FileDiff{}, f.err
+	}
+	return f.commitFile, nil
 }
 
 func (f *fakeRepo) Branches(context.Context) ([]protocol.Branch, error) {
@@ -754,6 +769,70 @@ func TestGraphRouteError(t *testing.T) {
 
 	if rec.Code != http.StatusInternalServerError {
 		t.Fatalf("status = %d, want %d", rec.Code, http.StatusInternalServerError)
+	}
+}
+
+func TestCommitFileRouteReturnsBoundedHistoricalFile(t *testing.T) {
+	repo := &fakeRepo{commitFile: protocol.FileDiff{
+		After: protocol.FileVersion{Path: "src/main.ts", Content: "committed\n", Language: "typescript"},
+	}}
+	h := newSnapshotServer(repo)
+	req := httptest.NewRequest(http.MethodGet, "/g/"+testToken+"/api/v1/commit/abc123/file?path=src%2Fmain.ts&side=before", nil)
+	req.Host = testHost
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200 (%s)", rec.Code, rec.Body)
+	}
+	if repo.commitFileOID != "abc123" || repo.commitFilePath != "src/main.ts" || !repo.commitFileBefore {
+		t.Fatalf("request = %q %q before=%v", repo.commitFileOID, repo.commitFilePath, repo.commitFileBefore)
+	}
+	var got protocol.FileDiff
+	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
+		t.Fatal(err)
+	}
+	if got.After.Content != "committed\n" || got.After.Path != "src/main.ts" {
+		t.Fatalf("file = %#v", got)
+	}
+}
+
+func TestCommitFileRouteRejectsMalformedRouteAndSide(t *testing.T) {
+	for _, path := range []string{
+		"/g/" + testToken + "/api/v1/commit/abc123/extra/file?path=a.txt",
+		"/g/" + testToken + "/api/v1/commit/abc123/file?path=a.txt&side=after",
+	} {
+		h := newSnapshotServer(&fakeRepo{})
+		req := httptest.NewRequest(http.MethodGet, path, nil)
+		req.Host = testHost
+		rec := httptest.NewRecorder()
+		h.ServeHTTP(rec, req)
+		if rec.Code != http.StatusBadRequest && rec.Code != http.StatusNotFound {
+			t.Fatalf("%s status = %d, want 400 or 404", path, rec.Code)
+		}
+	}
+}
+
+func TestCommitFileRouteMapsInputAndMissingErrors(t *testing.T) {
+	for _, test := range []struct {
+		name   string
+		err    error
+		status int
+	}{
+		{name: "invalid ref", err: protocol.ErrInvalidRef, status: http.StatusBadRequest},
+		{name: "invalid path", err: protocol.ErrInvalidPath, status: http.StatusBadRequest},
+		{name: "missing", err: os.ErrNotExist, status: http.StatusNotFound},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			h := newSnapshotServer(&fakeRepo{err: test.err})
+			req := httptest.NewRequest(http.MethodGet, "/g/"+testToken+"/api/v1/commit/abc123/file?path=a.txt", nil)
+			req.Host = testHost
+			rec := httptest.NewRecorder()
+			h.ServeHTTP(rec, req)
+			if rec.Code != test.status {
+				t.Fatalf("status = %d, want %d (%s)", rec.Code, test.status, rec.Body)
+			}
+		})
 	}
 }
 

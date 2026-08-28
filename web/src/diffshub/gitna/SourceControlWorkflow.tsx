@@ -2544,6 +2544,23 @@ function GraphCommitRow({
   const treeHeight = useNaturalTreeHeight(treeModel)
   const selectedPath =
     repository.commitDiff?.oid === row.commit.oid ? repository.commitDiff.path : null
+  const renderFileActions = useCallback<NonNullable<FileTreeOptions['renderRowActions']>>(
+    ({ item, row: fileRow }) => {
+      if (fileRow.kind !== 'file') return null
+      const path = source.pathToItemId.get(item.path) ?? item.path
+      const file = files?.find((candidate) => candidate.path === path)
+      if (file == null) return null
+      return [
+        {
+          id: 'open-commit-file',
+          label: `Open ${item.name} at ${shortOid}`,
+          icon: { name: 'gitna-action-open-file' },
+          onAction: () => repository.openCommitFile(row.commit.oid, row.commit.subject, file),
+        },
+      ]
+    },
+    [files, repository, row.commit.oid, row.commit.subject, shortOid, source.pathToItemId],
+  )
   const refs = row.commit.refs.filter(
     (ref, index, all) => all.findIndex((candidate) => candidate.name === ref.name) === index,
   )
@@ -2732,6 +2749,7 @@ function GraphCommitRow({
                     repository.selectCommitFile(row.commit.oid, row.commit.subject, file)
                   }
                 }}
+                renderRowActions={renderFileActions}
                 selectedPath={selectedPath}
                 source={source}
               />

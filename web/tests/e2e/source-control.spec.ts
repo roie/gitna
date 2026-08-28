@@ -215,6 +215,22 @@ test('real binary renders repository source-control state', async ({ page, app }
   await expect(graphFile).toBeVisible()
   await graphFile.click()
   await expect(repositoryTabs).toHaveCount(0)
+  await graphFile.hover()
+  const openHistoricalFile = graphFile.getByRole('button', {
+    name: `Open modified.txt at ${app.baseOid.slice(0, 8)}`,
+  })
+  await expect(openHistoricalFile).toBeVisible()
+  await openHistoricalFile.click()
+  const historicalTab = repositoryTabs.getByRole('tab', {
+    name: `modified.txt @ ${app.baseOid.slice(0, 8)}`,
+  })
+  await expect(historicalTab).toHaveAttribute('aria-selected', 'true')
+  await expect(page.getByText('base', { exact: true })).toBeVisible()
+  await expect(page.getByText('unstaged change', { exact: true })).toHaveCount(0)
+  await expect(page.getByRole('textbox', { name: 'modified.txt' })).toHaveCount(0)
+  await expect(page.getByRole('button', { name: 'Save', exact: true })).toHaveCount(0)
+  await graphFile.click()
+  await expect(repositoryTabs).toHaveCount(0)
   expect(
     await graphTree.evaluate((tree) => tree.scrollHeight - tree.clientHeight),
   ).toBeLessThanOrEqual(1)
