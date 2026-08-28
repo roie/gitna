@@ -343,7 +343,7 @@ test('working files and staged or unstaged diffs navigate as one file', async ({
   expect(
     Math.abs(stagedMenuBox!.y - (stagedChangeBox!.y + stagedChangeBox!.height / 2)),
   ).toBeLessThan(8)
-  await page.getByRole('menuitem', { name: 'Open in Repository' }).click()
+  await page.getByRole('menuitem', { name: 'Open in Explorer' }).click()
   await expect(page.getByRole('textbox', { name: 'staged.txt' })).toBeVisible()
 
   await repositoryTree
@@ -353,7 +353,7 @@ test('working files and staged or unstaged diffs navigate as one file', async ({
   await expect(page.getByRole('menuitem', { name: 'View Staged Changes' })).toBeVisible()
   await page.keyboard.press('Escape')
 
-  await page.getByRole('button', { name: 'Repository actions' }).click()
+  await page.getByRole('button', { name: 'Explorer actions' }).click()
   await page.getByRole('menuitem', { name: /Show as List/ }).click()
   await repositoryTree
     .getByRole('treeitem', { name: 'nested › navigation.txt', exact: true })
@@ -612,10 +612,10 @@ test('repository path switches the live session and remains fully editable', asy
 
   await page.goto(app.url)
   await expect(page).toHaveTitle(`${basename(app.repo)} - Gitna`)
-  const pathInput = page.getByRole('textbox', { name: 'Repository path' })
+  const pathInput = page.getByRole('textbox', { name: 'Workspace path' })
   await expect(pathInput).toHaveValue(app.repo)
   await pathInput.fill(nextRepo)
-  const switchRepository = page.getByRole('button', { name: 'Switch repository' })
+  const switchRepository = page.getByRole('button', { name: 'Switch workspace' })
   await expect(switchRepository).toBeVisible()
   await switchRepository.click()
 
@@ -632,7 +632,7 @@ test('repository path switches the live session and remains fully editable', asy
   await expect(page.locator('[data-section="repository"]')).toContainText(
     'next-repository-with-a-long-location-name',
   )
-  const clearPath = page.getByRole('button', { name: 'Clear repository path' })
+  const clearPath = page.getByRole('button', { name: 'Clear workspace path' })
   await page.mouse.move(0, 0)
   await expect(clearPath).toHaveCSS('opacity', '0')
   await pathInput.hover()
@@ -642,9 +642,7 @@ test('repository path switches the live session and remains fully editable', asy
   expect(inputBox).not.toBeNull()
   expect(clearBox).not.toBeNull()
   expect(clearBox!.x - (inputBox!.x + inputBox!.width)).toBe(4)
-  await expect(
-    page.getByRole('button', { name: 'Reveal repository in file manager' }),
-  ).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Reveal workspace in file manager' })).toBeVisible()
 })
 
 test('repository files can be edited, created in folders, and renamed', async ({ page, app }) => {
@@ -753,7 +751,7 @@ test('repository files can be edited, created in folders, and renamed', async ({
   await expect(savedStatus).toBeVisible()
   await expect(savedStatus).not.toBeVisible({ timeout: 3_000 })
 
-  const repositoryActions = page.getByRole('button', { name: 'Repository actions' })
+  const repositoryActions = page.getByRole('button', { name: 'Explorer actions' })
   await repositoryActions.click()
   await page.getByRole('menuitem', { name: 'New Folder' }).click()
   let pathInput = page.getByRole('textbox', { name: 'Repository-relative path' })
@@ -801,9 +799,9 @@ test('repository files can be edited, created in folders, and renamed', async ({
   }).toPass()
   const unsavedContents = (await renamedEditor.textContent()) ?? ''
   expect(unsavedContents).toContain('unsaved')
-  const repositoryPath = page.getByRole('textbox', { name: 'Repository path' })
+  const repositoryPath = page.getByRole('textbox', { name: 'Workspace path' })
   await repositoryPath.fill(join(app.repo, 'missing-repository'))
-  await page.getByRole('button', { name: 'Switch repository' }).click()
+  await page.getByRole('button', { name: 'Switch workspace' }).click()
   const switchConfirmation = page.getByRole('alertdialog', {
     name: 'Discard unsaved changes and switch repository?',
   })
@@ -813,7 +811,7 @@ test('repository files can be edited, created in folders, and renamed', async ({
   await expect(renamedEditor).toHaveText(unsavedContents)
 
   await repositoryPath.fill(nextRepo)
-  await page.getByRole('button', { name: 'Switch repository' }).click()
+  await page.getByRole('button', { name: 'Switch workspace' }).click()
   await expect(switchConfirmation).toBeVisible()
   await switchConfirmation.getByRole('button', { name: 'Discard and switch' }).click()
   await expect(repositoryPath).toHaveValue(nextRepo)
@@ -845,6 +843,48 @@ test('dirty repository tabs survive external file removal', async ({ page, app }
   await expect(editor).toHaveText('draft remains available')
 })
 
+test('ordinary folders open in Explorer and switch back to Git', async ({ page, app }) => {
+  const folder = join(dirname(app.repo), 'folder-workspace')
+  mkdirSync(folder)
+  writeFileSync(join(folder, 'large.bin'), Buffer.alloc(2_100_000))
+  writeFileSync(join(folder, 'notes.txt'), 'folder note\n')
+
+  await page.goto(app.url)
+  const workspacePath = page.getByRole('textbox', { name: 'Workspace path' })
+  await workspacePath.fill(folder)
+  await page.getByRole('button', { name: 'Switch workspace' }).click()
+
+  await expect(workspacePath).toHaveValue(folder)
+  await expect(page.locator('[data-section="repository"]').locator('..')).toHaveCSS(
+    'border-top-width',
+    '0px',
+  )
+  await expect(page.getByRole('status')).toContainText('Select a file from Explorer')
+  await expect(page.getByPlaceholder('Commit message')).toHaveCount(0)
+  await expect(page.locator('[data-section="graph"]')).toHaveCount(0)
+  const explorer = page.locator('#gitna-repository-tree__tree')
+  await explorer.getByRole('treeitem', { name: 'large.bin', exact: true }).click()
+  const fileError = page.getByRole('alert')
+  await expect(fileError).toContainText('Couldn’t open file')
+  await expect(fileError).toContainText('This file is too large to open in Gitna.')
+
+  await expect(explorer.getByRole('treeitem', { name: 'notes.txt', exact: true })).toBeVisible()
+  await explorer.getByRole('treeitem', { name: 'notes.txt', exact: true }).click()
+  const editor = page.getByRole('textbox', { name: 'notes.txt' })
+  await editor.click()
+  await page.keyboard.press('Control+a')
+  await page.keyboard.type('updated folder note')
+  await page.keyboard.press('Control+s')
+  await expect
+    .poll(() => readFileSync(join(folder, 'notes.txt'), 'utf8'))
+    .toBe('updated folder note')
+
+  await workspacePath.fill(app.repo)
+  await page.getByRole('button', { name: 'Switch workspace' }).click()
+  await expect(page.getByPlaceholder('Commit message')).toBeVisible()
+  await expect(page.locator('[data-section="graph"]')).toBeVisible()
+})
+
 test('repository explorer shows and independently hides hidden and ignored files', async ({
   page,
   app,
@@ -868,7 +908,7 @@ test('repository explorer shows and independently hides hidden and ignored files
   await expect(visibleHidden).toBeVisible()
   await expect(ignoredFolder).toBeVisible()
 
-  await page.getByRole('button', { name: 'Repository actions' }).click()
+  await page.getByRole('button', { name: 'Explorer actions' }).click()
   const showHidden = page.getByRole('menuitemcheckbox', { name: 'Show hidden files' })
   const showIgnored = page.getByRole('menuitemcheckbox', { name: 'Show ignored files' })
   await expect(showHidden).toBeChecked()
@@ -881,13 +921,13 @@ test('repository explorer shows and independently hides hidden and ignored files
   await expect(visibleHidden).toHaveCount(0)
   await expect(ignoredFolder).toBeVisible()
 
-  await page.getByRole('button', { name: 'Repository actions' }).click()
+  await page.getByRole('button', { name: 'Explorer actions' }).click()
   await showIgnored.click()
   await expect(showIgnored).not.toBeChecked()
   await page.keyboard.press('Escape')
   await expect(ignoredFolder).toHaveCount(0)
 
-  await page.getByRole('button', { name: 'Repository actions' }).click()
+  await page.getByRole('button', { name: 'Explorer actions' }).click()
   await showHidden.click()
   await showIgnored.click()
   await page.keyboard.press('Escape')
@@ -977,7 +1017,7 @@ test('branch picker, repository filters, list view, and graph stats use direct p
   await clearFilter.click()
   await expect(repositoryFilter).toHaveAttribute('aria-pressed', 'false')
 
-  await page.getByRole('button', { name: 'Repository actions' }).click()
+  await page.getByRole('button', { name: 'Explorer actions' }).click()
   await page.getByRole('menuitem', { name: 'Collapse all folders' }).click()
   await expect(
     page.locator('#gitna-repository-tree__tree').getByRole('treeitem', {
@@ -985,10 +1025,10 @@ test('branch picker, repository filters, list view, and graph stats use direct p
       exact: true,
     }),
   ).toHaveCount(0)
-  await page.getByRole('button', { name: 'Repository actions' }).click()
+  await page.getByRole('button', { name: 'Explorer actions' }).click()
   await page.getByRole('menuitem', { name: 'Expand all folders' }).click()
 
-  await page.getByRole('button', { name: 'Repository actions' }).click()
+  await page.getByRole('button', { name: 'Explorer actions' }).click()
   await page.getByRole('menuitem', { name: /Show as List/ }).click()
   await expect(
     page.locator('#gitna-repository-tree__tree').getByRole('treeitem', {

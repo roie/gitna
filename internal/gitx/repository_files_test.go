@@ -111,6 +111,37 @@ func TestRepositoryFilesDeduplicatesUnmergedPaths(t *testing.T) {
 	}
 }
 
+func TestRepositoryFilesListsOrdinaryWorkspaceWithoutGitMetadata(t *testing.T) {
+	root := t.TempDir()
+	for path, content := range map[string]string{
+		".env":                  "secret",
+		"docs/readme.md":        "docs",
+		"nested/.git/config":    "metadata",
+		"nested/source/main.go": "package main",
+		"worktree/.git":         "gitdir: ../metadata",
+		"worktree/file.txt":     "worktree file",
+	} {
+		full := filepath.Join(root, filepath.FromSlash(path))
+		if err := os.MkdirAll(filepath.Dir(full), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(full, []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	files, err := (Repository{Root: root}).RepositoryFiles(t.Context(), &ExecRunner{}, "", 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []string{".env", "docs/readme.md", "nested/source/main.go", "worktree/file.txt"}
+	if !reflect.DeepEqual(files.Paths, want) {
+		t.Fatalf("paths = %#v, want %#v", files.Paths, want)
+	}
+	if len(files.IgnoredPaths) != 0 || files.Truncated {
+		t.Fatalf("files = %#v", files)
+	}
+}
+
 func TestRepositoryFilesHonorsCanceledContext(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()

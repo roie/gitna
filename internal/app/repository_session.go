@@ -50,7 +50,7 @@ func newRepositorySession(
 		watcher:    watcher,
 		workspaces: workspaces,
 	}
-	s.workspaces.Record(repo.Root, true)
+	s.workspaces.Record(repo.Root, repo.IsGit())
 	s.forward(watcher)
 	return s, nil
 }
@@ -70,18 +70,19 @@ func (s *repositorySession) switchRepository(ctx context.Context, path string) (
 	s.switchMu.Lock()
 	defer s.switchMu.Unlock()
 
-	repo, err := gitx.Discover(ctx, s.runner, path)
+	repo, err := gitx.OpenWorkspace(ctx, s.runner, path)
 	if err != nil {
-		return "", fmt.Errorf("discover repository: %w", err)
+		return "", fmt.Errorf("open workspace: %w", err)
 	}
-	if repo.Root == s.adapter.current().Root {
-		s.workspaces.Record(repo.Root, true)
+	current := s.adapter.current()
+	if repo.Root == current.Root && repo.IsGit() == current.IsGit() {
+		s.workspaces.Record(repo.Root, repo.IsGit())
 		return repo.Root, nil
 	}
 
 	watcher, err := watch.New(s.ctx, repo, s.runner, watch.Options{})
 	if err != nil {
-		return "", fmt.Errorf("watch repository: %w", err)
+		return "", fmt.Errorf("watch workspace: %w", err)
 	}
 	if err := s.adapter.switchTo(ctx, repo); err != nil {
 		_ = watcher.Close()
@@ -97,8 +98,12 @@ func (s *repositorySession) switchRepository(ctx context.Context, path string) (
 		_ = previous.Close()
 	}
 
-	s.workspaces.Record(repo.Root, true)
-	for _, event := range []watch.InvalidationKind{watch.InvalidateSnapshot, watch.InvalidateGraph} {
+	s.workspaces.Record(repo.Root, repo.IsGit())
+	events := []watch.InvalidationKind{watch.InvalidateSnapshot}
+	if repo.IsGit() {
+		events = append(events, watch.InvalidateGraph)
+	}
+	for _, event := range events {
 		select {
 		case s.events <- event:
 		default:
@@ -108,10 +113,11 @@ func (s *repositorySession) switchRepository(ctx context.Context, path string) (
 }
 
 func (s *repositorySession) workspaceCatalog() protocol.WorkspaceCatalog {
-	currentRoot := s.adapter.current().Root
+	active := s.adapter.current()
+	currentRoot := active.Root
 	entries := s.workspaces.Recent()
 	recent := make([]protocol.Workspace, 0, len(entries))
-	current := protocol.Workspace{Path: currentRoot, Name: workspaceName(currentRoot), Repository: true}
+	current := protocol.Workspace{Path: currentRoot, Name: workspaceName(currentRoot), Repository: active.IsGit()}
 	for _, entry := range entries {
 		item := protocol.Workspace{
 			Path:       entry.Path,

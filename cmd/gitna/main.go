@@ -78,7 +78,7 @@ func parseCLIArgs(args []string) (cliOptions, error) {
 		return options, nil
 	}
 	if len(paths) > 1 {
-		return cliOptions{}, fmt.Errorf("expected at most one repository path, got %d", len(paths))
+		return cliOptions{}, fmt.Errorf("expected at most one workspace path, got %d", len(paths))
 	}
 	if len(paths) == 1 {
 		options.path = paths[0]
@@ -90,10 +90,10 @@ func printUsage(output io.Writer) {
 	fmt.Fprint(output, `Gitna — a local Git workbench in your browser.
 
 Usage:
-  gitna [options] [repository]
+  gitna [options] [workspace]
 
 Arguments:
-  repository    Path to a Git repository (default: current directory)
+  workspace    Path to a folder or Git repository (default: current directory)
 
 Options:
   -h, --help       Show this help

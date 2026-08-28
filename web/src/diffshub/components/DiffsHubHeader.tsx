@@ -129,7 +129,7 @@ function LocalRepositoryForm({
     >
       <input
         ref={inputRef}
-        aria-label="Repository path"
+        aria-label="Workspace path"
         aria-invalid={error != null}
         className="focus:text-primary block field-sizing-content h-9 min-w-[24ch] w-full rounded-md text-sm focus-visible:outline-none aria-invalid:text-red-500 md:w-auto"
         disabled={pending}
@@ -156,8 +156,8 @@ function LocalRepositoryForm({
           type="submit"
           variant="ghost"
           size="icon-md"
-          aria-label="Switch repository"
-          title="Switch repository"
+          aria-label="Switch workspace"
+          title="Switch workspace"
           disabled={pending}
           className="text-primary"
         >
@@ -169,8 +169,8 @@ function LocalRepositoryForm({
           type="button"
           variant="ghost"
           size="icon-md"
-          aria-label="Clear repository path"
-          title="Clear repository path"
+          aria-label="Clear workspace path"
+          title="Clear workspace path"
           className="opacity-0 transition-opacity duration-200 will-change-auto group-focus-within:opacity-50 group-hover:opacity-50 hover:opacity-75"
           onClick={() => {
             setPath('');
@@ -301,8 +301,8 @@ export const DiffsHubHeader = memo(function DiffsHubHeader({
                 type="button"
                 variant="ghost"
                 size="icon-md"
-                aria-label="Reveal repository in file manager"
-                title="Reveal repository in file manager"
+                aria-label="Reveal workspace in file manager"
+                title="Reveal workspace in file manager"
                 className={cn(CHROME_ICON_BUTTON_CLASS, 'hidden md:flex')}
                 onClick={() => void onRevealRepository()}
               >

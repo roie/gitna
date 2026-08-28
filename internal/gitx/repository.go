@@ -2,7 +2,9 @@ package gitx
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"os"
 	"path/filepath"
 	"strings"
 )
@@ -11,6 +13,53 @@ import (
 type Repository struct {
 	Root   string
 	GitDir string
+}
+
+var ErrNotRepository = errors.New("not inside a git repository")
+
+func (r Repository) IsGit() bool { return r.GitDir != "" }
+
+// OpenWorkspace resolves start to a Git worktree root when one contains it,
+// otherwise to the canonical ordinary directory itself.
+func OpenWorkspace(ctx context.Context, runner Runner, start string) (Repository, error) {
+	absolute, err := filepath.Abs(start)
+	if err != nil {
+		return Repository{}, err
+	}
+	root, err := filepath.EvalSymlinks(absolute)
+	if err != nil {
+		return Repository{}, fmt.Errorf("open workspace: %w", err)
+	}
+	info, err := os.Stat(root)
+	if err != nil {
+		return Repository{}, fmt.Errorf("open workspace: %w", err)
+	}
+	if !info.IsDir() {
+		return Repository{}, fmt.Errorf("open workspace: %q is not a directory", root)
+	}
+	repo, err := Discover(ctx, runner, root)
+	if err == nil {
+		return repo, nil
+	}
+	if !errors.Is(err, ErrNotRepository) || hasGitMarker(root) {
+		return Repository{}, err
+	}
+	return Repository{Root: filepath.Clean(root)}, nil
+}
+
+func hasGitMarker(start string) bool {
+	for path := filepath.Clean(start); ; path = filepath.Dir(path) {
+		if _, err := os.Lstat(filepath.Join(path, ".git")); err == nil || !errors.Is(err, os.ErrNotExist) {
+			return true
+		}
+		parent := filepath.Dir(path)
+		if parent == path {
+			break
+		}
+	}
+	_, headErr := os.Stat(filepath.Join(start, "HEAD"))
+	objects, objectsErr := os.Stat(filepath.Join(start, "objects"))
+	return headErr == nil && objectsErr == nil && objects.IsDir()
 }
 
 // Discover resolves the repository containing start. start may be the
@@ -28,7 +77,7 @@ func Discover(ctx context.Context, r Runner, start string) (Repository, error) {
 		if msg == "" {
 			msg = strings.TrimSpace(string(res.Stdout))
 		}
-		return Repository{}, fmt.Errorf("gitx: %q is not inside a git repository: %s", start, msg)
+		return Repository{}, fmt.Errorf("gitx: %w: %q: %s", ErrNotRepository, start, msg)
 	}
 
 	lines := strings.Split(strings.TrimRight(string(res.Stdout), "\n"), "\n")

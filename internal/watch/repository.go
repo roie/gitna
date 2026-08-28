@@ -58,9 +58,9 @@ type Options struct {
 // fingerprint re-check covers events fsnotify may miss (for example when
 // inotify watch limits are exceeded).
 type Repository struct {
-	git   gitx.Repository
-	fsw   *fsnotify.Watcher
-	opts  Options
+	git  gitx.Repository
+	fsw  *fsnotify.Watcher
+	opts Options
 
 	mu       sync.Mutex
 	closed   bool
@@ -87,12 +87,16 @@ func New(ctx context.Context, git gitx.Repository, runner gitx.Runner, opts Opti
 		_ = fsw.Close()
 		return nil, err
 	}
-	if err := w.addGitWatches(); err != nil {
-		_ = fsw.Close()
-		return nil, err
+	if git.IsGit() {
+		if err := w.addGitWatches(); err != nil {
+			_ = fsw.Close()
+			return nil, err
+		}
 	}
 	go w.loop(ctx)
-	go w.fallback(ctx, runner)
+	if git.IsGit() {
+		go w.fallback(ctx, runner)
+	}
 	return w, nil
 }
 
@@ -137,7 +141,7 @@ func (w *Repository) addWorktreeWatches() error {
 		if err != nil || !d.IsDir() {
 			return nil
 		}
-		if w.isGitDirPath(p) {
+		if d.Name() == ".git" || w.isGitDirPath(p) {
 			return filepath.SkipDir
 		}
 		if werr := w.fsw.Add(p); werr != nil && firstErr == nil {
@@ -169,6 +173,9 @@ func (w *Repository) addGitWatches() error {
 // shouldWatchDir decides whether a newly created directory gets a watch. Git
 // internals are ignored except the refs tree, which holds branch updates.
 func (w *Repository) shouldWatchDir(p string) bool {
+	if filepath.Base(p) == ".git" {
+		return false
+	}
 	if !w.isGitDirPath(p) {
 		return true
 	}
@@ -248,7 +255,15 @@ func (w *Repository) loop(ctx context.Context) {
 			}
 			if ev.Op&fsnotify.Create != 0 {
 				if info, err := os.Stat(ev.Name); err == nil && info.IsDir() && w.shouldWatchDir(ev.Name) {
-					_ = w.fsw.Add(ev.Name)
+					_ = filepath.WalkDir(ev.Name, func(path string, entry fs.DirEntry, err error) error {
+						if err != nil || !entry.IsDir() {
+							return nil
+						}
+						if !w.shouldWatchDir(path) {
+							return filepath.SkipDir
+						}
+						return w.fsw.Add(path)
+					})
 				}
 			}
 		case err, ok := <-w.fsw.Errors:
@@ -299,6 +314,9 @@ func (w *Repository) classify(ev fsnotify.Event) []InvalidationKind {
 }
 
 func (w *Repository) isGitDirPath(p string) bool {
+	if !w.git.IsGit() {
+		return false
+	}
 	git := filepath.Clean(w.git.GitDir)
 	return p == git || strings.HasPrefix(p, git+string(filepath.Separator))
 }

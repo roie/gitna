@@ -48,6 +48,7 @@ func (r Repository) Status(ctx context.Context, runner Runner) (protocol.RepoSna
 	}
 
 	return protocol.RepoSnapshot{
+		Repository: true,
 		Root:       r.Root,
 		HeadOID:    sr.HeadOID,
 		HeadBranch: sr.HeadBranch,
@@ -137,7 +138,7 @@ func appendChange(sr *StatusResult, changes ...protocol.FileChange) {
 			sr.Unstaged = append(sr.Unstaged, c)
 		}
 	}
-}// parseRegularRecord handles type "1" records:
+} // parseRegularRecord handles type "1" records:
 // 1 <XY> <sub> <mH> <mI> <mW> <hH> <hI> <path>
 func parseRegularRecord(tok []byte) ([]protocol.FileChange, error) {
 	fields := strings.Split(string(tok), " ")

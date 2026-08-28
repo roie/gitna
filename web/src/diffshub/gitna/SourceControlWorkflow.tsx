@@ -685,6 +685,10 @@ export function GitnaSourceControl() {
   )
 
   useEffect(() => {
+    if (snapshot?.repository === false) setRepositoryOpen(true)
+  }, [snapshot?.repository])
+
+  useEffect(() => {
     if (repository.repositoryFileRevealVersion === 0) return
     setRepositoryOpen(true)
     setRepositoryFilters((current) => (current.size === 0 ? current : new Set()))
@@ -700,6 +704,7 @@ export function GitnaSourceControl() {
   }, [selectedChangePath, selectedScope])
 
   useEffect(() => {
+    if (snapshot?.repository === false) return
     if (window.matchMedia('(max-width: 767px)').matches) setGraphOpen(false)
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key === 'F6') {
@@ -720,7 +725,7 @@ export function GitnaSourceControl() {
     }
     window.addEventListener('keydown', onKeyDown)
     return () => window.removeEventListener('keydown', onKeyDown)
-  }, [])
+  }, [snapshot?.repository])
 
   if (snapshot == null) {
     return (
@@ -733,152 +738,159 @@ export function GitnaSourceControl() {
   return (
     <section
       className="source-control flex h-full min-h-0 flex-col"
-      aria-label="Source Control workflow"
+      aria-label={snapshot.repository ? 'Source Control workflow' : 'Workspace Explorer'}
     >
       <div
         ref={containerRef}
         className="pane-stack grid min-h-0 flex-1 overflow-hidden max-md:block max-md:overflow-y-auto"
         style={{
-          gridTemplateRows: `${workflowOpen && !workflowCompact ? (useNaturalWorkflowHeight ? `${naturalWorkflowHeight}px` : `minmax(142px, ${sizes[0]}fr)`) : 'max-content'} 0 ${repositoryOpen ? `minmax(142px, ${sizes[1]}fr)` : 'max-content'} 0 ${graphOpen ? `minmax(142px, ${sizes[2]}fr)` : 'max-content'}`,
+          gridTemplateRows: snapshot.repository
+            ? `${workflowOpen && !workflowCompact ? (useNaturalWorkflowHeight ? `${naturalWorkflowHeight}px` : `minmax(142px, ${sizes[0]}fr)`) : 'max-content'} 0 ${repositoryOpen ? `minmax(142px, ${sizes[1]}fr)` : 'max-content'} 0 ${graphOpen ? `minmax(142px, ${sizes[2]}fr)` : 'max-content'}`
+            : repositoryOpen
+              ? 'minmax(142px, 1fr)'
+              : 'max-content',
         }}
       >
-        <section
-          ref={workflowPane}
-          data-pane="source-control"
-          className="section min-h-0 overflow-hidden md:flex md:flex-col"
-        >
-          <PaneSectionHeader
-            className="border-t-0"
-            actions={
-              <SourceControlHeaderActions
-                onConfirm={setPendingConfirm}
-                onError={setLocalError}
-                onOpenDialog={setOperationDialog}
-                moreTrigger={moreTrigger}
-              />
-            }
-            dataSection="workflow"
-            icon={IconSymbolDiffstatFill}
-            count={changedPathCount > 0 ? changedPathCount : null}
-            countTitle={
-              changedPathCount > 0
-                ? `${changedPathCount} changed ${changedPathCount === 1 ? 'file' : 'files'}`
-                : undefined
-            }
-            open={workflowOpen}
-            title={headTitle}
-            onOpenChange={setWorkflowOpen}
-          />
-          {workflowOpen && (
-            <div
-              ref={workflowContent}
-              data-pane-body="source-control"
-              className="cv-mini-scrollbar min-h-0 overscroll-contain md:flex-1 md:overflow-y-auto max-md:overflow-visible"
-            >
-              <form
-                className="commit-composer px-3 py-2"
-                onSubmit={(event) => {
-                  event.preventDefault()
-                  void submitCommit()
-                }}
+        {snapshot.repository && (
+          <section
+            ref={workflowPane}
+            data-pane="source-control"
+            className="section min-h-0 overflow-hidden md:flex md:flex-col"
+          >
+            <PaneSectionHeader
+              className="border-t-0"
+              actions={
+                <SourceControlHeaderActions
+                  onConfirm={setPendingConfirm}
+                  onError={setLocalError}
+                  onOpenDialog={setOperationDialog}
+                  moreTrigger={moreTrigger}
+                />
+              }
+              dataSection="workflow"
+              icon={IconSymbolDiffstatFill}
+              count={changedPathCount > 0 ? changedPathCount : null}
+              countTitle={
+                changedPathCount > 0
+                  ? `${changedPathCount} changed ${changedPathCount === 1 ? 'file' : 'files'}`
+                  : undefined
+              }
+              open={workflowOpen}
+              title={headTitle}
+              onOpenChange={setWorkflowOpen}
+            />
+            {workflowOpen && (
+              <div
+                ref={workflowContent}
+                data-pane-body="source-control"
+                className="cv-mini-scrollbar min-h-0 overscroll-contain md:flex-1 md:overflow-y-auto max-md:overflow-visible"
               >
-                <textarea
-                  ref={composer}
-                  aria-label="Commit message"
-                  className="min-h-16 w-full resize-y rounded-md border border-border bg-background px-2.5 py-2 text-sm text-foreground outline-none placeholder:text-muted-foreground focus:border-[var(--diffshub-primary-fg)]"
-                  disabled={repository.busy}
-                  placeholder="Commit message"
-                  spellCheck
-                  value={commitMessage}
-                  onChange={(event) => setCommitMessage(event.currentTarget.value)}
-                  onKeyDown={(event) => {
-                    if (event.key === 'Enter' && event.ctrlKey) {
-                      event.preventDefault()
-                      void submitCommit()
-                    }
+                <form
+                  className="commit-composer px-3 py-2"
+                  onSubmit={(event) => {
+                    event.preventDefault()
+                    void submitCommit()
                   }}
-                />
-                <div className="mt-2 flex items-center gap-2">
-                  <label
-                    htmlFor="gitna-amend"
-                    className="mr-auto flex cursor-pointer items-center gap-1.5 text-xs text-muted-foreground"
-                  >
-                    <Switch
-                      id="gitna-amend"
-                      aria-label="Amend"
-                      checked={amend}
-                      disabled={repository.busy || staged.length === 0}
-                      onCheckedChange={setAmend}
-                    />
-                    Amend
-                  </label>
-                  <Button
-                    type="submit"
-                    variant="default"
-                    size="sm"
-                    disabled={
-                      repository.busy || commitMessage.trim().length === 0 || staged.length === 0
-                    }
-                  >
-                    Commit
-                  </Button>
-                </div>
-              </form>
+                >
+                  <textarea
+                    ref={composer}
+                    aria-label="Commit message"
+                    className="min-h-16 w-full resize-y rounded-md border border-border bg-background px-2.5 py-2 text-sm text-foreground outline-none placeholder:text-muted-foreground focus:border-[var(--diffshub-primary-fg)]"
+                    disabled={repository.busy}
+                    placeholder="Commit message"
+                    spellCheck
+                    value={commitMessage}
+                    onChange={(event) => setCommitMessage(event.currentTarget.value)}
+                    onKeyDown={(event) => {
+                      if (event.key === 'Enter' && event.ctrlKey) {
+                        event.preventDefault()
+                        void submitCommit()
+                      }
+                    }}
+                  />
+                  <div className="mt-2 flex items-center gap-2">
+                    <label
+                      htmlFor="gitna-amend"
+                      className="mr-auto flex cursor-pointer items-center gap-1.5 text-xs text-muted-foreground"
+                    >
+                      <Switch
+                        id="gitna-amend"
+                        aria-label="Amend"
+                        checked={amend}
+                        disabled={repository.busy || staged.length === 0}
+                        onCheckedChange={setAmend}
+                      />
+                      Amend
+                    </label>
+                    <Button
+                      type="submit"
+                      variant="default"
+                      size="sm"
+                      disabled={
+                        repository.busy || commitMessage.trim().length === 0 || staged.length === 0
+                      }
+                    >
+                      Commit
+                    </Button>
+                  </div>
+                </form>
 
-              <ConflictPanel onError={setLocalError} />
+                <ConflictPanel onError={setLocalError} />
 
-              {staged.length > 0 && (
-                <ChangeSection
-                  changes={staged}
-                  modelId="gitna-staged-tree"
-                  onConfirm={setPendingConfirm}
-                  onRun={run}
-                  open={stagedOpen}
-                  scope="staged"
-                  source={stagedSource}
-                  title="Staged Changes"
-                  onOpenChange={setStagedOpen}
-                />
-              )}
-              {unstaged.length > 0 && (
-                <ChangeSection
-                  changes={unstaged}
-                  headerRef={changesHeader}
-                  modelId="gitna-unstaged-tree"
-                  onConfirm={setPendingConfirm}
-                  onRun={run}
-                  open={changesOpen}
-                  scope="unstaged"
-                  source={unstagedSource}
-                  title="Changes"
-                  onOpenChange={setChangesOpen}
-                />
-              )}
-            </div>
-          )}
-        </section>
+                {staged.length > 0 && (
+                  <ChangeSection
+                    changes={staged}
+                    modelId="gitna-staged-tree"
+                    onConfirm={setPendingConfirm}
+                    onRun={run}
+                    open={stagedOpen}
+                    scope="staged"
+                    source={stagedSource}
+                    title="Staged Changes"
+                    onOpenChange={setStagedOpen}
+                  />
+                )}
+                {unstaged.length > 0 && (
+                  <ChangeSection
+                    changes={unstaged}
+                    headerRef={changesHeader}
+                    modelId="gitna-unstaged-tree"
+                    onConfirm={setPendingConfirm}
+                    onRun={run}
+                    open={changesOpen}
+                    scope="unstaged"
+                    source={unstagedSource}
+                    title="Changes"
+                    onOpenChange={setChangesOpen}
+                  />
+                )}
+              </div>
+            )}
+          </section>
+        )}
 
-        <PaneResizeHandle
-          disabled={!workflowOpen || workflowCompact || !repositoryOpen}
-          index={0}
-          onResize={resizeBy}
-          onStart={startResize}
-          size={sizes[0]}
-        />
+        {snapshot.repository && (
+          <PaneResizeHandle
+            disabled={!workflowOpen || workflowCompact || !repositoryOpen}
+            index={0}
+            onResize={resizeBy}
+            onStart={startResize}
+            size={sizes[0]}
+          />
+        )}
 
         <TreeSection
           pane
           count={repositoryCount}
+          headerClassName={snapshot.repository ? undefined : 'border-t-0'}
           dragAndDrop={repositoryDragAndDrop}
           dataSection="repository"
-          emptyMessage="No repository files"
+          emptyMessage={snapshot.repository ? 'No repository files' : 'No workspace files'}
           footer={
             <>
               {repository.repositoryFilesLoading && (
                 <p className="px-8 py-2 text-xs text-muted-foreground">
-                  {repository.repositoryPaths.length === 0
-                    ? 'Loading files…'
-                    : `Loading more files… ${repository.repositoryPaths.length.toLocaleString()}`}
+                  {repository.repositoryPaths.length === 0 ? 'Loading files…' : 'Refreshing files…'}
                 </p>
               )}
               {repository.repositoryFilesError != null && (
@@ -892,6 +904,7 @@ export function GitnaSourceControl() {
           renderHeaderActions={(model) => (
             <RepositoryHeaderActions
               availableStatuses={availableRepositoryStatuses}
+              repositoryMode={snapshot.repository}
               loading={repository.repositoryFilesLoading}
               model={model}
               paths={repositoryView === 'tree' ? filteredRepositoryPaths : []}
@@ -934,20 +947,24 @@ export function GitnaSourceControl() {
           onSelectPath={selectRepositoryPath}
         />
 
-        <PaneResizeHandle
-          disabled={!repositoryOpen || !graphOpen}
-          index={1}
-          onResize={resizeBy}
-          onStart={startResize}
-          size={sizes[1]}
-        />
+        {snapshot.repository && (
+          <PaneResizeHandle
+            disabled={!repositoryOpen || !graphOpen}
+            index={1}
+            onResize={resizeBy}
+            onStart={startResize}
+            size={sizes[1]}
+          />
+        )}
 
-        <GraphSection
-          headerRef={graphHeader}
-          open={graphOpen}
-          onConfirm={setPendingConfirm}
-          onOpenChange={setGraphOpen}
-        />
+        {snapshot.repository && (
+          <GraphSection
+            headerRef={graphHeader}
+            open={graphOpen}
+            onConfirm={setPendingConfirm}
+            onOpenChange={setGraphOpen}
+          />
+        )}
       </div>
 
       {(localError ?? repository.mutationError) != null && (
@@ -1640,7 +1657,7 @@ function RepositoryContextMenu({
             onRefresh()
           }}
         >
-          Refresh Repository
+          Refresh Explorer
         </DropdownMenuItem>
       </DropdownMenuContent>
     </DropdownMenu>
@@ -1685,7 +1702,7 @@ function ChangeContextMenu({
             onOpen(path)
           }}
         >
-          Open in Repository
+          Open in Explorer
         </DropdownMenuItem>
       </DropdownMenuContent>
     </DropdownMenu>
@@ -1694,6 +1711,7 @@ function ChangeContextMenu({
 
 function RepositoryHeaderActions({
   availableStatuses,
+  repositoryMode,
   loading,
   model,
   onClearFilters,
@@ -1712,6 +1730,7 @@ function RepositoryHeaderActions({
   view,
 }: {
   availableStatuses: ReadonlySet<GitStatus>
+  repositoryMode: boolean
   loading: boolean
   model: FileTree | null
   onClearFilters(): void
@@ -1737,74 +1756,76 @@ function RepositoryHeaderActions({
   const altKeyRef = useRef(false)
   return (
     <>
-      <DropdownMenu>
-        <DropdownMenuTrigger asChild>
-          <Button
-            type="button"
-            variant="ghost"
-            size="icon-only"
-            aria-label="Filter by Git status"
-            aria-pressed={filtered}
-            className={cn(CHROME_ICON_BUTTON_CLASS, 'relative')}
-            title="Filter by Git status"
-          >
-            <IconFilter className="size-4 md:size-3" />
-            {filtered && (
-              <span
-                aria-hidden="true"
-                className="absolute -right-0.5 -top-0.5 size-2 rounded-full border-[1px] border-[var(--diffshub-sidebar-bg)] bg-blue-500 dark:bg-blue-400"
-              />
-            )}
-          </Button>
-        </DropdownMenuTrigger>
-        <DropdownMenuContent align="end" className="p-2">
-          <DropdownMenuLabel className="flex flex-col px-2 font-normal">
-            Filter by Git status
-            <small className="text-xs text-muted-foreground">
-              {isMac ? 'Option' : 'Alt'}-click to show only one status
-            </small>
-          </DropdownMenuLabel>
-          <DropdownMenuSeparator className="mx-2" />
-          {visibleFilters.map(({ status, label, short, color }) => (
-            <DropdownMenuCheckboxItem
-              key={status}
-              checked={selectedStatuses.has(status)}
-              indicatorSide="right"
-              className={filtered && !selectedStatuses.has(status) ? 'text-muted-foreground' : ''}
-              onPointerDown={(event) => {
-                altKeyRef.current = event.altKey
-              }}
-              onSelect={(event) => event.preventDefault()}
-              onCheckedChange={() => {
-                if (altKeyRef.current) onIsolateFilter(status)
-                else onToggleFilter(status)
-              }}
+      {repositoryMode && (
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon-only"
+              aria-label="Filter by Git status"
+              aria-pressed={filtered}
+              className={cn(CHROME_ICON_BUTTON_CLASS, 'relative')}
+              title="Filter by Git status"
             >
-              <span
-                className="mr-2 w-4 shrink-0 rounded-sm text-center font-mono text-xs font-semibold"
-                style={{
-                  color,
-                  backgroundColor: `color-mix(in srgb, ${color} 15%, transparent)`,
+              <IconFilter className="size-4 md:size-3" />
+              {filtered && (
+                <span
+                  aria-hidden="true"
+                  className="absolute -right-0.5 -top-0.5 size-2 rounded-full border-[1px] border-[var(--diffshub-sidebar-bg)] bg-blue-500 dark:bg-blue-400"
+                />
+              )}
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end" className="p-2">
+            <DropdownMenuLabel className="flex flex-col px-2 font-normal">
+              Filter by Git status
+              <small className="text-xs text-muted-foreground">
+                {isMac ? 'Option' : 'Alt'}-click to show only one status
+              </small>
+            </DropdownMenuLabel>
+            <DropdownMenuSeparator className="mx-2" />
+            {visibleFilters.map(({ status, label, short, color }) => (
+              <DropdownMenuCheckboxItem
+                key={status}
+                checked={selectedStatuses.has(status)}
+                indicatorSide="right"
+                className={filtered && !selectedStatuses.has(status) ? 'text-muted-foreground' : ''}
+                onPointerDown={(event) => {
+                  altKeyRef.current = event.altKey
+                }}
+                onSelect={(event) => event.preventDefault()}
+                onCheckedChange={() => {
+                  if (altKeyRef.current) onIsolateFilter(status)
+                  else onToggleFilter(status)
                 }}
               >
-                {short}
-              </span>
-              {label}
-            </DropdownMenuCheckboxItem>
-          ))}
-          <DropdownMenuSeparator className="mx-2" />
-          <DropdownMenuItem className="px-2" disabled={!filtered} onSelect={onClearFilters}>
-            <IconXSquircle className="mr-2 opacity-50" />
-            Clear filter
-          </DropdownMenuItem>
-        </DropdownMenuContent>
-      </DropdownMenu>
+                <span
+                  className="mr-2 w-4 shrink-0 rounded-sm text-center font-mono text-xs font-semibold"
+                  style={{
+                    color,
+                    backgroundColor: `color-mix(in srgb, ${color} 15%, transparent)`,
+                  }}
+                >
+                  {short}
+                </span>
+                {label}
+              </DropdownMenuCheckboxItem>
+            ))}
+            <DropdownMenuSeparator className="mx-2" />
+            <DropdownMenuItem className="px-2" disabled={!filtered} onSelect={onClearFilters}>
+              <IconXSquircle className="mr-2 opacity-50" />
+              Clear filter
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
+      )}
       <Button
         variant="ghost"
         size="icon-only"
         className={CHROME_ICON_BUTTON_CLASS}
-        aria-label="Refresh Repository"
-        title="Refresh Repository"
+        aria-label="Refresh Explorer"
+        title="Refresh Explorer"
         disabled={loading}
         onClick={onRefresh}
       >
@@ -1816,8 +1837,8 @@ function RepositoryHeaderActions({
             variant="ghost"
             size="icon-only"
             className={CHROME_ICON_BUTTON_CLASS}
-            aria-label="Repository actions"
-            title="Repository actions"
+            aria-label="Explorer actions"
+            title="Explorer actions"
           >
             <IconEllipsis className="size-4 md:size-3" />
           </Button>
@@ -1847,14 +1868,16 @@ function RepositoryHeaderActions({
           >
             Show hidden files
           </DropdownMenuCheckboxItem>
-          <DropdownMenuCheckboxItem
-            checked={showIgnoredFiles}
-            indicatorSide="right"
-            onSelect={(event) => event.preventDefault()}
-            onCheckedChange={() => onShowIgnoredFilesChange(!showIgnoredFiles)}
-          >
-            Show ignored files
-          </DropdownMenuCheckboxItem>
+          {repositoryMode && (
+            <DropdownMenuCheckboxItem
+              checked={showIgnoredFiles}
+              indicatorSide="right"
+              onSelect={(event) => event.preventDefault()}
+              onCheckedChange={() => onShowIgnoredFilesChange(!showIgnoredFiles)}
+            >
+              Show ignored files
+            </DropdownMenuCheckboxItem>
+          )}
           <DropdownMenuSeparator />
           <DropdownMenuItem selected={view === 'tree'} onSelect={() => onViewChange('tree')}>
             Show as Tree
@@ -1888,6 +1911,7 @@ interface TreeSectionProps {
   emptyMessage: string
   footer?: ReactNode
   headerActions?: ReactNode
+  headerClassName?: string
   headerRef?: React.Ref<HTMLButtonElement>
   icon: ReactNode
   modelId: string
@@ -1911,6 +1935,7 @@ function TreeSection({
   emptyMessage,
   footer,
   headerActions,
+  headerClassName,
   headerRef,
   icon,
   modelId,
@@ -1944,6 +1969,7 @@ function TreeSection({
     >
       {pane ? (
         <PaneSectionHeader
+          className={headerClassName}
           actions={
             <>
               {open && model != null && source.pathCount > 0 && (

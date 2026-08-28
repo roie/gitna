@@ -7,6 +7,7 @@ import type { RepoSnapshot } from '../../src/lib/types'
  */
 export const snapshotFixture: RepoSnapshot = {
   appVersion: 'dev',
+  repository: true,
   root: '/tmp/example-repo',
   headOid: 'abc123def456',
   headBranch: 'main',

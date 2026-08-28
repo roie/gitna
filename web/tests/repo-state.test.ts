@@ -27,6 +27,7 @@ function change(
 function snapshot(overrides: Partial<RepoSnapshot> = {}): RepoSnapshot {
   return {
     appVersion: 'dev',
+    repository: true,
     root: '/tmp/repo',
     headOid: 'abc123',
     headBranch: 'main',
@@ -274,6 +275,42 @@ describe('createRepoState', () => {
     expect(state.workspaces?.recent).toHaveLength(1)
     expect(state.workspacesLoading).toBe(false)
     expect(state.workspacesError).toBeNull()
+  })
+
+  it('loads ordinary workspace files without requesting Git resources', async () => {
+    const graph = vi.fn()
+    const branches = vi.fn()
+    const stashes = vi.fn()
+    const tags = vi.fn()
+    const state = createRepoState({
+      api: {
+        ...auxApi,
+        graph,
+        branches,
+        stashes,
+        tags,
+        async snapshot() {
+          return snapshot({
+            repository: false,
+            root: '/tmp/folder',
+            headOid: undefined,
+            headBranch: undefined,
+          })
+        },
+        async repositoryFiles() {
+          return { generation: 1, paths: ['notes.txt'], truncated: false }
+        },
+      },
+    })
+
+    await state.refreshWorkspace()
+
+    expect(state.snapshot?.repository).toBe(false)
+    expect(state.repositoryPaths).toEqual(['notes.txt'])
+    expect(graph).not.toHaveBeenCalled()
+    expect(branches).not.toHaveBeenCalled()
+    expect(stashes).not.toHaveBeenCalled()
+    expect(tags).not.toHaveBeenCalled()
   })
 
   it('loads every bounded Repository Explorer page independently from Git changes', async () => {

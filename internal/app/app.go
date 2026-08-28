@@ -48,7 +48,18 @@ func (a *repoAdapter) switchTo(ctx context.Context, repo gitx.Repository) error 
 }
 
 func (a *repoAdapter) Snapshot(ctx context.Context) (protocol.RepoSnapshot, error) {
-	return a.current().Status(ctx, a.runner)
+	repo := a.current()
+	if repo.IsGit() {
+		return repo.Status(ctx, a.runner)
+	}
+	return protocol.RepoSnapshot{
+		Root:       repo.Root,
+		Operation:  protocol.OperationNone,
+		Staged:     make([]protocol.FileChange, 0),
+		Unstaged:   make([]protocol.FileChange, 0),
+		Conflicts:  make([]protocol.ConflictEntry, 0),
+		Repository: false,
+	}, nil
 }
 
 func (a *repoAdapter) RepositoryFiles(ctx context.Context, after string, limit int) (protocol.RepositoryFiles, error) {
@@ -341,11 +352,11 @@ func (a *repoAdapter) ResolveConflictBoth(ctx context.Context, path string) erro
 }
 
 // Run starts the workbench session for path and blocks until ctx is cancelled
-// or the server fails. path must be inside a Git repository; the session binds
-// to a loopback-only OS-assigned port.
+// or the server fails. path must be an existing directory; Git worktrees open
+// at their repository root. The session binds to a loopback-only OS-assigned port.
 func Run(ctx context.Context, path, version string) error {
 	runner := &gitx.ExecRunner{}
-	repo, err := gitx.Discover(ctx, runner, path)
+	repo, err := gitx.OpenWorkspace(ctx, runner, path)
 	if err != nil {
 		return fmt.Errorf("app: %w", err)
 	}
@@ -373,7 +384,7 @@ func Run(ctx context.Context, path, version string) error {
 
 	repositorySession, err := newRepositorySession(ctx, runner, repo, workspace.OpenDefault())
 	if err != nil {
-		return fmt.Errorf("app: create repository session: %w", err)
+		return fmt.Errorf("app: create workspace session: %w", err)
 	}
 	defer repositorySession.close()
 
@@ -404,7 +415,7 @@ func Run(ctx context.Context, path, version string) error {
 	go func() { errCh <- httpSrv.Serve(ln) }()
 
 	fmt.Printf("Gitna %s\n", version)
-	fmt.Printf("Repository  %s\n", repo.Root)
+	fmt.Printf("Workspace   %s\n", repo.Root)
 	fmt.Printf("URL         %s\n", url)
 
 	// Full-process browser tests drive the emitted capability URL themselves.

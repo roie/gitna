@@ -102,6 +102,14 @@ function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error)
 }
 
+function sameStrings(left: readonly string[], right: readonly string[]): boolean {
+  return left.length === right.length && left.every((value, index) => value === right[index])
+}
+
+function sameStringSet(left: ReadonlySet<string>, right: ReadonlySet<string>): boolean {
+  return left.size === right.size && [...left].every((value) => right.has(value))
+}
+
 function changeList(snapshot: RepoSnapshot, scope: ChangeScope): FileChange[] {
   return scope === 'staged' ? snapshot.staged : snapshot.unstaged
 }
@@ -318,18 +326,16 @@ export class GitnaRepository {
           }
           paths.push(...files.paths)
           for (const path of files.ignoredPaths ?? []) ignoredPaths.add(path)
-          this.repositoryPaths = [...paths]
-          this.repositoryIgnoredPaths = new Set(ignoredPaths)
-          this.repositoryFilesTruncated = files.truncated
-          this.emit()
           cursor = files.nextCursor
         } while (cursor != null && cursor !== '')
 
         if (restart) continue
         if ((pageGeneration ?? 0) < this.repositoryFilesGeneration) return
         this.repositoryFilesGeneration = pageGeneration ?? this.repositoryFilesGeneration
-        this.repositoryPaths = paths
-        this.repositoryIgnoredPaths = ignoredPaths
+        if (!sameStrings(this.repositoryPaths, paths)) this.repositoryPaths = paths
+        if (!sameStringSet(this.repositoryIgnoredPaths, ignoredPaths)) {
+          this.repositoryIgnoredPaths = ignoredPaths
+        }
         this.repositoryFilesTruncated = false
         return
       }
@@ -343,6 +349,22 @@ export class GitnaRepository {
         this.repositoryFilesLoading = false
         this.emit()
       }
+    }
+  }
+
+  async refreshWorkspace(): Promise<void> {
+    await Promise.all([
+      this.refreshSnapshot(),
+      this.refreshWorkspaces(),
+      this.refreshRepositoryFiles(),
+    ])
+    if (this.snapshot?.repository) {
+      await Promise.all([
+        this.refreshGraph(),
+        this.refreshBranches(),
+        this.refreshStashes(),
+        this.refreshTags(),
+      ])
     }
   }
 
@@ -360,7 +382,7 @@ export class GitnaRepository {
     source.addEventListener('snapshot-invalidated', scheduleSnapshot)
     source.addEventListener('graph-invalidated', () => {
       scheduleSnapshot()
-      void this.refreshGraph()
+      if (this.snapshot?.repository) void this.refreshGraph()
     })
     return () => {
       if (this.refreshTimer != null) clearTimeout(this.refreshTimer)
@@ -780,13 +802,7 @@ export class GitnaRepository {
       this.compareDiff = null
       this.conflicts = []
       this.emit()
-      await Promise.all([
-        this.refreshSnapshot(),
-        this.refreshWorkspaces(),
-        this.refreshRepositoryFiles(),
-        this.refreshGraph(),
-        this.refreshBranches(),
-      ])
+      await this.refreshWorkspace()
     } catch (error) {
       this.mutationError = errorMessage(error)
       throw error
@@ -995,15 +1011,7 @@ export function RepositoryProvider({ children }: { children: ReactNode }) {
   const repository = storeRef.current
 
   useEffect(() => {
-    void Promise.all([
-      repository.refreshSnapshot(),
-      repository.refreshWorkspaces(),
-      repository.refreshRepositoryFiles(),
-      repository.refreshGraph(),
-      repository.refreshBranches(),
-      repository.refreshStashes(),
-      repository.refreshTags(),
-    ])
+    void repository.refreshWorkspace()
     return repository.connectEvents()
   }, [repository])
 

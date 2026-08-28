@@ -9,6 +9,7 @@ import { diffshubChromeMapping } from '@/lib/theme/diffshubChromeMapping';
 import type { ViewerLoadState } from '@/lib/types';
 
 interface DiffsHubStatusPanelProps {
+  contentKind?: 'diff' | 'file';
   errorMessage: string | null;
   localRepository?: boolean;
   onRetry(): void;
@@ -16,6 +17,7 @@ interface DiffsHubStatusPanelProps {
 }
 
 export function DiffsHubStatusPanel({
+  contentKind = 'diff',
   errorMessage,
   localRepository = false,
   onRetry,
@@ -30,23 +32,37 @@ export function DiffsHubStatusPanel({
   const themeChromeStyle =
     Object.keys(chromeStyle).length > 0 ? chromeStyle : undefined;
   const isError = state === 'error';
+  const fileContent = contentKind === 'file';
   const title = isError
-    ? 'Couldn’t load diff'
+    ? fileContent
+      ? 'Couldn’t open file'
+      : 'Couldn’t load diff'
     : state === 'parsing'
-      ? 'Preparing diff'
+      ? fileContent
+        ? 'Preparing file'
+        : 'Preparing diff'
       : state === 'fetching'
-        ? 'Fetching diff'
-        : 'Streaming diff';
+        ? fileContent
+          ? 'Opening file'
+          : 'Fetching diff'
+        : fileContent
+          ? 'Opening file'
+          : 'Streaming diff';
 
   const message = isError
-    ? (errorMessage ?? 'Failed to fetch the diff, please try again.')
-    : state === 'parsing'
-      ? 'Parsing the patch and building the file tree…'
-      : state === 'fetching'
-        ? localRepository
-          ? 'Fetching the patch from the local repository…'
-          : 'Fetching the patch from GitHub…'
-        : 'Reading the patch and showing files as they arrive…';
+    ? (errorMessage ??
+      (fileContent
+        ? 'Failed to open the file, please try again.'
+        : 'Failed to fetch the diff, please try again.'))
+    : fileContent
+      ? 'Reading the file from the local workspace…'
+      : state === 'parsing'
+        ? 'Parsing the patch and building the file tree…'
+        : state === 'fetching'
+          ? localRepository
+            ? 'Fetching the patch from the local repository…'
+            : 'Fetching the patch from GitHub…'
+          : 'Reading the patch and showing files as they arrive…';
 
   return (
     <div
@@ -62,13 +78,13 @@ export function DiffsHubStatusPanel({
         aria-busy={!isError || undefined}
         className="w-full max-w-md p-5 text-center"
       >
-        {!isError ? (
+        {isError ? (
+          <IconCiWarningFill className="text-muted-foreground mx-auto mb-3 size-5" />
+        ) : (
           <IconRefresh
             aria-hidden="true"
             className="text-muted-foreground mx-auto mb-3 size-5 -scale-x-100 animate-spin [animation-direction:reverse]"
           />
-        ) : (
-          <IconCiWarningFill className="text-muted-foreground mx-auto mb-3 size-5" />
         )}
         <h2 className="text-foreground text-sm font-medium">{title}</h2>
         <p className="text-muted-foreground mt-1 text-sm text-pretty">

@@ -106,6 +106,14 @@ function imageDiffRequest(target: ReviewTarget | null): DiffRequest | null {
   return { ...target.request, path, oldPath: target.oldPath }
 }
 
+function repositoryFileErrorMessage(error: unknown): string {
+  if (error instanceof ApiError) {
+    if (error.code === 'file-too-large') return 'This file is too large to open in Gitna.'
+    if (error.code === 'binary-file') return 'Binary files can’t be opened in the editor.'
+  }
+  return error instanceof Error ? error.message : String(error)
+}
+
 function useReviewTarget(): ReviewTarget | null {
   const repository = useRepository()
   if (repository.compare != null) {
@@ -144,7 +152,7 @@ function useReviewTarget(): ReviewTarget | null {
     }
   }
   const snapshot = repository.snapshot
-  if (snapshot == null) return null
+  if (snapshot == null || !snapshot.repository) return null
   const scope = snapshot.unstaged.length > 0 || snapshot.staged.length === 0 ? 'unstaged' : 'staged'
   return { key: scope, request: { scope } }
 }
@@ -298,7 +306,7 @@ function GitnaReviewUIInner() {
       reviewDataRef.current = null
       setReviewData(null)
       setErrorMessage(null)
-      setLoadState('fetching')
+      setLoadState(repository.snapshot?.repository === false ? 'ready' : 'fetching')
       return
     }
     let active = true
@@ -335,6 +343,7 @@ function GitnaReviewUIInner() {
           return adaptWorktreeFile(baseline, repository.generation, draft)
         }
         if (
+          !repository.snapshot?.repository ||
           !(error instanceof ApiError) ||
           (error.code !== 'binary-file' && error.code !== 'file-too-large')
         ) {
@@ -357,7 +366,12 @@ function GitnaReviewUIInner() {
       })
       .catch((error: unknown) => {
         if (!active) return
-        const nextError = error instanceof Error ? error.message : String(error)
+        const nextError =
+          target.filePath == null
+            ? error instanceof Error
+              ? error.message
+              : String(error)
+            : repositoryFileErrorMessage(error)
         if (reviewDataRef.current == null) {
           setErrorMessage(nextError)
           setLoadState('error')
@@ -692,7 +706,9 @@ function GitnaReviewUIInner() {
         <div className="flex min-h-0 flex-col [grid-area:viewer]">
           <RepositoryFileTabs dirtyPaths={dirtyPaths} onClose={closeRepositoryFiles} />
           <div className="min-h-0 flex-1">
-            {viewerAvailable && reviewData != null && reviewData.items.length > 0 ? (
+            {repository.snapshot?.repository === false && target == null ? (
+              <WorkspaceEmptyState />
+            ) : viewerAvailable && reviewData != null && reviewData.items.length > 0 ? (
               <DiffsHubViewer
                 className="code-view h-full"
                 commentsEnabled={false}
@@ -717,6 +733,7 @@ function GitnaReviewUIInner() {
             ) : (
               <div className="grid h-full min-h-0 [&>*]:h-full">
                 <DiffsHubStatusPanel
+                  contentKind={target?.filePath == null ? 'diff' : 'file'}
                   errorMessage={errorMessage ?? repository.error}
                   localRepository
                   onRetry={() => setReviewAttempt((attempt) => attempt + 1)}
@@ -1045,6 +1062,17 @@ function RepositoryFileTabs({
           </DropdownMenuContent>
         </DropdownMenu>
       )}
+    </div>
+  )
+}
+
+function WorkspaceEmptyState() {
+  return (
+    <div className="flex h-full min-h-0 items-center justify-center bg-background p-6 [grid-area:viewer]">
+      <section role="status" className="max-w-md text-center">
+        <h2 className="text-sm font-medium text-foreground">Select a file from Explorer</h2>
+        <p className="mt-1 text-sm text-muted-foreground">Choose a file to open and edit it.</p>
+      </section>
     </div>
   )
 }

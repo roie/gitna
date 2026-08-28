@@ -34,7 +34,7 @@ test('staging loop preserves VS Code section order and visibility', async ({ pag
     .locator('[data-section]')
     .evaluateAll((headers) => headers.map((header) => (header as HTMLElement).dataset.section))
   expect(order).toEqual(['workflow', 'staged', 'changes', 'repository', 'graph'])
-  await expect(page.getByRole('textbox', { name: 'Repository path' })).toHaveValue(app.repo)
+  await expect(page.getByRole('textbox', { name: 'Workspace path' })).toHaveValue(app.repo)
   await expect(page.getByRole('button', { name: 'Switch branch · main' })).toBeVisible()
   if (process.env.GITNA_CAPTURE_M4) {
     await page.screenshot({ path: '/tmp/gitna-m4-desktop.png', fullPage: true })

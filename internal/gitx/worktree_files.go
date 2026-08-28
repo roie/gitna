@@ -247,8 +247,10 @@ func validateWorktreePath(path string) error {
 	if strings.Contains(path, `\`) || filepath.VolumeName(filepath.FromSlash(path)) != "" {
 		return fmt.Errorf("%w: platform-specific path %q", protocol.ErrInvalidPath, path)
 	}
-	if path == ".git" || strings.HasPrefix(path, ".git/") {
-		return fmt.Errorf("%w: Git metadata", protocol.ErrInvalidPath)
+	for _, segment := range strings.Split(path, "/") {
+		if segment == ".git" {
+			return fmt.Errorf("%w: Git metadata", protocol.ErrInvalidPath)
+		}
 	}
 	return nil
 }

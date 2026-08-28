@@ -129,6 +129,7 @@ export interface WorktreeFile {
 
 export interface RepoSnapshot {
   appVersion: string
+  repository: boolean
   root: string
   headOid?: string
   headBranch?: string

@@ -116,6 +116,26 @@ func trackedRepo(t *testing.T) string {
 	return root
 }
 
+func TestWatcherReportsOrdinaryWorkspaceChangesWithoutGit(t *testing.T) {
+	root := t.TempDir()
+	w, err := New(t.Context(), gitx.Repository{Root: root}, nil, Options{
+		Debounce:         30 * time.Millisecond,
+		FallbackInterval: 10 * time.Millisecond,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = w.Close() })
+	events := w.Events()
+	drain(t, events, 100*time.Millisecond)
+
+	writeFile(t, root, "nested/file.txt", "content\n")
+	if event := nextEvent(t, events); event != InvalidateSnapshot {
+		t.Fatalf("event = %q, want %q", event, InvalidateSnapshot)
+	}
+	expectNoEvent(t, events, 200*time.Millisecond)
+}
+
 func TestWatcherReportsWorktreeChanges(t *testing.T) {
 	root := trackedRepo(t)
 	w := startWatcher(t, root, Options{Debounce: 30 * time.Millisecond, FallbackInterval: -1})

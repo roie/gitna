@@ -3,7 +3,9 @@ package gitx
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"sort"
@@ -20,6 +22,9 @@ func (r Repository) RepositoryFiles(ctx context.Context, runner Runner, after st
 	result := protocol.RepositoryFiles{Paths: make([]string, 0), IgnoredPaths: make([]string, 0)}
 	if limit <= 0 {
 		return result, nil
+	}
+	if !r.IsGit() {
+		return r.workspaceFiles(ctx, after, limit)
 	}
 
 	visible, err := r.listRepositoryFiles(ctx, runner, "--cached", "--others", "--exclude-standard", "--deduplicate")
@@ -62,6 +67,51 @@ func (r Repository) RepositoryFiles(ctx context.Context, runner Runner, after st
 		if _, ok := ignoredSet[path]; ok {
 			result.IgnoredPaths = append(result.IgnoredPaths, path)
 		}
+	}
+	return result, nil
+}
+
+var errWorkspacePageFull = errors.New("workspace file page full")
+
+func (r Repository) workspaceFiles(ctx context.Context, after string, limit int) (protocol.RepositoryFiles, error) {
+	result := protocol.RepositoryFiles{Paths: make([]string, 0), IgnoredPaths: make([]string, 0)}
+	err := filepath.WalkDir(r.Root, func(path string, entry fs.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
+		}
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		if path == r.Root {
+			return nil
+		}
+		if entry.Name() == ".git" {
+			if entry.IsDir() {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		if entry.IsDir() {
+			return nil
+		}
+		relative, err := filepath.Rel(r.Root, path)
+		if err != nil {
+			return err
+		}
+		relative = filepath.ToSlash(relative)
+		if relative <= after {
+			return nil
+		}
+		if len(result.Paths) == limit {
+			result.Truncated = true
+			result.NextCursor = result.Paths[len(result.Paths)-1]
+			return errWorkspacePageFull
+		}
+		result.Paths = append(result.Paths, relative)
+		return nil
+	})
+	if err != nil && !errors.Is(err, errWorkspacePageFull) {
+		return protocol.RepositoryFiles{}, err
 	}
 	return result, nil
 }

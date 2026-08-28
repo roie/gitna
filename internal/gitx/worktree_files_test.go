@@ -63,14 +63,15 @@ func TestWorktreeFileRejectsUnsafeAndUnsupportedInputs(t *testing.T) {
 	}
 
 	for path, want := range map[string]error{
-		"../escape":      protocol.ErrInvalidPath,
-		".git/config":    protocol.ErrInvalidPath,
-		"link.txt":       protocol.ErrInvalidPath,
-		"binary.dat":     protocol.ErrWorktreeBinary,
-		"large.txt":      protocol.ErrWorktreeFileTooLarge,
-		"missing/file":   protocol.ErrInvalidPath,
-		"nested/../file": protocol.ErrInvalidPath,
-		`..\escape`:      protocol.ErrInvalidPath,
+		"../escape":          protocol.ErrInvalidPath,
+		".git/config":        protocol.ErrInvalidPath,
+		"nested/.git/config": protocol.ErrInvalidPath,
+		"link.txt":           protocol.ErrInvalidPath,
+		"binary.dat":         protocol.ErrWorktreeBinary,
+		"large.txt":          protocol.ErrWorktreeFileTooLarge,
+		"missing/file":       protocol.ErrInvalidPath,
+		"nested/../file":     protocol.ErrInvalidPath,
+		`..\escape`:          protocol.ErrInvalidPath,
 	} {
 		t.Run(path, func(t *testing.T) {
 			_, err := repo.ReadWorktreeFile(context.Background(), path)

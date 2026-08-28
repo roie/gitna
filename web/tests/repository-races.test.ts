@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from 'vitest'
 
 import { GitnaRepository } from '../src/diffshub/gitna/repository'
 import type { ApiClient } from '../src/lib/api'
-import type { Branch, GraphPage, RepoSnapshot } from '../src/lib/types'
+import type { Branch, GraphPage, RepositoryFiles, RepoSnapshot } from '../src/lib/types'
 
 function deferred<T>() {
   let resolve!: (value: T) => void
@@ -15,6 +15,7 @@ function deferred<T>() {
 function snapshot(root: string, generation: number): RepoSnapshot {
   return {
     appVersion: 'dev',
+    repository: true,
     root,
     ahead: 0,
     behind: 0,
@@ -80,6 +81,33 @@ describe('GitnaRepository request sequencing', () => {
     expect(repository.branchesLoading).toBe(false)
   })
 
+  it('publishes paged Explorer files atomically', async () => {
+    const finalPage = deferred<RepositoryFiles>()
+    const api = {
+      repositoryFiles: vi
+        .fn()
+        .mockResolvedValueOnce({
+          generation: 1,
+          paths: ['new/first.txt'],
+          truncated: true,
+          nextCursor: 'new/first.txt',
+        })
+        .mockReturnValueOnce(finalPage.promise),
+    } as unknown as ApiClient
+    const repository = new GitnaRepository(api)
+    repository.repositoryPaths = ['existing/file.txt']
+
+    const refresh = repository.refreshRepositoryFiles()
+    await vi.waitFor(() => expect(api.repositoryFiles).toHaveBeenCalledTimes(2))
+
+    expect(repository.repositoryPaths).toEqual(['existing/file.txt'])
+    finalPage.resolve({ generation: 1, paths: ['new/second.txt'], truncated: false })
+    await refresh
+
+    expect(repository.repositoryPaths).toEqual(['new/first.txt', 'new/second.txt'])
+    expect(repository.repositoryFilesLoading).toBe(false)
+  })
+
   it('discards an old snapshot while switching repositories', async () => {
     const oldSnapshot = deferred<RepoSnapshot>()
     const api = {
@@ -96,9 +124,9 @@ describe('GitnaRepository request sequencing', () => {
 
     const initialRefresh = repository.refreshSnapshot()
     const switching = repository.switchRepository('/new')
-    await vi.waitFor(() => expect(api.graph).toHaveBeenCalled())
     oldSnapshot.resolve(snapshot('/old', 99))
     await Promise.all([initialRefresh, switching])
+    expect(api.graph).toHaveBeenCalled()
 
     expect(repository.snapshot?.root).toBe('/new')
     expect(repository.generation).toBe(1)

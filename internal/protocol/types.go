@@ -92,6 +92,7 @@ type WorkspaceCatalog struct {
 
 type RepoSnapshot struct {
 	AppVersion string          `json:"appVersion"`
+	Repository bool            `json:"repository"`
 	Root       string          `json:"root"`
 	HeadOID    string          `json:"headOid,omitempty"`
 	HeadBranch string          `json:"headBranch,omitempty"`
