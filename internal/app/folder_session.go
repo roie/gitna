@@ -2,7 +2,6 @@ package app
 
 import (
 	"context"
-	"fmt"
 	"path/filepath"
 	"sync"
 
@@ -13,20 +12,16 @@ import (
 	"github.com/roie/gitna/internal/watch"
 )
 
-// folderSession keeps the HTTP capability URL stable while the user
-// explicitly switches the repository behind it. The adapter and watcher are
-// replaced together; the public events channel remains stable for existing SSE
-// clients.
+// folderSession owns one immutable folder backend. Multiple browser documents
+// for the same stable route share its watcher and mutation queue.
 type folderSession struct {
-	ctx     context.Context
-	runner  *gitx.ExecRunner
 	adapter *repoAdapter
 	events  chan watch.InvalidationKind
 	folders *folder.Catalog
+	watcher watch.Watcher
 
-	switchMu sync.Mutex
-	mu       sync.Mutex
-	watcher  watch.Watcher
+	closeOnce sync.Once
+	closeErr  error
 }
 
 func newFolderSession(
@@ -43,73 +38,24 @@ func newFolderSession(
 		folders = folder.Open("", folder.DefaultRecentLimit)
 	}
 	s := &folderSession{
-		ctx:     ctx,
-		runner:  runner,
 		adapter: &repoAdapter{runner: runner, repo: repo, queue: gitx.NewMutationQueue()},
 		events:  make(chan watch.InvalidationKind, 16),
 		watcher: watcher,
 		folders: folders,
 	}
 	s.folders.Record(repo.Root, repo.IsGit())
-	s.forward(watcher)
+	go s.forward()
 	return s, nil
 }
 
-func (s *folderSession) forward(watcher watch.Watcher) {
-	go func() {
-		for event := range watcher.Events() {
-			select {
-			case s.events <- event:
-			default:
-			}
-		}
-	}()
-}
-
-func (s *folderSession) openFolder(ctx context.Context, path string) (string, error) {
-	s.switchMu.Lock()
-	defer s.switchMu.Unlock()
-
-	repo, err := gitx.OpenFolder(ctx, s.runner, path)
-	if err != nil {
-		return "", fmt.Errorf("open folder: %w", err)
-	}
-	current := s.adapter.current()
-	if repo.Root == current.Root && repo.IsGit() == current.IsGit() {
-		s.folders.Record(repo.Root, repo.IsGit())
-		return repo.Root, nil
-	}
-
-	watcher, err := watch.New(s.ctx, repo, s.runner, watch.Options{})
-	if err != nil {
-		return "", fmt.Errorf("watch folder: %w", err)
-	}
-	if err := s.adapter.switchTo(ctx, repo); err != nil {
-		_ = watcher.Close()
-		return "", err
-	}
-
-	s.mu.Lock()
-	previous := s.watcher
-	s.watcher = watcher
-	s.mu.Unlock()
-	s.forward(watcher)
-	if previous != nil {
-		_ = previous.Close()
-	}
-
-	s.folders.Record(repo.Root, repo.IsGit())
-	events := []watch.InvalidationKind{watch.InvalidateSnapshot}
-	if repo.IsGit() {
-		events = append(events, watch.InvalidateGraph)
-	}
-	for _, event := range events {
+func (s *folderSession) forward() {
+	defer close(s.events)
+	for event := range s.watcher.Events() {
 		select {
 		case s.events <- event:
 		default:
 		}
 	}
-	return repo.Root, nil
 }
 
 func (s *folderSession) folderCatalog() protocol.FolderCatalog {
@@ -146,12 +92,6 @@ func (s *folderSession) revealFolder(context.Context) error {
 }
 
 func (s *folderSession) close() error {
-	s.mu.Lock()
-	watcher := s.watcher
-	s.watcher = nil
-	s.mu.Unlock()
-	if watcher == nil {
-		return nil
-	}
-	return watcher.Close()
+	s.closeOnce.Do(func() { s.closeErr = s.watcher.Close() })
+	return s.closeErr
 }

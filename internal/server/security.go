@@ -7,6 +7,14 @@ import (
 	"strings"
 )
 
+// CapabilityPathPrefix namespaces every Gitna process capability URL.
+const CapabilityPathPrefix = "/g"
+
+// CapabilityPath returns the process capability route for token.
+func CapabilityPath(token string) string {
+	return CapabilityPathPrefix + "/" + token
+}
+
 // Security enforces the loopback session boundary: capability URL, Host
 // validation, mutation origin/content-type checks, request size limits, and
 // strict response headers.
@@ -34,12 +42,11 @@ func (s Security) Wrap(next http.Handler) http.Handler {
 			return
 		}
 
+		prefix := CapabilityPath(s.Token)
 		if r.URL.Path == "/" {
-			http.Redirect(w, r, "/s/"+s.Token+"/", http.StatusFound)
+			http.Redirect(w, r, prefix+"/", http.StatusFound)
 			return
 		}
-
-		prefix := "/s/" + s.Token
 		if r.URL.Path == prefix {
 			http.Redirect(w, r, prefix+"/", http.StatusFound)
 			return
@@ -60,7 +67,7 @@ func (s Security) Wrap(next http.Handler) http.Handler {
 				return
 			}
 			bodyLimit := MaxRequestBody
-			if r.URL.Path == prefix+"/api/v1/operations" {
+			if isOperationsRequestPath(r.URL.Path, prefix) {
 				bodyLimit = operationRequestBodyLimit(r.URL.Query().Get("op"))
 			}
 			if r.ContentLength > bodyLimit {
@@ -72,6 +79,15 @@ func (s Security) Wrap(next http.Handler) http.Handler {
 
 		http.StripPrefix(prefix, next).ServeHTTP(w, r)
 	})
+}
+
+func isOperationsRequestPath(requestPath, capabilityPrefix string) bool {
+	relative := strings.TrimPrefix(requestPath, capabilityPrefix)
+	if relative == "/api/v1/operations" {
+		return true
+	}
+	parts := strings.Split(strings.Trim(relative, "/"), "/")
+	return len(parts) == 4 && parts[1] == "api" && parts[2] == "v1" && parts[3] == "operations"
 }
 
 func (s Security) sameOrigin(r *http.Request) bool {

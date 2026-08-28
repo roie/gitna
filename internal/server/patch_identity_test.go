@@ -16,7 +16,7 @@ func postPatchWithIdentity(t *testing.T, srv *Server, request mutationRequest) *
 	if err := json.NewEncoder(&body).Encode(request); err != nil {
 		t.Fatal(err)
 	}
-	req := httptest.NewRequest(http.MethodPost, "/s/"+testToken+"/api/v1/operations?op="+OpPatch, &body)
+	req := httptest.NewRequest(http.MethodPost, "/g/"+testToken+"/api/v1/operations?op="+OpPatch, &body)
 	req.Host = testHost
 	req.Header.Set("Origin", "http://"+testHost)
 	req.Header.Set("Content-Type", "application/json")

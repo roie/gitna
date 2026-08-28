@@ -89,6 +89,13 @@ type FolderCatalog struct {
 	Recent  []Folder `json:"recent"`
 }
 
+// OpenFolderResult identifies a validated folder and its stable route within
+// the current process capability.
+type OpenFolderResult struct {
+	Root string `json:"root"`
+	Href string `json:"href"`
+}
+
 type RepoSnapshot struct {
 	AppVersion string          `json:"appVersion"`
 	Repository bool            `json:"repository"`

@@ -25,7 +25,7 @@ func postOperation(t *testing.T, repo Repo, op string, body any) *httptest.Respo
 			t.Fatal(err)
 		}
 	}
-	req := httptest.NewRequest(http.MethodPost, "/s/"+testToken+"/api/v1/operations?op="+op, &buf)
+	req := httptest.NewRequest(http.MethodPost, "/g/"+testToken+"/api/v1/operations?op="+op, &buf)
 	req.Host = testHost
 	req.Header.Set("Origin", "http://"+testHost)
 	req.Header.Set("Content-Type", "application/json")
@@ -54,7 +54,7 @@ func postVerifiedPatch(t *testing.T, repo Repo, scope protocol.DiffScope, path, 
 	}); err != nil {
 		t.Fatal(err)
 	}
-	req := httptest.NewRequest(http.MethodPost, "/s/"+testToken+"/api/v1/operations?op="+OpPatch, &body)
+	req := httptest.NewRequest(http.MethodPost, "/g/"+testToken+"/api/v1/operations?op="+OpPatch, &body)
 	req.Host = testHost
 	req.Header.Set("Origin", "http://"+testHost)
 	req.Header.Set("Content-Type", "application/json")
@@ -73,7 +73,7 @@ func postOperationDirect(repo Repo, op, body string) *httptest.ResponseRecorder 
 
 func postOperationUnknownLength(repo Repo, op, body string) *httptest.ResponseRecorder {
 	h := newSnapshotServer(repo)
-	req := httptest.NewRequest(http.MethodPost, "/s/"+testToken+"/api/v1/operations?op="+op, strings.NewReader(body))
+	req := httptest.NewRequest(http.MethodPost, "/g/"+testToken+"/api/v1/operations?op="+op, strings.NewReader(body))
 	req.ContentLength = -1
 	req.TransferEncoding = []string{"chunked"}
 	req.Host = testHost
@@ -372,7 +372,7 @@ func TestOperationRejectsBadRequests(t *testing.T) {
 		t.Fatalf("unknown op status = %d, want %d", rec.Code, http.StatusBadRequest)
 	}
 
-	req := httptest.NewRequest(http.MethodPost, "/s/"+testToken+"/api/v1/operations?op="+OpStage, strings.NewReader("{not json"))
+	req := httptest.NewRequest(http.MethodPost, "/g/"+testToken+"/api/v1/operations?op="+OpStage, strings.NewReader("{not json"))
 	req.Host = testHost
 	req.Header.Set("Origin", "http://"+testHost)
 	req.Header.Set("Content-Type", "application/json")

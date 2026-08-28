@@ -226,6 +226,7 @@ function GitnaReviewUIInner() {
   const savingPathRef = useRef<string | null>(null)
   const worktreeFilesRef = useRef(worktreeFiles)
   const worktreeDraftsRef = useRef(worktreeDrafts)
+  const allowFolderNavigationRef = useRef(false)
   worktreeFilesRef.current = worktreeFiles
   worktreeDraftsRef.current = worktreeDrafts
   const [pendingFileAction, setPendingFileAction] = useState<{
@@ -664,6 +665,14 @@ function GitnaReviewUIInner() {
         }
 
   const dirtyPaths = useMemo(() => new Set(worktreeDrafts.keys()), [worktreeDrafts])
+  useEffect(() => {
+    if (dirtyPaths.size === 0) return
+    const protectDrafts = (event: BeforeUnloadEvent) => {
+      if (!allowFolderNavigationRef.current) event.preventDefault()
+    }
+    window.addEventListener('beforeunload', protectDrafts)
+    return () => window.removeEventListener('beforeunload', protectDrafts)
+  }, [dirtyPaths.size])
   const closeHome = useCallback(() => {
     restoreHomeFocusRef.current = true
     setHomeOpen(false)
@@ -677,16 +686,20 @@ function GitnaReviewUIInner() {
     async (path: string, returnHome: boolean) => {
       if (returnHome) setHomeSwitchError(null)
       try {
-        await repository.openFolder(path)
-        setWorktreeFiles(new Map())
-        setWorktreeDrafts(new Map())
-        if (returnHome) closeHome()
+        const result = await repository.openFolder(path)
+        const target = new URL(result.href, window.location.href)
+        if (target.origin !== window.location.origin) {
+          throw new Error('folder route must remain on the current Gitna origin')
+        }
+        allowFolderNavigationRef.current = true
+        window.location.assign(target.href)
       } catch (error) {
+        allowFolderNavigationRef.current = false
         if (!returnHome) throw error
         setHomeSwitchError(error instanceof Error ? error.message : String(error))
       }
     },
-    [closeHome, repository],
+    [repository],
   )
   const requestFolderSwitch = useCallback(
     async (path: string, returnHome: boolean) => {

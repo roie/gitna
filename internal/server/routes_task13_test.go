@@ -153,7 +153,7 @@ func TestReadStashesTagsAndCompare(t *testing.T) {
 	}
 	h := newSnapshotServer(repo)
 
-	req := httptest.NewRequest(http.MethodGet, "/s/"+testToken+"/api/v1/stashes", nil)
+	req := httptest.NewRequest(http.MethodGet, "/g/"+testToken+"/api/v1/stashes", nil)
 	req.Host = testHost
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, req)
@@ -168,7 +168,7 @@ func TestReadStashesTagsAndCompare(t *testing.T) {
 		t.Fatalf("stashes = %+v", stashes)
 	}
 
-	req = httptest.NewRequest(http.MethodGet, "/s/"+testToken+"/api/v1/tags", nil)
+	req = httptest.NewRequest(http.MethodGet, "/g/"+testToken+"/api/v1/tags", nil)
 	req.Host = testHost
 	rec = httptest.NewRecorder()
 	h.ServeHTTP(rec, req)
@@ -183,7 +183,7 @@ func TestReadStashesTagsAndCompare(t *testing.T) {
 		t.Fatalf("tags = %+v", tags)
 	}
 
-	req = httptest.NewRequest(http.MethodGet, "/s/"+testToken+"/api/v1/compare?from=main&to=HEAD", nil)
+	req = httptest.NewRequest(http.MethodGet, "/g/"+testToken+"/api/v1/compare?from=main&to=HEAD", nil)
 	req.Host = testHost
 	rec = httptest.NewRecorder()
 	h.ServeHTTP(rec, req)
@@ -206,8 +206,8 @@ func TestCompareRouteValidation(t *testing.T) {
 		repo Repo
 		want int
 	}{
-		{"missing refs", "/s/" + testToken + "/api/v1/compare?from=main", &fakeRepo{}, http.StatusBadRequest},
-		{"bad ref", "/s/" + testToken + "/api/v1/compare?from=bad..ref&to=HEAD", &fakeRepo{err: protocol.ErrInvalidRef}, http.StatusBadRequest},
+		{"missing refs", "/g/" + testToken + "/api/v1/compare?from=main", &fakeRepo{}, http.StatusBadRequest},
+		{"bad ref", "/g/" + testToken + "/api/v1/compare?from=bad..ref&to=HEAD", &fakeRepo{err: protocol.ErrInvalidRef}, http.StatusBadRequest},
 	} {
 		h := newSnapshotServer(tc.repo)
 		req := httptest.NewRequest(http.MethodGet, tc.url, nil)
@@ -222,7 +222,7 @@ func TestCompareRouteValidation(t *testing.T) {
 
 func TestCompareUnavailableWithoutRepo(t *testing.T) {
 	h := newSnapshotServer(nil)
-	req := httptest.NewRequest(http.MethodGet, "/s/"+testToken+"/api/v1/compare?from=main&to=HEAD", nil)
+	req := httptest.NewRequest(http.MethodGet, "/g/"+testToken+"/api/v1/compare?from=main&to=HEAD", nil)
 	req.Host = testHost
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, req)

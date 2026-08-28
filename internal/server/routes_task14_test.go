@@ -121,7 +121,7 @@ func TestConflictsRouteReturnsList(t *testing.T) {
 	repo := &fakeRepo{}
 	h := newSnapshotServer(repo)
 
-	req := httptest.NewRequest(http.MethodGet, "/s/"+testToken+"/api/v1/conflicts", nil)
+	req := httptest.NewRequest(http.MethodGet, "/g/"+testToken+"/api/v1/conflicts", nil)
 	req.Host = testHost
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, req)
@@ -140,7 +140,7 @@ func TestConflictsRouteReturnsList(t *testing.T) {
 
 func TestConflictsRouteUnavailableWithoutRepo(t *testing.T) {
 	h := newSnapshotServer(nil)
-	req := httptest.NewRequest(http.MethodGet, "/s/"+testToken+"/api/v1/conflicts", nil)
+	req := httptest.NewRequest(http.MethodGet, "/g/"+testToken+"/api/v1/conflicts", nil)
 	req.Host = testHost
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, req)

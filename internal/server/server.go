@@ -82,9 +82,8 @@ type Options struct {
 	// Events streams repository invalidation kinds. When nil, the events
 	// endpoint closes its stream immediately.
 	Events <-chan watch.InvalidationKind
-	// OpenFolder replaces the repository behind this capability after an
-	// explicit local UI request.
-	OpenFolder func(context.Context, string) (string, error)
+	// OpenFolder validates a folder and returns its stable capability-relative route.
+	OpenFolder func(context.Context, string) (protocol.OpenFolderResult, error)
 	// RevealFolder opens the current repository in the platform file manager.
 	RevealFolder func(context.Context) error
 	// Folders returns the active and bounded recent folder catalog.
@@ -100,7 +99,7 @@ type Server struct {
 	repo         Repo
 	hub          *eventsHub
 	gen          atomic.Uint64
-	openFolder   func(context.Context, string) (string, error)
+	openFolder   func(context.Context, string) (protocol.OpenFolderResult, error)
 	revealFolder func(context.Context) error
 	folders      func() protocol.FolderCatalog
 }

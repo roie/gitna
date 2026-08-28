@@ -5,6 +5,7 @@ import type {
   DiffScope,
   FileDiff,
   GraphPage,
+  OpenFolderResult,
   RepositoryFiles,
   RepoSnapshot,
   ReviewResponse,
@@ -133,7 +134,7 @@ export interface ApiClient {
   tags(): Promise<Tag[]>
   compare(from: string, to: string): Promise<CommitFiles>
   conflicts(): Promise<ConflictEntry[]>
-  openFolder(path: string): Promise<{ root: string }>
+  openFolder(path: string): Promise<OpenFolderResult>
   revealFolder(): Promise<void>
 }
 
@@ -359,7 +360,7 @@ export function createApi(): ApiClient {
       )
       return (await res.json()) as ConflictEntry[]
     },
-    async openFolder(path: string): Promise<{ root: string }> {
+    async openFolder(path: string): Promise<OpenFolderResult> {
       const res = await expectOK(
         await fetch('api/v1/folder', {
           method: 'POST',
@@ -368,7 +369,7 @@ export function createApi(): ApiClient {
           signal: AbortSignal.timeout(MUTATE_TIMEOUT),
         }),
       )
-      return (await res.json()) as { root: string }
+      return (await res.json()) as OpenFolderResult
     },
     async revealFolder(): Promise<void> {
       await expectOK(

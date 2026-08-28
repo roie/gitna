@@ -108,28 +108,22 @@ describe('GitnaRepository request sequencing', () => {
     expect(repository.repositoryFilesLoading).toBe(false)
   })
 
-  it('discards an old snapshot while switching repositories', async () => {
-    const oldSnapshot = deferred<RepoSnapshot>()
+  it('keeps the current snapshot while resolving another folder route', async () => {
+    const currentSnapshot = deferred<RepoSnapshot>()
     const api = {
-      snapshot: vi
-        .fn()
-        .mockReturnValueOnce(oldSnapshot.promise)
-        .mockResolvedValueOnce(snapshot('/new', 1)),
-      repositoryFiles: vi.fn().mockResolvedValue({ generation: 1, paths: [], truncated: false }),
-      graph: vi.fn().mockResolvedValue({ commits: [], hasMore: false }),
-      branches: vi.fn().mockResolvedValue([]),
-      openFolder: vi.fn().mockResolvedValue({ root: '/new' }),
+      snapshot: vi.fn().mockReturnValueOnce(currentSnapshot.promise),
+      openFolder: vi.fn().mockResolvedValue({ root: '/new', href: '../new/' }),
     } as unknown as ApiClient
     const repository = new GitnaRepository(api)
 
     const initialRefresh = repository.refreshSnapshot()
     const switching = repository.openFolder('/new')
-    oldSnapshot.resolve(snapshot('/old', 99))
-    await Promise.all([initialRefresh, switching])
-    expect(api.graph).toHaveBeenCalled()
+    currentSnapshot.resolve(snapshot('/old', 99))
+    const [, result] = await Promise.all([initialRefresh, switching])
 
-    expect(repository.snapshot?.root).toBe('/new')
-    expect(repository.generation).toBe(1)
-    expect(api.snapshot).toHaveBeenCalledTimes(2)
+    expect(result).toEqual({ root: '/new', href: '../new/' })
+    expect(repository.snapshot?.root).toBe('/old')
+    expect(repository.generation).toBe(99)
+    expect(api.snapshot).toHaveBeenCalledTimes(1)
   })
 })

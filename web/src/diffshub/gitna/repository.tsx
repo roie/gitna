@@ -761,48 +761,13 @@ export class GitnaRepository {
     }
   }
 
-  async openFolder(path: string): Promise<void> {
+  async openFolder(path: string): Promise<{ root: string; href: string }> {
     this.busy = true
     this.activeOp = 'open-folder'
     this.mutationError = null
     this.emit()
     try {
-      await this.api.openFolder(path)
-      this.repositoryEpoch += 1
-      this.generation = 0
-      this.repositoryFilesGeneration = 0
-      this.repositoryFilesRequest += 1
-      this.folderRequest += 1
-      this.graphRequest += 1
-      this.branchesRequest += 1
-      this.stashesRequest += 1
-      this.tagsRequest += 1
-      this.compareRequest += 1
-      this.conflictsRequest += 1
-      this.snapshot = null
-      this.selection = null
-      this.repositoryFilePath = null
-      this.repositoryOpenPaths = []
-      this.worktreeRename = null
-      this.repositoryPaths = []
-      this.repositoryIgnoredPaths = new Set()
-      this.graphCommits = []
-      this.graphRows = []
-      this.expanded = {}
-      this.commitFiles = {}
-      this.commitStats = {}
-      this.filesLoading = {}
-      this.filesError = {}
-      this.commitDiff = null
-      this.branches = []
-      this.stashes = []
-      this.tags = []
-      this.compare = null
-      this.compareFiles = []
-      this.compareDiff = null
-      this.conflicts = []
-      this.emit()
-      await this.refreshCurrentFolder()
+      return await this.api.openFolder(path)
     } catch (error) {
       this.mutationError = errorMessage(error)
       throw error

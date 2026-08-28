@@ -37,7 +37,7 @@ func startEventsServer(t *testing.T, events <-chan watch.InvalidationKind) *http
 }
 
 func eventsURL(ts *httptest.Server) string {
-	return ts.URL + "/s/" + testToken + "/api/v1/events"
+	return ts.URL + "/g/" + testToken + "/api/v1/events"
 }
 
 func readUntil(t *testing.T, br *bufio.Reader, needle string) string {
@@ -144,7 +144,7 @@ func TestEventsSlowClientDoesNotBlockOthers(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer slow.Close()
-	fmt.Fprintf(slow, "GET /s/%s/api/v1/events HTTP/1.1\r\nHost: %s\r\n\r\n",
+	fmt.Fprintf(slow, "GET /g/%s/api/v1/events HTTP/1.1\r\nHost: %s\r\n\r\n",
 		testToken, ts.Listener.Addr().String())
 
 	ctx, cancel := context.WithCancel(context.Background())

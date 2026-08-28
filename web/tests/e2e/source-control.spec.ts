@@ -736,6 +736,50 @@ test('folder path switches the live session and remains fully editable', async (
   await expect(page).toHaveTitle(`${basename(app.repo)} - Gitna`)
 })
 
+test('stable folder routes isolate parallel browser pages', async ({ page, app }) => {
+  const nextRepo = join(dirname(app.repo), 'parallel-folder')
+  mkdirSync(nextRepo)
+  runGit(nextRepo, 'init', '-q', '-b', 'parallel')
+  runGit(nextRepo, 'config', 'user.email', 'e2e@example.com')
+  runGit(nextRepo, 'config', 'user.name', 'Gitna E2E')
+  writeFileSync(join(nextRepo, 'parallel.txt'), 'parallel folder\n')
+  runGit(nextRepo, 'add', '--', 'parallel.txt')
+  runGit(nextRepo, 'commit', '-qm', 'parallel folder')
+
+  await page.goto(app.url)
+  const initialUrl = page.url()
+  expect(new URL(initialUrl).pathname).toMatch(/\/g\/[^/]+\/repo\/$/)
+  const folderPath = page.getByRole('combobox', { name: 'Folder path' })
+  await folderPath.fill(nextRepo)
+  await page.getByRole('button', { name: 'Switch folder' }).click()
+  await expect(page).toHaveTitle(`${basename(nextRepo)} - Gitna`)
+  const nextUrl = page.url()
+  expect(nextUrl).not.toBe(initialUrl)
+  expect(new URL(nextUrl).pathname).toMatch(/\/parallel-folder\/$/)
+
+  const originalPage = await page.context().newPage()
+  try {
+    await originalPage.goto(initialUrl)
+    await expect(originalPage).toHaveTitle(`${basename(app.repo)} - Gitna`)
+    const [nextRoot, originalRoot] = await Promise.all([
+      page.evaluate(
+        async () => ((await (await fetch('api/v1/snapshot')).json()) as { root: string }).root,
+      ),
+      originalPage.evaluate(
+        async () => ((await (await fetch('api/v1/snapshot')).json()) as { root: string }).root,
+      ),
+    ])
+    expect(nextRoot).toBe(nextRepo)
+    expect(originalRoot).toBe(app.repo)
+
+    await Promise.all([page.reload(), originalPage.reload()])
+    await expect(page).toHaveTitle(`${basename(nextRepo)} - Gitna`)
+    await expect(originalPage).toHaveTitle(`${basename(app.repo)} - Gitna`)
+  } finally {
+    await originalPage.close()
+  }
+})
+
 test('header folder switcher keeps keyboard navigation visible', async ({ page, app }) => {
   const recent = Array.from({ length: 20 }, (_, index) => ({
     path: `/tmp/recent-parent-${index.toString().padStart(2, '0')}/folder-${index.toString().padStart(2, '0')}`,

@@ -117,7 +117,7 @@ const auxApi: ApiClient = {
     return []
   },
   async openFolder(path) {
-    return { root: path }
+    return { root: path, href: '../folder/' }
   },
   async revealFolder() {},
 }
@@ -345,43 +345,18 @@ describe('createRepoState', () => {
     expect(state.repositoryFilesError).toBeNull()
   })
 
-  it('switches repositories and clears repository-scoped state before refreshing', async () => {
-    const openFolder = vi.fn(async (path: string) => ({ root: path }))
-    const state = createRepoState({
-      api: {
-        ...auxApi,
-        openFolder,
-        async snapshot() {
-          return snapshot({ root: '/tmp/next', generation: 4, headBranch: 'next' })
-        },
-        async folders() {
-          return {
-            current: { path: '/tmp/next', name: 'next', repository: true, lastOpened: '' },
-            recent: [],
-          }
-        },
-        async repositoryFiles() {
-          return { generation: 4, paths: ['next.txt'], truncated: false }
-        },
-        async graph() {
-          return { commits: [graphCommit('next')], hasMore: false }
-        },
-        async branches() {
-          return [{ name: 'next', oid: 'next', current: true, remote: false, ahead: 0, behind: 0 }]
-        },
-      },
-    })
+  it('resolves a folder route without mutating the current repository state', async () => {
+    const openFolder = vi.fn(async (path: string) => ({ root: path, href: '../next/' }))
+    const state = createRepoState({ api: { ...auxApi, openFolder } })
     state.repositoryPaths = ['old.txt']
     state.graphCommits = [graphCommit('old')]
 
-    await state.openFolder('/tmp/next')
+    const result = await state.openFolder('/tmp/next')
 
     expect(openFolder).toHaveBeenCalledWith('/tmp/next')
-    expect(state.snapshot?.root).toBe('/tmp/next')
-    expect(state.folders?.current.path).toBe('/tmp/next')
-    expect(state.repositoryPaths).toEqual(['next.txt'])
-    expect(state.graphCommits.map((commit) => commit.oid)).toEqual(['next'])
-    expect(state.branches[0]?.name).toBe('next')
+    expect(result).toEqual({ root: '/tmp/next', href: '../next/' })
+    expect(state.repositoryPaths).toEqual(['old.txt'])
+    expect(state.graphCommits.map((commit) => commit.oid)).toEqual(['old'])
     expect(state.busy).toBe(false)
   })
 

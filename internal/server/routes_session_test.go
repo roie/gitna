@@ -28,7 +28,7 @@ func TestFoldersRouteReturnsCurrentAndRecentCatalog(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	req := httptest.NewRequest(http.MethodGet, "/s/"+testToken+"/api/v1/folders", nil)
+	req := httptest.NewRequest(http.MethodGet, "/g/"+testToken+"/api/v1/folders", nil)
 	req.Host = testHost
 	rec := httptest.NewRecorder()
 	srv.Handler().ServeHTTP(rec, req)
@@ -51,9 +51,9 @@ func TestOpenFolderRouteUsesExplicitSessionCallback(t *testing.T) {
 		Token: testToken,
 		Host:  testHost,
 		Repo:  &fakeRepo{},
-		OpenFolder: func(_ context.Context, path string) (string, error) {
+		OpenFolder: func(_ context.Context, path string) (protocol.OpenFolderResult, error) {
 			opened = path
-			return "/resolved/folder", nil
+			return protocol.OpenFolderResult{Root: "/resolved/folder", Href: "../folder/"}, nil
 		},
 	})
 	if err != nil {
@@ -61,7 +61,7 @@ func TestOpenFolderRouteUsesExplicitSessionCallback(t *testing.T) {
 	}
 	before := srv.gen.Load()
 	body, _ := json.Marshal(map[string]string{"path": "/requested/folder"})
-	req := httptest.NewRequest(http.MethodPost, "/s/"+testToken+"/api/v1/folder", bytes.NewReader(body))
+	req := httptest.NewRequest(http.MethodPost, "/g/"+testToken+"/api/v1/folder", bytes.NewReader(body))
 	req.Host = testHost
 	req.Header.Set("Origin", "http://"+testHost)
 	req.Header.Set("Content-Type", "application/json")
@@ -75,8 +75,15 @@ func TestOpenFolderRouteUsesExplicitSessionCallback(t *testing.T) {
 	if opened != "/requested/folder" {
 		t.Fatalf("opened = %q", opened)
 	}
-	if srv.gen.Load() != before+1 {
-		t.Fatalf("generation = %d, want %d", srv.gen.Load(), before+1)
+	if srv.gen.Load() != before {
+		t.Fatalf("generation = %d, want unchanged %d", srv.gen.Load(), before)
+	}
+	var result protocol.OpenFolderResult
+	if err := json.Unmarshal(rec.Body.Bytes(), &result); err != nil {
+		t.Fatal(err)
+	}
+	if result.Root != "/resolved/folder" || result.Href != "../folder/" {
+		t.Fatalf("result = %#v", result)
 	}
 }
 
@@ -94,7 +101,7 @@ func TestRevealFolderRouteUsesCurrentSessionCallback(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	req := httptest.NewRequest(http.MethodPost, "/s/"+testToken+"/api/v1/folder/reveal", nil)
+	req := httptest.NewRequest(http.MethodPost, "/g/"+testToken+"/api/v1/folder/reveal", nil)
 	req.Host = testHost
 	req.Header.Set("Origin", "http://"+testHost)
 	req.Header.Set("Content-Type", "application/json")

@@ -31,7 +31,7 @@ func (s *Server) handleOpenFolder(w http.ResponseWriter, r *http.Request) {
 
 	ctx, cancel := context.WithTimeout(r.Context(), LocalMutationTimeout)
 	defer cancel()
-	root, err := s.openFolder(ctx, request.Path)
+	result, err := s.openFolder(ctx, request.Path)
 	if err != nil {
 		if timeoutReached(ctx, err) {
 			writeJSON(w, http.StatusGatewayTimeout, map[string]string{"error": "folder open timed out"})
@@ -40,8 +40,7 @@ func (s *Server) handleOpenFolder(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
 		return
 	}
-	s.gen.Add(1)
-	writeJSON(w, http.StatusOK, map[string]string{"root": root})
+	writeJSON(w, http.StatusOK, result)
 }
 
 func (s *Server) handleRevealFolder(w http.ResponseWriter, r *http.Request) {

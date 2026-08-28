@@ -13,9 +13,9 @@ func TestNewTokenIsURLSafeUnpadded(t *testing.T) {
 	if tok == "" {
 		t.Fatal("NewToken returned empty token")
 	}
-	// 32 random bytes encode to 43 URL-safe base64 characters without padding.
-	if len(tok) < 40 {
-		t.Fatalf("token length = %d, want >= 40 (32 random bytes)", len(tok))
+	// 16 random bytes encode to 22 URL-safe base64 characters without padding.
+	if len(tok) != 22 {
+		t.Fatalf("token length = %d, want 22 (16 random bytes)", len(tok))
 	}
 	for _, r := range tok {
 		valid := (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') ||

@@ -46,7 +46,7 @@ func (f *fakeWorktreeRepo) RenameWorktreeEntry(_ context.Context, source, destin
 
 func worktreeRequest(t *testing.T, h http.Handler, method, path, body string) *httptest.ResponseRecorder {
 	t.Helper()
-	req := httptest.NewRequest(method, "/s/"+testToken+"/api/v1"+path, strings.NewReader(body))
+	req := httptest.NewRequest(method, "/g/"+testToken+"/api/v1"+path, strings.NewReader(body))
 	req.Host = testHost
 	req.Header.Set("Origin", "http://"+testHost)
 	req.Header.Set("Content-Type", "application/json")

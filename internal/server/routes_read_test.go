@@ -453,7 +453,7 @@ func TestSnapshotRouteReturnsNormalizedJSON(t *testing.T) {
 	}
 	h := newSnapshotServer(&fakeRepo{snap: snap})
 
-	req := httptest.NewRequest(http.MethodGet, "/s/"+testToken+"/api/v1/snapshot", nil)
+	req := httptest.NewRequest(http.MethodGet, "/g/"+testToken+"/api/v1/snapshot", nil)
 	req.Host = testHost
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, req)
@@ -494,7 +494,7 @@ func TestRepositoryFilesRouteReturnsExplorerPaths(t *testing.T) {
 		Truncated:    true,
 	}})
 
-	req := httptest.NewRequest(http.MethodGet, "/s/"+testToken+"/api/v1/files", nil)
+	req := httptest.NewRequest(http.MethodGet, "/g/"+testToken+"/api/v1/files", nil)
 	req.Host = testHost
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, req)
@@ -517,7 +517,7 @@ func TestRepositoryFilesRouteReturnsExplorerPaths(t *testing.T) {
 func TestSnapshotFileLimit(t *testing.T) {
 	request := func(snap protocol.RepoSnapshot) *httptest.ResponseRecorder {
 		h := newSnapshotServer(&fakeRepo{snap: snap})
-		req := httptest.NewRequest(http.MethodGet, "/s/"+testToken+"/api/v1/snapshot", nil)
+		req := httptest.NewRequest(http.MethodGet, "/g/"+testToken+"/api/v1/snapshot", nil)
 		req.Host = testHost
 		rec := httptest.NewRecorder()
 		h.ServeHTTP(rec, req)
@@ -566,7 +566,7 @@ func TestSnapshotGenerationStableWithoutInvalidation(t *testing.T) {
 	h := newSnapshotServer(&fakeRepo{snap: protocol.RepoSnapshot{}})
 
 	gen := func() uint64 {
-		req := httptest.NewRequest(http.MethodGet, "/s/"+testToken+"/api/v1/snapshot", nil)
+		req := httptest.NewRequest(http.MethodGet, "/g/"+testToken+"/api/v1/snapshot", nil)
 		req.Host = testHost
 		rec := httptest.NewRecorder()
 		h.ServeHTTP(rec, req)
@@ -592,7 +592,7 @@ func TestSnapshotRetriesWhenGenerationChangesDuringRead(t *testing.T) {
 	}
 	repo.onFirstSnapshot = func() { srv.gen.Add(1) }
 
-	req := httptest.NewRequest(http.MethodGet, "/s/"+testToken+"/api/v1/snapshot", nil)
+	req := httptest.NewRequest(http.MethodGet, "/g/"+testToken+"/api/v1/snapshot", nil)
 	req.Host = testHost
 	rec := httptest.NewRecorder()
 	srv.Handler().ServeHTTP(rec, req)
@@ -611,7 +611,7 @@ func TestSnapshotRetriesWhenGenerationChangesDuringRead(t *testing.T) {
 func TestSnapshotRouteError(t *testing.T) {
 	h := newSnapshotServer(&fakeRepo{err: errors.New("disk failure")})
 
-	req := httptest.NewRequest(http.MethodGet, "/s/"+testToken+"/api/v1/snapshot", nil)
+	req := httptest.NewRequest(http.MethodGet, "/g/"+testToken+"/api/v1/snapshot", nil)
 	req.Host = testHost
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, req)
@@ -624,7 +624,7 @@ func TestSnapshotRouteError(t *testing.T) {
 func TestSnapshotUnavailableWithoutRepo(t *testing.T) {
 	h := newSnapshotServer(nil)
 
-	req := httptest.NewRequest(http.MethodGet, "/s/"+testToken+"/api/v1/snapshot", nil)
+	req := httptest.NewRequest(http.MethodGet, "/g/"+testToken+"/api/v1/snapshot", nil)
 	req.Host = testHost
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, req)
@@ -641,7 +641,7 @@ func TestDiffRouteReturnsFileDiff(t *testing.T) {
 		Patch:  "full patch",
 	}})
 
-	req := httptest.NewRequest(http.MethodGet, "/s/"+testToken+"/api/v1/diff?scope=unstaged&path=a.txt", nil)
+	req := httptest.NewRequest(http.MethodGet, "/g/"+testToken+"/api/v1/diff?scope=unstaged&path=a.txt", nil)
 	req.Host = testHost
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, req)
@@ -664,7 +664,7 @@ func TestDiffRouteReturnsFileDiff(t *testing.T) {
 func TestDiffRouteMapsInvalidInputTo400(t *testing.T) {
 	for _, name := range []error{protocol.ErrInvalidPath, protocol.ErrNotInRepo} {
 		h := newSnapshotServer(&fakeRepo{err: name})
-		req := httptest.NewRequest(http.MethodGet, "/s/"+testToken+"/api/v1/diff?scope=unstaged&path=../escape", nil)
+		req := httptest.NewRequest(http.MethodGet, "/g/"+testToken+"/api/v1/diff?scope=unstaged&path=../escape", nil)
 		req.Host = testHost
 		rec := httptest.NewRecorder()
 		h.ServeHTTP(rec, req)
@@ -677,7 +677,7 @@ func TestDiffRouteMapsInvalidInputTo400(t *testing.T) {
 func TestDiffRouteError(t *testing.T) {
 	h := newSnapshotServer(&fakeRepo{err: errors.New("boom")})
 
-	req := httptest.NewRequest(http.MethodGet, "/s/"+testToken+"/api/v1/diff?scope=unstaged&path=a.txt", nil)
+	req := httptest.NewRequest(http.MethodGet, "/g/"+testToken+"/api/v1/diff?scope=unstaged&path=a.txt", nil)
 	req.Host = testHost
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, req)
@@ -690,7 +690,7 @@ func TestDiffRouteError(t *testing.T) {
 func TestDiffUnavailableWithoutRepo(t *testing.T) {
 	h := newSnapshotServer(nil)
 
-	req := httptest.NewRequest(http.MethodGet, "/s/"+testToken+"/api/v1/diff?scope=unstaged&path=a.txt", nil)
+	req := httptest.NewRequest(http.MethodGet, "/g/"+testToken+"/api/v1/diff?scope=unstaged&path=a.txt", nil)
 	req.Host = testHost
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, req)
@@ -712,7 +712,7 @@ func TestGraphRouteReturnsHistory(t *testing.T) {
 	}}
 	h := newSnapshotServer(repo)
 
-	req := httptest.NewRequest(http.MethodGet, "/s/"+testToken+"/api/v1/graph?skip=50", nil)
+	req := httptest.NewRequest(http.MethodGet, "/g/"+testToken+"/api/v1/graph?skip=50", nil)
 	req.Host = testHost
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, req)
@@ -735,7 +735,7 @@ func TestGraphRouteReturnsHistory(t *testing.T) {
 func TestGraphRouteRejectsBadSkip(t *testing.T) {
 	for _, skip := range []string{"abc", "-1", "1.5"} {
 		h := newSnapshotServer(&fakeRepo{graphCommits: []protocol.GraphCommit{{OID: "x"}}})
-		req := httptest.NewRequest(http.MethodGet, "/s/"+testToken+"/api/v1/graph?skip="+skip, nil)
+		req := httptest.NewRequest(http.MethodGet, "/g/"+testToken+"/api/v1/graph?skip="+skip, nil)
 		req.Host = testHost
 		rec := httptest.NewRecorder()
 		h.ServeHTTP(rec, req)
@@ -747,7 +747,7 @@ func TestGraphRouteRejectsBadSkip(t *testing.T) {
 
 func TestGraphRouteError(t *testing.T) {
 	h := newSnapshotServer(&fakeRepo{err: errors.New("boom")})
-	req := httptest.NewRequest(http.MethodGet, "/s/"+testToken+"/api/v1/graph", nil)
+	req := httptest.NewRequest(http.MethodGet, "/g/"+testToken+"/api/v1/graph", nil)
 	req.Host = testHost
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, req)
@@ -766,7 +766,7 @@ func TestCommitFilesRouteReturnsFiles(t *testing.T) {
 	}
 	h := newSnapshotServer(repo)
 
-	req := httptest.NewRequest(http.MethodGet, "/s/"+testToken+"/api/v1/commit/abc123/files", nil)
+	req := httptest.NewRequest(http.MethodGet, "/g/"+testToken+"/api/v1/commit/abc123/files", nil)
 	req.Host = testHost
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, req)
@@ -788,7 +788,7 @@ func TestCommitFilesRouteReturnsFiles(t *testing.T) {
 
 func TestCommitFilesRouteMapsInvalidRefTo400(t *testing.T) {
 	h := newSnapshotServer(&fakeRepo{err: protocol.ErrInvalidRef})
-	req := httptest.NewRequest(http.MethodGet, "/s/"+testToken+"/api/v1/commit/-oops/files", nil)
+	req := httptest.NewRequest(http.MethodGet, "/g/"+testToken+"/api/v1/commit/-oops/files", nil)
 	req.Host = testHost
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, req)
@@ -800,7 +800,7 @@ func TestCommitFilesRouteMapsInvalidRefTo400(t *testing.T) {
 
 func TestCommitFilesRouteError(t *testing.T) {
 	h := newSnapshotServer(&fakeRepo{err: errors.New("boom")})
-	req := httptest.NewRequest(http.MethodGet, "/s/"+testToken+"/api/v1/commit/abc123/files", nil)
+	req := httptest.NewRequest(http.MethodGet, "/g/"+testToken+"/api/v1/commit/abc123/files", nil)
 	req.Host = testHost
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, req)
@@ -816,7 +816,7 @@ func TestBranchesRouteReturnsList(t *testing.T) {
 		{Name: "origin/main", OID: "abc", Remote: true},
 	}}
 	h := newSnapshotServer(repo)
-	req := httptest.NewRequest(http.MethodGet, "/s/"+testToken+"/api/v1/branches", nil)
+	req := httptest.NewRequest(http.MethodGet, "/g/"+testToken+"/api/v1/branches", nil)
 	req.Host = testHost
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, req)
@@ -841,7 +841,7 @@ func TestBranchesRouteReturnsList(t *testing.T) {
 
 func TestBranchesRouteError(t *testing.T) {
 	h := newSnapshotServer(&fakeRepo{err: errors.New("boom")})
-	req := httptest.NewRequest(http.MethodGet, "/s/"+testToken+"/api/v1/branches", nil)
+	req := httptest.NewRequest(http.MethodGet, "/g/"+testToken+"/api/v1/branches", nil)
 	req.Host = testHost
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, req)
@@ -853,7 +853,7 @@ func TestBranchesRouteError(t *testing.T) {
 
 func TestBranchesRouteUnavailableWithoutRepo(t *testing.T) {
 	h := newSnapshotServer(nil)
-	req := httptest.NewRequest(http.MethodGet, "/s/"+testToken+"/api/v1/branches", nil)
+	req := httptest.NewRequest(http.MethodGet, "/g/"+testToken+"/api/v1/branches", nil)
 	req.Host = testHost
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, req)
@@ -878,7 +878,7 @@ func TestReviewRouteScopes(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			repo := &fakeRepo{review: protocol.ReviewResponse{Identity: tc.want, Patch: "patch"}}
 			h := newSnapshotServer(repo)
-			req := httptest.NewRequest(http.MethodGet, "/s/"+testToken+tc.path, nil)
+			req := httptest.NewRequest(http.MethodGet, "/g/"+testToken+tc.path, nil)
 			req.Host = testHost
 			rec := httptest.NewRecorder()
 			h.ServeHTTP(rec, req)
@@ -902,7 +902,7 @@ func TestReviewRouteScopes(t *testing.T) {
 func TestReviewRouteRejectsInvalidScope(t *testing.T) {
 	invalidRepo := &fakeRepo{}
 	h := newSnapshotServer(invalidRepo)
-	req := httptest.NewRequest(http.MethodGet, "/s/"+testToken+"/api/v1/review?scope=conflict", nil)
+	req := httptest.NewRequest(http.MethodGet, "/g/"+testToken+"/api/v1/review?scope=conflict", nil)
 	req.Host = testHost
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, req)
@@ -929,7 +929,7 @@ func TestReviewCursorContinuesOneGeneration(t *testing.T) {
 		return rec
 	}
 
-	first := request("/s/" + testToken + "/api/v1/review?scope=unstaged")
+	first := request("/g/" + testToken + "/api/v1/review?scope=unstaged")
 	if first.Code != http.StatusOK {
 		t.Fatalf("first status=%d body=%s", first.Code, first.Body)
 	}
@@ -942,7 +942,7 @@ func TestReviewCursorContinuesOneGeneration(t *testing.T) {
 	}
 
 	repo.reviewNextAfter = ""
-	second := request("/s/" + testToken + "/api/v1/review?scope=unstaged&cursor=" + url.QueryEscape(response.NextCursor))
+	second := request("/g/" + testToken + "/api/v1/review?scope=unstaged&cursor=" + url.QueryEscape(response.NextCursor))
 	if second.Code != http.StatusOK {
 		t.Fatalf("second status=%d body=%s", second.Code, second.Body)
 	}
@@ -951,7 +951,7 @@ func TestReviewCursorContinuesOneGeneration(t *testing.T) {
 	}
 
 	srv.gen.Add(1)
-	stale := request("/s/" + testToken + "/api/v1/review?scope=unstaged&cursor=" + url.QueryEscape(response.NextCursor))
+	stale := request("/g/" + testToken + "/api/v1/review?scope=unstaged&cursor=" + url.QueryEscape(response.NextCursor))
 	if stale.Code != http.StatusConflict || !strings.Contains(stale.Body.String(), "review-invalidated") {
 		t.Fatalf("stale status=%d body=%s", stale.Code, stale.Body)
 	}
@@ -971,7 +971,7 @@ func TestReviewRejectsInvalidOrMismatchedCursor(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, rawCursor := range []string{"not-a-cursor", cursor} {
-		req := httptest.NewRequest(http.MethodGet, "/s/"+testToken+"/api/v1/review?scope=unstaged&cursor="+url.QueryEscape(rawCursor), nil)
+		req := httptest.NewRequest(http.MethodGet, "/g/"+testToken+"/api/v1/review?scope=unstaged&cursor="+url.QueryEscape(rawCursor), nil)
 		req.Host = testHost
 		rec := httptest.NewRecorder()
 		srv.Handler().ServeHTTP(rec, req)
@@ -1007,7 +1007,7 @@ func TestReviewRetriesWhenGenerationChangesDuringRead(t *testing.T) {
 	}
 	repo.onFirstReview = func() { srv.gen.Add(1) }
 
-	req := httptest.NewRequest(http.MethodGet, "/s/"+testToken+"/api/v1/review?scope=unstaged", nil)
+	req := httptest.NewRequest(http.MethodGet, "/g/"+testToken+"/api/v1/review?scope=unstaged", nil)
 	req.Host = testHost
 	rec := httptest.NewRecorder()
 	srv.Handler().ServeHTTP(rec, req)

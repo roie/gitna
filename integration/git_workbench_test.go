@@ -275,7 +275,7 @@ func (h *harness) post(op string, body any) *httptest.ResponseRecorder {
 			h.t.Fatal(err)
 		}
 	}
-	req := httptest.NewRequest(http.MethodPost, "/s/"+testToken+"/api/v1/operations?op="+op, &buf)
+	req := httptest.NewRequest(http.MethodPost, "/g/"+testToken+"/api/v1/operations?op="+op, &buf)
 	req.Host = testHost
 	req.Header.Set("Origin", "http://"+testHost)
 	req.Header.Set("Content-Type", "application/json")
@@ -286,7 +286,7 @@ func (h *harness) post(op string, body any) *httptest.ResponseRecorder {
 
 func (h *harness) get(path string) *httptest.ResponseRecorder {
 	h.t.Helper()
-	req := httptest.NewRequest(http.MethodGet, "/s/"+testToken+path, nil)
+	req := httptest.NewRequest(http.MethodGet, "/g/"+testToken+path, nil)
 	req.Host = testHost
 	rec := httptest.NewRecorder()
 	h.srv.ServeHTTP(rec, req)
@@ -706,7 +706,7 @@ func TestOperationQueueSerializesMutations(t *testing.T) {
 	results := make(chan int, 10)
 	for i := 0; i < 10; i++ {
 		go func() {
-			req := httptest.NewRequest(http.MethodPost, "/s/"+testToken+"/api/v1/operations?op="+server.OpStage, strings.NewReader(`{"paths":["file.txt"]}`))
+			req := httptest.NewRequest(http.MethodPost, "/g/"+testToken+"/api/v1/operations?op="+server.OpStage, strings.NewReader(`{"paths":["file.txt"]}`))
 			req.Host = testHost
 			req.Header.Set("Origin", "http://"+testHost)
 			req.Header.Set("Content-Type", "application/json")

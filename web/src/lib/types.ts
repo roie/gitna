@@ -122,6 +122,11 @@ export interface FolderCatalog {
   recent: Folder[]
 }
 
+export interface OpenFolderResult {
+  root: string
+  href: string
+}
+
 export interface WorktreeFile {
   path: string
   content: string

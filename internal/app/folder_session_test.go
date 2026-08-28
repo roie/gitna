@@ -6,11 +6,9 @@ import (
 	"os/exec"
 	"path/filepath"
 	"testing"
-	"time"
 
 	"github.com/roie/gitna/internal/folder"
 	"github.com/roie/gitna/internal/gitx"
-	"github.com/roie/gitna/internal/watch"
 )
 
 func initSessionRepository(t *testing.T, parent, name string) string {
@@ -26,14 +24,12 @@ func initSessionRepository(t *testing.T, parent, name string) string {
 	return root
 }
 
-func TestFolderSessionSwitchesAdapterAndStableEventStream(t *testing.T) {
-	parent := t.TempDir()
-	first := initSessionRepository(t, parent, "first")
-	second := initSessionRepository(t, parent, "second")
+func TestFolderSessionOwnsOneFolder(t *testing.T) {
+	root := initSessionRepository(t, t.TempDir(), "first")
 	ctx, cancel := context.WithCancel(t.Context())
 	defer cancel()
 	runner := &gitx.ExecRunner{}
-	repo, err := gitx.Discover(ctx, runner, first)
+	repo, err := gitx.Discover(ctx, runner, root)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -44,33 +40,14 @@ func TestFolderSessionSwitchesAdapterAndStableEventStream(t *testing.T) {
 	}
 	defer session.close()
 
-	root, err := session.openFolder(ctx, second)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if root != second || session.adapter.current().Root != second {
-		t.Fatalf("root = %q adapter = %q", root, session.adapter.current().Root)
+	if session.adapter.current().Root != root {
+		t.Fatalf("adapter root = %q, want %q", session.adapter.current().Root, root)
 	}
 	folders := session.folderCatalog()
-	if folders.Current.Path != second || len(folders.Recent) != 2 {
+	if folders.Current.Path != root || len(folders.Recent) != 1 {
 		t.Fatalf("folders = %#v", folders)
 	}
-	if folders.Recent[0].Path != second || folders.Recent[1].Path != first {
-		t.Fatalf("recent folders = %#v", folders.Recent)
-	}
-
-	seen := map[watch.InvalidationKind]bool{}
-	timer := time.NewTimer(2 * time.Second)
-	defer timer.Stop()
-	for len(seen) < 2 {
-		select {
-		case event := <-session.events:
-			seen[event] = true
-		case <-timer.C:
-			t.Fatalf("events = %#v", seen)
-		}
-	}
-	if !seen[watch.InvalidateSnapshot] || !seen[watch.InvalidateGraph] {
-		t.Fatalf("events = %#v", seen)
+	if err := session.close(); err != nil {
+		t.Fatal(err)
 	}
 }

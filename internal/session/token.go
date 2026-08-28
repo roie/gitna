@@ -7,11 +7,11 @@ import (
 	"fmt"
 )
 
-// NewToken returns a URL-safe, unpadded capability token derived from 32
-// cryptographically random bytes. The token is passed in the session URL and
-// required on every API route.
+// NewToken returns a 22-character URL-safe, unpadded capability token derived
+// from 128 bits of cryptographically secure randomness. The token is passed in
+// the session URL and required on every API route.
 func NewToken() (string, error) {
-	buf := make([]byte, 32)
+	buf := make([]byte, 16)
 	if _, err := rand.Read(buf); err != nil {
 		return "", fmt.Errorf("session: generate token: %w", err)
 	}

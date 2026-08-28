@@ -382,29 +382,27 @@ func Run(ctx context.Context, path, version string) error {
 		return fmt.Errorf("app: load embedded assets: %w", err)
 	}
 
-	folderSession, err := newFolderSession(ctx, runner, repo, folder.OpenDefault())
+	basePath := server.CapabilityPath(token)
+	registry, err := newFolderRegistry(
+		ctx,
+		runner,
+		staticFS,
+		version,
+		folder.OpenDefault(),
+		basePath,
+		repo,
+	)
 	if err != nil {
-		return fmt.Errorf("app: create folder session: %w", err)
+		return fmt.Errorf("app: create folder registry: %w", err)
 	}
-	defer folderSession.close()
+	defer registry.close()
 
-	srv, err := server.New(staticFS, server.Options{
-		Version:      version,
-		Token:        token,
-		Host:         host,
-		Repo:         folderSession.adapter,
-		Events:       folderSession.events,
-		OpenFolder:   folderSession.openFolder,
-		RevealFolder: folderSession.revealFolder,
-		Folders:      folderSession.folderCatalog,
-	})
-	if err != nil {
-		return fmt.Errorf("app: create server: %w", err)
-	}
-
-	url := fmt.Sprintf("http://%s/s/%s/", host, token)
+	url := fmt.Sprintf("http://%s%s", host, registry.initialHref())
 	httpSrv := &http.Server{
-		Handler:           srv.Handler(),
+		Handler: server.Security{
+			Token: token,
+			Host:  host,
+		}.Wrap(registry),
 		ReadHeaderTimeout: 5 * time.Second,
 		ReadTimeout:       30 * time.Second,
 		IdleTimeout:       2 * time.Minute,

@@ -62,7 +62,7 @@ func TestGraphMaxPageEnforced(t *testing.T) {
 		{OID: "abc"},
 	}})
 
-	req := httptest.NewRequest(http.MethodGet, "/s/"+testToken+"/api/v1/graph?skip=0&limit=9999", nil)
+	req := httptest.NewRequest(http.MethodGet, "/g/"+testToken+"/api/v1/graph?skip=0&limit=9999", nil)
 	req.Host = testHost
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, req)
@@ -81,7 +81,7 @@ func TestGraphMaxPageEnforced(t *testing.T) {
 func TestGraphRejectsBadLimit(t *testing.T) {
 	for _, limit := range []string{"abc", "-1", "0"} {
 		h := newSnapshotServer(&fakeRepo{graphCommits: []protocol.GraphCommit{{OID: "x"}}})
-		req := httptest.NewRequest(http.MethodGet, "/s/"+testToken+"/api/v1/graph?skip=0&limit="+limit, nil)
+		req := httptest.NewRequest(http.MethodGet, "/g/"+testToken+"/api/v1/graph?skip=0&limit="+limit, nil)
 		req.Host = testHost
 		rec := httptest.NewRecorder()
 		h.ServeHTTP(rec, req)
@@ -102,7 +102,7 @@ func TestGraphRejectsBadLimit(t *testing.T) {
 
 func TestSnapshotTimeoutReturns504(t *testing.T) {
 	h := newSnapshotServer(&fakeRepo{err: context.Canceled})
-	req := httptest.NewRequest(http.MethodGet, "/s/"+testToken+"/api/v1/snapshot", nil)
+	req := httptest.NewRequest(http.MethodGet, "/g/"+testToken+"/api/v1/snapshot", nil)
 	req.Host = testHost
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, req)
@@ -117,7 +117,7 @@ func TestMutationTimeoutReturns504(t *testing.T) {
 	h := newSnapshotServer(&slowRepo{delay: 0, err: context.DeadlineExceeded})
 
 	body := `{"paths":["a.txt"]}`
-	req := httptest.NewRequest(http.MethodPost, "/s/"+testToken+"/api/v1/operations?op=stage", stringReader(body))
+	req := httptest.NewRequest(http.MethodPost, "/g/"+testToken+"/api/v1/operations?op=stage", stringReader(body))
 	req.Host = testHost
 	req.Header.Set("Origin", "http://"+testHost)
 	req.Header.Set("Content-Type", "application/json")
@@ -154,7 +154,7 @@ func TestReadHandlerTimeouts(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			h := newSnapshotServer(&slowRepo{delay: 0, err: tc.err})
-			req := httptest.NewRequest(tc.method, "/s/"+testToken+tc.path, nil)
+			req := httptest.NewRequest(tc.method, "/g/"+testToken+tc.path, nil)
 			req.Host = testHost
 			rec := httptest.NewRecorder()
 			h.ServeHTTP(rec, req)
@@ -172,7 +172,7 @@ func TestOperationMapsOutputLimitError(t *testing.T) {
 	h := newSnapshotServer(repo)
 
 	body := `{"paths":["a.txt"]}`
-	req := httptest.NewRequest(http.MethodPost, "/s/"+testToken+"/api/v1/operations?op=stage", stringReader(body))
+	req := httptest.NewRequest(http.MethodPost, "/g/"+testToken+"/api/v1/operations?op=stage", stringReader(body))
 	req.Host = testHost
 	req.Header.Set("Origin", "http://"+testHost)
 	req.Header.Set("Content-Type", "application/json")
