@@ -728,6 +728,20 @@ function GitnaReviewUIInner() {
           onError: setReviewActionError,
         }
 
+  const graphCommitFile = repository.commitDiff
+  const gitnaOpenFileAction =
+    graphCommitFile == null
+      ? undefined
+      : {
+          ariaLabel: (path: string) => `Open ${path} at commit ${graphCommitFile.oid.slice(0, 8)}`,
+          onOpenFile: () =>
+            repository.openCommitFile(
+              graphCommitFile.oid,
+              graphCommitFile.subject,
+              graphCommitFile,
+            ),
+        }
+
   const dirtyPaths = useMemo(() => new Set(worktreeDrafts.keys()), [worktreeDrafts])
   useEffect(() => {
     if (dirtyPaths.size === 0) return
@@ -1102,6 +1116,8 @@ function GitnaReviewUIInner() {
             onOpenCommandPalette={() => setCommandPaletteOpen(true)}
             onSaveGitHubToken={() => {}}
             onOpenFolder={(path) => requestFolderSwitch(path, false)}
+            onOpenFolderInNewTab={openFolderInNewTab}
+            onRemoveRecentFolder={(path) => repository.removeRecentFolder(path)}
             onRevealFolder={async () => {
               setReviewActionError(null)
               try {
@@ -1191,6 +1207,7 @@ function GitnaReviewUIInner() {
                   initialItems={reviewData.items}
                   gitnaActions={gitnaActions}
                   gitnaEditorActions={gitnaEditorActions}
+                  gitnaOpenFileAction={gitnaOpenFileAction}
                   onCommentDeleted={() => {}}
                   onCommentSaved={() => {}}
                   onLineLinkChange={handleLineLinkChange}

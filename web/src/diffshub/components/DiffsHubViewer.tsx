@@ -63,6 +63,11 @@ export interface GitnaEditorActions {
   onSave(path: string): void;
 }
 
+export interface GitnaOpenFileAction {
+  ariaLabel(path: string): string;
+  onOpenFile(path: string): void;
+}
+
 export interface GitnaViewerActions {
   canOpenFile(path: string): boolean;
   kindForPath(path: string): ChangeKind | undefined;
@@ -121,6 +126,7 @@ interface DiffsHubViewerProps {
   onViewerReady(): void;
   gitnaActions?: GitnaViewerActions;
   gitnaEditorActions?: GitnaEditorActions;
+  gitnaOpenFileAction?: GitnaOpenFileAction;
 }
 
 export const DiffsHubViewer = memo(function DiffsHubViewer({
@@ -143,6 +149,7 @@ export const DiffsHubViewer = memo(function DiffsHubViewer({
   onViewerReady,
   gitnaActions,
   gitnaEditorActions,
+  gitnaOpenFileAction,
 }: DiffsHubViewerProps) {
   const nextCommentKeyRef = useRef(0);
   const activeDraftRef = useRef<ActiveDraftComment | null>(null);
@@ -482,8 +489,19 @@ export const DiffsHubViewer = memo(function DiffsHubViewer({
       if (item.type === 'file' && gitnaEditorActions != null) {
         return <WorktreeHeaderActions actions={gitnaEditorActions} path={item.file.name} />;
       }
-      if (item.type !== 'diff' || gitnaActions == null) return null;
-      return <GitnaHeaderActions actions={gitnaActions} item={item} />;
+      if (item.type !== 'diff') return null;
+      if (gitnaActions != null) return <GitnaHeaderActions actions={gitnaActions} item={item} />;
+      if (gitnaOpenFileAction == null) return null;
+      const path = item.fileDiff.name;
+      return (
+        <FileHeaderAction
+          type="button"
+          aria-label={gitnaOpenFileAction.ariaLabel(path)}
+          onClick={() => gitnaOpenFileAction.onOpenFile(path)}
+        >
+          Open File
+        </FileHeaderAction>
+      );
     }
   );
 

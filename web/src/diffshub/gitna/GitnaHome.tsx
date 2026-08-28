@@ -140,11 +140,11 @@ function FolderRow({
   const opened = formatOpenedAt(folder.lastOpened)
   const rowDisabled = disabled || action != null
   return (
-    <div className="group flex min-w-0 items-center gap-1 py-1">
+    <div className="group flex min-w-0 items-center gap-1 rounded-md px-1 py-1 transition-colors hover:bg-muted/50 focus-within:bg-muted/50">
       <button
         type="button"
         data-recent-folder
-        className="flex min-w-0 flex-1 cursor-pointer items-center gap-3 rounded-md px-1 py-3 text-left outline-none transition-colors hover:bg-muted/50 focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset disabled:cursor-wait disabled:opacity-50"
+        className="flex min-w-0 flex-1 cursor-pointer items-center gap-3 py-2 text-left outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset disabled:cursor-wait disabled:opacity-50"
         disabled={rowDisabled}
         onClick={onOpen}
       >
@@ -161,19 +161,14 @@ function FolderRow({
             {folder.path}
           </span>
         </span>
-        <span className="hidden shrink-0 text-right md:block">
-          <span className="block text-xs text-muted-foreground">
-            {folder.repository ? 'Git repository' : 'Folder'}
-          </span>
-          {opened != null && (
-            <time
-              className="mt-1 block text-[11px] text-muted-foreground"
-              dateTime={folder.lastOpened}
-            >
-              {opened}
-            </time>
-          )}
-        </span>
+        {opened != null && (
+          <time
+            className="hidden shrink-0 text-right text-[11px] text-muted-foreground md:block"
+            dateTime={folder.lastOpened}
+          >
+            {opened}
+          </time>
+        )}
       </button>
       <TooltipProvider delayDuration={500}>
         <span className="flex shrink-0 items-center gap-0.5 opacity-100 transition-opacity sm:opacity-0 sm:group-hover:opacity-100 sm:group-focus-within:opacity-100">

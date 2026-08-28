@@ -2,6 +2,7 @@
 // editor into explicit local folder open and reveal actions.
 import type { DiffIndicators } from '@pierre/diffs';
 import {
+  IconArrowUpRight,
   IconBrandGithub,
   IconCheck,
   IconChevronSm,
@@ -19,6 +20,7 @@ import {
   IconShare,
   IconSearch,
   IconSymbolDiffstat,
+  IconTrash,
   IconX,
 } from '@pierre/icons';
 import type { ColorMode } from '@pierre/theming';
@@ -51,6 +53,7 @@ import {
 } from './DropdownMenu';
 import { GitHubTokenControl } from './GitHubTokenControl';
 import { Switch } from './Switch';
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from './Tooltip';
 import { docsThemeCatalog } from './themeCatalog';
 import { cn } from '../lib/cn';
 import { diffshubChromeMapping } from '../lib/theme/diffshubChromeMapping';
@@ -84,6 +87,8 @@ interface HeaderProps {
   onOpenCommandPalette?(): void;
   onSaveGitHubToken(token: string): void;
   onOpenFolder?(path: string): Promise<void>;
+  onOpenFolderInNewTab?(path: string): Promise<void>;
+  onRemoveRecentFolder?(path: string): Promise<void>;
   onRevealFolder?(): Promise<void>;
   recentFolders?: readonly Folder[];
   onToggleCollapseMode(): void;
@@ -101,16 +106,22 @@ interface HeaderProps {
 
 function LocalFolderForm({
   initialPath,
+  onOpenInNewTab,
+  onRemoveRecent,
   onSwitch,
   recentFolders = [],
 }: {
   initialPath: string;
+  onOpenInNewTab?: (path: string) => Promise<void>;
+  onRemoveRecent?: (path: string) => Promise<void>;
   onSwitch?: (path: string) => Promise<void>;
   recentFolders?: readonly Folder[];
 }) {
   const [path, setPath] = useState(initialPath);
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [actionError, setActionError] = useState<string | null>(null);
+  const [folderAction, setFolderAction] = useState<string | null>(null);
   const [suggestionsOpen, setSuggestionsOpen] = useState(false);
   const [showAllRecent, setShowAllRecent] = useState(true);
   const [activeIndex, setActiveIndex] = useState(-1);
@@ -143,11 +154,30 @@ function LocalFolderForm({
   const showSuggestions = suggestionsOpen && suggestions.length > 0;
 
   useEffect(() => {
+    if (activeIndex >= suggestions.length) setActiveIndex(suggestions.length - 1);
+  }, [activeIndex, suggestions.length]);
+
+  useEffect(() => {
     if (!showSuggestions || activeIndex < 0) return;
     listboxRef.current
       ?.querySelector<HTMLElement>(`#${listboxId}-${activeIndex}`)
       ?.scrollIntoView({ block: 'nearest' });
   }, [activeIndex, showSuggestions]);
+
+  const runFolderAction = (
+    action: 'new-tab' | 'remove',
+    folder: Folder
+  ) => {
+    const callback = action === 'new-tab' ? onOpenInNewTab : onRemoveRecent;
+    if (callback == null || folderAction != null) return;
+    setFolderAction(`${action}:${folder.path}`);
+    setActionError(null);
+    void callback(folder.path)
+      .catch((reason: unknown) => {
+        setActionError(reason instanceof Error ? reason.message : String(reason));
+      })
+      .finally(() => setFolderAction(null));
+  };
 
   const switchFolder = (targetPath: string) => {
     if (targetPath === '' || targetPath === initialPath || onSwitch == null)
@@ -293,33 +323,86 @@ function LocalFolderForm({
           aria-label="Recent folders"
           className="absolute top-full left-0 z-50 mt-1 max-h-72 w-full min-w-72 overflow-y-auto rounded-md border border-border bg-background py-1 text-foreground md:w-96"
         >
-          {suggestions.map((folder, index) => (
-            <li key={folder.path} role="none">
-              <button
-                id={`${listboxId}-${index}`}
-                type="button"
-                role="option"
-                aria-selected={index === activeIndex}
-                className={cn(
-                  'block w-full cursor-pointer px-3 py-2 text-left outline-none hover:bg-muted',
-                  index === activeIndex && 'bg-muted'
-                )}
-                disabled={pending}
-                onClick={() => switchFolder(folder.path)}
-                onMouseEnter={() => setActiveIndex(index)}
-              >
-                <span className="block truncate text-sm font-medium">
-                  {folder.name}
-                </span>
-                <span
-                  className="mt-0.5 block truncate text-xs text-muted-foreground"
-                  title={folder.path}
+          <TooltipProvider delayDuration={500}>
+            {suggestions.map((folder, index) => {
+              const actionPending = folderAction?.endsWith(`:${folder.path}`) === true;
+              return (
+                <li
+                  key={folder.path}
+                  role="none"
+                  className={cn(
+                    'group/folder flex min-w-0 items-center px-1 hover:bg-muted',
+                    index === activeIndex && 'bg-muted'
+                  )}
                 >
-                  {folder.path}
-                </span>
-              </button>
+                  <button
+                    id={`${listboxId}-${index}`}
+                    type="button"
+                    role="option"
+                    aria-selected={index === activeIndex}
+                    className="min-w-0 flex-1 cursor-pointer px-2 py-2 text-left outline-none"
+                    disabled={pending || actionPending}
+                    onClick={() => switchFolder(folder.path)}
+                  >
+                    <span className="block truncate text-sm font-medium">
+                      {folder.name}
+                    </span>
+                    <span
+                      className="mt-0.5 block truncate text-xs text-muted-foreground"
+                      title={folder.path}
+                    >
+                      {folder.path}
+                    </span>
+                  </button>
+                  <span className="flex shrink-0 items-center opacity-100 sm:opacity-0 sm:group-focus-within/folder:opacity-100 sm:group-hover/folder:opacity-100">
+                    {onOpenInNewTab != null && (
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="icon-md"
+                            className="size-8 shadow-none"
+                            aria-label={`Open ${folder.name} in new tab`}
+                            disabled={pending || folderAction != null}
+                            onMouseDown={(event) => event.preventDefault()}
+                            onClick={() => runFolderAction('new-tab', folder)}
+                          >
+                            <IconArrowUpRight className="size-4" />
+                          </Button>
+                        </TooltipTrigger>
+                        <TooltipContent className="shadow-none">Open in New Tab</TooltipContent>
+                      </Tooltip>
+                    )}
+                    {onRemoveRecent != null && (
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="icon-md"
+                            className="size-8 shadow-none hover:text-destructive"
+                            aria-label={`Remove ${folder.name} from recent folders`}
+                            disabled={pending || folderAction != null}
+                            onMouseDown={(event) => event.preventDefault()}
+                            onClick={() => runFolderAction('remove', folder)}
+                          >
+                            <IconTrash className="size-4" />
+                          </Button>
+                        </TooltipTrigger>
+                        <TooltipContent className="shadow-none">Remove from Recent</TooltipContent>
+                      </Tooltip>
+                    )}
+                  </span>
+                </li>
+              );
+            })}
+          </TooltipProvider>
+          {actionError != null && (
+            <li className="px-3 py-2 text-xs text-red-500" role="alert">
+              {actionError}
             </li>
-          ))}
+          )}
         </ul>
       )}
     </form>
@@ -348,6 +431,8 @@ export const DiffsHubHeader = memo(function DiffsHubHeader({
   onOpenCommandPalette,
   onSaveGitHubToken,
   onOpenFolder,
+  onOpenFolderInNewTab,
+  onRemoveRecentFolder,
   onRevealFolder,
   recentFolders = [],
   onToggleCollapseMode,
@@ -411,6 +496,8 @@ export const DiffsHubHeader = memo(function DiffsHubHeader({
       {localRepository ? (
         <LocalFolderForm
           initialPath={initialUrl}
+          onOpenInNewTab={onOpenFolderInNewTab}
+          onRemoveRecent={onRemoveRecentFolder}
           onSwitch={onOpenFolder}
           recentFolders={recentFolders}
         />

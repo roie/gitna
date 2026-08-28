@@ -215,9 +215,8 @@ test('real binary renders repository source-control state', async ({ page, app }
   await expect(graphFile).toBeVisible()
   await graphFile.click()
   await expect(repositoryTabs).toHaveCount(0)
-  await graphFile.hover()
-  const openHistoricalFile = graphFile.getByRole('button', {
-    name: `Open modified.txt at ${app.baseOid.slice(0, 8)}`,
+  const openHistoricalFile = page.getByRole('button', {
+    name: `Open modified.txt at commit ${app.baseOid.slice(0, 8)}`,
   })
   await expect(openHistoricalFile).toBeVisible()
   await openHistoricalFile.click()
@@ -745,11 +744,38 @@ test('folder path switches the live session and remains fully editable', async (
   })
   await expect(recentFolders).toBeVisible()
   await expect(recentFolders).toHaveCSS('box-shadow', 'none')
+  await previousFolder.hover()
+  const openPreviousInNewTab = recentFolders.getByRole('button', {
+    name: `Open ${basename(app.repo)} in new tab`,
+  })
+  const removePreviousFromRecent = recentFolders.getByRole('button', {
+    name: `Remove ${basename(app.repo)} from recent folders`,
+  })
+  await expect(openPreviousInNewTab).toBeVisible()
+  await expect(removePreviousFromRecent).toBeVisible()
+  const popupPromise = page.waitForEvent('popup')
+  await openPreviousInNewTab.click()
+  const previousPage = await popupPromise
+  await expect(previousPage).toHaveTitle(`${basename(app.repo)} - Gitna`)
+  await previousPage.close()
+  await expect(page).toHaveTitle(`${basename(nextRepo)} - Gitna`)
   await page.keyboard.press('ArrowDown')
   await expect(previousFolder).toHaveAttribute('aria-selected', 'true')
   await page.keyboard.press('Enter')
   await expect(pathInput).toHaveValue(app.repo)
   await expect(page).toHaveTitle(`${basename(app.repo)} - Gitna`)
+
+  await pathInput.focus()
+  const nextFolderOption = recentFolders.getByRole('option', {
+    name: new RegExp(basename(nextRepo)),
+  })
+  await nextFolderOption.hover()
+  await recentFolders
+    .getByRole('button', {
+      name: `Remove ${basename(nextRepo)} from recent folders`,
+    })
+    .click()
+  await expect(nextFolderOption).toHaveCount(0)
 })
 
 test('stable folder routes isolate parallel browser pages', async ({ page, app }) => {
@@ -1250,8 +1276,8 @@ test('Gitna Home searches recent folders and protects dirty drafts', async ({ pa
   await expect(page.getByRole('button', { name: 'Display settings' })).toHaveCount(0)
   const recentFolder = page.getByRole('button').filter({ hasText: basename(folder) })
   const recentOtherFolder = page.getByRole('button').filter({ hasText: basename(otherFolder) })
-  await expect(recentFolder).toContainText('Folder')
-  await expect(recentOtherFolder).toContainText('Folder')
+  await expect(recentFolder).toContainText(folder)
+  await expect(recentOtherFolder).toContainText(otherFolder)
   const recentSearch = page.getByRole('searchbox', { name: 'Search recent folders' })
   await recentSearch.fill(basename(folder))
   await expect(recentFolder).toBeVisible()
@@ -1367,7 +1393,7 @@ test('Gitna Home searches recent folders and protects dirty drafts', async ({ pa
 
   await page.getByRole('button', { name: 'Open Gitna Home' }).click()
   const recentRepository = page.getByRole('button').filter({ hasText: basename(app.repo) })
-  await expect(recentRepository).toContainText('Git repository')
+  await expect(recentRepository).toContainText(app.repo)
   await recentRepository.click()
   await expect(
     page.getByRole('heading', { name: 'Welcome back to Gitna', exact: true }),
