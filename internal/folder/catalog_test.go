@@ -58,6 +58,17 @@ func TestCatalogPersistsBoundedRecentFolders(t *testing.T) {
 	}
 }
 
+func TestPathKeyNormalizesWindowsPathCase(t *testing.T) {
+	upper := pathKeyForOS(`C:\Users\Roie\Repo`, "windows")
+	lower := pathKeyForOS(`c:\users\roie\repo`, "windows")
+	if upper != lower {
+		t.Fatalf("Windows path keys differ: %q != %q", upper, lower)
+	}
+	if got := pathKeyForOS("/Users/Roie/Repo", "linux"); got == pathKeyForOS("/users/roie/repo", "linux") {
+		t.Fatalf("Linux path keys unexpectedly ignore case: %q", got)
+	}
+}
+
 func TestCatalogIgnoresMalformedAndInvalidEntries(t *testing.T) {
 	root := t.TempDir()
 	statePath := filepath.Join(root, "folders.json")

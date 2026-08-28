@@ -158,7 +158,7 @@ func (c *Catalog) load() {
 		if !filepath.IsAbs(entry.Path) || entry.Path == "." {
 			continue
 		}
-		key := pathKey(entry.Path)
+		key := PathKey(entry.Path)
 		if _, exists := seen[key]; exists {
 			continue
 		}
@@ -248,12 +248,18 @@ func folderName(path string) string {
 }
 
 func samePath(left, right string) bool {
-	return pathKey(left) == pathKey(right)
+	return PathKey(left) == PathKey(right)
 }
 
-func pathKey(path string) string {
+// PathKey returns the platform-normalized identity key used to deduplicate
+// canonical folder paths. Windows path identity is case-insensitive.
+func PathKey(path string) string {
+	return pathKeyForOS(path, runtime.GOOS)
+}
+
+func pathKeyForOS(path, goos string) string {
 	key := filepath.Clean(path)
-	if runtime.GOOS == "windows" {
+	if goos == "windows" {
 		return strings.ToLower(key)
 	}
 	return key

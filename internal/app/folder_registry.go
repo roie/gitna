@@ -73,8 +73,15 @@ func (r *folderRegistry) openFolder(ctx context.Context, path string) (protocol.
 
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	if route, ok := r.byRoot[repo.Root]; ok {
-		r.folders.Record(repo.Root, repo.IsGit())
+	rootKey := folder.PathKey(repo.Root)
+	if route, ok := r.byRoot[rootKey]; ok {
+		entry := r.byRoute[route]
+		if entry == nil {
+			return protocol.OpenFolderResult{}, fmt.Errorf("open folder: route %q is unavailable", route)
+		}
+		if err := entry.session.refresh(ctx, repo); err != nil {
+			return protocol.OpenFolderResult{}, err
+		}
 		return protocol.OpenFolderResult{Root: repo.Root, Href: "../" + route + "/"}, nil
 	}
 	route, err := r.addLocked(repo)
@@ -102,7 +109,7 @@ func (r *folderRegistry) addLocked(repo gitx.Repository) (string, error) {
 		_ = session.close()
 		return "", fmt.Errorf("create folder server: %w", err)
 	}
-	r.byRoot[repo.Root] = route
+	r.byRoot[folder.PathKey(repo.Root)] = route
 	r.byRoute[route] = &folderRoute{session: session, server: srv}
 	return route, nil
 }

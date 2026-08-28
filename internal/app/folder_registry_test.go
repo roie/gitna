@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"testing"
 	"testing/fstest"
@@ -78,6 +79,61 @@ func TestFolderRegistryKeepsStableIndependentRoutes(t *testing.T) {
 	assertSnapshotRoot(t, registry, "/shared/api/v1/snapshot", first)
 }
 
+func TestFolderRegistryRefreshesCapabilitiesWithoutChangingRouteOrQueue(t *testing.T) {
+	root := t.TempDir()
+	runner := &gitx.ExecRunner{}
+	initial, err := gitx.OpenFolder(t.Context(), runner, root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	registry, err := newFolderRegistry(
+		t.Context(),
+		runner,
+		fstest.MapFS{"index.html": {Data: []byte("gitna")}},
+		"test",
+		folder.Open(filepath.Join(t.TempDir(), "folders.json"), 20),
+		server.CapabilityPath("token"),
+		initial,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer registry.close()
+
+	route := registry.initialRoute
+	entry := registry.byRoute[route]
+	queue := entry.session.adapter.queue
+	assertSnapshotRepository(t, registry, "/"+route+"/api/v1/snapshot", false)
+
+	command := exec.Command("git", "-C", root, "init", "-q", "-b", "main")
+	if output, err := command.CombinedOutput(); err != nil {
+		t.Fatalf("git init: %v: %s", err, output)
+	}
+	opened, err := registry.openFolder(t.Context(), root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if opened.Href != "../"+route+"/" {
+		t.Fatalf("Git route = %q, want stable route %q", opened.Href, "../"+route+"/")
+	}
+	if registry.byRoute[route] != entry || entry.session.adapter.queue != queue {
+		t.Fatal("capability refresh replaced the route session or mutation queue")
+	}
+	assertSnapshotRepository(t, registry, "/"+route+"/api/v1/snapshot", true)
+
+	if err := os.RemoveAll(filepath.Join(root, ".git")); err != nil {
+		t.Fatal(err)
+	}
+	opened, err = registry.openFolder(t.Context(), root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if opened.Href != "../"+route+"/" || entry.session.adapter.queue != queue {
+		t.Fatal("removing Git capabilities changed the stable route or mutation queue")
+	}
+	assertSnapshotRepository(t, registry, "/"+route+"/api/v1/snapshot", false)
+}
+
 func TestFolderRegistryRedirectsEntryPointsAndRejectsUnknownRoutes(t *testing.T) {
 	root := t.TempDir()
 	runner := &gitx.ExecRunner{}
@@ -121,7 +177,7 @@ func TestFolderRegistryRedirectsEntryPointsAndRejectsUnknownRoutes(t *testing.T)
 	}
 }
 
-func assertSnapshotRoot(t *testing.T, registry *folderRegistry, path, want string) {
+func snapshotForRoute(t *testing.T, registry *folderRegistry, path string) protocol.RepoSnapshot {
 	t.Helper()
 	request := httptest.NewRequest(http.MethodGet, path, nil)
 	response := httptest.NewRecorder()
@@ -133,7 +189,19 @@ func assertSnapshotRoot(t *testing.T, registry *folderRegistry, path, want strin
 	if err := json.Unmarshal(response.Body.Bytes(), &snapshot); err != nil {
 		t.Fatal(err)
 	}
-	if snapshot.Root != want {
-		t.Fatalf("%s root = %q, want %q", path, snapshot.Root, want)
+	return snapshot
+}
+
+func assertSnapshotRoot(t *testing.T, registry *folderRegistry, path, want string) {
+	t.Helper()
+	if got := snapshotForRoute(t, registry, path).Root; got != want {
+		t.Fatalf("%s root = %q, want %q", path, got, want)
+	}
+}
+
+func assertSnapshotRepository(t *testing.T, registry *folderRegistry, path string, want bool) {
+	t.Helper()
+	if got := snapshotForRoute(t, registry, path).Repository; got != want {
+		t.Fatalf("%s repository = %v, want %v", path, got, want)
 	}
 }
