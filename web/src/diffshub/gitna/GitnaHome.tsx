@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState, type RefObject } from 'react'
 
 import {
   IconArrowLeftBar,
@@ -43,18 +43,19 @@ function formatOpenedAt(value: string): string | null {
 
 function OpenFolderForm({
   error,
+  inputRef,
   opening,
   onClearError,
   onOpenFolder,
 }: {
   error: string | null
+  inputRef: RefObject<HTMLInputElement | null>
   opening: boolean
   onClearError(): void
   onOpenFolder(path: string): Promise<void>
 }) {
   const [path, setPath] = useState('')
   const [localError, setLocalError] = useState<string | null>(null)
-  const inputRef = useRef<HTMLInputElement>(null)
   const visibleError = error ?? localError
 
   useEffect(() => inputRef.current?.focus(), [])
@@ -233,6 +234,8 @@ export function GitnaHome({
     type: 'new-tab' | 'remove'
   } | null>(null)
   const [recentActionError, setRecentActionError] = useState<string | null>(null)
+  const [removalFocusIndex, setRemovalFocusIndex] = useState<number | null>(null)
+  const openFolderInputRef = useRef<HTMLInputElement>(null)
   const recentListRef = useRef<HTMLUListElement>(null)
   const recentSearchRef = useRef<HTMLInputElement>(null)
   const recent = useMemo(
@@ -247,6 +250,23 @@ export function GitnaHome({
     )
   }, [query, recent])
   const showRecentFolders = recent.length > 0 || error != null
+
+  useEffect(() => {
+    if (removalFocusIndex == null) return
+    setRemovalFocusIndex(null)
+    const buttons = recentListRef.current?.querySelectorAll<HTMLButtonElement>(
+      'button[data-recent-folder]',
+    )
+    const nextButton = buttons?.[Math.min(removalFocusIndex, buttons.length - 1)]
+    if (nextButton != null) {
+      nextButton.focus()
+    } else if (recentSearchRef.current != null) {
+      recentSearchRef.current.focus()
+    } else {
+      openFolderInputRef.current?.focus()
+    }
+  }, [filteredRecent, removalFocusIndex])
+
   const focusRecentFolder = (position: 'first' | 'last') => {
     const buttons = recentListRef.current?.querySelectorAll<HTMLButtonElement>(
       'button[data-recent-folder]',
@@ -293,6 +313,7 @@ export function GitnaHome({
 
         <OpenFolderForm
           error={switchError}
+          inputRef={openFolderInputRef}
           opening={opening}
           onClearError={onClearSwitchError}
           onOpenFolder={onOpenFolder}
@@ -390,17 +411,14 @@ export function GitnaHome({
                     recentSearchRef.current?.focus()
                     return
                   }
-                  const next =
-                    event.key === 'Home'
-                      ? 0
-                      : event.key === 'End'
-                        ? buttons.length - 1
-                        : (current + (event.key === 'ArrowDown' ? 1 : -1) + buttons.length) %
-                          buttons.length
+                  let next = current + (event.key === 'ArrowDown' ? 1 : -1)
+                  if (event.key === 'Home') next = 0
+                  else if (event.key === 'End') next = buttons.length - 1
+                  else next = (next + buttons.length) % buttons.length
                   buttons[next]?.focus()
                 }}
               >
-                {filteredRecent.map((folder) => {
+                {filteredRecent.map((folder, index) => {
                   const action = recentAction?.path === folder.path ? recentAction.type : null
                   return (
                     <li key={folder.path}>
@@ -428,6 +446,7 @@ export function GitnaHome({
                           setRecentAction({ path: folder.path, type: 'remove' })
                           setRecentActionError(null)
                           void onRemoveRecentFolder(folder.path)
+                            .then(() => setRemovalFocusIndex(index))
                             .catch((reason: unknown) => {
                               setRecentActionError(
                                 reason instanceof Error ? reason.message : String(reason),

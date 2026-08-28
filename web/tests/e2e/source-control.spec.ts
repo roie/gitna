@@ -1180,6 +1180,7 @@ test('Gitna Home searches recent folders and protects dirty drafts', async ({ pa
   await recentOtherFolder.hover()
   await removeOtherFromRecent.click()
   await expect(recentOtherFolder).toHaveCount(0)
+  await expect(recentSearch).toBeFocused()
   await otherPage.reload()
   await expect(otherPage).toHaveTitle(`${basename(otherFolder)} - Gitna`)
 
