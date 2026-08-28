@@ -401,10 +401,12 @@ describe('createRepoState', () => {
       expect.objectContaining({
         key: 'abcdef123456:after:src/main.ts',
         before: false,
+        revision: 1,
       }),
       expect.objectContaining({
         key: 'fedcba654321:before:src/main.ts',
         before: true,
+        revision: 2,
       }),
     ])
     expect(state.historicalFileKey).toBe('fedcba654321:before:src/main.ts')

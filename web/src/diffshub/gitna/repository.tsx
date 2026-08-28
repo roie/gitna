@@ -44,6 +44,7 @@ export interface HistoricalFileTarget {
   subject: string
   path: string
   before: boolean
+  revision: number
 }
 
 export interface CompareTarget {
@@ -188,6 +189,7 @@ export class GitnaRepository {
   commitDiff: CommitDiffTarget | null = null
   historicalFiles: HistoricalFileTarget[] = []
   historicalFileKey: string | null = null
+  private historicalFileRevision = 0
 
   branches: Branch[] = []
   branchesLoading = false
@@ -577,9 +579,10 @@ export class GitnaRepository {
     const before = file.kind === 'deleted'
     const key = `${oid}:${before ? 'before' : 'after'}:${file.path}`
     if (!this.historicalFiles.some((candidate) => candidate.key === key)) {
+      this.historicalFileRevision += 1
       this.historicalFiles = [
         ...this.historicalFiles,
-        { key, oid, subject, path: file.path, before },
+        { key, oid, subject, path: file.path, before, revision: this.historicalFileRevision },
       ]
     }
     this.selection = null

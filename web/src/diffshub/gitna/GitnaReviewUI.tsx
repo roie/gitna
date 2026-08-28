@@ -366,7 +366,10 @@ function GitnaReviewUIInner() {
     const loadHistoricalFile = async (file: HistoricalFileTarget): Promise<LoadedDiffsHubData> => {
       const diff = await repository.api.commitFile(file.oid, file.path, file.before)
       loadedHistoricalFile = diff
-      return adaptGitnaFile(diff, repository.generation)
+      return adaptGitnaFile(diff, repository.generation, {
+        key: file.key,
+        revision: file.revision,
+      })
     }
     const loadRepositoryFile = async (path: string): Promise<LoadedDiffsHubData> => {
       try {
