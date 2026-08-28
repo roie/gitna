@@ -878,6 +878,9 @@ test('command palette searches complete paths and runs workbench commands', asyn
   const editor = page.getByRole('textbox', { name: 'server/palette-token/index.ts' })
   await editor.focus()
   await page.keyboard.press('Control+k')
+  await expect(palette).toBeVisible()
+  await expect(search).toBeFocused()
+  await page.keyboard.press('Control+k')
   await expect(palette).toHaveCount(0)
 
   await paletteTrigger.focus()

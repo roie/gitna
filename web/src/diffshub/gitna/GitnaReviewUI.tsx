@@ -367,30 +367,13 @@ function GitnaReviewUIInner() {
       ) {
         return
       }
-      if (commandPaletteOpen) {
-        event.preventDefault()
-        setCommandPaletteOpen(false)
-        return
-      }
-      const editing = event
-        .composedPath()
-        .some(
-          (candidate) =>
-            candidate instanceof HTMLElement &&
-            (candidate.matches('input, textarea, select, [contenteditable="true"]') ||
-              candidate.getAttribute('role') === 'textbox'),
-        )
-      if (editing) return
-      const active = document.activeElement
-      if (active !== document.body && active != null && !reviewRootRef.current?.contains(active)) {
-        return
-      }
       event.preventDefault()
-      setCommandPaletteOpen(true)
+      if (event.repeat) return
+      setCommandPaletteOpen((open) => !open)
     }
     window.addEventListener('keydown', openPalette)
     return () => window.removeEventListener('keydown', openPalette)
-  }, [commandPaletteOpen])
+  }, [])
 
   useEffect(() => {
     if (target == null) {

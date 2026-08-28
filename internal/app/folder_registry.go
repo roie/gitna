@@ -28,6 +28,7 @@ type dormancyTimer interface {
 type folderRegistryOptions struct {
 	dormancyGrace time.Duration
 	afterFunc     func(time.Duration, func()) dormancyTimer
+	openFolder    func(context.Context, string) (gitx.Repository, error)
 }
 
 type folderRoute struct {
@@ -60,6 +61,7 @@ type folderRegistry struct {
 
 	dormancyGrace time.Duration
 	afterFunc     func(time.Duration, func()) dormancyTimer
+	resolveFolder func(context.Context, string) (gitx.Repository, error)
 	closing       atomic.Bool
 
 	mu           sync.RWMutex
@@ -83,6 +85,9 @@ func newFolderRegistry(
 		afterFunc: func(delay time.Duration, callback func()) dormancyTimer {
 			return time.AfterFunc(delay, callback)
 		},
+		openFolder: func(ctx context.Context, path string) (gitx.Repository, error) {
+			return gitx.OpenFolder(ctx, runner, path)
+		},
 	}
 	if len(options) > 0 {
 		if options[0].dormancyGrace >= 0 {
@@ -90,6 +95,9 @@ func newFolderRegistry(
 		}
 		if options[0].afterFunc != nil {
 			config.afterFunc = options[0].afterFunc
+		}
+		if options[0].openFolder != nil {
+			config.openFolder = options[0].openFolder
 		}
 	}
 	r := &folderRegistry{
@@ -101,6 +109,7 @@ func newFolderRegistry(
 		basePath:      strings.TrimSuffix(basePath, "/"),
 		dormancyGrace: config.dormancyGrace,
 		afterFunc:     config.afterFunc,
+		resolveFolder: config.openFolder,
 		byRoot:        make(map[string]string),
 		byRoute:       make(map[string]*folderRoute),
 	}
@@ -120,13 +129,20 @@ func (r *folderRegistry) openFolder(ctx context.Context, path string) (protocol.
 	if r.closing.Load() {
 		return protocol.OpenFolderResult{}, errFolderRegistryClosed
 	}
-	repo, err := gitx.OpenFolder(ctx, r.runner, path)
+	repo, err := r.resolveFolder(ctx, path)
 	if err != nil {
 		return protocol.OpenFolderResult{}, fmt.Errorf("open folder: %w", err)
+	}
+	if r.closing.Load() {
+		return protocol.OpenFolderResult{}, errFolderRegistryClosed
 	}
 
 	rootKey := folder.PathKey(repo.Root)
 	r.mu.RLock()
+	if r.closing.Load() {
+		r.mu.RUnlock()
+		return protocol.OpenFolderResult{}, errFolderRegistryClosed
+	}
 	route, exists := r.byRoot[rootKey]
 	entry := r.byRoute[route]
 	r.mu.RUnlock()
@@ -151,6 +167,9 @@ func (r *folderRegistry) openFolder(ctx context.Context, path string) (protocol.
 
 	r.mu.Lock()
 	defer r.mu.Unlock()
+	if r.closing.Load() {
+		return protocol.OpenFolderResult{}, errFolderRegistryClosed
+	}
 	if route, exists = r.byRoot[rootKey]; exists {
 		entry = r.byRoute[route]
 	} else {
@@ -248,7 +267,7 @@ func (r *folderRegistry) ensureActive(
 		if opened != nil && folder.PathKey(opened.Root) == folder.PathKey(root) {
 			repo = *opened
 		} else {
-			repo, err = gitx.OpenFolder(ctx, r.runner, root)
+			repo, err = r.resolveFolder(ctx, root)
 		}
 		var session *folderSession
 		var srv *server.Server

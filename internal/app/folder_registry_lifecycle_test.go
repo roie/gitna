@@ -2,6 +2,8 @@ package app
 
 import (
 	"bytes"
+	"context"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -15,6 +17,7 @@ import (
 
 	"github.com/roie/gitna/internal/folder"
 	"github.com/roie/gitna/internal/gitx"
+	"github.com/roie/gitna/internal/protocol"
 	"github.com/roie/gitna/internal/server"
 	"github.com/roie/gitna/internal/watch"
 )
@@ -341,6 +344,53 @@ func TestFolderRegistryShutdownWaitsForActiveRequest(t *testing.T) {
 	case <-closed:
 	case <-time.After(5 * time.Second):
 		t.Fatal("shutdown did not finish after active request completed")
+	}
+}
+
+func TestFolderRegistryClosePreventsRouteCreationAfterResolution(t *testing.T) {
+	registry, _ := newLifecycleRegistry(t, true)
+	target := filepath.Join(t.TempDir(), "late-folder")
+	if err := os.Mkdir(target, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	started := make(chan struct{})
+	releaseResolution := make(chan struct{})
+	registry.resolveFolder = func(ctx context.Context, path string) (gitx.Repository, error) {
+		close(started)
+		select {
+		case <-releaseResolution:
+			return gitx.OpenFolder(ctx, registry.runner, path)
+		case <-ctx.Done():
+			return gitx.Repository{}, ctx.Err()
+		}
+	}
+	type openResult struct {
+		result protocol.OpenFolderResult
+		err    error
+	}
+	opened := make(chan openResult, 1)
+	go func() {
+		result, err := registry.openFolder(t.Context(), target)
+		opened <- openResult{result: result, err: err}
+	}()
+	<-started
+	if err := registry.close(); err != nil {
+		t.Fatal(err)
+	}
+	close(releaseResolution)
+	outcome := <-opened
+	if !errors.Is(outcome.err, errFolderRegistryClosed) {
+		t.Fatalf("open error = %v, want folder registry closed", outcome.err)
+	}
+	if outcome.result.Href != "" || outcome.result.Root != "" {
+		t.Fatalf("open result after close = %#v", outcome.result)
+	}
+	registry.mu.RLock()
+	_, rootExists := registry.byRoot[folder.PathKey(target)]
+	routeCount := len(registry.byRoute)
+	registry.mu.RUnlock()
+	if rootExists || routeCount != 1 {
+		t.Fatalf("late route exists = %v route count = %d", rootExists, routeCount)
 	}
 }
 
