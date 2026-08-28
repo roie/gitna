@@ -1,4 +1,4 @@
-package workspace
+package folder
 
 import (
 	"encoding/json"
@@ -20,9 +20,8 @@ const (
 	stateVersion       = 1
 )
 
-// Entry describes one local folder known to Gitna. Repository is true while
-// the workspace catalog is populated exclusively by the Git workbench; the
-// field keeps the persisted model ready for ordinary folders later.
+// Entry describes one local folder known to Gitna. Repository identifies
+// folders where Gitna can enable its Git-specific workbench.
 type Entry struct {
 	Path       string    `json:"path"`
 	Name       string    `json:"name"`
@@ -35,7 +34,7 @@ type state struct {
 	Recent  []Entry `json:"recent"`
 }
 
-// Catalog keeps a bounded most-recently-used workspace list in memory and, when
+// Catalog keeps a bounded most-recently-used folder list in memory and, when
 // configured with a path, persists it using atomic replacement. Persistence is
 // auxiliary: failures are retained for diagnostics without preventing Gitna
 // from opening or switching repositories.
@@ -70,7 +69,7 @@ func OpenDefault() *Catalog {
 			lastErr: err,
 		}
 	}
-	return Open(filepath.Join(dir, "gitna", "workspaces.json"), DefaultRecentLimit)
+	return Open(filepath.Join(dir, "gitna", "folders.json"), DefaultRecentLimit)
 }
 
 // Record promotes path to the front of the catalog and persists the bounded
@@ -83,7 +82,7 @@ func (c *Catalog) Record(path string, repository bool) {
 	}
 	entry := Entry{
 		Path:       canonical,
-		Name:       workspaceName(canonical),
+		Name:       folderName(canonical),
 		Repository: repository,
 		LastOpened: c.now().UTC(),
 	}
@@ -140,7 +139,7 @@ func (c *Catalog) load() {
 		return
 	}
 	if len(data) > maxStateBytes {
-		c.lastErr = fmt.Errorf("workspace catalog: state exceeds %d bytes", maxStateBytes)
+		c.lastErr = fmt.Errorf("folder catalog: state exceeds %d bytes", maxStateBytes)
 		return
 	}
 	var saved state
@@ -149,7 +148,7 @@ func (c *Catalog) load() {
 		return
 	}
 	if saved.Version != stateVersion {
-		c.lastErr = fmt.Errorf("workspace catalog: unsupported version %d", saved.Version)
+		c.lastErr = fmt.Errorf("folder catalog: unsupported version %d", saved.Version)
 		return
 	}
 
@@ -164,7 +163,7 @@ func (c *Catalog) load() {
 			continue
 		}
 		seen[key] = struct{}{}
-		entry.Name = workspaceName(entry.Path)
+		entry.Name = folderName(entry.Path)
 		c.recent = append(c.recent, entry)
 		if len(c.recent) == c.limit {
 			break
@@ -188,11 +187,11 @@ func (c *Catalog) persistLocked() error {
 	}
 	data = append(data, '\n')
 	if len(data) > maxStateBytes {
-		return fmt.Errorf("workspace catalog: encoded state exceeds %d bytes", maxStateBytes)
+		return fmt.Errorf("folder catalog: encoded state exceeds %d bytes", maxStateBytes)
 	}
 
 	dir := filepath.Dir(c.path)
-	temporary, err := os.CreateTemp(dir, ".workspaces-")
+	temporary, err := os.CreateTemp(dir, ".folders-")
 	if err != nil {
 		return err
 	}
@@ -240,7 +239,7 @@ func canonicalPath(path string) (string, error) {
 	return filepath.Clean(resolved), nil
 }
 
-func workspaceName(path string) string {
+func folderName(path string) string {
 	name := filepath.Base(path)
 	if name == "." || name == string(filepath.Separator) {
 		return path

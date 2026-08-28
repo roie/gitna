@@ -97,10 +97,10 @@ func TestDiscoverNonexistentPath(t *testing.T) {
 	}
 }
 
-func TestOpenWorkspaceAcceptsOrdinaryDirectoryAndPreservesGitRoot(t *testing.T) {
+func TestOpenFolderAcceptsOrdinaryDirectoryAndPreservesGitRoot(t *testing.T) {
 	runner := &ExecRunner{}
 	folder := t.TempDir()
-	opened, err := OpenWorkspace(t.Context(), runner, folder)
+	opened, err := OpenFolder(t.Context(), runner, folder)
 	if err != nil || opened.Root != folder || opened.IsGit() {
 		t.Fatalf("folder = %#v, err = %v", opened, err)
 	}
@@ -110,13 +110,13 @@ func TestOpenWorkspaceAcceptsOrdinaryDirectoryAndPreservesGitRoot(t *testing.T) 
 	if err := os.Mkdir(nested, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	opened, err = OpenWorkspace(t.Context(), runner, nested)
+	opened, err = OpenFolder(t.Context(), runner, nested)
 	if err != nil || opened.Root != repoRoot || !opened.IsGit() {
 		t.Fatalf("repo = %#v, err = %v", opened, err)
 	}
 }
 
-func TestOpenWorkspaceRejectsFileAndMissingPath(t *testing.T) {
+func TestOpenFolderRejectsFileAndMissingPath(t *testing.T) {
 	runner := &ExecRunner{}
 	root := t.TempDir()
 	file := filepath.Join(root, "file.txt")
@@ -124,8 +124,8 @@ func TestOpenWorkspaceRejectsFileAndMissingPath(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, path := range []string{file, filepath.Join(root, "missing")} {
-		if _, err := OpenWorkspace(t.Context(), runner, path); err == nil {
-			t.Fatalf("OpenWorkspace(%q) succeeded", path)
+		if _, err := OpenFolder(t.Context(), runner, path); err == nil {
+			t.Fatalf("OpenFolder(%q) succeeded", path)
 		}
 	}
 }

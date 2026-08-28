@@ -8,9 +8,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/roie/gitna/internal/folder"
 	"github.com/roie/gitna/internal/gitx"
 	"github.com/roie/gitna/internal/watch"
-	"github.com/roie/gitna/internal/workspace"
 )
 
 func initSessionRepository(t *testing.T, parent, name string) string {
@@ -26,7 +26,7 @@ func initSessionRepository(t *testing.T, parent, name string) string {
 	return root
 }
 
-func TestRepositorySessionSwitchesAdapterAndStableEventStream(t *testing.T) {
+func TestFolderSessionSwitchesAdapterAndStableEventStream(t *testing.T) {
 	parent := t.TempDir()
 	first := initSessionRepository(t, parent, "first")
 	second := initSessionRepository(t, parent, "second")
@@ -37,26 +37,26 @@ func TestRepositorySessionSwitchesAdapterAndStableEventStream(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	catalog := workspace.Open(filepath.Join(t.TempDir(), "workspaces.json"), 5)
-	session, err := newRepositorySession(ctx, runner, repo, catalog)
+	catalog := folder.Open(filepath.Join(t.TempDir(), "folders.json"), 5)
+	session, err := newFolderSession(ctx, runner, repo, catalog)
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer session.close()
 
-	root, err := session.switchRepository(ctx, second)
+	root, err := session.openFolder(ctx, second)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if root != second || session.adapter.current().Root != second {
 		t.Fatalf("root = %q adapter = %q", root, session.adapter.current().Root)
 	}
-	workspaces := session.workspaceCatalog()
-	if workspaces.Current.Path != second || len(workspaces.Recent) != 2 {
-		t.Fatalf("workspaces = %#v", workspaces)
+	folders := session.folderCatalog()
+	if folders.Current.Path != second || len(folders.Recent) != 2 {
+		t.Fatalf("folders = %#v", folders)
 	}
-	if workspaces.Recent[0].Path != second || workspaces.Recent[1].Path != first {
-		t.Fatalf("recent workspaces = %#v", workspaces.Recent)
+	if folders.Recent[0].Path != second || folders.Recent[1].Path != first {
+		t.Fatalf("recent folders = %#v", folders.Recent)
 	}
 
 	seen := map[watch.InvalidationKind]bool{}

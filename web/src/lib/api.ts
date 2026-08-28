@@ -10,7 +10,7 @@ import type {
   ReviewResponse,
   StashEntry,
   Tag,
-  WorkspaceCatalog,
+  FolderCatalog,
   WorktreeFile,
 } from './types'
 
@@ -29,6 +29,8 @@ export interface ReviewRequest {
   commit?: string
   from?: string
   to?: string
+  cursor?: string
+  signal?: AbortSignal
 }
 
 /** Mutation operation names accepted by the operations endpoint. */
@@ -114,7 +116,7 @@ export interface OperationResult {
 
 export interface ApiClient {
   snapshot(): Promise<RepoSnapshot>
-  workspaces(): Promise<WorkspaceCatalog>
+  folders(): Promise<FolderCatalog>
   repositoryFiles(cursor?: string): Promise<RepositoryFiles>
   readWorktreeFile(path: string): Promise<WorktreeFile>
   writeWorktreeFile(path: string, content: string, expectedHash: string): Promise<WorktreeFile>
@@ -131,8 +133,8 @@ export interface ApiClient {
   tags(): Promise<Tag[]>
   compare(from: string, to: string): Promise<CommitFiles>
   conflicts(): Promise<ConflictEntry[]>
-  switchRepository(path: string): Promise<{ root: string }>
-  revealRepository(): Promise<void>
+  openFolder(path: string): Promise<{ root: string }>
+  revealFolder(): Promise<void>
 }
 
 /** Error carrying the HTTP status and server message so callers can react to
@@ -187,6 +189,7 @@ export function reviewQuery(request: ReviewRequest): string {
   if (request.commit) params.set('commit', request.commit)
   if (request.from) params.set('from', request.from)
   if (request.to) params.set('to', request.to)
+  if (request.cursor) params.set('cursor', request.cursor)
   return params.toString()
 }
 
@@ -202,11 +205,11 @@ export function createApi(): ApiClient {
       )
       return (await res.json()) as RepoSnapshot
     },
-    async workspaces(): Promise<WorkspaceCatalog> {
+    async folders(): Promise<FolderCatalog> {
       const res = await expectOK(
-        await fetch('api/v1/workspaces', { signal: AbortSignal.timeout(FETCH_TIMEOUT) }),
+        await fetch('api/v1/folders', { signal: AbortSignal.timeout(FETCH_TIMEOUT) }),
       )
-      return (await res.json()) as WorkspaceCatalog
+      return (await res.json()) as FolderCatalog
     },
     async repositoryFiles(cursor?: string): Promise<RepositoryFiles> {
       const query = cursor == null ? '' : `?cursor=${encodeURIComponent(cursor)}`
@@ -267,9 +270,10 @@ export function createApi(): ApiClient {
       return (await res.json()) as FileDiff
     },
     async review(request: ReviewRequest): Promise<ReviewResponse> {
+      const timeout = AbortSignal.timeout(FETCH_TIMEOUT)
       const res = await expectOK(
         await fetch(`api/v1/review?${reviewQuery(request)}`, {
-          signal: AbortSignal.timeout(FETCH_TIMEOUT),
+          signal: request.signal == null ? timeout : AbortSignal.any([request.signal, timeout]),
         }),
       )
       return (await res.json()) as ReviewResponse
@@ -355,9 +359,9 @@ export function createApi(): ApiClient {
       )
       return (await res.json()) as ConflictEntry[]
     },
-    async switchRepository(path: string): Promise<{ root: string }> {
+    async openFolder(path: string): Promise<{ root: string }> {
       const res = await expectOK(
-        await fetch('api/v1/repository', {
+        await fetch('api/v1/folder', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ path }),
@@ -366,9 +370,9 @@ export function createApi(): ApiClient {
       )
       return (await res.json()) as { root: string }
     },
-    async revealRepository(): Promise<void> {
+    async revealFolder(): Promise<void> {
       await expectOK(
-        await fetch('api/v1/repository/reveal', {
+        await fetch('api/v1/folder/reveal', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: '{}',

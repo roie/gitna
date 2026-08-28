@@ -144,6 +144,19 @@ func writeMutationDecodeError(w http.ResponseWriter, err error) {
 	writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid request body"})
 }
 
+func runPathBatches(paths []string, run func([]string) error) error {
+	if len(paths) == 0 {
+		return run(paths)
+	}
+	for start := 0; start < len(paths); start += pathBatchLimit {
+		end := min(start+pathBatchLimit, len(paths))
+		if err := run(paths[start:end]); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 // handleOperation runs one repository mutation. Sentinel errors from the gitx
 // layer map to client-friendly statuses: invalid paths are 400, and a patch
 // that no longer applies because the index changed is 409.
@@ -166,15 +179,6 @@ func (s *Server) handleOperation(w http.ResponseWriter, r *http.Request) {
 	}
 
 	switch op {
-	case OpStage, OpUnstage, OpDiscard, OpDelete:
-		if len(req.Paths) > pathBatchLimit {
-			writeJSON(w, http.StatusBadRequest, map[string]any{
-				"error": "too many paths",
-				"code":  "too-many-paths",
-				"limit": pathBatchLimit,
-			})
-			return
-		}
 	case OpResolveOurs, OpResolveTheirs, OpResolveBoth:
 		if len(req.Paths) != 1 {
 			writeJSON(w, http.StatusBadRequest, map[string]any{
@@ -190,13 +194,21 @@ func (s *Server) handleOperation(w http.ResponseWriter, r *http.Request) {
 	var err error
 	switch op {
 	case OpStage:
-		err = s.repo.StagePaths(ctx, req.Paths)
+		err = runPathBatches(req.Paths, func(paths []string) error {
+			return s.repo.StagePaths(ctx, paths)
+		})
 	case OpUnstage:
-		err = s.repo.UnstagePaths(ctx, req.Paths)
+		err = runPathBatches(req.Paths, func(paths []string) error {
+			return s.repo.UnstagePaths(ctx, paths)
+		})
 	case OpDiscard:
-		err = s.repo.DiscardTracked(ctx, req.Paths)
+		err = runPathBatches(req.Paths, func(paths []string) error {
+			return s.repo.DiscardTracked(ctx, paths)
+		})
 	case OpDelete:
-		err = s.repo.DeleteUntracked(ctx, req.Paths)
+		err = runPathBatches(req.Paths, func(paths []string) error {
+			return s.repo.DeleteUntracked(ctx, paths)
+		})
 	case OpPatch:
 		err = s.validatePatchMutation(ctx, req)
 		if err == nil {

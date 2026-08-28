@@ -21,7 +21,7 @@ import type {
   RepoSnapshot,
   StashEntry,
   Tag,
-  WorkspaceCatalog,
+  FolderCatalog,
   WorktreeFile,
 } from '../../lib/types'
 
@@ -61,7 +61,7 @@ const OP_LABELS: Record<string, string> = {
   commit: 'Committing',
   'create-branch': 'Creating branch',
   'switch-branch': 'Switching branch',
-  'switch-repository': 'Switching repository',
+  'open-folder': 'Opening folder',
   'save-file': 'Saving file',
   'create-entry': 'Creating entry',
   'rename-entry': 'Renaming entry',
@@ -146,9 +146,9 @@ export class GitnaRepository {
   readonly api: ApiClient
 
   snapshot: RepoSnapshot | null = null
-  workspaces: WorkspaceCatalog | null = null
-  workspacesLoading = false
-  workspacesError: string | null = null
+  folders: FolderCatalog | null = null
+  foldersLoading = false
+  foldersError: string | null = null
   loading = false
   error: string | null = null
   mutationError: string | null = null
@@ -206,7 +206,7 @@ export class GitnaRepository {
   private refreshAgain = false
   private refreshTimer: ReturnType<typeof setTimeout> | null = null
   private repositoryEpoch = 0
-  private workspaceRequest = 0
+  private folderRequest = 0
   private graphRequest = 0
   private branchesRequest = 0
   private stashesRequest = 0
@@ -285,20 +285,20 @@ export class GitnaRepository {
     }
   }
 
-  async refreshWorkspaces(): Promise<void> {
-    const request = ++this.workspaceRequest
-    this.workspacesLoading = true
-    this.workspacesError = null
+  async refreshFolders(): Promise<void> {
+    const request = ++this.folderRequest
+    this.foldersLoading = true
+    this.foldersError = null
     this.emit()
     try {
-      const workspaces = await this.api.workspaces()
-      if (request !== this.workspaceRequest) return
-      this.workspaces = workspaces
+      const folders = await this.api.folders()
+      if (request !== this.folderRequest) return
+      this.folders = folders
     } catch (error) {
-      if (request === this.workspaceRequest) this.workspacesError = errorMessage(error)
+      if (request === this.folderRequest) this.foldersError = errorMessage(error)
     } finally {
-      if (request === this.workspaceRequest) {
-        this.workspacesLoading = false
+      if (request === this.folderRequest) {
+        this.foldersLoading = false
         this.emit()
       }
     }
@@ -352,10 +352,10 @@ export class GitnaRepository {
     }
   }
 
-  async refreshWorkspace(): Promise<void> {
+  async refreshCurrentFolder(): Promise<void> {
     await Promise.all([
       this.refreshSnapshot(),
-      this.refreshWorkspaces(),
+      this.refreshFolders(),
       this.refreshRepositoryFiles(),
     ])
     if (this.snapshot?.repository) {
@@ -761,18 +761,18 @@ export class GitnaRepository {
     }
   }
 
-  async switchRepository(path: string): Promise<void> {
+  async openFolder(path: string): Promise<void> {
     this.busy = true
-    this.activeOp = 'switch-repository'
+    this.activeOp = 'open-folder'
     this.mutationError = null
     this.emit()
     try {
-      await this.api.switchRepository(path)
+      await this.api.openFolder(path)
       this.repositoryEpoch += 1
       this.generation = 0
       this.repositoryFilesGeneration = 0
       this.repositoryFilesRequest += 1
-      this.workspaceRequest += 1
+      this.folderRequest += 1
       this.graphRequest += 1
       this.branchesRequest += 1
       this.stashesRequest += 1
@@ -802,7 +802,7 @@ export class GitnaRepository {
       this.compareDiff = null
       this.conflicts = []
       this.emit()
-      await this.refreshWorkspace()
+      await this.refreshCurrentFolder()
     } catch (error) {
       this.mutationError = errorMessage(error)
       throw error
@@ -813,8 +813,8 @@ export class GitnaRepository {
     }
   }
 
-  revealRepository(): Promise<void> {
-    return this.api.revealRepository()
+  revealFolder(): Promise<void> {
+    return this.api.revealFolder()
   }
 
   createBranch(name: string, start?: string): Promise<void> {
@@ -1011,7 +1011,7 @@ export function RepositoryProvider({ children }: { children: ReactNode }) {
   const repository = storeRef.current
 
   useEffect(() => {
-    void repository.refreshWorkspace()
+    void repository.refreshCurrentFolder()
     return repository.connectEvents()
   }, [repository])
 

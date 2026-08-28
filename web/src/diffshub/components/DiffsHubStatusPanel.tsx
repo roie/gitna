@@ -55,7 +55,7 @@ export function DiffsHubStatusPanel({
         ? 'Failed to open the file, please try again.'
         : 'Failed to fetch the diff, please try again.'))
     : fileContent
-      ? 'Reading the file from the local workspace…'
+      ? 'Reading the file from the local folder…'
       : state === 'parsing'
         ? 'Parsing the patch and building the file tree…'
         : state === 'fetching'

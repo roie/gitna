@@ -9,6 +9,7 @@ interface ReviewResponse {
   identity: { scope: string; commit?: string; from?: string; to?: string }
   patch: string
   supplements: Array<{ path: string; kind: string; diff: { binary: boolean; tooLarge: boolean } }>
+  nextCursor?: string
 }
 
 async function readReview(request: APIRequestContext, url: string): Promise<ReviewResponse> {
@@ -38,16 +39,16 @@ test('real binary renders repository source-control state', async ({ page, app }
   })
   const response = await page.goto(app.url)
   expect(response?.status()).toBe(200)
-  const workspaces = await page.evaluate(async () => {
-    const response = await fetch('api/v1/workspaces')
-    if (!response.ok) throw new Error(`workspaces request failed: ${response.status}`)
+  const folders = await page.evaluate(async () => {
+    const response = await fetch('api/v1/folders')
+    if (!response.ok) throw new Error(`folders request failed: ${response.status}`)
     return (await response.json()) as {
       current: { path: string; repository: boolean }
       recent: Array<{ path: string }>
     }
   })
-  expect(workspaces.current).toMatchObject({ path: app.repo, repository: true })
-  expect(workspaces.recent[0]?.path).toBe(app.repo)
+  expect(folders.current).toMatchObject({ path: app.repo, repository: true })
+  expect(folders.recent[0]?.path).toBe(app.repo)
   await expect(page.getByPlaceholder('Commit message')).toBeVisible()
   const repository = page.locator('[data-section="repository"]')
   const graph = page.locator('[data-section="graph"]')
@@ -193,7 +194,7 @@ test('real binary renders repository source-control state', async ({ page, app }
   const sourcePaneBody = page.locator('[data-pane-body="source-control"]')
   const sourcePaneHeader = page.locator('[data-section="workflow"]')
   await expect(sourcePaneBody).toHaveClass(/cv-mini-scrollbar/)
-  await expect(sourcePaneBody).toHaveCSS('overflow-y', 'auto')
+  await expect(sourcePaneBody).toHaveCSS('overflow-y', 'hidden')
   expect(
     await sourcePaneBody.evaluate(
       (body) => !body.contains(document.querySelector('[data-section="workflow"]')),
@@ -292,6 +293,80 @@ test('repository invalidations refresh the review without remounting it', async 
   await expect(
     page.locator('diffs-container').filter({ hasText: 'viewer refresh marker' }),
   ).toBeVisible()
+  expect(await mountedViewer!.evaluate((element) => element.isConnected)).toBe(true)
+})
+
+test('scrolling near the review end appends pages without remounting CodeView', async ({
+  page,
+  app,
+}) => {
+  let releaseSecondPage!: () => void
+  const secondPageReady = new Promise<void>((resolve) => {
+    releaseSecondPage = resolve
+  })
+  const patch = (path: string, content: string) => `diff --git a/${path} b/${path}
+new file mode 100644
+--- /dev/null
++++ b/${path}
+@@ -0,0 +1 @@
++${content}
+`
+  await page.route('**/api/v1/review?*', async (route) => {
+    const cursor = new URL(route.request().url()).searchParams.get('cursor')
+    if (cursor != null) await secondPageReady
+    await route.fulfill({
+      json: {
+        generation: 7,
+        identity: { scope: 'unstaged' },
+        patch:
+          cursor == null
+            ? patch('page-one.txt', 'first review page')
+            : patch('untracked.txt', 'second review page'),
+        supplements: [],
+        nextCursor: cursor == null ? 'next-page' : undefined,
+      } satisfies ReviewResponse,
+    })
+  })
+
+  await page.goto(app.url)
+  const viewer = page.locator('.code-view')
+  await expect(page.getByText('first review page', { exact: true })).toBeVisible()
+  const mountedViewer = await viewer.elementHandle()
+  expect(mountedViewer).not.toBeNull()
+  await page.locator('.cv-scrollbar').evaluate((scroller) => {
+    scroller.scrollTop = scroller.scrollHeight
+    scroller.dispatchEvent(new Event('scroll'))
+  })
+  releaseSecondPage()
+  await expect(page.getByText('second review page', { exact: true })).toBeVisible()
+  expect(await mountedViewer!.evaluate((element) => element.isConnected)).toBe(true)
+})
+
+test('selecting a change beyond the first review page loads it immediately', async ({
+  page,
+  app,
+}) => {
+  for (let index = 0; index < 30; index += 1) {
+    writeFileSync(
+      join(app.repo, `zz-page-${index.toString().padStart(2, '0')}.txt`),
+      `page ${index}\n`,
+    )
+  }
+
+  await page.goto(app.url)
+  const viewer = page.locator('.code-view')
+  await expect(viewer).toBeVisible()
+  const mountedViewer = await viewer.elementHandle()
+  expect(mountedViewer).not.toBeNull()
+
+  const changesTree = page.locator('#gitna-unstaged-tree__tree')
+  await changesTree.locator('[data-file-tree-virtualized-scroll="true"]').evaluate((scroller) => {
+    scroller.scrollTop = scroller.scrollHeight
+    scroller.dispatchEvent(new Event('scroll'))
+  })
+  await changesTree.getByRole('treeitem', { name: 'zz-page-29.txt', exact: true }).click()
+
+  await expect(page.getByText('page 29', { exact: true })).toBeVisible()
   expect(await mountedViewer!.evaluate((element) => element.isConnected)).toBe(true)
 })
 
@@ -475,6 +550,10 @@ test('raster images replace the code body', async ({ page, app }) => {
   writeFileSync(join(app.repo, 'untracked-preview.png'), before)
 
   await page.goto(app.url)
+  await page
+    .locator('#gitna-unstaged-tree__tree')
+    .getByRole('treeitem', { name: 'untracked-preview.png', exact: true })
+    .click()
   await expect(
     page.getByRole('img', { name: 'Image preview for untracked-preview.png' }),
   ).toBeVisible()
@@ -527,9 +606,11 @@ test('raster images replace the code body', async ({ page, app }) => {
   expect(previousFrame!.height).toBeGreaterThan((page.viewportSize()?.height ?? 0) * 0.8)
   await expect(page.getByText(/^(Before|After)$/)).toHaveCount(0)
 
-  await page
-    .getByRole('button', { name: 'Open Image preview for preview.png in image viewer' })
-    .click()
+  const openCurrentImage = page.getByRole('button', {
+    name: 'Open Image preview for preview.png in image viewer',
+  })
+  await openCurrentImage.focus()
+  await page.keyboard.press('Enter')
   const imageViewer = page.getByRole('dialog', {
     name: 'Image viewer: Image preview for preview.png',
   })
@@ -597,10 +678,7 @@ test('raster images replace the code body', async ({ page, app }) => {
   ).toHaveCount(0)
 })
 
-test('repository path switches the live session and remains fully editable', async ({
-  page,
-  app,
-}) => {
+test('folder path switches the live session and remains fully editable', async ({ page, app }) => {
   const nextRepo = join(dirname(app.repo), 'next-repository-with-a-long-location-name')
   mkdirSync(nextRepo)
   runGit(nextRepo, 'init', '-q', '-b', 'trunk')
@@ -612,16 +690,16 @@ test('repository path switches the live session and remains fully editable', asy
 
   await page.goto(app.url)
   await expect(page).toHaveTitle(`${basename(app.repo)} - Gitna`)
-  const pathInput = page.getByRole('textbox', { name: 'Workspace path' })
+  const pathInput = page.getByRole('textbox', { name: 'Folder path' })
   await expect(pathInput).toHaveValue(app.repo)
   await pathInput.fill(nextRepo)
-  const switchRepository = page.getByRole('button', { name: 'Switch workspace' })
-  await expect(switchRepository).toBeVisible()
-  await switchRepository.click()
+  const openFolder = page.getByRole('button', { name: 'Switch folder' })
+  await expect(openFolder).toBeVisible()
+  await openFolder.click()
 
   await expect(pathInput).toHaveValue(nextRepo)
   await expect(page).toHaveTitle(`${basename(nextRepo)} - Gitna`)
-  await expect(switchRepository).not.toBeVisible()
+  await expect(openFolder).not.toBeVisible()
   await expect(page.locator('[data-section="workflow"]')).toContainText('trunk')
   await expect(page.locator('[data-section="workflow"] .section-count')).toHaveCount(0)
   await expect(page.getByRole('switch', { name: 'Amend' })).toBeDisabled()
@@ -632,7 +710,7 @@ test('repository path switches the live session and remains fully editable', asy
   await expect(page.locator('[data-section="repository"]')).toContainText(
     'next-repository-with-a-long-location-name',
   )
-  const clearPath = page.getByRole('button', { name: 'Clear workspace path' })
+  const clearPath = page.getByRole('button', { name: 'Clear folder path' })
   await page.mouse.move(0, 0)
   await expect(clearPath).toHaveCSS('opacity', '0')
   await pathInput.hover()
@@ -642,7 +720,7 @@ test('repository path switches the live session and remains fully editable', asy
   expect(inputBox).not.toBeNull()
   expect(clearBox).not.toBeNull()
   expect(clearBox!.x - (inputBox!.x + inputBox!.width)).toBe(4)
-  await expect(page.getByRole('button', { name: 'Reveal workspace in file manager' })).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Reveal folder in file manager' })).toBeVisible()
 })
 
 test('repository files can be edited, created in folders, and renamed', async ({ page, app }) => {
@@ -799,11 +877,11 @@ test('repository files can be edited, created in folders, and renamed', async ({
   }).toPass()
   const unsavedContents = (await renamedEditor.textContent()) ?? ''
   expect(unsavedContents).toContain('unsaved')
-  const repositoryPath = page.getByRole('textbox', { name: 'Workspace path' })
+  const repositoryPath = page.getByRole('textbox', { name: 'Folder path' })
   await repositoryPath.fill(join(app.repo, 'missing-repository'))
-  await page.getByRole('button', { name: 'Switch workspace' }).click()
+  await page.getByRole('button', { name: 'Switch folder' }).click()
   const switchConfirmation = page.getByRole('alertdialog', {
-    name: 'Discard unsaved changes and switch repository?',
+    name: 'Discard unsaved changes and switch folder?',
   })
   await expect(switchConfirmation).toBeVisible()
   await switchConfirmation.getByRole('button', { name: 'Discard and switch' }).click()
@@ -811,7 +889,7 @@ test('repository files can be edited, created in folders, and renamed', async ({
   await expect(renamedEditor).toHaveText(unsavedContents)
 
   await repositoryPath.fill(nextRepo)
-  await page.getByRole('button', { name: 'Switch workspace' }).click()
+  await page.getByRole('button', { name: 'Switch folder' }).click()
   await expect(switchConfirmation).toBeVisible()
   await switchConfirmation.getByRole('button', { name: 'Discard and switch' }).click()
   await expect(repositoryPath).toHaveValue(nextRepo)
@@ -844,17 +922,17 @@ test('dirty repository tabs survive external file removal', async ({ page, app }
 })
 
 test('ordinary folders open in Explorer and switch back to Git', async ({ page, app }) => {
-  const folder = join(dirname(app.repo), 'folder-workspace')
+  const folder = join(dirname(app.repo), 'ordinary-folder')
   mkdirSync(folder)
   writeFileSync(join(folder, 'large.bin'), Buffer.alloc(2_100_000))
   writeFileSync(join(folder, 'notes.txt'), 'folder note\n')
 
   await page.goto(app.url)
-  const workspacePath = page.getByRole('textbox', { name: 'Workspace path' })
-  await workspacePath.fill(folder)
-  await page.getByRole('button', { name: 'Switch workspace' }).click()
+  const folderPath = page.getByRole('textbox', { name: 'Folder path' })
+  await folderPath.fill(folder)
+  await page.getByRole('button', { name: 'Switch folder' }).click()
 
-  await expect(workspacePath).toHaveValue(folder)
+  await expect(folderPath).toHaveValue(folder)
   await expect(page.locator('[data-section="repository"]').locator('..')).toHaveCSS(
     'border-top-width',
     '0px',
@@ -879,10 +957,93 @@ test('ordinary folders open in Explorer and switch back to Git', async ({ page, 
     .poll(() => readFileSync(join(folder, 'notes.txt'), 'utf8'))
     .toBe('updated folder note')
 
-  await workspacePath.fill(app.repo)
-  await page.getByRole('button', { name: 'Switch workspace' }).click()
+  await folderPath.fill(app.repo)
+  await page.getByRole('button', { name: 'Switch folder' }).click()
   await expect(page.getByPlaceholder('Commit message')).toBeVisible()
   await expect(page.locator('[data-section="graph"]')).toBeVisible()
+})
+
+test('Gitna Home opens recent folders and protects dirty drafts', async ({ page, app }) => {
+  const folder = join(dirname(app.repo), 'home-folder')
+  mkdirSync(folder)
+  writeFileSync(join(folder, 'notes.txt'), 'folder note\n')
+
+  await page.goto(app.url)
+  const capabilityUrl = page.url()
+  const folderPath = page.getByRole('textbox', { name: 'Folder path' })
+  await folderPath.fill(folder)
+  await page.getByRole('button', { name: 'Switch folder' }).click()
+  await expect(page).toHaveTitle(`${basename(folder)} - Gitna`)
+  await folderPath.fill(app.repo)
+  await page.getByRole('button', { name: 'Switch folder' }).click()
+  await expect(page).toHaveTitle(`${basename(app.repo)} - Gitna`)
+
+  const repositoryHeader = page.locator('[data-section="repository"]')
+  if ((await repositoryHeader.getAttribute('aria-expanded')) === 'false') {
+    await repositoryHeader.click()
+  }
+  await page
+    .locator('#gitna-repository-tree__tree')
+    .getByRole('treeitem', { name: 'main.txt', exact: true })
+    .click()
+  const editor = page.getByRole('textbox', { name: 'main.txt' })
+  await editor.click()
+  await page.keyboard.press('Control+End')
+  await page.keyboard.type('dirty Home draft')
+
+  await page.getByRole('button', { name: 'Open Gitna Home' }).click()
+  await expect(page).toHaveURL(capabilityUrl)
+  await expect(
+    page.getByRole('heading', { name: 'Welcome back to Gitna', exact: true }),
+  ).toBeVisible()
+  await expect(page.getByRole('textbox', { name: 'Folder path' })).toHaveCount(1)
+  await expect(page.getByRole('button', { name: 'Switch folder' })).toHaveCount(0)
+  await expect(page.getByRole('button', { name: 'Display settings' })).toHaveCount(0)
+  const recentFolder = page.getByRole('button').filter({ hasText: basename(folder) })
+  await expect(recentFolder).toContainText('Folder')
+
+  const homeTrigger = page.getByRole('button', { name: 'Open Gitna Home' })
+  await page.getByRole('button', { name: `Back to ${basename(app.repo)}` }).click()
+  await expect(homeTrigger).toBeFocused()
+  await expect(editor).toContainText('dirty Home draft')
+  await homeTrigger.click()
+  await recentFolder.click()
+  const confirm = page.getByRole('alertdialog')
+  await expect(confirm).toContainText('Discard unsaved changes and switch folder?')
+  await confirm.getByRole('button', { name: 'Cancel' }).click()
+  await expect(
+    page.getByRole('heading', { name: 'Welcome back to Gitna', exact: true }),
+  ).toBeVisible()
+  await recentFolder.click()
+  await confirm.getByRole('button', { name: 'Discard and switch' }).click()
+
+  await expect(
+    page.getByRole('heading', { name: 'Welcome back to Gitna', exact: true }),
+  ).toHaveCount(0)
+  await expect(page).toHaveTitle(`${basename(folder)} - Gitna`)
+  await expect(page.getByRole('status')).toContainText('Select a file from Explorer')
+  await expect(page.getByRole('tablist', { name: 'Open repository files' })).toHaveCount(0)
+
+  await page.getByRole('button', { name: 'Open Gitna Home' }).click()
+  const recentRepository = page.getByRole('button').filter({ hasText: basename(app.repo) })
+  await expect(recentRepository).toContainText('Git repository')
+  await recentRepository.click()
+  await expect(
+    page.getByRole('heading', { name: 'Welcome back to Gitna', exact: true }),
+  ).toHaveCount(0)
+  await expect(page).toHaveTitle(`${basename(app.repo)} - Gitna`)
+
+  await page.getByRole('button', { name: 'Open Gitna Home' }).click()
+  const openPath = page.getByPlaceholder('/path/to/folder')
+  const missing = join(dirname(app.repo), 'missing-home-folder')
+  await openPath.fill(missing)
+  await page.getByRole('button', { name: 'Open Folder' }).click()
+  await expect(page.getByRole('alert')).toBeVisible()
+  await expect(openPath).toHaveValue(missing)
+  await expect(
+    page.getByRole('heading', { name: 'Welcome back to Gitna', exact: true }),
+  ).toBeVisible()
+  await expect(page).toHaveTitle(`${basename(app.repo)} - Gitna`)
 })
 
 test('repository explorer shows and independently hides hidden and ignored files', async ({
@@ -1083,15 +1244,41 @@ test('repository tree keeps a bounded virtualized viewport for thousands of file
     )
     .toBeGreaterThan(2_000)
 
+  const changesTree = page.locator('#gitna-unstaged-tree__tree')
+  const changesVirtualScroll = changesTree.locator('[data-file-tree-virtualized-scroll="true"]')
+  await expect(changesVirtualScroll).toBeVisible()
+  await expect.poll(() => changesTree.getByRole('treeitem').count()).toBeLessThan(200)
+  expect(
+    await changesVirtualScroll.evaluate((element) => element.scrollHeight / element.clientHeight),
+  ).toBeGreaterThan(10)
+  const stagedSection = page
+    .locator('[data-section="staged"]')
+    .locator('xpath=ancestor::section[1]')
+  const stagedBox = await stagedSection.boundingBox()
+  expect(stagedBox).not.toBeNull()
+  expect(stagedBox!.height).toBeLessThan(160)
+
   const repositoryBody = page.locator('[data-pane-body="repository"]')
   const repositoryTree = page.locator('#gitna-repository-tree__tree')
-  const virtualScroll = repositoryTree.locator('[data-file-tree-virtualized-scroll="true"]')
+  const repositoryVirtualScroll = repositoryTree.locator(
+    '[data-file-tree-virtualized-scroll="true"]',
+  )
   await expect(repositoryBody).toHaveCSS('overflow-y', 'hidden')
-  await expect(virtualScroll).toBeVisible()
+  await expect(repositoryVirtualScroll).toBeVisible()
   await expect.poll(() => repositoryTree.getByRole('treeitem').count()).toBeLessThan(200)
   expect(
-    await virtualScroll.evaluate((element) => element.scrollHeight / element.clientHeight),
+    await repositoryVirtualScroll.evaluate(
+      (element) => element.scrollHeight / element.clientHeight,
+    ),
   ).toBeGreaterThan(10)
+
+  await page.locator('[data-section="staged"]').click()
+  await page.locator('[data-section="changes"]').click()
+  await expect
+    .poll(
+      async () => (await page.locator('[data-pane="source-control"]').boundingBox())?.height ?? 0,
+    )
+    .toBeLessThan(300)
 })
 
 test('embedded binary serves the branded React frontend', async ({ page, app }) => {
@@ -1152,10 +1339,10 @@ test('bounded review contract serves all scopes from the real repository', async
   ])
 
   expect(unstaged.identity.scope).toBe('unstaged')
-  expect(unstaged.patch).toContain('diff --git a/modified.txt b/modified.txt')
-  expect(unstaged.patch).toContain('diff --git a/two-hunk.txt b/two-hunk.txt')
   expect(unstaged.supplements).toEqual(
     expect.arrayContaining([
+      expect.objectContaining({ path: 'modified.txt' }),
+      expect.objectContaining({ path: 'two-hunk.txt' }),
       expect.objectContaining({ path: 'untracked.txt', kind: 'untracked' }),
       expect.objectContaining({
         path: 'large-untracked.txt',
@@ -1165,17 +1352,27 @@ test('bounded review contract serves all scopes from the real repository', async
   )
 
   expect(staged.identity.scope).toBe('staged')
-  expect(staged.patch).toContain('diff --git a/staged.txt b/staged.txt')
-  expect(staged.patch).toContain('rename to rename-new.txt')
-  expect(staged.patch).toContain('deleted file mode')
+  expect(staged.supplements).toEqual(
+    expect.arrayContaining([
+      expect.objectContaining({ path: 'staged.txt' }),
+      expect.objectContaining({ path: 'rename-new.txt', kind: 'renamed' }),
+      expect.objectContaining({ path: 'delete.txt', kind: 'deleted' }),
+    ]),
+  )
 
   expect(commit.identity.commit).toBe(app.headOid)
-  expect(commit.patch).toContain('feature.txt')
+  expect(commit.supplements).toEqual(
+    expect.arrayContaining([expect.objectContaining({ path: 'feature.txt' })]),
+  )
 
   expect(compare.identity.from).toBe(app.baseOid)
   expect(compare.identity.to).toBe(app.headOid)
-  expect(compare.patch).toContain('main.txt')
-  expect(compare.patch).toContain('feature.txt')
+  expect(compare.supplements).toEqual(
+    expect.arrayContaining([
+      expect.objectContaining({ path: 'main.txt' }),
+      expect.objectContaining({ path: 'feature.txt' }),
+    ]),
+  )
   expect(
     new Set([unstaged.generation, staged.generation, commit.generation, compare.generation]).size,
   ).toBe(1)

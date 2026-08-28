@@ -1,5 +1,5 @@
 // Modified from the pinned DiffsHub donor: localRepository adapts the URL
-// editor into an explicit local repository switcher and reveal action.
+// editor into explicit local folder open and reveal actions.
 import type { DiffIndicators } from '@pierre/diffs';
 import {
   IconBrandGithub,
@@ -26,6 +26,7 @@ import {
   type CSSProperties,
   type Dispatch,
   memo,
+  type Ref,
   type SetStateAction,
   useEffect,
   useLayoutEffect,
@@ -70,15 +71,17 @@ interface HeaderProps {
   fileTreeAvailable: boolean;
   fileTreeOverlayOpen: boolean;
   githubTokenActive: boolean;
+  homeButtonRef?: Ref<HTMLButtonElement>;
   initialUrl: string;
   localRepository?: boolean;
   lightThemeName: LightThemeName;
   lineNumbers: boolean;
   overflow: 'wrap' | 'scroll';
   onClearGitHubToken(): void;
+  onOpenHome?(): void;
   onSaveGitHubToken(token: string): void;
-  onSwitchRepository?(path: string): Promise<void>;
-  onRevealRepository?(): Promise<void>;
+  onOpenFolder?(path: string): Promise<void>;
+  onRevealFolder?(): Promise<void>;
   onToggleCollapseMode(): void;
   onToggleFileTreeOverlay(): void;
   setColorMode(mode: ColorMode): void;
@@ -92,7 +95,7 @@ interface HeaderProps {
   showBackgrounds: boolean;
 }
 
-function LocalRepositoryForm({
+function LocalFolderForm({
   initialPath,
   onSwitch,
 }: {
@@ -129,7 +132,7 @@ function LocalRepositoryForm({
     >
       <input
         ref={inputRef}
-        aria-label="Workspace path"
+        aria-label="Folder path"
         aria-invalid={error != null}
         className="focus:text-primary block field-sizing-content h-9 min-w-[24ch] w-full rounded-md text-sm focus-visible:outline-none aria-invalid:text-red-500 md:w-auto"
         disabled={pending}
@@ -156,8 +159,8 @@ function LocalRepositoryForm({
           type="submit"
           variant="ghost"
           size="icon-md"
-          aria-label="Switch workspace"
-          title="Switch workspace"
+          aria-label="Switch folder"
+          title="Switch folder"
           disabled={pending}
           className="text-primary"
         >
@@ -169,8 +172,8 @@ function LocalRepositoryForm({
           type="button"
           variant="ghost"
           size="icon-md"
-          aria-label="Clear workspace path"
-          title="Clear workspace path"
+          aria-label="Clear folder path"
+          title="Clear folder path"
           className="opacity-0 transition-opacity duration-200 will-change-auto group-focus-within:opacity-50 group-hover:opacity-50 hover:opacity-75"
           onClick={() => {
             setPath('');
@@ -196,15 +199,17 @@ export const DiffsHubHeader = memo(function DiffsHubHeader({
   fileTreeAvailable,
   fileTreeOverlayOpen,
   githubTokenActive,
+  homeButtonRef,
   initialUrl,
   localRepository = false,
   lightThemeName,
   lineNumbers,
   overflow,
   onClearGitHubToken,
+  onOpenHome,
   onSaveGitHubToken,
-  onSwitchRepository,
-  onRevealRepository,
+  onOpenFolder,
+  onRevealFolder,
   onToggleCollapseMode,
   onToggleFileTreeOverlay,
   setColorMode,
@@ -244,16 +249,29 @@ export const DiffsHubHeader = memo(function DiffsHubHeader({
       )}
       style={themeChromeStyle}
     >
-      <Link
-        href="/"
-        className="absolute top-4 left-[50%] inline-flex -translate-x-1/2 transition-transform duration-200 hover:scale-110 md:static md:translate-x-0"
-      >
-        <GitnaLogo />
-      </Link>
+      {localRepository && onOpenHome != null ? (
+        <button
+          ref={homeButtonRef}
+          type="button"
+          aria-label="Open Gitna Home"
+          title="Gitna Home"
+          className="absolute top-4 left-[50%] inline-flex -translate-x-1/2 cursor-pointer rounded-md transition-transform duration-200 hover:scale-110 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring md:static md:translate-x-0"
+          onClick={onOpenHome}
+        >
+          <GitnaLogo />
+        </button>
+      ) : (
+        <Link
+          href="/"
+          className="absolute top-4 left-[50%] inline-flex -translate-x-1/2 transition-transform duration-200 hover:scale-110 md:static md:translate-x-0"
+        >
+          <GitnaLogo />
+        </Link>
+      )}
       {localRepository ? (
-        <LocalRepositoryForm
+        <LocalFolderForm
           initialPath={initialUrl}
-          onSwitch={onSwitchRepository}
+          onSwitch={onOpenFolder}
         />
       ) : (
         <DiffUrlForm
@@ -295,16 +313,16 @@ export const DiffsHubHeader = memo(function DiffsHubHeader({
           <IconFileTreeFill className="size-4 md:size-3" />
         </Button>
         <div className="flex items-center gap-2">
-          {localRepository && onRevealRepository != null && (
+          {localRepository && onRevealFolder != null && (
             <>
               <Button
                 type="button"
                 variant="ghost"
                 size="icon-md"
-                aria-label="Reveal workspace in file manager"
-                title="Reveal workspace in file manager"
+                aria-label="Reveal folder in file manager"
+                title="Reveal folder in file manager"
                 className={cn(CHROME_ICON_BUTTON_CLASS, 'hidden md:flex')}
-                onClick={() => void onRevealRepository()}
+                onClick={() => void onRevealFolder()}
               >
                 <IconShare className="size-4 md:size-3" />
               </Button>

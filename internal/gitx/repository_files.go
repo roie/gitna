@@ -24,7 +24,7 @@ func (r Repository) RepositoryFiles(ctx context.Context, runner Runner, after st
 		return result, nil
 	}
 	if !r.IsGit() {
-		return r.workspaceFiles(ctx, after, limit)
+		return r.folderFiles(ctx, after, limit)
 	}
 
 	visible, err := r.listRepositoryFiles(ctx, runner, "--cached", "--others", "--exclude-standard", "--deduplicate")
@@ -71,9 +71,9 @@ func (r Repository) RepositoryFiles(ctx context.Context, runner Runner, after st
 	return result, nil
 }
 
-var errWorkspacePageFull = errors.New("workspace file page full")
+var errFolderPageFull = errors.New("folder file page full")
 
-func (r Repository) workspaceFiles(ctx context.Context, after string, limit int) (protocol.RepositoryFiles, error) {
+func (r Repository) folderFiles(ctx context.Context, after string, limit int) (protocol.RepositoryFiles, error) {
 	result := protocol.RepositoryFiles{Paths: make([]string, 0), IgnoredPaths: make([]string, 0)}
 	err := filepath.WalkDir(r.Root, func(path string, entry fs.DirEntry, walkErr error) error {
 		if walkErr != nil {
@@ -105,12 +105,12 @@ func (r Repository) workspaceFiles(ctx context.Context, after string, limit int)
 		if len(result.Paths) == limit {
 			result.Truncated = true
 			result.NextCursor = result.Paths[len(result.Paths)-1]
-			return errWorkspacePageFull
+			return errFolderPageFull
 		}
 		result.Paths = append(result.Paths, relative)
 		return nil
 	})
-	if err != nil && !errors.Is(err, errWorkspacePageFull) {
+	if err != nil && !errors.Is(err, errFolderPageFull) {
 		return protocol.RepositoryFiles{}, err
 	}
 	return result, nil

@@ -12,10 +12,9 @@ import (
 // Sentinel errors returned by repository operations and classified by the API
 // layer into HTTP status codes.
 var (
-	ErrInvalidPath          = errors.New("invalid repository path")
+	ErrInvalidPath          = errors.New("invalid folder path")
 	ErrInvalidRef           = errors.New("invalid ref or oid")
 	ErrNotInRepo            = errors.New("path escapes repository")
-	ErrReviewTooLarge       = errors.New("review exceeds bounded response limits")
 	ErrWorktreeBinary       = errors.New("binary worktree file")
 	ErrWorktreeConflict     = errors.New("worktree file changed")
 	ErrWorktreeEntryExists  = errors.New("worktree entry already exists")
@@ -73,21 +72,21 @@ type WorktreeFile struct {
 	Hash    string `json:"hash"`
 }
 
-// Workspace describes one local folder in Gitna's bounded recent-workspace
-// catalog. Repository is false for ordinary folders once non-Git workspaces
+// Folder describes one local folder in Gitna's bounded recent-folder
+// catalog. Repository is false for ordinary folders once non-Git folders
 // are enabled.
-type Workspace struct {
+type Folder struct {
 	Path       string    `json:"path"`
 	Name       string    `json:"name"`
 	Repository bool      `json:"repository"`
 	LastOpened time.Time `json:"lastOpened"`
 }
 
-// WorkspaceCatalog identifies the active workspace and the most recently
-// opened local workspaces.
-type WorkspaceCatalog struct {
-	Current Workspace   `json:"current"`
-	Recent  []Workspace `json:"recent"`
+// FolderCatalog identifies the active folder and the most recently
+// opened local folders.
+type FolderCatalog struct {
+	Current Folder   `json:"current"`
+	Recent  []Folder `json:"recent"`
 }
 
 type RepoSnapshot struct {
@@ -159,14 +158,21 @@ type ReviewSupplement struct {
 	Diff FileDiff   `json:"diff"`
 }
 
-// ReviewResponse is the bounded read model consumed by the continuous review
-// surface. Patch contains tracked changes only; supplements complete the scope
-// without issuing one HTTP request per untracked file.
+// ReviewResponse is one bounded page consumed by the continuous review
+// surface. NextCursor is present until every changed file has been returned.
 type ReviewResponse struct {
 	Generation  uint64             `json:"generation"`
 	Identity    ReviewIdentity     `json:"identity"`
 	Patch       string             `json:"patch"`
 	Supplements []ReviewSupplement `json:"supplements"`
+	NextCursor  string             `json:"nextCursor,omitempty"`
+}
+
+// ReviewPage carries the response plus its internal continuation key. The
+// server turns NextAfter into an opaque, generation-bound cursor.
+type ReviewPage struct {
+	Response  ReviewResponse
+	NextAfter string
 }
 
 // ImageContent is a bounded raster image embedded in a single-file diff. Data

@@ -1,4 +1,4 @@
-package workspace
+package folder
 
 import (
 	"os"
@@ -7,9 +7,9 @@ import (
 	"time"
 )
 
-func TestCatalogPersistsBoundedRecentWorkspaces(t *testing.T) {
+func TestCatalogPersistsBoundedRecentFolders(t *testing.T) {
 	root := t.TempDir()
-	statePath := filepath.Join(root, "config", "workspaces.json")
+	statePath := filepath.Join(root, "config", "folders.json")
 	first := filepath.Join(root, "first")
 	second := filepath.Join(root, "second")
 	third := filepath.Join(root, "third")
@@ -60,7 +60,7 @@ func TestCatalogPersistsBoundedRecentWorkspaces(t *testing.T) {
 
 func TestCatalogIgnoresMalformedAndInvalidEntries(t *testing.T) {
 	root := t.TempDir()
-	statePath := filepath.Join(root, "workspaces.json")
+	statePath := filepath.Join(root, "folders.json")
 	if err := os.WriteFile(statePath, []byte("not json"), 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -74,7 +74,7 @@ func TestCatalogIgnoresMalformedAndInvalidEntries(t *testing.T) {
 
 	catalog.Record(filepath.Join(root, "missing"), true)
 	if catalog.LastError() == nil {
-		t.Fatal("expected missing workspace error")
+		t.Fatal("expected missing folder error")
 	}
 	if len(catalog.Recent()) != 0 {
 		t.Fatalf("recent after missing path = %#v", catalog.Recent())

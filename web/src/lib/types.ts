@@ -99,6 +99,7 @@ export interface ReviewResponse {
   identity: ReviewIdentity
   patch: string
   supplements: ReviewSupplement[]
+  nextCursor?: string
 }
 
 export interface RepositoryFiles {
@@ -109,16 +110,16 @@ export interface RepositoryFiles {
   nextCursor?: string
 }
 
-export interface Workspace {
+export interface Folder {
   path: string
   name: string
   repository: boolean
   lastOpened: string
 }
 
-export interface WorkspaceCatalog {
-  current: Workspace
-  recent: Workspace[]
+export interface FolderCatalog {
+  current: Folder
+  recent: Folder[]
 }
 
 export interface WorktreeFile {

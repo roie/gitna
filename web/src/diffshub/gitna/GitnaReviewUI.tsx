@@ -30,13 +30,16 @@ import type { FileDiff, WorktreeFile } from '../../lib/types'
 import type { DarkThemeName, LightThemeName } from '../lib/themeNames'
 import type { LoadedDiffsHubData } from '../lib/diffsHubDataAccumulator'
 import { cn } from '../lib/cn'
+import { GitnaHome } from './GitnaHome'
 import { GitnaSourceControl } from './SourceControlWorkflow'
 import { Confirm } from './Modal'
 import {
   adaptGitnaFile,
-  adaptGitnaReview,
+  appendGitnaReviewPage,
+  createGitnaReviewAccumulator,
   adaptWorktreeFile,
   diffImageAnnotations,
+  type GitnaReviewAccumulator,
 } from './reviewAdapter'
 import { useRepository } from './repository'
 
@@ -46,6 +49,16 @@ interface ReviewTarget {
   oldPath?: string
   request?: ReviewRequest
   selectedPath?: string
+}
+
+interface ReviewPagingState {
+  assembly: GitnaReviewAccumulator
+  controller: AbortController
+  cursor?: string
+  loadedPages: number
+  loading: boolean
+  request: ReviewRequest
+  targetKey: string
 }
 
 const rasterImagePattern = /\.(?:gif|jpe?g|png|webp)$/i
@@ -72,12 +85,17 @@ function updateViewerItems(
   current: LoadedDiffsHubData,
   next: LoadedDiffsHubData,
 ): void {
-  const sameItemKinds =
-    current.items.length === next.items.length &&
-    current.items.every((item, index) => {
-      const nextItem = next.items[index]
-      return item.id === nextItem?.id && item.type === nextItem.type
-    })
+  const sharedItemsMatch = current.items.every((item, index) => {
+    const nextItem = next.items[index]
+    return (
+      item.id === nextItem?.id && item.type === nextItem.type && item.version === nextItem.version
+    )
+  })
+  if (next.items.length > current.items.length && sharedItemsMatch) {
+    viewer.addItems(next.items.slice(current.items.length))
+    return
+  }
+  const sameItemKinds = next.items.length === current.items.length && sharedItemsMatch
   if (!sameItemKinds) {
     viewer.getInstance()?.setItems(next.items)
     return
@@ -183,6 +201,8 @@ function GitnaReviewUIInner() {
   const [imageDiff, setImageDiff] = useState<FileDiff | null>(null)
   const [reviewAttempt, setReviewAttempt] = useState(0)
   const [reviewActionError, setReviewActionError] = useState<string | null>(null)
+  const [homeOpen, setHomeOpen] = useState(false)
+  const [homeSwitchError, setHomeSwitchError] = useState<string | null>(null)
   const [worktreeFiles, setWorktreeFiles] = useState<ReadonlyMap<string, WorktreeFile>>(
     () => new Map(),
   )
@@ -195,9 +215,13 @@ function GitnaReviewUIInner() {
     paths: string[]
     dirtyPaths: string[]
   } | null>(null)
-  const [pendingRepositoryPath, setPendingRepositoryPath] = useState<string | null>(null)
+  const [pendingFolderSwitch, setPendingFolderSwitch] = useState<{
+    path: string
+    returnHome: boolean
+  } | null>(null)
   const editorRepositoryRootRef = useRef<string | null>(null)
   const reviewDataRef = useRef<LoadedDiffsHubData | null>(null)
+  const reviewPagingRef = useRef<ReviewPagingState | null>(null)
   // CodeView owns the imperative header root, so its save callback may outlive a React render.
   const savingPathRef = useRef<string | null>(null)
   const worktreeFilesRef = useRef(worktreeFiles)
@@ -210,6 +234,8 @@ function GitnaReviewUIInner() {
     paths: string[]
   } | null>(null)
   const scrollRef = useRef<HTMLDivElement>(null)
+  const homeButtonRef = useRef<HTMLButtonElement>(null)
+  const restoreHomeFocusRef = useRef(false)
   const viewerRef = useRef<CodeViewHandle<CommentMetadata> | null>(null)
   const themeState = useThemeController(themeController)
 
@@ -310,6 +336,10 @@ function GitnaReviewUIInner() {
       return
     }
     let active = true
+    const previousLoadedPages =
+      reviewPagingRef.current?.targetKey === target.key ? reviewPagingRef.current.loadedPages : 1
+    const reviewAbortController = new AbortController()
+    reviewPagingRef.current = null
     const refreshingVisibleReview = reviewDataRef.current != null && viewerRef.current != null
     if (!refreshingVisibleReview) {
       setReviewData(null)
@@ -353,10 +383,33 @@ function GitnaReviewUIInner() {
         return adaptGitnaFile(diff, repository.generation)
       }
     }
-    const dataPromise: Promise<LoadedDiffsHubData> =
-      target.filePath == null
-        ? repository.api.review(target.request!).then(adaptGitnaReview)
-        : loadRepositoryFile(target.filePath)
+    const loadReview = async (): Promise<LoadedDiffsHubData> => {
+      const request = { ...target.request!, signal: reviewAbortController.signal }
+      let page = await repository.api.review(request)
+      const assembly = createGitnaReviewAccumulator(page)
+      let result = appendGitnaReviewPage(assembly, page)
+      let loadedPages = 1
+      while (
+        refreshingVisibleReview &&
+        page.nextCursor != null &&
+        loadedPages < previousLoadedPages
+      ) {
+        page = await repository.api.review({ ...request, cursor: page.nextCursor })
+        result = appendGitnaReviewPage(assembly, page)
+        loadedPages++
+      }
+      reviewPagingRef.current = {
+        assembly,
+        controller: reviewAbortController,
+        cursor: page.nextCursor,
+        loadedPages,
+        loading: false,
+        request,
+        targetKey: target.key,
+      }
+      return result.data
+    }
+    const dataPromise = target.filePath == null ? loadReview() : loadRepositoryFile(target.filePath)
     dataPromise
       .then((data) => {
         if (!active) return
@@ -382,16 +435,79 @@ function GitnaReviewUIInner() {
       })
     return () => {
       active = false
+      reviewAbortController.abort()
     }
   }, [repository.api, repository.generation, reviewAttempt, target?.key])
 
   useEffect(() => {
     if (reviewData == null) return
+    if (reviewData.items.length === 0) {
+      viewerRef.current = null
+      reviewDataRef.current = reviewData
+      return
+    }
     const previousData = reviewDataRef.current
     const viewer = viewerRef.current
-    if (previousData != null && viewer != null) updateViewerItems(viewer, previousData, reviewData)
+    if (previousData != null && previousData.items.length > 0 && viewer != null) {
+      updateViewerItems(viewer, previousData, reviewData)
+    }
     reviewDataRef.current = reviewData
   }, [reviewData])
+
+  const loadMoreReview = useCallback(
+    async (untilPath?: string) => {
+      const paging = reviewPagingRef.current
+      if (paging == null || paging.cursor == null || paging.loading) return
+      paging.loading = true
+      try {
+        do {
+          const page = await repository.api.review({
+            ...paging.request,
+            cursor: paging.cursor,
+          })
+          if (reviewPagingRef.current !== paging) return
+          const result = appendGitnaReviewPage(paging.assembly, page)
+          paging.cursor = page.nextCursor
+          paging.loadedPages++
+          setReviewData(result.data)
+          if (untilPath == null || result.data.treeSource.pathToItemId.has(untilPath)) return
+        } while (paging.cursor != null)
+      } catch (error) {
+        if (
+          reviewPagingRef.current !== paging ||
+          paging.controller.signal.aborted ||
+          (error instanceof ApiError && error.code === 'review-invalidated')
+        ) {
+          return
+        }
+        setReviewActionError(
+          `Could not load remaining changes: ${error instanceof Error ? error.message : String(error)}`,
+        )
+      } finally {
+        if (reviewPagingRef.current === paging) paging.loading = false
+      }
+    },
+    [repository.api],
+  )
+
+  useEffect(() => {
+    const selectedPath = target?.selectedPath
+    if (
+      selectedPath == null ||
+      reviewData == null ||
+      reviewData.treeSource.pathToItemId.has(selectedPath)
+    ) {
+      return
+    }
+    void loadMoreReview(selectedPath)
+  }, [loadMoreReview, reviewData, target?.selectedPath])
+
+  const handleReviewScroll = useCallback(() => {
+    const scroller = scrollRef.current
+    if (scroller == null) return
+    const remaining = scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight
+    if (remaining <= scroller.clientHeight) void loadMoreReview()
+  }, [loadMoreReview])
 
   const selectedImageRequest = useMemo(
     () => imageDiffRequest(target),
@@ -548,6 +664,44 @@ function GitnaReviewUIInner() {
         }
 
   const dirtyPaths = useMemo(() => new Set(worktreeDrafts.keys()), [worktreeDrafts])
+  const closeHome = useCallback(() => {
+    restoreHomeFocusRef.current = true
+    setHomeOpen(false)
+  }, [])
+  useEffect(() => {
+    if (homeOpen || !restoreHomeFocusRef.current) return
+    restoreHomeFocusRef.current = false
+    homeButtonRef.current?.focus()
+  }, [homeOpen])
+  const performFolderSwitch = useCallback(
+    async (path: string, returnHome: boolean) => {
+      if (returnHome) setHomeSwitchError(null)
+      try {
+        await repository.openFolder(path)
+        setWorktreeFiles(new Map())
+        setWorktreeDrafts(new Map())
+        if (returnHome) closeHome()
+      } catch (error) {
+        if (!returnHome) throw error
+        setHomeSwitchError(error instanceof Error ? error.message : String(error))
+      }
+    },
+    [closeHome, repository],
+  )
+  const requestFolderSwitch = useCallback(
+    async (path: string, returnHome: boolean) => {
+      if (path === repository.snapshot?.root) {
+        if (returnHome) closeHome()
+        return
+      }
+      if (dirtyPaths.size > 0) {
+        setPendingFolderSwitch({ path, returnHome })
+        return
+      }
+      await performFolderSwitch(path, returnHome)
+    },
+    [closeHome, dirtyPaths.size, performFolderSwitch, repository.snapshot?.root],
+  )
   const closeRepositoryFiles = useCallback(
     (paths: readonly string[]) => {
       const uniquePaths = [...new Set(paths)].filter((path) =>
@@ -648,99 +802,120 @@ function GitnaReviewUIInner() {
   return (
     <>
       <ReviewGrid>
-        <DiffsHubHeader
-          appVersion={repository.snapshot?.appVersion ?? 'dev'}
-          className="[grid-area:header]"
-          collapseMode={collapseMode}
-          colorMode={colorMode}
-          darkThemeName={darkThemeName}
-          diffIndicators={diffIndicators}
-          diffStyle={diffStyle}
-          fileTreeAvailable
-          fileTreeOverlayOpen={fileTreeOverlayOpen}
-          githubTokenActive={false}
-          initialUrl={repository.snapshot?.root ?? 'Loading repository…'}
-          localRepository
-          lightThemeName={lightThemeName}
-          lineNumbers={lineNumbers}
-          overflow={overflow}
-          onClearGitHubToken={() => {}}
-          onSaveGitHubToken={() => {}}
-          onSwitchRepository={async (path) => {
-            if (dirtyPaths.size > 0) {
-              setPendingRepositoryPath(path)
-              return
-            }
-            await repository.switchRepository(path)
-          }}
-          onRevealRepository={async () => {
-            setReviewActionError(null)
-            try {
-              await repository.revealRepository()
-            } catch (error) {
-              setReviewActionError(error instanceof Error ? error.message : String(error))
-            }
-          }}
-          onToggleCollapseMode={handleToggleCollapseMode}
-          onToggleFileTreeOverlay={() => setFileTreeOverlayOpen((open) => !open)}
-          setColorMode={setColorMode}
-          setDarkThemeName={setDarkThemeName}
-          setDiffIndicators={setDiffIndicators}
-          setDiffStyle={setDiffStyle}
-          setLightThemeName={setLightThemeName}
-          setLineNumbers={setLineNumbers}
-          setOverflow={setOverflow}
-          setShowBackgrounds={setShowBackgrounds}
-          showBackgrounds={showBackgrounds}
-        />
-        {themesHydrated && (
-          <DiffsHubSidebar
-            className="[grid-area:viewer] md:[grid-area:tree]"
-            mobileOverlayOpen={fileTreeOverlayOpen}
-            onMobileClose={() => setFileTreeOverlayOpen(false)}
-            scrollRef={scrollRef}
-          >
-            <GitnaSourceControl />
-          </DiffsHubSidebar>
+        {!homeOpen && (
+          <DiffsHubHeader
+            appVersion={repository.snapshot?.appVersion ?? 'dev'}
+            className="[grid-area:header]"
+            collapseMode={collapseMode}
+            colorMode={colorMode}
+            darkThemeName={darkThemeName}
+            diffIndicators={diffIndicators}
+            diffStyle={diffStyle}
+            fileTreeAvailable={!homeOpen}
+            fileTreeOverlayOpen={fileTreeOverlayOpen}
+            githubTokenActive={false}
+            homeButtonRef={homeButtonRef}
+            initialUrl={repository.snapshot?.root ?? 'Loading repository…'}
+            localRepository
+            lightThemeName={lightThemeName}
+            lineNumbers={lineNumbers}
+            overflow={overflow}
+            onClearGitHubToken={() => {}}
+            onOpenHome={() => {
+              setHomeSwitchError(null)
+              setHomeOpen(true)
+            }}
+            onSaveGitHubToken={() => {}}
+            onOpenFolder={(path) => requestFolderSwitch(path, false)}
+            onRevealFolder={async () => {
+              setReviewActionError(null)
+              try {
+                await repository.revealFolder()
+              } catch (error) {
+                setReviewActionError(error instanceof Error ? error.message : String(error))
+              }
+            }}
+            onToggleCollapseMode={handleToggleCollapseMode}
+            onToggleFileTreeOverlay={() => setFileTreeOverlayOpen((open) => !open)}
+            setColorMode={setColorMode}
+            setDarkThemeName={setDarkThemeName}
+            setDiffIndicators={setDiffIndicators}
+            setDiffStyle={setDiffStyle}
+            setLightThemeName={setLightThemeName}
+            setLineNumbers={setLineNumbers}
+            setOverflow={setOverflow}
+            setShowBackgrounds={setShowBackgrounds}
+            showBackgrounds={showBackgrounds}
+          />
         )}
-        <div className="flex min-h-0 flex-col [grid-area:viewer]">
-          <RepositoryFileTabs dirtyPaths={dirtyPaths} onClose={closeRepositoryFiles} />
-          <div className="min-h-0 flex-1">
-            {repository.snapshot?.repository === false && target == null ? (
-              <WorkspaceEmptyState />
-            ) : viewerAvailable && reviewData != null && reviewData.items.length > 0 ? (
-              <DiffsHubViewer
-                className="code-view h-full"
-                commentsEnabled={false}
-                diffStyle={diffStyle}
-                overflow={overflow}
-                showBackgrounds={showBackgrounds}
-                diffIndicators={diffIndicators}
-                lineNumbers={lineNumbers}
-                scrollRef={scrollRef}
-                themeType={colorMode}
-                viewerRef={viewerRef}
-                initialItems={reviewData.items}
-                gitnaActions={gitnaActions}
-                gitnaEditorActions={gitnaEditorActions}
-                onCommentDeleted={() => {}}
-                onCommentSaved={() => {}}
-                onLineLinkChange={handleLineLinkChange}
-                onViewerReady={handleViewerReady}
-              />
-            ) : viewerAvailable && reviewData != null ? (
-              <GitnaEmptyState scope={target?.request?.scope} />
-            ) : (
-              <div className="grid h-full min-h-0 [&>*]:h-full">
-                <DiffsHubStatusPanel
-                  contentKind={target?.filePath == null ? 'diff' : 'file'}
-                  errorMessage={errorMessage ?? repository.error}
-                  localRepository
-                  onRetry={() => setReviewAttempt((attempt) => attempt + 1)}
-                  state={loadState}
+        {homeOpen && (
+          <GitnaHome
+            catalog={repository.folders}
+            error={repository.foldersError}
+            loading={repository.foldersLoading}
+            opening={repository.busy}
+            switchError={homeSwitchError}
+            onBack={closeHome}
+            onClearSwitchError={() => setHomeSwitchError(null)}
+            onOpenFolder={(path) => requestFolderSwitch(path, true)}
+            onRefresh={() => void repository.refreshFolders()}
+          />
+        )}
+        <div
+          aria-hidden={homeOpen || undefined}
+          className={homeOpen ? 'hidden' : 'contents'}
+          inert={homeOpen || undefined}
+        >
+          {themesHydrated && (
+            <DiffsHubSidebar
+              className="[grid-area:viewer] md:[grid-area:tree]"
+              mobileOverlayOpen={fileTreeOverlayOpen}
+              onMobileClose={() => setFileTreeOverlayOpen(false)}
+              scrollRef={scrollRef}
+            >
+              <GitnaSourceControl />
+            </DiffsHubSidebar>
+          )}
+          <div className="flex min-h-0 flex-col [grid-area:viewer]">
+            <RepositoryFileTabs dirtyPaths={dirtyPaths} onClose={closeRepositoryFiles} />
+            <div className="min-h-0 flex-1">
+              {repository.snapshot?.repository === false && target == null ? (
+                <FolderEmptyState />
+              ) : loadState === 'ready' && reviewData != null && reviewData.items.length === 0 ? (
+                <GitnaEmptyState scope={target?.request?.scope} />
+              ) : viewerAvailable && reviewData != null ? (
+                <DiffsHubViewer
+                  className="code-view h-full"
+                  commentsEnabled={false}
+                  diffStyle={diffStyle}
+                  overflow={overflow}
+                  showBackgrounds={showBackgrounds}
+                  diffIndicators={diffIndicators}
+                  lineNumbers={lineNumbers}
+                  scrollRef={scrollRef}
+                  themeType={colorMode}
+                  viewerRef={viewerRef}
+                  initialItems={reviewData.items}
+                  gitnaActions={gitnaActions}
+                  gitnaEditorActions={gitnaEditorActions}
+                  onCommentDeleted={() => {}}
+                  onCommentSaved={() => {}}
+                  onLineLinkChange={handleLineLinkChange}
+                  onScroll={handleReviewScroll}
+                  onViewerReady={handleViewerReady}
                 />
-              </div>
-            )}
+              ) : (
+                <div className="grid h-full min-h-0 [&>*]:h-full">
+                  <DiffsHubStatusPanel
+                    contentKind={target?.filePath == null ? 'diff' : 'file'}
+                    errorMessage={errorMessage ?? repository.error}
+                    localRepository
+                    onRetry={() => setReviewAttempt((attempt) => attempt + 1)}
+                    state={loadState}
+                  />
+                </div>
+              )}
+            </div>
           </div>
         </div>
         {reviewActionError != null && (
@@ -752,24 +927,18 @@ function GitnaReviewUIInner() {
           </p>
         )}
       </ReviewGrid>
-      {pendingRepositoryPath != null && (
+      {pendingFolderSwitch != null && (
         <Confirm
-          title="Discard unsaved changes and switch repository?"
+          title="Discard unsaved changes and switch folder?"
           message={`${dirtyPaths.size} unsaved ${dirtyPaths.size === 1 ? 'file' : 'files'} will be discarded.`}
           confirmLabel="Discard and switch"
-          onCancel={() => setPendingRepositoryPath(null)}
+          onCancel={() => setPendingFolderSwitch(null)}
           onConfirm={() => {
-            const path = pendingRepositoryPath
-            setPendingRepositoryPath(null)
-            void repository
-              .switchRepository(path)
-              .then(() => {
-                setWorktreeFiles(new Map())
-                setWorktreeDrafts(new Map())
-              })
-              .catch((error: unknown) =>
-                setReviewActionError(error instanceof Error ? error.message : String(error)),
-              )
+            const pending = pendingFolderSwitch
+            setPendingFolderSwitch(null)
+            void performFolderSwitch(pending.path, pending.returnHome).catch((error: unknown) =>
+              setReviewActionError(error instanceof Error ? error.message : String(error)),
+            )
           }}
         />
       )}
@@ -1066,7 +1235,7 @@ function RepositoryFileTabs({
   )
 }
 
-function WorkspaceEmptyState() {
+function FolderEmptyState() {
   return (
     <div className="flex h-full min-h-0 items-center justify-center bg-background p-6 [grid-area:viewer]">
       <section role="status" className="max-w-md text-center">

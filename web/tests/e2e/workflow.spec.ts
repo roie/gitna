@@ -14,8 +14,10 @@ function git(repo: string, ...args: string[]): string {
 
 async function reviewPatch(page: Page, scope: 'staged' | 'unstaged') {
   return page.evaluate(async (reviewScope) => {
-    const response = await fetch(`api/v1/review?scope=${reviewScope}`)
-    if (!response.ok) throw new Error(`review request failed: ${response.status}`)
+    const response = await fetch(
+      `api/v1/diff?scope=${reviewScope}&path=${encodeURIComponent('two-hunk.txt')}`,
+    )
+    if (!response.ok) throw new Error(`diff request failed: ${response.status}`)
     return ((await response.json()) as { patch: string }).patch
   }, scope)
 }
@@ -34,7 +36,7 @@ test('staging loop preserves VS Code section order and visibility', async ({ pag
     .locator('[data-section]')
     .evaluateAll((headers) => headers.map((header) => (header as HTMLElement).dataset.section))
   expect(order).toEqual(['workflow', 'staged', 'changes', 'repository', 'graph'])
-  await expect(page.getByRole('textbox', { name: 'Workspace path' })).toHaveValue(app.repo)
+  await expect(page.getByRole('textbox', { name: 'Folder path' })).toHaveValue(app.repo)
   await expect(page.getByRole('button', { name: 'Switch branch · main' })).toBeVisible()
   if (process.env.GITNA_CAPTURE_M4) {
     await page.screenshot({ path: '/tmp/gitna-m4-desktop.png', fullPage: true })

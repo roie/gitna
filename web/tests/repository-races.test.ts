@@ -118,12 +118,12 @@ describe('GitnaRepository request sequencing', () => {
       repositoryFiles: vi.fn().mockResolvedValue({ generation: 1, paths: [], truncated: false }),
       graph: vi.fn().mockResolvedValue({ commits: [], hasMore: false }),
       branches: vi.fn().mockResolvedValue([]),
-      switchRepository: vi.fn().mockResolvedValue({ root: '/new' }),
+      openFolder: vi.fn().mockResolvedValue({ root: '/new' }),
     } as unknown as ApiClient
     const repository = new GitnaRepository(api)
 
     const initialRefresh = repository.refreshSnapshot()
-    const switching = repository.switchRepository('/new')
+    const switching = repository.openFolder('/new')
     oldSnapshot.resolve(snapshot('/old', 99))
     await Promise.all([initialRefresh, switching])
     expect(api.graph).toHaveBeenCalled()

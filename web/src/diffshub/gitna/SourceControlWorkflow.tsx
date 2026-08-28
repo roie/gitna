@@ -157,6 +157,8 @@ function discardConfirmationCopy(
 
 type RepositoryViewMode = 'tree' | 'list'
 
+const CHANGE_TREE_VIRTUALIZATION_THRESHOLD = 8
+
 function isHiddenRepositoryPath(path: string): boolean {
   return path.split('/').some((segment) => segment.length > 1 && segment.startsWith('.'))
 }
@@ -544,8 +546,13 @@ export function GitnaSourceControl() {
     [filteredRepositoryPaths, repositoryChanges, repositoryView],
   )
   const workflowCompact = changedPathCount === 0 && repository.conflicts.length === 0
+  const hasLargeOpenChangeSection =
+    (stagedOpen && staged.length > CHANGE_TREE_VIRTUALIZATION_THRESHOLD) ||
+    (changesOpen && unstaged.length > CHANGE_TREE_VIRTUALIZATION_THRESHOLD)
   const useNaturalWorkflowHeight =
-    workflowOpen && !workflowCompact && (repositoryOpen || graphOpen) && !paneSizesCustomized
+    workflowOpen &&
+    !workflowCompact &&
+    (!hasLargeOpenChangeSection || ((repositoryOpen || graphOpen) && !paneSizesCustomized))
   const naturalWorkflowHeight = Math.min(
     measuredWorkflowHeight || 142,
     Math.max(142, (paneStackHeight * sizes[0]) / 100),
@@ -738,7 +745,7 @@ export function GitnaSourceControl() {
   return (
     <section
       className="source-control flex h-full min-h-0 flex-col"
-      aria-label={snapshot.repository ? 'Source Control workflow' : 'Workspace Explorer'}
+      aria-label={snapshot.repository ? 'Source Control workflow' : 'File Explorer'}
     >
       <div
         ref={containerRef}
@@ -783,10 +790,10 @@ export function GitnaSourceControl() {
               <div
                 ref={workflowContent}
                 data-pane-body="source-control"
-                className="cv-mini-scrollbar min-h-0 overscroll-contain md:flex-1 md:overflow-y-auto max-md:overflow-visible"
+                className="cv-mini-scrollbar min-h-0 overscroll-contain md:flex md:flex-1 md:flex-col md:overflow-hidden max-md:overflow-visible"
               >
                 <form
-                  className="commit-composer px-3 py-2"
+                  className="commit-composer shrink-0 px-3 py-2"
                   onSubmit={(event) => {
                     event.preventDefault()
                     void submitCommit()
@@ -885,7 +892,7 @@ export function GitnaSourceControl() {
           headerClassName={snapshot.repository ? undefined : 'border-t-0'}
           dragAndDrop={repositoryDragAndDrop}
           dataSection="repository"
-          emptyMessage={snapshot.repository ? 'No repository files' : 'No workspace files'}
+          emptyMessage={snapshot.repository ? 'No repository files' : 'No folder files'}
           footer={
             <>
               {repository.repositoryFilesLoading && (
@@ -1909,6 +1916,7 @@ interface TreeSectionProps {
   dataSection: string
   dragAndDrop?: FileTreeDragAndDropConfig
   emptyMessage: string
+  fill?: boolean
   footer?: ReactNode
   headerActions?: ReactNode
   headerClassName?: string
@@ -1933,6 +1941,7 @@ function TreeSection({
   dataSection,
   dragAndDrop,
   emptyMessage,
+  fill = false,
   footer,
   headerActions,
   headerClassName,
@@ -1962,6 +1971,7 @@ function TreeSection({
       className={cn(
         'section',
         !pane && 'border-t border-border/70 first:border-t-0',
+        fill && open && 'md:flex md:min-h-0 md:flex-1 md:flex-col md:overflow-hidden',
         pane && 'flex h-full min-h-0 flex-col overflow-hidden',
         pane && open && 'max-md:h-[50vh]',
         pane && !open && 'max-md:h-auto',
@@ -2017,15 +2027,31 @@ function TreeSection({
         <>
           <div
             data-pane-body={pane ? 'repository' : undefined}
-            className={cn(pane && 'min-h-0 flex-1 overflow-hidden')}
+            className={cn(
+              pane && 'min-h-0 flex-1 overflow-hidden',
+              fill && 'md:min-h-0 md:flex-1 md:overflow-hidden',
+            )}
           >
             {source.pathCount > 0 && (
               <div
-                className={cn('min-h-0', pane && 'h-full')}
-                style={pane ? undefined : { height }}
+                className={cn(
+                  'min-h-0',
+                  pane && 'h-full',
+                  fill && 'h-[var(--gitna-tree-natural-height)] md:h-full',
+                )}
+                style={
+                  pane
+                    ? undefined
+                    : fill
+                      ? ({ '--gitna-tree-natural-height': `${height}px` } as CSSProperties)
+                      : { height }
+                }
               >
                 <DiffsHubFileTree
-                  className={cn(pane ? 'h-full overflow-hidden' : 'overflow-visible', 'md:ml-2')}
+                  className={cn(
+                    pane ? 'h-full overflow-hidden' : fill ? 'md:h-full' : 'overflow-visible',
+                    'md:ml-2',
+                  )}
                   dragAndDrop={dragAndDrop}
                   modelId={modelId}
                   onModelReady={setModel}
@@ -2235,6 +2261,7 @@ function ChangeSection({
 
   return (
     <TreeSection
+      fill={source.pathCount > CHANGE_TREE_VIRTUALIZATION_THRESHOLD}
       dataSection={scope === 'staged' ? 'staged' : 'changes'}
       emptyMessage={changes.length === 0 ? 'No changes' : 'No matching files'}
       headerActions={headerActions}

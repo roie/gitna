@@ -116,7 +116,7 @@ func trackedRepo(t *testing.T) string {
 	return root
 }
 
-func TestWatcherReportsOrdinaryWorkspaceChangesWithoutGit(t *testing.T) {
+func TestWatcherReportsOrdinaryFolderChangesWithoutGit(t *testing.T) {
 	root := t.TempDir()
 	w, err := New(t.Context(), gitx.Repository{Root: root}, nil, Options{
 		Debounce:         30 * time.Millisecond,

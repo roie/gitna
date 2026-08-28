@@ -5,8 +5,10 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"strings"
 	"testing"
 
@@ -265,36 +267,37 @@ func TestOperationDecoderRejectsSecondJSONValue(t *testing.T) {
 	}
 }
 
-func TestOperationPathBatchLimit(t *testing.T) {
-	paths := make([]string, pathBatchLimit)
-	for i := range paths {
-		paths[i] = "a"
+func TestOperationPathsAreBatchedBeforeGit(t *testing.T) {
+	paths := make([]string, pathBatchLimit+1)
+	for index := range paths {
+		paths[index] = fmt.Sprintf("file-%04d.txt", index)
 	}
 	for _, op := range []string{OpStage, OpUnstage, OpDiscard, OpDelete} {
 		t.Run(op, func(t *testing.T) {
 			repo := &fakeRepo{}
-			if rec := postOperation(t, repo, op, mutationRequest{Paths: paths}); rec.Code != http.StatusOK {
-				t.Fatalf("exact limit status = %d, want 200 (%s)", rec.Code, rec.Body)
+			rec := postOperation(t, repo, op, mutationRequest{Paths: paths})
+			if rec.Code != http.StatusOK {
+				t.Fatalf("status = %d, want 200 (%s)", rec.Code, rec.Body)
 			}
 
-			repo = &fakeRepo{}
-			overLimit := append(append([]string(nil), paths...), "b")
-			rec := postOperation(t, repo, op, mutationRequest{Paths: overLimit})
-			if rec.Code != http.StatusBadRequest {
-				t.Fatalf("over limit status = %d, want 400 (%s)", rec.Code, rec.Body)
-			}
-			var body map[string]any
-			if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
-				t.Fatal(err)
-			}
-			if body["code"] != "too-many-paths" || body["limit"] != float64(pathBatchLimit) {
-				t.Fatalf("body = %#v, want too-many-paths limit %d", body, pathBatchLimit)
-			}
 			repo.mu.Lock()
-			calls := len(repo.stageOps) + len(repo.unstages) + len(repo.discards) + len(repo.deletes)
-			repo.mu.Unlock()
-			if calls != 0 {
-				t.Fatalf("repository called for over-limit request: %d paths", calls)
+			defer repo.mu.Unlock()
+			if !slices.Equal(repo.pathCallSizes, []int{pathBatchLimit, 1}) {
+				t.Fatalf("batch sizes = %v, want [%d 1]", repo.pathCallSizes, pathBatchLimit)
+			}
+			var got []string
+			switch op {
+			case OpStage:
+				got = repo.stageOps
+			case OpUnstage:
+				got = repo.unstages
+			case OpDiscard:
+				got = repo.discards
+			case OpDelete:
+				got = repo.deletes
+			}
+			if !slices.Equal(got, paths) {
+				t.Fatalf("paths = %d entries, want %d", len(got), len(paths))
 			}
 		})
 	}

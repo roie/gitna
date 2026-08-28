@@ -22,7 +22,7 @@ type Repo interface {
 	Snapshot(ctx context.Context) (protocol.RepoSnapshot, error)
 	RepositoryFiles(ctx context.Context, after string, limit int) (protocol.RepositoryFiles, error)
 	Diff(ctx context.Context, scope protocol.DiffScope, opts protocol.DiffOptions) (protocol.FileDiff, error)
-	Review(ctx context.Context, scope protocol.DiffScope, opts protocol.DiffOptions) (protocol.ReviewResponse, error)
+	Review(ctx context.Context, scope protocol.DiffScope, opts protocol.DiffOptions, after string) (protocol.ReviewPage, error)
 	History(ctx context.Context, skip, limit int) ([]protocol.GraphCommit, error)
 	FilesChanged(ctx context.Context, oid string) (protocol.CommitFiles, error)
 	Branches(ctx context.Context) ([]protocol.Branch, error)
@@ -82,27 +82,27 @@ type Options struct {
 	// Events streams repository invalidation kinds. When nil, the events
 	// endpoint closes its stream immediately.
 	Events <-chan watch.InvalidationKind
-	// SwitchRepository replaces the repository behind this capability after an
+	// OpenFolder replaces the repository behind this capability after an
 	// explicit local UI request.
-	SwitchRepository func(context.Context, string) (string, error)
-	// RevealRepository opens the current repository in the platform file manager.
-	RevealRepository func(context.Context) error
-	// Workspaces returns the active and bounded recent workspace catalog.
-	Workspaces func() protocol.WorkspaceCatalog
+	OpenFolder func(context.Context, string) (string, error)
+	// RevealFolder opens the current repository in the platform file manager.
+	RevealFolder func(context.Context) error
+	// Folders returns the active and bounded recent folder catalog.
+	Folders func() protocol.FolderCatalog
 }
 
 // Server serves the embedded frontend and the repository API.
 type Server struct {
-	static           fs.FS
-	version          string
-	api              http.Handler
-	security         Security
-	repo             Repo
-	hub              *eventsHub
-	gen              atomic.Uint64
-	switchRepository func(context.Context, string) (string, error)
-	revealRepository func(context.Context) error
-	workspaces       func() protocol.WorkspaceCatalog
+	static       fs.FS
+	version      string
+	api          http.Handler
+	security     Security
+	repo         Repo
+	hub          *eventsHub
+	gen          atomic.Uint64
+	openFolder   func(context.Context, string) (string, error)
+	revealFolder func(context.Context) error
+	folders      func() protocol.FolderCatalog
 }
 
 // New creates a Server that serves static assets from staticFS (rooted at the
@@ -117,12 +117,12 @@ func New(staticFS fs.FS, opts Options) (*Server, error) {
 		version = "dev"
 	}
 	s := &Server{
-		static:           staticFS,
-		version:          version,
-		repo:             opts.Repo,
-		switchRepository: opts.SwitchRepository,
-		revealRepository: opts.RevealRepository,
-		workspaces:       opts.Workspaces,
+		static:       staticFS,
+		version:      version,
+		repo:         opts.Repo,
+		openFolder:   opts.OpenFolder,
+		revealFolder: opts.RevealFolder,
+		folders:      opts.Folders,
 		security: Security{
 			Token: opts.Token,
 			Host:  opts.Host,

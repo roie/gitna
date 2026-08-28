@@ -11,24 +11,24 @@ import (
 	"github.com/roie/gitna/internal/protocol"
 )
 
-func TestWorkspacesRouteReturnsCurrentAndRecentCatalog(t *testing.T) {
-	catalog := protocol.WorkspaceCatalog{
-		Current: protocol.Workspace{Path: "/current", Name: "current", Repository: true},
-		Recent: []protocol.Workspace{
+func TestFoldersRouteReturnsCurrentAndRecentCatalog(t *testing.T) {
+	catalog := protocol.FolderCatalog{
+		Current: protocol.Folder{Path: "/current", Name: "current", Repository: true},
+		Recent: []protocol.Folder{
 			{Path: "/current", Name: "current", Repository: true},
 			{Path: "/previous", Name: "previous", Repository: true},
 		},
 	}
 	srv, err := New(newTestFS(), Options{
-		Token:      testToken,
-		Host:       testHost,
-		Repo:       &fakeRepo{},
-		Workspaces: func() protocol.WorkspaceCatalog { return catalog },
+		Token:   testToken,
+		Host:    testHost,
+		Repo:    &fakeRepo{},
+		Folders: func() protocol.FolderCatalog { return catalog },
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	req := httptest.NewRequest(http.MethodGet, "/s/"+testToken+"/api/v1/workspaces", nil)
+	req := httptest.NewRequest(http.MethodGet, "/s/"+testToken+"/api/v1/folders", nil)
 	req.Host = testHost
 	rec := httptest.NewRecorder()
 	srv.Handler().ServeHTTP(rec, req)
@@ -36,7 +36,7 @@ func TestWorkspacesRouteReturnsCurrentAndRecentCatalog(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d, want 200 (%s)", rec.Code, rec.Body)
 	}
-	var got protocol.WorkspaceCatalog
+	var got protocol.FolderCatalog
 	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
 		t.Fatal(err)
 	}
@@ -45,23 +45,23 @@ func TestWorkspacesRouteReturnsCurrentAndRecentCatalog(t *testing.T) {
 	}
 }
 
-func TestSwitchRepositoryRouteUsesExplicitSessionCallback(t *testing.T) {
-	var switched string
+func TestOpenFolderRouteUsesExplicitSessionCallback(t *testing.T) {
+	var opened string
 	srv, err := New(newTestFS(), Options{
 		Token: testToken,
 		Host:  testHost,
 		Repo:  &fakeRepo{},
-		SwitchRepository: func(_ context.Context, path string) (string, error) {
-			switched = path
-			return "/resolved/repo", nil
+		OpenFolder: func(_ context.Context, path string) (string, error) {
+			opened = path
+			return "/resolved/folder", nil
 		},
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
 	before := srv.gen.Load()
-	body, _ := json.Marshal(map[string]string{"path": "/requested/repo"})
-	req := httptest.NewRequest(http.MethodPost, "/s/"+testToken+"/api/v1/repository", bytes.NewReader(body))
+	body, _ := json.Marshal(map[string]string{"path": "/requested/folder"})
+	req := httptest.NewRequest(http.MethodPost, "/s/"+testToken+"/api/v1/folder", bytes.NewReader(body))
 	req.Host = testHost
 	req.Header.Set("Origin", "http://"+testHost)
 	req.Header.Set("Content-Type", "application/json")
@@ -72,21 +72,21 @@ func TestSwitchRepositoryRouteUsesExplicitSessionCallback(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d, want 200 (%s)", rec.Code, rec.Body)
 	}
-	if switched != "/requested/repo" {
-		t.Fatalf("switched = %q", switched)
+	if opened != "/requested/folder" {
+		t.Fatalf("opened = %q", opened)
 	}
 	if srv.gen.Load() != before+1 {
 		t.Fatalf("generation = %d, want %d", srv.gen.Load(), before+1)
 	}
 }
 
-func TestRevealRepositoryRouteUsesCurrentSessionCallback(t *testing.T) {
+func TestRevealFolderRouteUsesCurrentSessionCallback(t *testing.T) {
 	called := false
 	srv, err := New(newTestFS(), Options{
 		Token: testToken,
 		Host:  testHost,
 		Repo:  &fakeRepo{},
-		RevealRepository: func(context.Context) error {
+		RevealFolder: func(context.Context) error {
 			called = true
 			return nil
 		},
@@ -94,7 +94,7 @@ func TestRevealRepositoryRouteUsesCurrentSessionCallback(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	req := httptest.NewRequest(http.MethodPost, "/s/"+testToken+"/api/v1/repository/reveal", nil)
+	req := httptest.NewRequest(http.MethodPost, "/s/"+testToken+"/api/v1/folder/reveal", nil)
 	req.Host = testHost
 	req.Header.Set("Origin", "http://"+testHost)
 	req.Header.Set("Content-Type", "application/json")

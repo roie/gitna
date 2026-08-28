@@ -47,8 +47,8 @@ func (w *workbenchRepo) Diff(ctx context.Context, scope protocol.DiffScope, opts
 	return w.repo.Diff(ctx, w.runner, scope, opts)
 }
 
-func (w *workbenchRepo) Review(ctx context.Context, scope protocol.DiffScope, opts protocol.DiffOptions) (protocol.ReviewResponse, error) {
-	return w.repo.Review(ctx, w.runner, scope, opts)
+func (w *workbenchRepo) Review(ctx context.Context, scope protocol.DiffScope, opts protocol.DiffOptions, after string) (protocol.ReviewPage, error) {
+	return w.repo.Review(ctx, w.runner, scope, opts, after)
 }
 
 func (w *workbenchRepo) History(ctx context.Context, skip, limit int) ([]protocol.GraphCommit, error) {

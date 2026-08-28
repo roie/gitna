@@ -264,8 +264,8 @@ func (s *slowRepo) RepositoryFiles(ctx context.Context, _ string, _ int) (protoc
 func (s *slowRepo) Diff(ctx context.Context, _ protocol.DiffScope, _ protocol.DiffOptions) (protocol.FileDiff, error) {
 	return protocol.FileDiff{}, s.block(ctx)
 }
-func (s *slowRepo) Review(ctx context.Context, _ protocol.DiffScope, _ protocol.DiffOptions) (protocol.ReviewResponse, error) {
-	return protocol.ReviewResponse{}, s.block(ctx)
+func (s *slowRepo) Review(ctx context.Context, _ protocol.DiffScope, _ protocol.DiffOptions, _ string) (protocol.ReviewPage, error) {
+	return protocol.ReviewPage{}, s.block(ctx)
 }
 func (s *slowRepo) History(ctx context.Context, _, _ int) ([]protocol.GraphCommit, error) {
 	return nil, s.block(ctx)

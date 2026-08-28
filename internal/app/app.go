@@ -13,12 +13,12 @@ import (
 	"time"
 
 	"github.com/roie/gitna/internal/browser"
+	"github.com/roie/gitna/internal/folder"
 	"github.com/roie/gitna/internal/gitx"
 	"github.com/roie/gitna/internal/protocol"
 	"github.com/roie/gitna/internal/server"
 	"github.com/roie/gitna/internal/session"
 	"github.com/roie/gitna/internal/webui"
-	"github.com/roie/gitna/internal/workspace"
 )
 
 // repoAdapter bridges the git-backed repository to the server's Repo interface.
@@ -96,8 +96,8 @@ func (a *repoAdapter) Diff(ctx context.Context, scope protocol.DiffScope, opts p
 	return a.current().Diff(ctx, a.runner, scope, opts)
 }
 
-func (a *repoAdapter) Review(ctx context.Context, scope protocol.DiffScope, opts protocol.DiffOptions) (protocol.ReviewResponse, error) {
-	return a.current().Review(ctx, a.runner, scope, opts)
+func (a *repoAdapter) Review(ctx context.Context, scope protocol.DiffScope, opts protocol.DiffOptions, after string) (protocol.ReviewPage, error) {
+	return a.current().Review(ctx, a.runner, scope, opts, after)
 }
 
 func (a *repoAdapter) History(ctx context.Context, skip, limit int) ([]protocol.GraphCommit, error) {
@@ -356,7 +356,7 @@ func (a *repoAdapter) ResolveConflictBoth(ctx context.Context, path string) erro
 // at their repository root. The session binds to a loopback-only OS-assigned port.
 func Run(ctx context.Context, path, version string) error {
 	runner := &gitx.ExecRunner{}
-	repo, err := gitx.OpenWorkspace(ctx, runner, path)
+	repo, err := gitx.OpenFolder(ctx, runner, path)
 	if err != nil {
 		return fmt.Errorf("app: %w", err)
 	}
@@ -382,21 +382,21 @@ func Run(ctx context.Context, path, version string) error {
 		return fmt.Errorf("app: load embedded assets: %w", err)
 	}
 
-	repositorySession, err := newRepositorySession(ctx, runner, repo, workspace.OpenDefault())
+	folderSession, err := newFolderSession(ctx, runner, repo, folder.OpenDefault())
 	if err != nil {
-		return fmt.Errorf("app: create workspace session: %w", err)
+		return fmt.Errorf("app: create folder session: %w", err)
 	}
-	defer repositorySession.close()
+	defer folderSession.close()
 
 	srv, err := server.New(staticFS, server.Options{
-		Version:          version,
-		Token:            token,
-		Host:             host,
-		Repo:             repositorySession.adapter,
-		Events:           repositorySession.events,
-		SwitchRepository: repositorySession.switchRepository,
-		RevealRepository: repositorySession.revealRepository,
-		Workspaces:       repositorySession.workspaceCatalog,
+		Version:      version,
+		Token:        token,
+		Host:         host,
+		Repo:         folderSession.adapter,
+		Events:       folderSession.events,
+		OpenFolder:   folderSession.openFolder,
+		RevealFolder: folderSession.revealFolder,
+		Folders:      folderSession.folderCatalog,
 	})
 	if err != nil {
 		return fmt.Errorf("app: create server: %w", err)
@@ -415,7 +415,7 @@ func Run(ctx context.Context, path, version string) error {
 	go func() { errCh <- httpSrv.Serve(ln) }()
 
 	fmt.Printf("Gitna %s\n", version)
-	fmt.Printf("Workspace   %s\n", repo.Root)
+	fmt.Printf("Folder      %s\n", repo.Root)
 	fmt.Printf("URL         %s\n", url)
 
 	// Full-process browser tests drive the emitted capability URL themselves.

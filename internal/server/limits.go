@@ -29,7 +29,8 @@ const (
 	CommitTimeout = 60 * time.Second
 )
 
-// pathBatchLimit bounds one path-level mutation before it reaches Git.
+// pathBatchLimit bounds each Git invocation within a path-level mutation.
+// Larger bounded request bodies are split into sequential invocations.
 const pathBatchLimit = 1_000
 
 // snapshotFileLimit bounds serialized entries returned in one snapshot.

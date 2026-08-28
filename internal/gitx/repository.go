@@ -19,23 +19,23 @@ var ErrNotRepository = errors.New("not inside a git repository")
 
 func (r Repository) IsGit() bool { return r.GitDir != "" }
 
-// OpenWorkspace resolves start to a Git worktree root when one contains it,
+// OpenFolder resolves start to a Git worktree root when one contains it,
 // otherwise to the canonical ordinary directory itself.
-func OpenWorkspace(ctx context.Context, runner Runner, start string) (Repository, error) {
+func OpenFolder(ctx context.Context, runner Runner, start string) (Repository, error) {
 	absolute, err := filepath.Abs(start)
 	if err != nil {
 		return Repository{}, err
 	}
 	root, err := filepath.EvalSymlinks(absolute)
 	if err != nil {
-		return Repository{}, fmt.Errorf("open workspace: %w", err)
+		return Repository{}, fmt.Errorf("open folder: %w", err)
 	}
 	info, err := os.Stat(root)
 	if err != nil {
-		return Repository{}, fmt.Errorf("open workspace: %w", err)
+		return Repository{}, fmt.Errorf("open folder: %w", err)
 	}
 	if !info.IsDir() {
-		return Repository{}, fmt.Errorf("open workspace: %q is not a directory", root)
+		return Repository{}, fmt.Errorf("open folder: %q is not a directory", root)
 	}
 	repo, err := Discover(ctx, runner, root)
 	if err == nil {

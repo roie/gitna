@@ -10,6 +10,8 @@ import {
   appendFileDiffToDiffsHubData,
   createDiffsHubDataAccumulator,
   snapshotDiffsHubData,
+  takePendingDiffsHubItems,
+  type DiffsHubDataAccumulator,
   type LoadedDiffsHubData,
 } from '../lib/diffsHubDataAccumulator'
 import type { CommentMetadata, ImageAnnotationMetadata } from '../lib/types'
@@ -102,17 +104,31 @@ export function adaptGitnaFile(diff: FileDiff, generation: number): LoadedDiffsH
   }
 }
 
-/**
- * Typed Gitna boundary for the donor viewer. Gitna supplies one bounded
- * patch plus supplements; Pierre remains responsible for parsing every diff
- * and constructing the CodeView metadata consumed by donor components.
- */
-export function adaptGitnaReview(review: ReviewResponse): LoadedDiffsHubData {
-  const accumulator = createDiffsHubDataAccumulator()
-  const cacheKey = `${reviewIdentityKey(review)}:${review.generation}`
+export interface GitnaReviewAccumulator {
+  accumulator: DiffsHubDataAccumulator
+  cacheKey: string
+  generation: number
+}
 
+export function createGitnaReviewAccumulator(review: ReviewResponse): GitnaReviewAccumulator {
+  return {
+    accumulator: createDiffsHubDataAccumulator(),
+    cacheKey: `${reviewIdentityKey(review)}:${review.generation}`,
+    generation: review.generation,
+  }
+}
+
+/** Appends one bounded server page while Pierre retains parsing and item ownership. */
+export function appendGitnaReviewPage(
+  assembly: GitnaReviewAccumulator,
+  review: ReviewResponse,
+): { data: LoadedDiffsHubData; pendingItems: LoadedDiffsHubData['items'] } {
+  if (review.generation !== assembly.generation) {
+    throw new Error('Review changed while additional files were loading')
+  }
+  const { accumulator } = assembly
   if (review.patch.length > 0) {
-    const parsed = parsePatchFiles(review.patch, cacheKey, true)
+    const parsed = parsePatchFiles(review.patch, assembly.cacheKey, true)
     for (const patch of parsed) {
       for (const fileDiff of patch.files) {
         appendFileDiffToDiffsHubData(accumulator, fileDiff, undefined)
@@ -126,7 +142,7 @@ export function adaptGitnaReview(review: ReviewResponse): LoadedDiffsHubData {
       contents:
         supplement.diff.binary || supplement.diff.tooLarge ? '' : supplement.diff.after.content,
       lang: supplement.diff.after.language as FileContents['lang'],
-      cacheKey: `${cacheKey}:${supplement.path}`,
+      cacheKey: `${assembly.cacheKey}:${supplement.path}`,
     }
     const before: FileContents | null =
       supplement.kind === 'added' || supplement.kind === 'untracked'
@@ -138,7 +154,7 @@ export function adaptGitnaReview(review: ReviewResponse): LoadedDiffsHubData {
                 ? ''
                 : supplement.diff.before.content,
             lang: supplement.diff.before.language as FileContents['lang'],
-            cacheKey: `${cacheKey}:${supplement.path}:before`,
+            cacheKey: `${assembly.cacheKey}:${supplement.path}:before`,
           }
     const fileDiff = parseDiffFromFile(before, after, undefined, true)
     appendFileDiffToDiffsHubData(accumulator, fileDiff, undefined)
@@ -147,7 +163,11 @@ export function adaptGitnaReview(review: ReviewResponse): LoadedDiffsHubData {
     if (item?.type === 'diff' && annotations.length > 0) item.annotations = annotations
   }
 
-  const data = snapshotDiffsHubData(accumulator)
-  for (const item of data.items) item.version = review.generation
-  return data
+  const pendingItems = takePendingDiffsHubItems(accumulator)
+  for (const item of pendingItems) item.version = review.generation
+  return { data: snapshotDiffsHubData(accumulator), pendingItems }
+}
+
+export function adaptGitnaReview(review: ReviewResponse): LoadedDiffsHubData {
+  return appendGitnaReviewPage(createGitnaReviewAccumulator(review), review).data
 }

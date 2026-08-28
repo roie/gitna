@@ -25,8 +25,8 @@ func (s *Server) apiRoutes() http.Handler {
 		switch {
 		case r.Method == http.MethodGet && p == "/snapshot":
 			s.handleSnapshot(w, r)
-		case r.Method == http.MethodGet && p == "/workspaces":
-			s.handleWorkspaces(w)
+		case r.Method == http.MethodGet && p == "/folders":
+			s.handleFolders(w)
 		case r.Method == http.MethodGet && p == "/files":
 			s.handleRepositoryFiles(w, r)
 		case r.Method == http.MethodGet && p == "/worktree/file":
@@ -57,10 +57,10 @@ func (s *Server) apiRoutes() http.Handler {
 			s.handleCommitFiles(w, r)
 		case r.Method == http.MethodGet && p == "/events":
 			s.handleEvents(w, r)
-		case r.Method == http.MethodPost && p == "/repository/reveal":
-			s.handleRevealRepository(w, r)
-		case r.Method == http.MethodPost && p == "/repository":
-			s.handleSwitchRepository(w, r)
+		case r.Method == http.MethodPost && p == "/folder/reveal":
+			s.handleRevealFolder(w, r)
+		case r.Method == http.MethodPost && p == "/folder":
+			s.handleOpenFolder(w, r)
 		case r.Method == http.MethodPost && p == "/operations":
 			s.handleOperation(w, r)
 		default:
@@ -69,12 +69,12 @@ func (s *Server) apiRoutes() http.Handler {
 	})
 }
 
-func (s *Server) handleWorkspaces(w http.ResponseWriter) {
-	if s.workspaces == nil {
-		writeJSON(w, http.StatusNotImplemented, map[string]string{"error": "workspace catalog unavailable"})
+func (s *Server) handleFolders(w http.ResponseWriter) {
+	if s.folders == nil {
+		writeJSON(w, http.StatusNotImplemented, map[string]string{"error": "folder catalog unavailable"})
 		return
 	}
-	writeJSON(w, http.StatusOK, s.workspaces())
+	writeJSON(w, http.StatusOK, s.folders())
 }
 
 // handleDiff returns one file diff from a stable repository generation. Mutable
@@ -135,9 +135,9 @@ func (s *Server) handleDiff(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// handleReview returns one bounded multi-file patch from a stable repository
-// generation. A raced invalidation retries the complete read so patch and
-// supplements always carry the same generation identity.
+// handleReview returns one bounded page from a stable repository generation.
+// First-page races retry from the beginning; stale continuation cursors fail
+// instead of mixing files from different generations.
 func (s *Server) handleReview(w http.ResponseWriter, r *http.Request) {
 	if s.repo == nil {
 		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "repository unavailable"})
@@ -157,10 +157,25 @@ func (s *Server) handleReview(w http.ResponseWriter, r *http.Request) {
 		CompareTo:   q.Get("to"),
 	}
 
+	var cursor reviewCursor
+	continuation := q.Get("cursor") != ""
+	if continuation {
+		var err error
+		cursor, err = decodeReviewCursor(q.Get("cursor"))
+		if err != nil || !cursor.matches(scope, opts) {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid review cursor", "code": "invalid-review-cursor"})
+			return
+		}
+	}
+
 	const maxReviewAttempts = 3
 	for range maxReviewAttempts {
 		generation := s.gen.Load()
-		review, err := s.repo.Review(ctx, scope, opts)
+		if continuation && cursor.Generation != generation {
+			writeReviewInvalidated(w)
+			return
+		}
+		page, err := s.repo.Review(ctx, scope, opts, cursor.After)
 		if err != nil {
 			if timeoutReached(ctx, err) {
 				writeJSON(w, http.StatusGatewayTimeout, map[string]string{"error": "review timed out"})
@@ -172,21 +187,43 @@ func (s *Server) handleReview(w http.ResponseWriter, r *http.Request) {
 			case errors.Is(err, protocol.ErrInvalidRef), errors.Is(err, protocol.ErrInvalidPath), errors.Is(err, protocol.ErrNotInRepo):
 				status = http.StatusBadRequest
 				code = "invalid-review"
-			case errors.Is(err, protocol.ErrReviewTooLarge):
-				status = http.StatusRequestEntityTooLarge
-				code = "review-too-large"
 			}
 			writeJSON(w, status, map[string]string{"error": err.Error(), "code": code})
 			return
 		}
 		if generation != s.gen.Load() {
+			if continuation {
+				writeReviewInvalidated(w)
+				return
+			}
 			continue
 		}
-		review.Generation = generation
-		writeJSON(w, http.StatusOK, review)
+		response := page.Response
+		response.Generation = generation
+		if page.NextAfter != "" {
+			nextCursor, err := encodeReviewCursor(reviewCursor{
+				Version:    1,
+				Generation: generation,
+				Scope:      scope,
+				Commit:     opts.Commit,
+				From:       opts.CompareFrom,
+				To:         opts.CompareTo,
+				After:      page.NextAfter,
+			})
+			if err != nil {
+				writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "could not encode review cursor", "code": "review-failed"})
+				return
+			}
+			response.NextCursor = nextCursor
+		}
+		writeJSON(w, http.StatusOK, response)
 		return
 	}
 
+	writeReviewInvalidated(w)
+}
+
+func writeReviewInvalidated(w http.ResponseWriter) {
 	writeJSON(w, http.StatusConflict, map[string]string{
 		"error": "repository changed while review was loading",
 		"code":  "review-invalidated",

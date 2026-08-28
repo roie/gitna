@@ -146,7 +146,7 @@ func TestParseForEachRefBehindOnly(t *testing.T) {
 
 func TestParseForEachRefMalformed(t *testing.T) {
 	for _, raw := range []string{
-		"refs/heads/main\x00abc\n",     // missing HEAD/upstream fields
+		"refs/heads/main\x00abc\n",                          // missing HEAD/upstream fields
 		"refs/heads/main\x00abc\x00 \x00\x00[sideways 1]\n", // unknown track direction
 		"refs/heads/main\x00abc\x00 \x00\x00[ahead nope]\n", // non-numeric count
 		"not-a-ref\x00abc\x00 \x00\x00\n",                   // unknown ref namespace

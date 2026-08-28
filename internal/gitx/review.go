@@ -2,131 +2,173 @@ package gitx
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	"sort"
 
 	"github.com/roie/gitna/internal/protocol"
 )
 
 const (
-	maxReviewPatchBytes  = 20 << 20
-	maxReviewSupplements = 1000
+	maxReviewPageBytes = 8 << 20
+	maxReviewPageFiles = 25
 )
 
-// Review returns one bounded tracked patch for a repository surface plus the
-// untracked worktree files that Git does not include in a normal diff. Every
-// Git invocation disables external diff drivers, textconv, paging, and color.
-func (r Repository) Review(ctx context.Context, runner Runner, scope protocol.DiffScope, opts protocol.DiffOptions) (protocol.ReviewResponse, error) {
+type reviewChange struct {
+	Path    string
+	OldPath string
+	Kind    protocol.ChangeKind
+}
+
+// Review returns one bounded, deterministic page of a repository review. Each
+// changed file appears on exactly one page; binary and oversized files advance
+// the cursor as bounded placeholders instead of failing the whole review.
+func (r Repository) Review(ctx context.Context, runner Runner, scope protocol.DiffScope, opts protocol.DiffOptions, after string) (protocol.ReviewPage, error) {
 	identity := protocol.ReviewIdentity{
 		Scope:       scope,
 		Commit:      opts.Commit,
 		CompareFrom: opts.CompareFrom,
 		CompareTo:   opts.CompareTo,
 	}
-	args, err := r.reviewArgs(ctx, runner, scope, opts)
+	changes, err := r.reviewChanges(ctx, runner, scope, opts)
 	if err != nil {
-		return protocol.ReviewResponse{}, err
+		return protocol.ReviewPage{}, err
 	}
-	res, err := runner.Run(ctx, r.Root, args...)
+	changes, hasMore, err := nextReviewChanges(ctx, changes, after, maxReviewPageFiles)
 	if err != nil {
-		return protocol.ReviewResponse{}, err
-	}
-	if res.ExitCode != 0 {
-		return protocol.ReviewResponse{}, opError("load review", res)
-	}
-	if len(res.Stdout) > maxReviewPatchBytes {
-		return protocol.ReviewResponse{}, protocol.ErrReviewTooLarge
+		return protocol.ReviewPage{}, err
 	}
 
-	review := protocol.ReviewResponse{
+	response := protocol.ReviewResponse{
 		Identity:    identity,
-		Patch:       string(res.Stdout),
-		Supplements: []protocol.ReviewSupplement{},
+		Patch:       "",
+		Supplements: make([]protocol.ReviewSupplement, 0, len(changes)),
 	}
-	if scope != protocol.DiffUnstaged {
-		return review, nil
-	}
-
-	snapshot, err := r.Status(ctx, runner)
-	if err != nil {
-		return protocol.ReviewResponse{}, err
-	}
-	for _, change := range snapshot.Unstaged {
-		if change.Kind != protocol.KindUntracked {
-			continue
-		}
-		if len(review.Supplements) >= maxReviewSupplements {
-			return protocol.ReviewResponse{}, protocol.ErrReviewTooLarge
-		}
+	pageBytes := 0
+	nextIndex := 0
+	for nextIndex < len(changes) {
 		if err := ctx.Err(); err != nil {
-			return protocol.ReviewResponse{}, err
+			return protocol.ReviewPage{}, err
 		}
-		content, tooLarge, present, err := r.readWorktree(change.Path, MaxImageBytes)
+		change := changes[nextIndex]
+		diffOpts := opts
+		diffOpts.Path = change.Path
+		diffOpts.OldPath = change.OldPath
+		diff, err := r.reviewDiff(ctx, runner, scope, diffOpts)
 		if err != nil {
-			return protocol.ReviewResponse{}, err
+			return protocol.ReviewPage{}, err
 		}
-		if !present {
-			continue
+		supplement := protocol.ReviewSupplement{Path: change.Path, Kind: change.Kind, Diff: diff}
+		size, err := reviewSupplementSize(supplement)
+		if err != nil {
+			return protocol.ReviewPage{}, err
 		}
-		diff := protocol.FileDiff{
-			Before:   protocol.FileVersion{Path: change.Path, Language: languageFor(change.Path)},
-			After:    protocol.FileVersion{Path: change.Path, Language: languageFor(change.Path)},
-			TooLarge: tooLarge,
-		}
-		if !tooLarge {
-			if image := rasterImageContent(content); image != nil {
-				diff.Binary = true
-				diff.After.Image = image
-			} else if len(content) > DefaultDiffBytes {
-				diff.TooLarge = true
-			} else {
-				diff.Binary = isBinary(content)
-				if !diff.Binary {
-					diff.After.Content = string(content)
-				}
+		if pageBytes+size > maxReviewPageBytes {
+			if len(response.Supplements) > 0 {
+				break
+			}
+			supplement.Diff.Before.Content = ""
+			supplement.Diff.After.Content = ""
+			supplement.Diff.Before.Image = nil
+			supplement.Diff.After.Image = nil
+			supplement.Diff.TooLarge = true
+			size, err = reviewSupplementSize(supplement)
+			if err != nil {
+				return protocol.ReviewPage{}, err
 			}
 		}
-		review.Supplements = append(review.Supplements, protocol.ReviewSupplement{
-			Path: change.Path,
-			Kind: protocol.KindUntracked,
-			Diff: diff,
-		})
+		response.Supplements = append(response.Supplements, supplement)
+		pageBytes += size
+		nextIndex++
 	}
-	return review, nil
+
+	page := protocol.ReviewPage{Response: response}
+	if (nextIndex < len(changes) || hasMore) && len(response.Supplements) > 0 {
+		page.NextAfter = reviewChangeKey(changes[nextIndex-1])
+	}
+	return page, nil
 }
 
-func (r Repository) reviewArgs(ctx context.Context, runner Runner, scope protocol.DiffScope, opts protocol.DiffOptions) ([]string, error) {
-	prefix := []string{"-c", "diff.color=never", "-c", "core.pager=cat"}
-	flags := []string{"--no-ext-diff", "--no-textconv", "--find-renames", "--patch"}
-	switch scope {
-	case protocol.DiffUnstaged:
-		return append(append(prefix, "diff"), append(flags, "--")...), nil
-	case protocol.DiffStaged:
-		args := append(append(prefix, "diff"), flags...)
-		return append(args, "--cached", "--"), nil
-	case protocol.DiffCommit:
-		if err := validateRef(opts.Commit); err != nil {
-			return nil, err
+// nextReviewChanges keeps only the smallest bounded keyset after the cursor.
+// This avoids sorting the complete manifest and checks cancellation while
+// scanning it. Production runner output is independently capped by Runner.
+func nextReviewChanges(ctx context.Context, changes []reviewChange, after string, limit int) ([]reviewChange, bool, error) {
+	selected := make([]reviewChange, 0, min(limit, len(changes)))
+	eligible := 0
+	for _, change := range changes {
+		if err := ctx.Err(); err != nil {
+			return nil, false, err
 		}
-		parents, err := r.commitParents(ctx, runner, opts.Commit)
+		key := reviewChangeKey(change)
+		if key <= after {
+			continue
+		}
+		eligible++
+		index := sort.Search(len(selected), func(index int) bool {
+			return reviewChangeKey(selected[index]) >= key
+		})
+		if index >= limit {
+			continue
+		}
+		if len(selected) < limit {
+			selected = append(selected, reviewChange{})
+		}
+		copy(selected[index+1:], selected[index:])
+		selected[index] = change
+	}
+	return selected, eligible > len(selected), nil
+}
+
+func (r Repository) reviewChanges(ctx context.Context, runner Runner, scope protocol.DiffScope, opts protocol.DiffOptions) ([]reviewChange, error) {
+	var changes []reviewChange
+	switch scope {
+	case protocol.DiffUnstaged, protocol.DiffStaged:
+		status, err := r.Status(ctx, runner)
 		if err != nil {
 			return nil, err
 		}
-		if len(parents) == 0 {
-			args := append(append(prefix, "show"), flags...)
-			return append(args, "--format=", opts.Commit, "--"), nil
+		selected := status.Unstaged
+		if scope == protocol.DiffStaged {
+			selected = status.Staged
 		}
-		args := append(append(prefix, "diff"), flags...)
-		return append(args, parents[0], opts.Commit, "--"), nil
+		changes = make([]reviewChange, 0, len(selected))
+		for _, change := range selected {
+			changes = append(changes, reviewChange{Path: change.Path, OldPath: change.OldPath, Kind: change.Kind})
+		}
+	case protocol.DiffCommit:
+		files, err := r.ChangedFiles(ctx, runner, opts.Commit)
+		if err != nil {
+			return nil, err
+		}
+		changes = commitReviewChanges(files)
 	case protocol.DiffCompare:
-		if err := validateRef(opts.CompareFrom); err != nil {
+		files, err := r.CompareFiles(ctx, runner, opts.CompareFrom, opts.CompareTo)
+		if err != nil {
 			return nil, err
 		}
-		if err := validateRef(opts.CompareTo); err != nil {
-			return nil, err
-		}
-		args := append(append(prefix, "diff"), flags...)
-		return append(args, opts.CompareFrom, opts.CompareTo, "--"), nil
+		changes = commitReviewChanges(files)
 	default:
 		return nil, fmt.Errorf("gitx: unknown review scope %q", scope)
 	}
+	return changes, nil
+}
+
+func commitReviewChanges(files []protocol.CommitFile) []reviewChange {
+	changes := make([]reviewChange, 0, len(files))
+	for _, file := range files {
+		changes = append(changes, reviewChange{Path: file.Path, OldPath: file.OldPath, Kind: file.Kind})
+	}
+	return changes
+}
+
+func reviewChangeKey(change reviewChange) string {
+	return change.Path + "\x00" + change.OldPath
+}
+
+func reviewSupplementSize(supplement protocol.ReviewSupplement) (int, error) {
+	encoded, err := json.Marshal(supplement)
+	if err != nil {
+		return 0, fmt.Errorf("gitx: encode review supplement: %w", err)
+	}
+	return len(encoded), nil
 }

@@ -1,0 +1,283 @@
+import { useEffect, useMemo, useRef, useState } from 'react'
+
+import { IconArrowLeftBar, IconBrandGit, IconFolder, IconRefresh } from '@pierre/icons'
+
+import type { Folder, FolderCatalog } from '../../lib/types'
+import { Button } from '../components/Button'
+import { Input } from '../components/Input'
+import { ThemedSurface } from '../components/ThemedSurface'
+import { GitnaLogo } from './GitnaLogo'
+
+interface GitnaHomeProps {
+  catalog: FolderCatalog | null
+  error: string | null
+  loading: boolean
+  opening: boolean
+  switchError: string | null
+  onBack(): void
+  onClearSwitchError(): void
+  onOpenFolder(path: string): Promise<void>
+  onRefresh(): void
+}
+
+const openedAt = new Intl.DateTimeFormat(undefined, {
+  dateStyle: 'medium',
+  timeStyle: 'short',
+})
+
+function formatOpenedAt(value: string): string | null {
+  const date = new Date(value)
+  return Number.isNaN(date.getTime()) ? null : openedAt.format(date)
+}
+
+function OpenFolderForm({
+  error,
+  opening,
+  onClearError,
+  onOpenFolder,
+}: {
+  error: string | null
+  opening: boolean
+  onClearError(): void
+  onOpenFolder(path: string): Promise<void>
+}) {
+  const [path, setPath] = useState('')
+  const [localError, setLocalError] = useState<string | null>(null)
+  const inputRef = useRef<HTMLInputElement>(null)
+  const visibleError = error ?? localError
+
+  useEffect(() => inputRef.current?.focus(), [])
+
+  const open = async () => {
+    const nextPath = path.trim()
+    if (nextPath === '') return
+    setLocalError(null)
+    onClearError()
+    try {
+      await onOpenFolder(nextPath)
+    } catch (reason) {
+      setLocalError(reason instanceof Error ? reason.message : String(reason))
+    }
+  }
+
+  return (
+    <section aria-labelledby="open-folder-title" className="mt-10">
+      <h2 id="open-folder-title" className="text-sm font-medium text-foreground">
+        Open Folder
+      </h2>
+      <form
+        className="mt-3 flex flex-col gap-2 sm:flex-row"
+        onSubmit={(event) => {
+          event.preventDefault()
+          void open()
+        }}
+      >
+        <div className="min-w-0 flex-1">
+          <Input
+            ref={inputRef}
+            aria-describedby={visibleError == null ? undefined : 'gitna-home-open-error'}
+            aria-invalid={visibleError != null}
+            aria-label="Folder path"
+            autoComplete="off"
+            disabled={opening}
+            placeholder="/path/to/folder"
+            spellCheck={false}
+            value={path}
+            onChange={(event) => {
+              setPath(event.currentTarget.value)
+              setLocalError(null)
+              onClearError()
+            }}
+            onKeyDown={(event) => {
+              if (event.key === 'Escape') {
+                setPath('')
+                setLocalError(null)
+                onClearError()
+              }
+            }}
+          />
+          {visibleError != null && (
+            <p id="gitna-home-open-error" className="mt-2 text-sm text-destructive" role="alert">
+              {visibleError}
+            </p>
+          )}
+        </div>
+        <Button type="submit" disabled={opening || path.trim() === ''}>
+          Open Folder
+        </Button>
+      </form>
+    </section>
+  )
+}
+
+function FolderButton({
+  disabled = false,
+  folder,
+  onClick,
+}: {
+  disabled?: boolean
+  folder: Folder
+  onClick(): void
+}) {
+  const opened = formatOpenedAt(folder.lastOpened)
+  return (
+    <button
+      type="button"
+      className="flex w-full cursor-pointer items-center gap-3 px-1 py-4 text-left outline-none transition-colors hover:bg-muted/50 focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset disabled:cursor-wait disabled:opacity-50"
+      disabled={disabled}
+      onClick={onClick}
+    >
+      <span className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-muted text-foreground">
+        {folder.repository ? (
+          <IconBrandGit className="size-4" />
+        ) : (
+          <IconFolder className="size-4" />
+        )}
+      </span>
+      <span className="min-w-0 flex-1">
+        <span className="font-medium text-foreground">{folder.name}</span>
+        <span className="mt-1 block truncate text-sm text-muted-foreground" title={folder.path}>
+          {folder.path}
+        </span>
+      </span>
+      <span className="shrink-0 text-right">
+        <span className="block text-xs text-muted-foreground">
+          {folder.repository ? 'Git repository' : 'Folder'}
+        </span>
+        {opened != null && (
+          <time
+            className="mt-1 hidden text-[11px] text-muted-foreground sm:block"
+            dateTime={folder.lastOpened}
+          >
+            {opened}
+          </time>
+        )}
+      </span>
+    </button>
+  )
+}
+
+export function GitnaHome({
+  catalog,
+  error,
+  loading,
+  opening,
+  switchError,
+  onBack,
+  onClearSwitchError,
+  onOpenFolder,
+  onRefresh,
+}: GitnaHomeProps) {
+  const recent = useMemo(
+    () => catalog?.recent.filter((folder) => folder.path !== catalog.current.path) ?? [],
+    [catalog],
+  )
+  const showRecentFolders = recent.length > 0 || error != null
+
+  return (
+    <ThemedSurface
+      as="main"
+      aria-labelledby="gitna-home-title"
+      className="relative col-span-full row-span-full min-h-0 overflow-y-auto [grid-column:1/-1] [grid-row:1/-1]"
+    >
+      <Button
+        type="button"
+        variant="ghost"
+        size="sm"
+        className="absolute top-4 left-4 sm:top-6 sm:left-6"
+        onClick={onBack}
+      >
+        <IconArrowLeftBar className="size-4" />
+        <span className="hidden sm:inline">
+          Back{catalog?.current.name == null ? '' : ` to ${catalog.current.name}`}
+        </span>
+        <span className="sm:hidden">Back</span>
+      </Button>
+
+      <div className="mx-auto flex min-h-full w-full max-w-2xl flex-col px-5 pt-28 pb-16 sm:px-8 sm:pt-36 sm:pb-24 lg:pt-40">
+        <div className="flex min-w-0 items-center justify-center gap-4">
+          <GitnaLogo className="size-12" />
+          <div className="min-w-0">
+            <h1
+              id="gitna-home-title"
+              className="text-balance text-2xl font-semibold tracking-[-0.02em] text-foreground sm:text-3xl"
+            >
+              Welcome back to Gitna
+            </h1>
+            <p className="mt-1 text-sm text-muted-foreground">
+              A local Git workbench that runs in your browser.
+            </p>
+          </div>
+        </div>
+
+        <OpenFolderForm
+          error={switchError}
+          opening={opening}
+          onClearError={onClearSwitchError}
+          onOpenFolder={onOpenFolder}
+        />
+
+        {showRecentFolders && (
+          <section aria-labelledby="recent-folders-title" className="mt-10">
+            <div className="flex items-center justify-between gap-4">
+              <h2 id="recent-folders-title" className="text-sm font-medium text-foreground">
+                Recent folders
+              </h2>
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon-md"
+                aria-label="Refresh recent folders"
+                title="Refresh recent folders"
+                disabled={loading}
+                onClick={onRefresh}
+              >
+                <IconRefresh className="size-4" />
+              </Button>
+            </div>
+
+            {error != null && (
+              <div
+                className="mt-3 flex items-center justify-between gap-4 border-y border-border py-4"
+                role="alert"
+              >
+                <div>
+                  <p className="text-sm font-medium text-foreground">
+                    Couldn’t load recent folders
+                  </p>
+                  <p className="mt-1 text-sm text-muted-foreground">{error}</p>
+                </div>
+                <Button type="button" variant="outline" size="sm" onClick={onRefresh}>
+                  Try again
+                </Button>
+              </div>
+            )}
+
+            {recent.length > 0 && (
+              <ul className="mt-3 divide-y divide-border border-y border-border">
+                {recent.map((folder) => (
+                  <li key={folder.path}>
+                    <FolderButton
+                      disabled={opening}
+                      folder={folder}
+                      onClick={() => {
+                        onClearSwitchError()
+                        void onOpenFolder(folder.path)
+                      }}
+                    />
+                  </li>
+                ))}
+              </ul>
+            )}
+
+            {loading && (
+              <p className="mt-3 text-sm text-muted-foreground" role="status">
+                {catalog == null ? 'Loading recent folders…' : 'Refreshing…'}
+              </p>
+            )}
+          </section>
+        )}
+      </div>
+    </ThemedSurface>
+  )
+}

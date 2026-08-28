@@ -111,7 +111,7 @@ func TestRepositoryFilesDeduplicatesUnmergedPaths(t *testing.T) {
 	}
 }
 
-func TestRepositoryFilesListsOrdinaryWorkspaceWithoutGitMetadata(t *testing.T) {
+func TestRepositoryFilesListsOrdinaryFolderWithoutGitMetadata(t *testing.T) {
 	root := t.TempDir()
 	for path, content := range map[string]string{
 		".env":                  "secret",

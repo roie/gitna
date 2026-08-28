@@ -33,6 +33,14 @@ const maxPatchOutputBytes = 4 * DefaultDiffBytes
 // explicit byte limit after confirming the path stays inside the repository
 // root. No external diff or textconv programs are executed.
 func (r Repository) Diff(ctx context.Context, runner Runner, scope protocol.DiffScope, opts protocol.DiffOptions) (protocol.FileDiff, error) {
+	return r.diff(ctx, runner, scope, opts, true)
+}
+
+func (r Repository) reviewDiff(ctx context.Context, runner Runner, scope protocol.DiffScope, opts protocol.DiffOptions) (protocol.FileDiff, error) {
+	return r.diff(ctx, runner, scope, opts, false)
+}
+
+func (r Repository) diff(ctx context.Context, runner Runner, scope protocol.DiffScope, opts protocol.DiffOptions, includePatch bool) (protocol.FileDiff, error) {
 	if err := validatePath(opts.Path); err != nil {
 		return protocol.FileDiff{}, err
 	}
@@ -161,7 +169,7 @@ func (r Repository) Diff(ctx context.Context, runner Runner, scope protocol.Diff
 	if afterPresent {
 		fd.After.Content = string(afterRaw)
 	}
-	if !fd.TooLarge && (scope == protocol.DiffUnstaged || scope == protocol.DiffStaged) && opts.OldPath == "" {
+	if includePatch && !fd.TooLarge && (scope == protocol.DiffUnstaged || scope == protocol.DiffStaged) && opts.OldPath == "" {
 		patch, err := r.diffPatch(ctx, runner, scope == protocol.DiffStaged, opts.Path)
 		if err != nil {
 			return protocol.FileDiff{}, err

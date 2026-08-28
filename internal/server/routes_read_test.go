@@ -6,6 +6,7 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strings"
 	"sync"
 	"testing"
@@ -14,11 +15,12 @@ import (
 )
 
 type fakeRepo struct {
-	snap   protocol.RepoSnapshot
-	err    error
-	diff   protocol.FileDiff
-	review protocol.ReviewResponse
-	files  protocol.RepositoryFiles
+	snap            protocol.RepoSnapshot
+	err             error
+	diff            protocol.FileDiff
+	review          protocol.ReviewResponse
+	reviewNextAfter string
+	files           protocol.RepositoryFiles
 
 	graphCommits []protocol.GraphCommit
 	graphFiles   []protocol.CommitFile
@@ -28,16 +30,17 @@ type fakeRepo struct {
 	tags         []protocol.Tag
 	compareFiles []protocol.CommitFile
 
-	mu        sync.Mutex
-	stageOps  []string
-	unstages  []string
-	discards  []string
-	deletes   []string
-	patches   []fakePatchCall
-	commits   []protocol.CommitRequest
-	commitRes protocol.OperationResult
-	commitErr error
-	opErr     error
+	mu            sync.Mutex
+	stageOps      []string
+	unstages      []string
+	discards      []string
+	deletes       []string
+	pathCallSizes []int
+	patches       []fakePatchCall
+	commits       []protocol.CommitRequest
+	commitRes     protocol.OperationResult
+	commitErr     error
+	opErr         error
 
 	branchCalls  []string
 	branchForces []bool
@@ -48,6 +51,7 @@ type fakeRepo struct {
 	resetModes   []string
 	compareCalls []string
 	reviewCalls  []protocol.ReviewIdentity
+	reviewAfters []string
 }
 
 // opFail returns the error a mutation method should report. opErr takes
@@ -85,7 +89,7 @@ func (f *fakeRepo) Diff(context.Context, protocol.DiffScope, protocol.DiffOption
 	return f.diff, nil
 }
 
-func (f *fakeRepo) Review(_ context.Context, scope protocol.DiffScope, opts protocol.DiffOptions) (protocol.ReviewResponse, error) {
+func (f *fakeRepo) Review(_ context.Context, scope protocol.DiffScope, opts protocol.DiffOptions, after string) (protocol.ReviewPage, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.reviewCalls = append(f.reviewCalls, protocol.ReviewIdentity{
@@ -94,10 +98,11 @@ func (f *fakeRepo) Review(_ context.Context, scope protocol.DiffScope, opts prot
 		CompareFrom: opts.CompareFrom,
 		CompareTo:   opts.CompareTo,
 	})
+	f.reviewAfters = append(f.reviewAfters, after)
 	if f.err != nil {
-		return protocol.ReviewResponse{}, f.err
+		return protocol.ReviewPage{}, f.err
 	}
-	return f.review, nil
+	return protocol.ReviewPage{Response: f.review, NextAfter: f.reviewNextAfter}, nil
 }
 
 func (f *fakeRepo) History(context.Context, int, int) ([]protocol.GraphCommit, error) {
@@ -364,6 +369,7 @@ func boolStr(b bool) string {
 func (f *fakeRepo) StagePaths(_ context.Context, paths []string) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	f.pathCallSizes = append(f.pathCallSizes, len(paths))
 	f.stageOps = append(f.stageOps, paths...)
 	return f.opFail()
 }
@@ -371,6 +377,7 @@ func (f *fakeRepo) StagePaths(_ context.Context, paths []string) error {
 func (f *fakeRepo) UnstagePaths(_ context.Context, paths []string) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	f.pathCallSizes = append(f.pathCallSizes, len(paths))
 	f.unstages = append(f.unstages, paths...)
 	return f.opFail()
 }
@@ -378,6 +385,7 @@ func (f *fakeRepo) UnstagePaths(_ context.Context, paths []string) error {
 func (f *fakeRepo) DiscardTracked(_ context.Context, paths []string) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	f.pathCallSizes = append(f.pathCallSizes, len(paths))
 	f.discards = append(f.discards, paths...)
 	return f.opFail()
 }
@@ -385,6 +393,7 @@ func (f *fakeRepo) DiscardTracked(_ context.Context, paths []string) error {
 func (f *fakeRepo) DeleteUntracked(_ context.Context, paths []string) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	f.pathCallSizes = append(f.pathCallSizes, len(paths))
 	f.deletes = append(f.deletes, paths...)
 	return f.opFail()
 }
@@ -890,7 +899,7 @@ func TestReviewRouteScopes(t *testing.T) {
 	}
 }
 
-func TestReviewRouteRejectsInvalidAndOversizedRequests(t *testing.T) {
+func TestReviewRouteRejectsInvalidScope(t *testing.T) {
 	invalidRepo := &fakeRepo{}
 	h := newSnapshotServer(invalidRepo)
 	req := httptest.NewRequest(http.MethodGet, "/s/"+testToken+"/api/v1/review?scope=conflict", nil)
@@ -900,14 +909,78 @@ func TestReviewRouteRejectsInvalidAndOversizedRequests(t *testing.T) {
 	if rec.Code != http.StatusBadRequest || len(invalidRepo.reviewCalls) != 0 {
 		t.Fatalf("invalid status=%d calls=%d", rec.Code, len(invalidRepo.reviewCalls))
 	}
+}
 
-	h = newSnapshotServer(&fakeRepo{err: protocol.ErrReviewTooLarge})
-	req = httptest.NewRequest(http.MethodGet, "/s/"+testToken+"/api/v1/review?scope=staged", nil)
-	req.Host = testHost
-	rec = httptest.NewRecorder()
-	h.ServeHTTP(rec, req)
-	if rec.Code != http.StatusRequestEntityTooLarge || !strings.Contains(rec.Body.String(), "review-too-large") {
-		t.Fatalf("oversized status=%d body=%s", rec.Code, rec.Body)
+func TestReviewCursorContinuesOneGeneration(t *testing.T) {
+	repo := &fakeRepo{
+		review:          protocol.ReviewResponse{Supplements: []protocol.ReviewSupplement{{Path: "a.txt"}}},
+		reviewNextAfter: "a.txt\x00",
+	}
+	srv, err := New(newTestFS(), Options{Token: testToken, Host: testHost, Repo: repo})
+	if err != nil {
+		t.Fatal(err)
+	}
+	handler := srv.Handler()
+	request := func(rawURL string) *httptest.ResponseRecorder {
+		req := httptest.NewRequest(http.MethodGet, rawURL, nil)
+		req.Host = testHost
+		rec := httptest.NewRecorder()
+		handler.ServeHTTP(rec, req)
+		return rec
+	}
+
+	first := request("/s/" + testToken + "/api/v1/review?scope=unstaged")
+	if first.Code != http.StatusOK {
+		t.Fatalf("first status=%d body=%s", first.Code, first.Body)
+	}
+	var response protocol.ReviewResponse
+	if err := json.Unmarshal(first.Body.Bytes(), &response); err != nil {
+		t.Fatal(err)
+	}
+	if response.NextCursor == "" {
+		t.Fatal("first page missing next cursor")
+	}
+
+	repo.reviewNextAfter = ""
+	second := request("/s/" + testToken + "/api/v1/review?scope=unstaged&cursor=" + url.QueryEscape(response.NextCursor))
+	if second.Code != http.StatusOK {
+		t.Fatalf("second status=%d body=%s", second.Code, second.Body)
+	}
+	if len(repo.reviewAfters) != 2 || repo.reviewAfters[1] != "a.txt\x00" {
+		t.Fatalf("review afters=%q", repo.reviewAfters)
+	}
+
+	srv.gen.Add(1)
+	stale := request("/s/" + testToken + "/api/v1/review?scope=unstaged&cursor=" + url.QueryEscape(response.NextCursor))
+	if stale.Code != http.StatusConflict || !strings.Contains(stale.Body.String(), "review-invalidated") {
+		t.Fatalf("stale status=%d body=%s", stale.Code, stale.Body)
+	}
+	if len(repo.reviewAfters) != 2 {
+		t.Fatalf("stale cursor reached repository: %q", repo.reviewAfters)
+	}
+}
+
+func TestReviewRejectsInvalidOrMismatchedCursor(t *testing.T) {
+	repo := &fakeRepo{}
+	srv, err := New(newTestFS(), Options{Token: testToken, Host: testHost, Repo: repo})
+	if err != nil {
+		t.Fatal(err)
+	}
+	cursor, err := encodeReviewCursor(reviewCursor{Version: 1, Generation: 1, Scope: protocol.DiffStaged, After: "a.txt\x00"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, rawCursor := range []string{"not-a-cursor", cursor} {
+		req := httptest.NewRequest(http.MethodGet, "/s/"+testToken+"/api/v1/review?scope=unstaged&cursor="+url.QueryEscape(rawCursor), nil)
+		req.Host = testHost
+		rec := httptest.NewRecorder()
+		srv.Handler().ServeHTTP(rec, req)
+		if rec.Code != http.StatusBadRequest || !strings.Contains(rec.Body.String(), "invalid-review-cursor") {
+			t.Fatalf("cursor %q status=%d body=%s", rawCursor, rec.Code, rec.Body)
+		}
+	}
+	if len(repo.reviewCalls) != 0 {
+		t.Fatalf("invalid cursor reached repository: %+v", repo.reviewCalls)
 	}
 }
 
@@ -917,13 +990,13 @@ type reviewRaceRepo struct {
 	calls         int
 }
 
-func (r *reviewRaceRepo) Review(context.Context, protocol.DiffScope, protocol.DiffOptions) (protocol.ReviewResponse, error) {
+func (r *reviewRaceRepo) Review(context.Context, protocol.DiffScope, protocol.DiffOptions, string) (protocol.ReviewPage, error) {
 	r.calls++
 	if r.calls == 1 {
 		r.onFirstReview()
-		return protocol.ReviewResponse{Patch: "stale"}, nil
+		return protocol.ReviewPage{Response: protocol.ReviewResponse{Patch: "stale"}}, nil
 	}
-	return protocol.ReviewResponse{Patch: "fresh"}, nil
+	return protocol.ReviewPage{Response: protocol.ReviewResponse{Patch: "fresh"}}, nil
 }
 
 func TestReviewRetriesWhenGenerationChangesDuringRead(t *testing.T) {
