@@ -18,7 +18,7 @@ test('continuous Pierre CodeView renders the complete working-tree review', asyn
   await page.goto(app.url)
   const review = page.getByRole('region', { name: 'Review' })
   await expect(review).toBeVisible()
-  await expect(page.getByRole('textbox', { name: 'Folder path' })).toHaveValue(app.repo)
+  await expect(page.getByRole('combobox', { name: 'Folder path' })).toHaveValue(app.repo)
   await expect(page.getByRole('button', { name: 'Collapse all files' })).toBeVisible()
   await expect(page.locator('diffs-container')).toHaveCount(5, { timeout: 30_000 })
   await expect(page.getByText('modified.txt', { exact: true }).last()).toBeVisible()

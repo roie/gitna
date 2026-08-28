@@ -690,7 +690,7 @@ test('folder path switches the live session and remains fully editable', async (
 
   await page.goto(app.url)
   await expect(page).toHaveTitle(`${basename(app.repo)} - Gitna`)
-  const pathInput = page.getByRole('textbox', { name: 'Folder path' })
+  const pathInput = page.getByRole('combobox', { name: 'Folder path' })
   await expect(pathInput).toHaveValue(app.repo)
   await pathInput.fill(nextRepo)
   const openFolder = page.getByRole('button', { name: 'Switch folder' })
@@ -721,6 +721,61 @@ test('folder path switches the live session and remains fully editable', async (
   expect(clearBox).not.toBeNull()
   expect(clearBox!.x - (inputBox!.x + inputBox!.width)).toBe(4)
   await expect(page.getByRole('button', { name: 'Reveal folder in file manager' })).toBeVisible()
+
+  await pathInput.focus()
+  const recentFolders = page.getByRole('listbox', { name: 'Recent folders' })
+  const previousFolder = recentFolders.getByRole('option', {
+    name: new RegExp(basename(app.repo)),
+  })
+  await expect(recentFolders).toBeVisible()
+  await expect(recentFolders).toHaveCSS('box-shadow', 'none')
+  await page.keyboard.press('ArrowDown')
+  await expect(previousFolder).toHaveAttribute('aria-selected', 'true')
+  await page.keyboard.press('Enter')
+  await expect(pathInput).toHaveValue(app.repo)
+  await expect(page).toHaveTitle(`${basename(app.repo)} - Gitna`)
+})
+
+test('header folder switcher keeps keyboard navigation visible', async ({ page, app }) => {
+  const recent = Array.from({ length: 20 }, (_, index) => ({
+    path: `/tmp/recent-parent-${index.toString().padStart(2, '0')}/folder-${index.toString().padStart(2, '0')}`,
+    name: `folder-${index.toString().padStart(2, '0')}`,
+    repository: index % 2 === 0,
+    lastOpened: new Date(Date.UTC(2026, 0, index + 1)).toISOString(),
+  }))
+  await page.route('**/api/v1/folders', async (route) => {
+    await route.fulfill({
+      json: {
+        current: {
+          path: app.repo,
+          name: basename(app.repo),
+          repository: true,
+          lastOpened: new Date(Date.UTC(2026, 0, 21)).toISOString(),
+        },
+        recent,
+      },
+    })
+  })
+
+  await page.goto(app.url)
+  const folderPath = page.getByRole('combobox', { name: 'Folder path' })
+  await folderPath.focus()
+  const listbox = page.getByRole('listbox', { name: 'Recent folders' })
+  await expect(listbox).toBeVisible()
+  for (let index = 0; index < 15; index += 1) await page.keyboard.press('ArrowDown')
+
+  const activeOption = listbox.getByRole('option').nth(14)
+  await expect(activeOption).toHaveAttribute('aria-selected', 'true')
+  const [listboxBounds, optionBounds] = await Promise.all([
+    listbox.boundingBox(),
+    activeOption.boundingBox(),
+  ])
+  expect(listboxBounds).not.toBeNull()
+  expect(optionBounds).not.toBeNull()
+  expect(optionBounds!.y).toBeGreaterThanOrEqual(listboxBounds!.y)
+  expect(optionBounds!.y + optionBounds!.height).toBeLessThanOrEqual(
+    listboxBounds!.y + listboxBounds!.height + 1,
+  )
 })
 
 test('repository files can be edited, created in folders, and renamed', async ({ page, app }) => {
@@ -877,7 +932,7 @@ test('repository files can be edited, created in folders, and renamed', async ({
   }).toPass()
   const unsavedContents = (await renamedEditor.textContent()) ?? ''
   expect(unsavedContents).toContain('unsaved')
-  const repositoryPath = page.getByRole('textbox', { name: 'Folder path' })
+  const repositoryPath = page.getByRole('combobox', { name: 'Folder path' })
   await repositoryPath.fill(join(app.repo, 'missing-repository'))
   await page.getByRole('button', { name: 'Switch folder' }).click()
   const switchConfirmation = page.getByRole('alertdialog', {
@@ -928,7 +983,7 @@ test('ordinary folders open in Explorer and switch back to Git', async ({ page, 
   writeFileSync(join(folder, 'notes.txt'), 'folder note\n')
 
   await page.goto(app.url)
-  const folderPath = page.getByRole('textbox', { name: 'Folder path' })
+  const folderPath = page.getByRole('combobox', { name: 'Folder path' })
   await folderPath.fill(folder)
   await page.getByRole('button', { name: 'Switch folder' }).click()
 
@@ -963,17 +1018,23 @@ test('ordinary folders open in Explorer and switch back to Git', async ({ page, 
   await expect(page.locator('[data-section="graph"]')).toBeVisible()
 })
 
-test('Gitna Home opens recent folders and protects dirty drafts', async ({ page, app }) => {
+test('Gitna Home searches recent folders and protects dirty drafts', async ({ page, app }) => {
   const folder = join(dirname(app.repo), 'home-folder')
+  const otherFolder = join(dirname(app.repo), 'search-parent-token', 'home-other-folder')
   mkdirSync(folder)
+  mkdirSync(otherFolder, { recursive: true })
   writeFileSync(join(folder, 'notes.txt'), 'folder note\n')
+  writeFileSync(join(otherFolder, 'other.txt'), 'other folder note\n')
 
   await page.goto(app.url)
   const capabilityUrl = page.url()
-  const folderPath = page.getByRole('textbox', { name: 'Folder path' })
+  const folderPath = page.getByRole('combobox', { name: 'Folder path' })
   await folderPath.fill(folder)
   await page.getByRole('button', { name: 'Switch folder' }).click()
   await expect(page).toHaveTitle(`${basename(folder)} - Gitna`)
+  await folderPath.fill(otherFolder)
+  await page.getByRole('button', { name: 'Switch folder' }).click()
+  await expect(page).toHaveTitle(`${basename(otherFolder)} - Gitna`)
   await folderPath.fill(app.repo)
   await page.getByRole('button', { name: 'Switch folder' }).click()
   await expect(page).toHaveTitle(`${basename(app.repo)} - Gitna`)
@@ -1000,14 +1061,26 @@ test('Gitna Home opens recent folders and protects dirty drafts', async ({ page,
   await expect(page.getByRole('button', { name: 'Switch folder' })).toHaveCount(0)
   await expect(page.getByRole('button', { name: 'Display settings' })).toHaveCount(0)
   const recentFolder = page.getByRole('button').filter({ hasText: basename(folder) })
+  const recentOtherFolder = page.getByRole('button').filter({ hasText: basename(otherFolder) })
   await expect(recentFolder).toContainText('Folder')
+  await expect(recentOtherFolder).toContainText('Folder')
+  const recentSearch = page.getByRole('searchbox', { name: 'Search recent folders' })
+  await recentSearch.fill(basename(folder))
+  await expect(recentFolder).toBeVisible()
+  await expect(recentOtherFolder).toHaveCount(0)
+  await recentSearch.fill('search-parent-token')
+  await expect(recentFolder).toHaveCount(0)
+  await expect(recentOtherFolder).toBeVisible()
 
   const homeTrigger = page.getByRole('button', { name: 'Open Gitna Home' })
   await page.getByRole('button', { name: `Back to ${basename(app.repo)}` }).click()
   await expect(homeTrigger).toBeFocused()
   await expect(editor).toContainText('dirty Home draft')
   await homeTrigger.click()
-  await recentFolder.click()
+  await recentSearch.fill(basename(folder))
+  await recentSearch.press('ArrowDown')
+  await expect(recentFolder).toBeFocused()
+  await page.keyboard.press('Enter')
   const confirm = page.getByRole('alertdialog')
   await expect(confirm).toContainText('Discard unsaved changes and switch folder?')
   await confirm.getByRole('button', { name: 'Cancel' }).click()

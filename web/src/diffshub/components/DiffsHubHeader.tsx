@@ -21,6 +21,7 @@ import {
   IconX,
 } from '@pierre/icons';
 import type { ColorMode } from '@pierre/theming';
+import type { Folder } from '../../lib/types';
 import Link from '../vite/next';
 import {
   type CSSProperties,
@@ -82,6 +83,7 @@ interface HeaderProps {
   onSaveGitHubToken(token: string): void;
   onOpenFolder?(path: string): Promise<void>;
   onRevealFolder?(): Promise<void>;
+  recentFolders?: readonly Folder[];
   onToggleCollapseMode(): void;
   onToggleFileTreeOverlay(): void;
   setColorMode(mode: ColorMode): void;
@@ -98,58 +100,152 @@ interface HeaderProps {
 function LocalFolderForm({
   initialPath,
   onSwitch,
+  recentFolders = [],
 }: {
   initialPath: string;
   onSwitch?: (path: string) => Promise<void>;
+  recentFolders?: readonly Folder[];
 }) {
   const [path, setPath] = useState(initialPath);
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [suggestionsOpen, setSuggestionsOpen] = useState(false);
+  const [showAllRecent, setShowAllRecent] = useState(true);
+  const [activeIndex, setActiveIndex] = useState(-1);
   const inputRef = useRef<HTMLInputElement>(null);
+  const listboxRef = useRef<HTMLUListElement>(null);
+  const listboxId = 'gitna-folder-location-suggestions';
 
-  useEffect(() => setPath(initialPath), [initialPath]);
+  useEffect(() => {
+    setPath(initialPath);
+    setSuggestionsOpen(false);
+    setActiveIndex(-1);
+  }, [initialPath]);
 
+  const suggestions = useMemo(() => {
+    const available = recentFolders.filter(
+      (folder) => folder.path !== initialPath
+    );
+    if (showAllRecent) return available;
+    const query = path.trim().toLocaleLowerCase();
+    if (query === '') return available;
+    return available.filter((folder) =>
+      `${folder.name}\n${folder.path}`.toLocaleLowerCase().includes(query)
+    );
+  }, [initialPath, path, recentFolders, showAllRecent]);
   const nextPath = path.trim();
   const canSwitch =
     nextPath !== '' && nextPath !== initialPath && onSwitch != null;
   const showClear =
     path.length > 0 && (path === initialPath || error !== null);
+  const showSuggestions = suggestionsOpen && suggestions.length > 0;
+
+  useEffect(() => {
+    if (!showSuggestions || activeIndex < 0) return;
+    listboxRef.current
+      ?.querySelector<HTMLElement>(`#${listboxId}-${activeIndex}`)
+      ?.scrollIntoView({ block: 'nearest' });
+  }, [activeIndex, showSuggestions]);
+
+  const switchFolder = (targetPath: string) => {
+    if (targetPath === '' || targetPath === initialPath || onSwitch == null)
+      return;
+    setPath(targetPath);
+    setPending(true);
+    setError(null);
+    setSuggestionsOpen(false);
+    setActiveIndex(-1);
+    void onSwitch(targetPath)
+      .catch((reason: unknown) => {
+        setError(reason instanceof Error ? reason.message : String(reason));
+      })
+      .finally(() => setPending(false));
+  };
 
   return (
     <form
-      className="group order-last flex min-w-0 w-full items-center gap-1 overflow-hidden md:order-none md:mr-auto"
+      className="group relative order-last flex min-w-0 w-full items-center gap-1 md:order-none md:mr-auto"
+      onBlur={(event) => {
+        if (
+          event.relatedTarget instanceof Node &&
+          event.currentTarget.contains(event.relatedTarget)
+        ) {
+          return;
+        }
+        setSuggestionsOpen(false);
+        setActiveIndex(-1);
+        if (path.trim() === '') setPath(initialPath);
+      }}
       onSubmit={(event) => {
         event.preventDefault();
-        if (!canSwitch) return;
-        setPending(true);
-        setError(null);
-        void onSwitch(nextPath)
-          .catch((reason: unknown) => {
-            setError(reason instanceof Error ? reason.message : String(reason));
-          })
-          .finally(() => setPending(false));
+        if (activeIndex >= 0 && suggestions[activeIndex] != null) {
+          switchFolder(suggestions[activeIndex].path);
+          return;
+        }
+        if (canSwitch) switchFolder(nextPath);
       }}
     >
       <input
         ref={inputRef}
+        role="combobox"
+        aria-activedescendant={
+          showSuggestions && activeIndex >= 0
+            ? `${listboxId}-${activeIndex}`
+            : undefined
+        }
+        aria-autocomplete="list"
+        aria-controls={showSuggestions ? listboxId : undefined}
+        aria-expanded={showSuggestions}
+        aria-haspopup="listbox"
         aria-label="Folder path"
         aria-invalid={error != null}
+        autoComplete="off"
         className="focus:text-primary block field-sizing-content h-9 min-w-[24ch] w-full rounded-md text-sm focus-visible:outline-none aria-invalid:text-red-500 md:w-auto"
         disabled={pending}
         spellCheck={false}
         title={error ?? initialPath}
         value={path}
-        onBlur={() => {
-          if (path.trim() === '') setPath(initialPath);
-        }}
         onChange={(event) => {
           setPath(event.currentTarget.value);
           setError(null);
+          setShowAllRecent(false);
+          setSuggestionsOpen(true);
+          setActiveIndex(-1);
+        }}
+        onFocus={(event) => {
+          if (path === initialPath) {
+            event.currentTarget.select();
+            setShowAllRecent(true);
+          }
+          setSuggestionsOpen(true);
         }}
         onKeyDown={(event) => {
-          if (event.key === 'Escape') {
+          if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+            if (suggestions.length === 0) return;
+            event.preventDefault();
+            setSuggestionsOpen(true);
+            setActiveIndex((current) => {
+              if (current < 0)
+                return event.key === 'ArrowDown' ? 0 : suggestions.length - 1;
+              return (
+                (current + (event.key === 'ArrowDown' ? 1 : -1) +
+                  suggestions.length) %
+                suggestions.length
+              );
+            });
+          } else if (
+            event.key === 'Enter' &&
+            activeIndex >= 0 &&
+            suggestions[activeIndex] != null
+          ) {
+            event.preventDefault();
+            switchFolder(suggestions[activeIndex].path);
+          } else if (event.key === 'Escape') {
+            event.preventDefault();
             setPath(initialPath);
             setError(null);
+            setSuggestionsOpen(false);
+            setActiveIndex(-1);
             inputRef.current?.blur();
           }
         }}
@@ -178,11 +274,51 @@ function LocalFolderForm({
           onClick={() => {
             setPath('');
             setError(null);
+            setShowAllRecent(true);
+            setSuggestionsOpen(true);
+            setActiveIndex(-1);
             inputRef.current?.focus();
           }}
         >
           <IconX className="size-4" />
         </Button>
+      )}
+      {showSuggestions && (
+        <ul
+          ref={listboxRef}
+          id={listboxId}
+          role="listbox"
+          aria-label="Recent folders"
+          className="absolute top-full left-0 z-50 mt-1 max-h-72 w-full min-w-72 overflow-y-auto rounded-md border border-border bg-background py-1 text-foreground md:w-96"
+        >
+          {suggestions.map((folder, index) => (
+            <li key={folder.path} role="none">
+              <button
+                id={`${listboxId}-${index}`}
+                type="button"
+                role="option"
+                aria-selected={index === activeIndex}
+                className={cn(
+                  'block w-full cursor-pointer px-3 py-2 text-left outline-none hover:bg-muted',
+                  index === activeIndex && 'bg-muted'
+                )}
+                disabled={pending}
+                onClick={() => switchFolder(folder.path)}
+                onMouseEnter={() => setActiveIndex(index)}
+              >
+                <span className="block truncate text-sm font-medium">
+                  {folder.name}
+                </span>
+                <span
+                  className="mt-0.5 block truncate text-xs text-muted-foreground"
+                  title={folder.path}
+                >
+                  {folder.path}
+                </span>
+              </button>
+            </li>
+          ))}
+        </ul>
       )}
     </form>
   );
@@ -210,6 +346,7 @@ export const DiffsHubHeader = memo(function DiffsHubHeader({
   onSaveGitHubToken,
   onOpenFolder,
   onRevealFolder,
+  recentFolders = [],
   onToggleCollapseMode,
   onToggleFileTreeOverlay,
   setColorMode,
@@ -242,7 +379,7 @@ export const DiffsHubHeader = memo(function DiffsHubHeader({
   return (
     <div
       className={cn(
-        'z-10 contain-layout contain-paint flex flex-wrap md:flex-nowrap items-center gap-2.5 pt-3 pb-2 px-4 md:px-3 md:py-1.5 border-b border-[var(--color-border-opaque)]',
+        'z-10 contain-layout flex flex-wrap md:flex-nowrap items-center gap-2.5 pt-3 pb-2 px-4 md:px-3 md:py-1.5 border-b border-[var(--color-border-opaque)]',
         themeChromeStyle == null &&
           'bg-background md:bg-[var(--diffshub-sidebar-bg)]',
         className
@@ -272,6 +409,7 @@ export const DiffsHubHeader = memo(function DiffsHubHeader({
         <LocalFolderForm
           initialPath={initialUrl}
           onSwitch={onOpenFolder}
+          recentFolders={recentFolders}
         />
       ) : (
         <DiffUrlForm

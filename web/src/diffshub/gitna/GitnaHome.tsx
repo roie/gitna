@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 
-import { IconArrowLeftBar, IconBrandGit, IconFolder, IconRefresh } from '@pierre/icons'
+import { IconArrowLeftBar, IconBrandGit, IconFolder, IconRefresh, IconSearch } from '@pierre/icons'
 
 import type { Folder, FolderCatalog } from '../../lib/types'
 import { Button } from '../components/Button'
@@ -123,6 +123,7 @@ function FolderButton({
   return (
     <button
       type="button"
+      data-recent-folder
       className="flex w-full cursor-pointer items-center gap-3 px-1 py-4 text-left outline-none transition-colors hover:bg-muted/50 focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset disabled:cursor-wait disabled:opacity-50"
       disabled={disabled}
       onClick={onClick}
@@ -168,11 +169,28 @@ export function GitnaHome({
   onOpenFolder,
   onRefresh,
 }: GitnaHomeProps) {
+  const [query, setQuery] = useState('')
+  const recentListRef = useRef<HTMLUListElement>(null)
+  const recentSearchRef = useRef<HTMLInputElement>(null)
   const recent = useMemo(
     () => catalog?.recent.filter((folder) => folder.path !== catalog.current.path) ?? [],
     [catalog],
   )
+  const filteredRecent = useMemo(() => {
+    const normalizedQuery = query.trim().toLocaleLowerCase()
+    if (normalizedQuery === '') return recent
+    return recent.filter((folder) =>
+      `${folder.name}\n${folder.path}`.toLocaleLowerCase().includes(normalizedQuery),
+    )
+  }, [query, recent])
   const showRecentFolders = recent.length > 0 || error != null
+  const focusRecentFolder = (position: 'first' | 'last') => {
+    const buttons = recentListRef.current?.querySelectorAll<HTMLButtonElement>(
+      'button[data-recent-folder]',
+    )
+    if (buttons == null || buttons.length === 0) return
+    buttons[position === 'first' ? 0 : buttons.length - 1]?.focus()
+  }
 
   return (
     <ThemedSurface
@@ -254,8 +272,72 @@ export function GitnaHome({
             )}
 
             {recent.length > 0 && (
-              <ul className="mt-3 divide-y divide-border border-y border-border">
-                {recent.map((folder) => (
+              <div className="relative mt-3">
+                <IconSearch
+                  aria-hidden="true"
+                  className="pointer-events-none absolute top-1/2 left-2.5 size-4 -translate-y-1/2 text-muted-foreground"
+                />
+                <Input
+                  ref={recentSearchRef}
+                  type="search"
+                  aria-label="Search recent folders"
+                  autoComplete="off"
+                  className="pl-8"
+                  disabled={opening}
+                  placeholder="Search recent folders"
+                  spellCheck={false}
+                  value={query}
+                  onChange={(event) => setQuery(event.currentTarget.value)}
+                  onKeyDown={(event) => {
+                    if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+                      event.preventDefault()
+                      focusRecentFolder(event.key === 'ArrowDown' ? 'first' : 'last')
+                    } else if (event.key === 'Escape' && query !== '') {
+                      event.preventDefault()
+                      setQuery('')
+                    }
+                  }}
+                />
+              </div>
+            )}
+
+            {filteredRecent.length > 0 && (
+              <ul
+                ref={recentListRef}
+                className="mt-3 divide-y divide-border border-y border-border"
+                onKeyDown={(event) => {
+                  if (
+                    event.key !== 'ArrowDown' &&
+                    event.key !== 'ArrowUp' &&
+                    event.key !== 'Home' &&
+                    event.key !== 'End' &&
+                    event.key !== 'Escape'
+                  ) {
+                    return
+                  }
+                  const buttons = [
+                    ...(recentListRef.current?.querySelectorAll<HTMLButtonElement>(
+                      'button[data-recent-folder]',
+                    ) ?? []),
+                  ]
+                  const current = buttons.indexOf(event.target as HTMLButtonElement)
+                  if (current < 0) return
+                  event.preventDefault()
+                  if (event.key === 'Escape') {
+                    recentSearchRef.current?.focus()
+                    return
+                  }
+                  const next =
+                    event.key === 'Home'
+                      ? 0
+                      : event.key === 'End'
+                        ? buttons.length - 1
+                        : (current + (event.key === 'ArrowDown' ? 1 : -1) + buttons.length) %
+                          buttons.length
+                  buttons[next]?.focus()
+                }}
+              >
+                {filteredRecent.map((folder) => (
                   <li key={folder.path}>
                     <FolderButton
                       disabled={opening}
@@ -268,6 +350,12 @@ export function GitnaHome({
                   </li>
                 ))}
               </ul>
+            )}
+
+            {recent.length > 0 && filteredRecent.length === 0 && (
+              <p className="mt-4 text-sm text-muted-foreground" role="status">
+                No recent folders match “{query.trim()}”.
+              </p>
             )}
 
             {loading && (

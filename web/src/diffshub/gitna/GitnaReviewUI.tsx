@@ -835,6 +835,7 @@ function GitnaReviewUIInner() {
                 setReviewActionError(error instanceof Error ? error.message : String(error))
               }
             }}
+            recentFolders={repository.folders?.recent}
             onToggleCollapseMode={handleToggleCollapseMode}
             onToggleFileTreeOverlay={() => setFileTreeOverlayOpen((open) => !open)}
             setColorMode={setColorMode}
