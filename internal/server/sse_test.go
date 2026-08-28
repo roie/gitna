@@ -8,7 +8,9 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"reflect"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -59,6 +61,38 @@ func readUntil(t *testing.T, br *bufio.Reader, needle string) string {
 	}
 	t.Fatalf("timed out waiting for %q; stream so far:\n%s", needle, seen.String())
 	return ""
+}
+
+func TestEventsHubReportsSubscriberLifecycleOnce(t *testing.T) {
+	src := make(chan watch.InvalidationKind)
+	var mu sync.Mutex
+	var deltas []int
+	hub := newEventsHub(src, func(delta int) {
+		mu.Lock()
+		deltas = append(deltas, delta)
+		mu.Unlock()
+	})
+	hub.start(nil)
+	_, unsubscribeFirst := hub.subscribe()
+	secondEvents, unsubscribeSecond := hub.subscribe()
+	unsubscribeFirst()
+	unsubscribeFirst()
+	close(src)
+	select {
+	case _, ok := <-secondEvents:
+		if ok {
+			t.Fatal("subscriber channel remained open after source closed")
+		}
+	case <-time.After(time.Second):
+		t.Fatal("subscriber channel did not close with source")
+	}
+	unsubscribeSecond()
+
+	mu.Lock()
+	defer mu.Unlock()
+	if !reflect.DeepEqual(deltas, []int{1, 1, -1, -1}) {
+		t.Fatalf("subscriber deltas = %v", deltas)
+	}
 }
 
 func TestEventsStreamsInvalidationKinds(t *testing.T) {

@@ -24,6 +24,7 @@ type folderSession struct {
 	events  chan watch.InvalidationKind
 	folders *folder.Catalog
 
+	refreshMu sync.Mutex
 	mu        sync.Mutex
 	watcher   watch.Watcher
 	forwards  sync.WaitGroup
@@ -71,6 +72,8 @@ func (s *folderSession) forward(watcher watch.Watcher) {
 }
 
 func (s *folderSession) refresh(ctx context.Context, repo gitx.Repository) error {
+	s.refreshMu.Lock()
+	defer s.refreshMu.Unlock()
 	current := s.adapter.current()
 	if folder.PathKey(current.Root) != folder.PathKey(repo.Root) {
 		return fmt.Errorf("refresh folder session: root changed from %q to %q", current.Root, repo.Root)

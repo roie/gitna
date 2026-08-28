@@ -83,6 +83,12 @@ type Options struct {
 	// Events streams repository invalidation kinds. When nil, the events
 	// endpoint closes its stream immediately.
 	Events <-chan watch.InvalidationKind
+	// InitialGeneration seeds repository generation when reviving a dormant
+	// route. Values below one use generation one.
+	InitialGeneration uint64
+	// OnEventSubscribersChanged observes SSE subscriber connections and
+	// disconnections. The callback receives +1 or -1.
+	OnEventSubscribersChanged func(int)
 	// OpenFolder validates a folder and returns its stable capability-relative route.
 	OpenFolder func(context.Context, string) (protocol.OpenFolderResult, error)
 	// RevealFolder opens the current repository in the platform file manager.
@@ -134,8 +140,12 @@ func New(staticFS fs.FS, opts Options) (*Server, error) {
 	}
 	// Generation identifies known repository state. Reads keep it stable;
 	// successful mutations and watcher invalidations advance it.
-	s.gen.Store(1)
-	s.hub = newEventsHub(opts.Events)
+	generation := opts.InitialGeneration
+	if generation < 1 {
+		generation = 1
+	}
+	s.gen.Store(generation)
+	s.hub = newEventsHub(opts.Events, opts.OnEventSubscribersChanged)
 	s.hub.start(func(watch.InvalidationKind) {
 		s.gen.Add(1)
 	})
@@ -147,6 +157,17 @@ func New(staticFS fs.FS, opts Options) (*Server, error) {
 // configured, requests must pass the session security boundary first.
 func (s *Server) Handler() http.Handler {
 	return s.security.Wrap(http.HandlerFunc(s.ServeHTTP))
+}
+
+// Generation returns the current route-scoped repository generation.
+func (s *Server) Generation() uint64 {
+	return s.gen.Load()
+}
+
+// WaitEvents waits for the route-scoped invalidation stream to finish after
+// its source is closed.
+func (s *Server) WaitEvents() {
+	s.hub.wait()
 }
 
 // ServeHTTP routes requests between the static frontend and the API surface.

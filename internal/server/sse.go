@@ -22,27 +22,45 @@ const (
 // connected subscriber. Slow or disconnected clients never block the source:
 // per-subscriber buffers drop events under pressure.
 type eventsHub struct {
-	src     <-chan watch.InvalidationKind
-	onEvent func(watch.InvalidationKind)
-	mu      sync.Mutex
-	subs    map[chan watch.InvalidationKind]struct{}
+	src                  <-chan watch.InvalidationKind
+	onEvent              func(watch.InvalidationKind)
+	onSubscribersChanged func(int)
+	done                 chan struct{}
+	mu                   sync.Mutex
+	subs                 map[chan watch.InvalidationKind]struct{}
 }
 
-func newEventsHub(src <-chan watch.InvalidationKind) *eventsHub {
-	return &eventsHub{
+func newEventsHub(src <-chan watch.InvalidationKind, onSubscribersChanged ...func(int)) *eventsHub {
+	h := &eventsHub{
 		src:  src,
+		done: make(chan struct{}),
 		subs: make(map[chan watch.InvalidationKind]struct{}),
 	}
+	if len(onSubscribersChanged) > 0 {
+		h.onSubscribersChanged = onSubscribersChanged[0]
+	}
+	return h
 }
 
 func (h *eventsHub) start(onEvent func(watch.InvalidationKind)) {
 	h.onEvent = onEvent
 	if h.src != nil {
 		go h.dispatch()
+		return
 	}
+	close(h.done)
 }
 
 func (h *eventsHub) dispatch() {
+	defer func() {
+		h.mu.Lock()
+		for ch := range h.subs {
+			close(ch)
+			delete(h.subs, ch)
+		}
+		h.mu.Unlock()
+		close(h.done)
+	}()
 	for k := range h.src {
 		if h.onEvent != nil {
 			h.onEvent(k)
@@ -56,6 +74,10 @@ func (h *eventsHub) dispatch() {
 		}
 		h.mu.Unlock()
 	}
+}
+
+func (h *eventsHub) wait() {
+	<-h.done
 }
 
 // subscribe registers a subscriber and returns its event channel along with a
@@ -72,10 +94,19 @@ func (h *eventsHub) subscribe() (<-chan watch.InvalidationKind, func()) {
 	h.mu.Lock()
 	h.subs[ch] = struct{}{}
 	h.mu.Unlock()
+	if h.onSubscribersChanged != nil {
+		h.onSubscribersChanged(1)
+	}
+	var once sync.Once
 	return ch, func() {
-		h.mu.Lock()
-		delete(h.subs, ch)
-		h.mu.Unlock()
+		once.Do(func() {
+			h.mu.Lock()
+			delete(h.subs, ch)
+			h.mu.Unlock()
+			if h.onSubscribersChanged != nil {
+				h.onSubscribersChanged(-1)
+			}
+		})
 	}
 }
 
