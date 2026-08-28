@@ -17,6 +17,7 @@ import {
   IconFileTreeFill,
   IconGearFill,
   IconShare,
+  IconSearch,
   IconSymbolDiffstat,
   IconX,
 } from '@pierre/icons';
@@ -80,6 +81,7 @@ interface HeaderProps {
   overflow: 'wrap' | 'scroll';
   onClearGitHubToken(): void;
   onOpenHome?(): void;
+  onOpenCommandPalette?(): void;
   onSaveGitHubToken(token: string): void;
   onOpenFolder?(path: string): Promise<void>;
   onRevealFolder?(): Promise<void>;
@@ -343,6 +345,7 @@ export const DiffsHubHeader = memo(function DiffsHubHeader({
   overflow,
   onClearGitHubToken,
   onOpenHome,
+  onOpenCommandPalette,
   onSaveGitHubToken,
   onOpenFolder,
   onRevealFolder,
@@ -451,6 +454,19 @@ export const DiffsHubHeader = memo(function DiffsHubHeader({
           <IconFileTreeFill className="size-4 md:size-3" />
         </Button>
         <div className="flex items-center gap-2">
+          {localRepository && onOpenCommandPalette != null && (
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon-md"
+              aria-label="Open command palette"
+              title="Command palette (Ctrl or Cmd+K)"
+              className={CHROME_ICON_BUTTON_CLASS}
+              onClick={onOpenCommandPalette}
+            >
+              <IconSearch className="size-4 md:size-3" />
+            </Button>
+          )}
           {localRepository && onRevealFolder != null && (
             <>
               <Button

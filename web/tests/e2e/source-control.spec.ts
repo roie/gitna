@@ -838,6 +838,52 @@ test('header folder switcher keeps keyboard navigation visible', async ({ page, 
   )
 })
 
+test('command palette searches complete paths and runs workbench commands', async ({
+  page,
+  app,
+}) => {
+  mkdirSync(join(app.repo, 'client'), { recursive: true })
+  mkdirSync(join(app.repo, 'server', 'palette-token'), { recursive: true })
+  writeFileSync(join(app.repo, 'client/index.ts'), 'client\n')
+  writeFileSync(join(app.repo, 'server/palette-token/index.ts'), 'server\n')
+
+  await page.goto(app.url)
+  const paletteTrigger = page.getByRole('button', { name: 'Open command palette' })
+  await expect(paletteTrigger).toBeVisible()
+  await paletteTrigger.click()
+
+  const palette = page.getByRole('dialog', { name: 'Command palette' })
+  const search = palette.getByRole('combobox', { name: 'Search files and commands' })
+  await expect(palette).toBeVisible()
+  await expect(palette).toHaveCSS('box-shadow', 'none')
+  await expect(search).toBeFocused()
+  await search.fill('palette-token index')
+  const serverFile = palette.getByRole('option', {
+    name: /index\.ts server\/palette-token/,
+  })
+  await expect(serverFile).toBeVisible()
+  await expect(serverFile).toHaveAttribute('aria-selected', 'true')
+  await search.press('Enter')
+  await expect(page.getByRole('textbox', { name: 'server/palette-token/index.ts' })).toBeVisible()
+
+  const editor = page.getByRole('textbox', { name: 'server/palette-token/index.ts' })
+  await editor.focus()
+  await page.keyboard.press('Control+k')
+  await expect(palette).toHaveCount(0)
+
+  await paletteTrigger.focus()
+  await page.keyboard.press('Control+k')
+  await expect(palette).toBeVisible()
+  await search.fill('>toggle diff layout')
+  const toggleLayout = palette.getByRole('option', { name: /Toggle Diff Layout/ })
+  await expect(toggleLayout).toBeVisible()
+  await search.press('End')
+  await search.press('Home')
+  await expect(toggleLayout).toHaveAttribute('aria-selected', 'true')
+  await search.press('Enter')
+  await expect(page.getByRole('button', { name: 'Switch to split view' })).toBeVisible()
+})
+
 test('repository files can be edited, created in folders, and renamed', async ({ page, app }) => {
   const nextRepo = join(dirname(app.repo), 'repository-editor-switch-target')
   mkdirSync(nextRepo)
@@ -1062,7 +1108,12 @@ test('ordinary folders open in Explorer and switch back to Git', async ({ page, 
   await expect(fileError).toContainText('This file is too large to open in Gitna.')
 
   await expect(explorer.getByRole('treeitem', { name: 'notes.txt', exact: true })).toBeVisible()
-  await explorer.getByRole('treeitem', { name: 'notes.txt', exact: true }).click()
+  await page.getByRole('button', { name: 'Open command palette' }).click()
+  const ordinaryPalette = page.getByRole('dialog', { name: 'Command palette' })
+  await ordinaryPalette
+    .getByRole('combobox', { name: 'Search files and commands' })
+    .fill('notes.txt')
+  await ordinaryPalette.getByRole('option', { name: /notes\.txt/ }).click()
   const editor = page.getByRole('textbox', { name: 'notes.txt' })
   await editor.click()
   await page.keyboard.press('Control+a')

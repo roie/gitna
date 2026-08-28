@@ -4,7 +4,7 @@ import { IconX } from '@pierre/icons'
 import type { ColorMode } from '@pierre/theming'
 import { createFileTreeIconResolver, getBuiltInSpriteSheet } from '@pierre/trees'
 import { useThemeController } from '@pierre/theming/react'
-import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { type ReactNode, type Ref, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
 import { DiffsHubHeader } from '../components/DiffsHubHeader'
 import {
@@ -30,6 +30,7 @@ import type { FileDiff, WorktreeFile } from '../../lib/types'
 import type { DarkThemeName, LightThemeName } from '../lib/themeNames'
 import type { LoadedDiffsHubData } from '../lib/diffsHubDataAccumulator'
 import { cn } from '../lib/cn'
+import { GitnaCommandPalette, type GitnaPaletteCommand } from './GitnaCommandPalette'
 import { GitnaHome } from './GitnaHome'
 import { GitnaSourceControl } from './SourceControlWorkflow'
 import { Confirm } from './Modal'
@@ -202,6 +203,9 @@ function GitnaReviewUIInner() {
   const [diffStyle, setDiffStyle] = useState<'split' | 'unified'>('split')
   const [collapseMode, setCollapseMode] = useState<'expanded' | 'collapsed'>('expanded')
   const [fileTreeOverlayOpen, setFileTreeOverlayOpen] = useState(false)
+  const [sidebarVisible, setSidebarVisible] = useState(true)
+  const [commandPaletteOpen, setCommandPaletteOpen] = useState(false)
+  const [recentFilePaths, setRecentFilePaths] = useState<readonly string[]>([])
   const [overflow, setOverflow] = useState<'wrap' | 'scroll'>('wrap')
   const [showBackgrounds, setShowBackgrounds] = useState(true)
   const [diffIndicators, setDiffIndicators] = useState<DiffIndicators>('bars')
@@ -248,6 +252,7 @@ function GitnaReviewUIInner() {
     paths: string[]
   } | null>(null)
   const scrollRef = useRef<HTMLDivElement>(null)
+  const reviewRootRef = useRef<HTMLDivElement>(null)
   const homeButtonRef = useRef<HTMLButtonElement>(null)
   const restoreHomeFocusRef = useRef(false)
   const viewerRef = useRef<CodeViewHandle<CommentMetadata> | null>(null)
@@ -259,6 +264,14 @@ function GitnaReviewUIInner() {
     const root = repository.snapshot?.root
     if (root != null) document.title = `${repositoryName(root)} - Gitna`
   }, [repository.snapshot?.root])
+
+  useEffect(() => {
+    const path = repository.repositoryFilePath
+    if (path == null) return
+    setRecentFilePaths((current) =>
+      [...current.filter((candidate) => candidate !== path), path].slice(-20),
+    )
+  }, [repository.repositoryFilePath])
 
   useEffect(() => {
     const root = repository.snapshot?.root
@@ -340,6 +353,41 @@ function GitnaReviewUIInner() {
     window.addEventListener('keydown', handleKeyDown)
     return () => window.removeEventListener('keydown', handleKeyDown)
   }, [repository, repository.generation, target?.key, target?.selectedPath])
+
+  useEffect(() => {
+    const openPalette = (event: KeyboardEvent) => {
+      if (
+        event.key.toLocaleLowerCase() !== 'k' ||
+        !(event.ctrlKey || event.metaKey) ||
+        event.altKey ||
+        event.isComposing
+      ) {
+        return
+      }
+      if (commandPaletteOpen) {
+        event.preventDefault()
+        setCommandPaletteOpen(false)
+        return
+      }
+      const editing = event
+        .composedPath()
+        .some(
+          (candidate) =>
+            candidate instanceof HTMLElement &&
+            (candidate.matches('input, textarea, select, [contenteditable="true"]') ||
+              candidate.getAttribute('role') === 'textbox'),
+        )
+      if (editing) return
+      const active = document.activeElement
+      if (active !== document.body && active != null && !reviewRootRef.current?.contains(active)) {
+        return
+      }
+      event.preventDefault()
+      setCommandPaletteOpen(true)
+    }
+    window.addEventListener('keydown', openPalette)
+    return () => window.removeEventListener('keydown', openPalette)
+  }, [commandPaletteOpen])
 
   useEffect(() => {
     if (target == null) {
@@ -864,9 +912,177 @@ function GitnaReviewUIInner() {
     return () => window.removeEventListener('keydown', onSave)
   }, [dirtyPaths, saveWorktreeFile, target?.filePath])
 
+  const toggleSidebar = useCallback(() => {
+    if (window.matchMedia('(max-width: 767px)').matches) {
+      setFileTreeOverlayOpen((visible) => !visible)
+      return
+    }
+    setSidebarVisible((visible) => !visible)
+  }, [])
+
+  const paletteFileHistory = useMemo(
+    () => [
+      ...recentFilePaths.filter((path) => !repository.repositoryOpenPaths.includes(path)),
+      ...repository.repositoryOpenPaths,
+    ],
+    [recentFilePaths, repository.repositoryOpenPaths],
+  )
+
+  const paletteCommands = useMemo<GitnaPaletteCommand[]>(() => {
+    const commands: GitnaPaletteCommand[] = [
+      {
+        id: 'open-folder',
+        label: 'Open Folder',
+        description: 'Enter an absolute local folder path',
+        keywords: 'switch location path',
+        run() {
+          setHomeSwitchError(null)
+          setHomeOpen(true)
+          window.setTimeout(
+            () => document.querySelector<HTMLInputElement>('[aria-label="Folder path"]')?.focus(),
+            0,
+          )
+        },
+      },
+      {
+        id: 'home',
+        label: 'Gitna Home',
+        description: 'Open folders and recent history',
+        keywords: 'welcome recent',
+        run() {
+          setHomeSwitchError(null)
+          setHomeOpen(true)
+        },
+      },
+      {
+        id: 'refresh',
+        label: 'Refresh',
+        description: 'Refresh the current folder',
+        keywords: 'reload repository explorer graph',
+        run: () => repository.refreshCurrentFolder(),
+      },
+      {
+        id: 'toggle-sidebar',
+        label: 'Toggle Sidebar',
+        description: sidebarVisible ? 'Hide Source Control' : 'Show Source Control',
+        keywords: 'source control explorer',
+        run: toggleSidebar,
+      },
+      {
+        id: 'toggle-diff-layout',
+        label: 'Toggle Diff Layout',
+        description: diffStyle === 'split' ? 'Switch to unified view' : 'Switch to split view',
+        keywords: 'split unified view',
+        run: () => setDiffStyle((style) => (style === 'split' ? 'unified' : 'split')),
+      },
+      {
+        id: 'change-theme',
+        label: 'Change Theme',
+        description:
+          colorMode === 'system'
+            ? 'Use light theme'
+            : colorMode === 'light'
+              ? 'Use dark theme'
+              : 'Follow system theme',
+        keywords: 'appearance light dark system color',
+        run: () =>
+          setColorMode(
+            colorMode === 'system' ? 'light' : colorMode === 'light' ? 'dark' : 'system',
+          ),
+      },
+    ]
+
+    const currentPath =
+      target?.filePath ??
+      (target?.request?.scope === 'staged' || target?.request?.scope === 'unstaged'
+        ? target.selectedPath
+        : undefined)
+    if (currentPath != null && worktreeDrafts.has(currentPath)) {
+      commands.push({
+        id: 'save-file',
+        label: 'Save File',
+        description: currentPath,
+        keywords: 'write dirty changes',
+        run: () => saveWorktreeFile(currentPath),
+      })
+    }
+    const unstagedChange = repository.snapshot?.unstaged.find(
+      (change) => change.path === currentPath,
+    )
+    if (unstagedChange != null) {
+      commands.push({
+        id: 'stage-file',
+        label: 'Stage Current File',
+        description: unstagedChange.path,
+        keywords: 'git add',
+        run: () =>
+          repository.mutate({
+            op: 'stage',
+            paths: unstagedChange.oldPath
+              ? [unstagedChange.oldPath, unstagedChange.path]
+              : [unstagedChange.path],
+          }),
+      })
+    }
+    const stagedChange = repository.snapshot?.staged.find((change) => change.path === currentPath)
+    if (stagedChange != null) {
+      commands.push({
+        id: 'unstage-file',
+        label: 'Unstage Current File',
+        description: stagedChange.path,
+        keywords: 'git reset index',
+        run: () =>
+          repository.mutate({
+            op: 'unstage',
+            paths: stagedChange.oldPath
+              ? [stagedChange.oldPath, stagedChange.path]
+              : [stagedChange.path],
+          }),
+      })
+    }
+
+    for (const folder of repository.folders?.recent ?? []) {
+      if (folder.path === repository.snapshot?.root) continue
+      commands.push({
+        id: `recent-folder:${folder.path}`,
+        label: `Open Recent Folder: ${folder.name}`,
+        description: folder.path,
+        keywords: 'recent history switch folder',
+        run: () => requestFolderSwitch(folder.path, false),
+      })
+    }
+    for (const branch of repository.branches) {
+      if (branch.current || branch.remote) continue
+      commands.push({
+        id: `switch-branch:${branch.name}`,
+        label: `Switch Branch: ${branch.name}`,
+        description: branch.upstream ?? 'Local branch',
+        keywords: 'git checkout branch',
+        run: () => repository.switchBranch(branch.name),
+      })
+    }
+    return commands
+  }, [
+    colorMode,
+    diffStyle,
+    repository,
+    repository.branches,
+    repository.folders?.recent,
+    repository.generation,
+    repository.snapshot?.root,
+    requestFolderSwitch,
+    saveWorktreeFile,
+    sidebarVisible,
+    target?.filePath,
+    target?.request?.scope,
+    target?.selectedPath,
+    toggleSidebar,
+    worktreeDrafts,
+  ])
+
   return (
     <>
-      <ReviewGrid>
+      <ReviewGrid containerRef={reviewRootRef} sidebarVisible={sidebarVisible}>
         {!homeOpen && (
           <DiffsHubHeader
             appVersion={repository.snapshot?.appVersion ?? 'dev'}
@@ -890,6 +1106,7 @@ function GitnaReviewUIInner() {
               setHomeSwitchError(null)
               setHomeOpen(true)
             }}
+            onOpenCommandPalette={() => setCommandPaletteOpen(true)}
             onSaveGitHubToken={() => {}}
             onOpenFolder={(path) => requestFolderSwitch(path, false)}
             onRevealFolder={async () => {
@@ -936,7 +1153,10 @@ function GitnaReviewUIInner() {
         >
           {themesHydrated && (
             <DiffsHubSidebar
-              className="[grid-area:viewer] md:[grid-area:tree]"
+              className={cn(
+                '[grid-area:viewer] md:[grid-area:tree]',
+                !sidebarVisible && 'md:hidden',
+              )}
               mobileOverlayOpen={fileTreeOverlayOpen}
               onMobileClose={() => setFileTreeOverlayOpen(false)}
               scrollRef={scrollRef}
@@ -1007,6 +1227,20 @@ function GitnaReviewUIInner() {
           </p>
         )}
       </ReviewGrid>
+      <GitnaCommandPalette
+        commands={paletteCommands}
+        error={repository.repositoryFilesError}
+        loading={repository.repositoryFilesLoading}
+        open={commandPaletteOpen}
+        openPaths={paletteFileHistory}
+        paths={repository.repositoryPaths}
+        onClose={() => setCommandPaletteOpen(false)}
+        onError={setReviewActionError}
+        onOpenFile={(path) => {
+          setHomeOpen(false)
+          repository.selectRepositoryFile(path, true)
+        }}
+      />
       {pendingFolderSwitch != null && (
         <Confirm
           title="Discard unsaved changes and switch folder?"
@@ -1410,12 +1644,26 @@ function useIsWorkerPoolReadyOrDisabled(): boolean {
   return ready
 }
 
-function ReviewGrid({ children }: { children: ReactNode }) {
+function ReviewGrid({
+  children,
+  containerRef,
+  sidebarVisible,
+}: {
+  children: ReactNode
+  containerRef: Ref<HTMLDivElement>
+  sidebarVisible: boolean
+}) {
   return (
     <div
+      ref={containerRef}
       role="region"
       aria-label="Review"
-      className="grid min-h-0 flex-1 grid-cols-1 grid-rows-[auto_minmax(0,1fr)] overflow-hidden overscroll-contain contain-strict [grid-template-areas:'header''viewer'] md:grid-cols-[320px_minmax(0,1fr)] md:[grid-template-areas:'header_header''tree_viewer']"
+      className={cn(
+        "grid min-h-0 flex-1 grid-cols-1 grid-rows-[auto_minmax(0,1fr)] overflow-hidden overscroll-contain contain-strict [grid-template-areas:'header''viewer']",
+        sidebarVisible
+          ? "md:grid-cols-[320px_minmax(0,1fr)] md:[grid-template-areas:'header_header''tree_viewer']"
+          : "md:grid-cols-1 md:[grid-template-areas:'header''viewer']",
+      )}
     >
       {children}
     </div>
