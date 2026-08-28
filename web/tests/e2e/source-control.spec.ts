@@ -844,8 +844,10 @@ test('command palette searches complete paths and runs workbench commands', asyn
 }) => {
   mkdirSync(join(app.repo, 'client'), { recursive: true })
   mkdirSync(join(app.repo, 'server', 'palette-token'), { recursive: true })
+  mkdirSync(join(app.repo, 'space dir'), { recursive: true })
   writeFileSync(join(app.repo, 'client/index.ts'), 'client\n')
   writeFileSync(join(app.repo, 'server/palette-token/index.ts'), 'server\n')
+  writeFileSync(join(app.repo, 'space dir/file name.ts'), 'space\n')
 
   await page.goto(app.url)
   const paletteTrigger = page.getByRole('button', { name: 'Open command palette' })
@@ -857,6 +859,13 @@ test('command palette searches complete paths and runs workbench commands', asyn
   await expect(palette).toBeVisible()
   await expect(palette).toHaveCSS('box-shadow', 'none')
   await expect(search).toBeFocused()
+  await search.fill('file name')
+  const spacedFile = palette.getByRole('option', { name: /file name\.ts/ })
+  await expect(spacedFile).toBeVisible()
+  const activeDescendant = await search.getAttribute('aria-activedescendant')
+  expect(activeDescendant).not.toMatch(/\s/)
+  await expect(spacedFile).toHaveAttribute('id', activeDescendant!)
+
   await search.fill('palette-token index')
   const serverFile = palette.getByRole('option', {
     name: /index\.ts server\/palette-token/,
@@ -872,6 +881,8 @@ test('command palette searches complete paths and runs workbench commands', asyn
   await expect(palette).toHaveCount(0)
 
   await paletteTrigger.focus()
+  await page.keyboard.press('Control+Shift+k')
+  await expect(palette).toHaveCount(0)
   await page.keyboard.press('Control+k')
   await expect(palette).toBeVisible()
   await search.fill('>toggle diff layout')
@@ -882,6 +893,69 @@ test('command palette searches complete paths and runs workbench commands', asyn
   await expect(toggleLayout).toHaveAttribute('aria-selected', 'true')
   await search.press('Enter')
   await expect(page.getByRole('button', { name: 'Switch to split view' })).toBeVisible()
+})
+
+test('command palette omits mutations while a repository operation is busy', async ({
+  page,
+  app,
+}) => {
+  let releaseStage!: () => void
+  let markStageStarted!: () => void
+  const stageStarted = new Promise<void>((resolve) => {
+    markStageStarted = resolve
+  })
+  const stageReleased = new Promise<void>((resolve) => {
+    releaseStage = resolve
+  })
+  await page.route('**/api/v1/operations?op=stage', async (route) => {
+    markStageStarted()
+    await stageReleased
+    await route.continue()
+  })
+
+  await page.goto(app.url)
+  await page
+    .locator('#gitna-unstaged-tree__tree')
+    .getByRole('treeitem', { name: 'modified.txt', exact: true })
+    .click()
+  const response = page.waitForResponse((candidate) =>
+    candidate.url().endsWith('/api/v1/operations?op=stage'),
+  )
+  await page.getByRole('button', { name: 'Stage file modified.txt' }).click()
+  await stageStarted
+
+  await page.getByRole('button', { name: 'Open command palette' }).click()
+  const palette = page.getByRole('dialog', { name: 'Command palette' })
+  const search = palette.getByRole('combobox', { name: 'Search files and commands' })
+  await search.fill('>stage current file')
+  await expect(palette.getByRole('option', { name: /Stage Current File/ })).toHaveCount(0)
+
+  releaseStage()
+  await response
+})
+
+test('mobile command palette describes the active Source Control overlay', async ({
+  page,
+  app,
+}) => {
+  await page.setViewportSize({ width: 390, height: 844 })
+  await page.goto(app.url)
+  const paletteTrigger = page.getByRole('button', { name: 'Open command palette' })
+  await paletteTrigger.click()
+  const palette = page.getByRole('dialog', { name: 'Command palette' })
+  const search = palette.getByRole('combobox', { name: 'Search files and commands' })
+  await search.fill('>toggle sidebar')
+  await expect(
+    palette.getByRole('option', { name: /Toggle Sidebar Show Source Control/ }),
+  ).toBeVisible()
+  await search.press('Enter')
+
+  await expect(page.getByRole('complementary', { name: 'Source Control' })).toBeVisible()
+  await page.keyboard.press('Control+k')
+  await search.fill('>toggle sidebar')
+  await expect(
+    palette.getByRole('option', { name: /Toggle Sidebar Hide Source Control/ }),
+  ).toBeVisible()
 })
 
 test('repository files can be edited, created in folders, and renamed', async ({ page, app }) => {

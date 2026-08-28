@@ -133,7 +133,9 @@ export function GitnaCommandPalette({
         <input
           ref={inputRef}
           role="combobox"
-          aria-activedescendant={results[activeIndex]?.id}
+          aria-activedescendant={
+            results[activeIndex] == null ? undefined : `${listboxId}-option-${activeIndex}`
+          }
           aria-autocomplete="list"
           aria-controls={listboxId}
           aria-expanded="true"
@@ -185,7 +187,7 @@ export function GitnaCommandPalette({
         {results.map((result, index) => (
           <button
             key={result.id}
-            id={result.id}
+            id={`${listboxId}-option-${index}`}
             type="button"
             role="option"
             aria-selected={index === activeIndex}

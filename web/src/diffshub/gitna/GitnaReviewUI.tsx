@@ -203,6 +203,7 @@ function GitnaReviewUIInner() {
   const [diffStyle, setDiffStyle] = useState<'split' | 'unified'>('split')
   const [collapseMode, setCollapseMode] = useState<'expanded' | 'collapsed'>('expanded')
   const [fileTreeOverlayOpen, setFileTreeOverlayOpen] = useState(false)
+  const [mobileViewport, setMobileViewport] = useState(false)
   const [sidebarVisible, setSidebarVisible] = useState(true)
   const [commandPaletteOpen, setCommandPaletteOpen] = useState(false)
   const [recentFilePaths, setRecentFilePaths] = useState<readonly string[]>([])
@@ -314,6 +315,7 @@ function GitnaReviewUIInner() {
   useEffect(() => {
     const mediaQuery = window.matchMedia('(max-width: 767px)')
     const update = (matches: boolean) => {
+      setMobileViewport(matches)
       setDiffStyle(matches ? 'unified' : 'split')
       if (!matches) setFileTreeOverlayOpen(false)
     }
@@ -360,6 +362,7 @@ function GitnaReviewUIInner() {
         event.key.toLocaleLowerCase() !== 'k' ||
         !(event.ctrlKey || event.metaKey) ||
         event.altKey ||
+        event.shiftKey ||
         event.isComposing
       ) {
         return
@@ -964,7 +967,9 @@ function GitnaReviewUIInner() {
       {
         id: 'toggle-sidebar',
         label: 'Toggle Sidebar',
-        description: sidebarVisible ? 'Hide Source Control' : 'Show Source Control',
+        description: (mobileViewport ? fileTreeOverlayOpen : sidebarVisible)
+          ? 'Hide Source Control'
+          : 'Show Source Control',
         keywords: 'source control explorer',
         run: toggleSidebar,
       },
@@ -997,7 +1002,7 @@ function GitnaReviewUIInner() {
       (target?.request?.scope === 'staged' || target?.request?.scope === 'unstaged'
         ? target.selectedPath
         : undefined)
-    if (currentPath != null && worktreeDrafts.has(currentPath)) {
+    if (currentPath != null && worktreeDrafts.has(currentPath) && !repository.busy) {
       commands.push({
         id: 'save-file',
         label: 'Save File',
@@ -1009,7 +1014,7 @@ function GitnaReviewUIInner() {
     const unstagedChange = repository.snapshot?.unstaged.find(
       (change) => change.path === currentPath,
     )
-    if (unstagedChange != null) {
+    if (unstagedChange != null && !repository.busy) {
       commands.push({
         id: 'stage-file',
         label: 'Stage Current File',
@@ -1025,7 +1030,7 @@ function GitnaReviewUIInner() {
       })
     }
     const stagedChange = repository.snapshot?.staged.find((change) => change.path === currentPath)
-    if (stagedChange != null) {
+    if (stagedChange != null && !repository.busy) {
       commands.push({
         id: 'unstage-file',
         label: 'Unstage Current File',
@@ -1041,32 +1046,37 @@ function GitnaReviewUIInner() {
       })
     }
 
-    for (const folder of repository.folders?.recent ?? []) {
-      if (folder.path === repository.snapshot?.root) continue
-      commands.push({
-        id: `recent-folder:${folder.path}`,
-        label: `Open Recent Folder: ${folder.name}`,
-        description: folder.path,
-        keywords: 'recent history switch folder',
-        run: () => requestFolderSwitch(folder.path, false),
-      })
-    }
-    for (const branch of repository.branches) {
-      if (branch.current || branch.remote) continue
-      commands.push({
-        id: `switch-branch:${branch.name}`,
-        label: `Switch Branch: ${branch.name}`,
-        description: branch.upstream ?? 'Local branch',
-        keywords: 'git checkout branch',
-        run: () => repository.switchBranch(branch.name),
-      })
+    if (!repository.busy) {
+      for (const folder of repository.folders?.recent ?? []) {
+        if (folder.path === repository.snapshot?.root) continue
+        commands.push({
+          id: `recent-folder:${folder.path}`,
+          label: `Open Recent Folder: ${folder.name}`,
+          description: folder.path,
+          keywords: 'recent history switch folder',
+          run: () => requestFolderSwitch(folder.path, false),
+        })
+      }
+      for (const branch of repository.branches) {
+        if (branch.current || branch.remote) continue
+        commands.push({
+          id: `switch-branch:${branch.name}`,
+          label: `Switch Branch: ${branch.name}`,
+          description: branch.upstream ?? 'Local branch',
+          keywords: 'git checkout branch',
+          run: () => repository.switchBranch(branch.name),
+        })
+      }
     }
     return commands
   }, [
     colorMode,
     diffStyle,
+    fileTreeOverlayOpen,
+    mobileViewport,
     repository,
     repository.branches,
+    repository.busy,
     repository.folders?.recent,
     repository.generation,
     repository.snapshot?.root,
