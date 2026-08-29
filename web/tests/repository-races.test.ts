@@ -108,6 +108,44 @@ describe('GitnaRepository request sequencing', () => {
     expect(repository.repositoryFilesLoading).toBe(false)
   })
 
+  it('starts Git data without waiting for the Explorer manifest', async () => {
+    const currentSnapshot = deferred<RepoSnapshot>()
+    const files = deferred<RepositoryFiles>()
+    const api = {
+      snapshot: vi.fn().mockReturnValue(currentSnapshot.promise),
+      folders: vi.fn().mockResolvedValue({ current: {}, recent: [] }),
+      repositoryFiles: vi.fn().mockReturnValue(files.promise),
+      graph: vi.fn().mockResolvedValue({ commits: [], hasMore: false }),
+      branches: vi.fn().mockResolvedValue([]),
+      stashes: vi.fn().mockResolvedValue([]),
+      tags: vi.fn().mockResolvedValue([]),
+    } as unknown as ApiClient
+    const repository = new GitnaRepository(api)
+
+    const refresh = repository.refreshCurrentFolder()
+    currentSnapshot.resolve(snapshot('/repo', 1))
+    await vi.waitFor(() => expect(api.graph).toHaveBeenCalledTimes(1))
+    expect(api.repositoryFiles).toHaveBeenCalledTimes(1)
+
+    files.resolve({ generation: 1, paths: ['ready.txt'], truncated: false })
+    await refresh
+    expect(repository.repositoryPaths).toEqual(['ready.txt'])
+  })
+
+  it('forwards folder-switch cancellation without mutating busy state', async () => {
+    const controller = new AbortController()
+    const api = {
+      openFolder: vi.fn().mockResolvedValue({ root: '/new', href: '../new/' }),
+    } as unknown as ApiClient
+    const repository = new GitnaRepository(api)
+
+    await repository.openFolder('/new', controller.signal)
+
+    expect(api.openFolder).toHaveBeenCalledWith('/new', controller.signal)
+    expect(repository.busy).toBe(false)
+    expect(repository.activeOp).toBeNull()
+  })
+
   it('keeps the current snapshot while resolving another folder route', async () => {
     const currentSnapshot = deferred<RepoSnapshot>()
     const api = {

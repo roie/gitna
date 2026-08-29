@@ -92,6 +92,7 @@ func TestFolderRegistryKeepsStableIndependentRoutes(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	assertSnapshotRoot(t, registry, "/shared-2/api/v1/snapshot", second)
 	if reopenedSecond.Href != secondResult.Href || registry.folders.Recent()[0].Path != second {
 		t.Fatalf("reopened = %#v recent = %#v", reopenedSecond, registry.folders.Recent())
 	}

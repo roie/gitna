@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	"github.com/roie/gitna/internal/protocol"
 )
@@ -72,6 +73,9 @@ func TestOpenFolderRouteUsesExplicitSessionCallback(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d, want 200 (%s)", rec.Code, rec.Body)
 	}
+	if timing := rec.Header().Get("Server-Timing"); timing != "" {
+		t.Fatalf("unexpected default Server-Timing = %q", timing)
+	}
 	if opened != "/requested/folder" {
 		t.Fatalf("opened = %q", opened)
 	}
@@ -84,6 +88,34 @@ func TestOpenFolderRouteUsesExplicitSessionCallback(t *testing.T) {
 	}
 	if result.Root != "/resolved/folder" || result.Href != "../folder/" {
 		t.Fatalf("result = %#v", result)
+	}
+}
+
+func TestOpenFolderRouteEmitsOptInServerTiming(t *testing.T) {
+	t.Setenv(startupTraceEnvironment, "1")
+	srv, err := New(newTestFS(), Options{
+		Token: testToken,
+		Host:  testHost,
+		Repo:  &fakeRepo{},
+		OpenFolder: func(ctx context.Context, _ string) (protocol.OpenFolderResult, error) {
+			RecordStartupTiming(ctx, "route-reserve", 2*time.Millisecond, "stable route")
+			return protocol.OpenFolderResult{Root: "/resolved/folder", Href: "../folder/"}, nil
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	body, _ := json.Marshal(map[string]string{"path": "/requested/folder"})
+	req := httptest.NewRequest(http.MethodPost, "/g/"+testToken+"/api/v1/folder", bytes.NewReader(body))
+	req.Host = testHost
+	req.Header.Set("Origin", "http://"+testHost)
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+
+	srv.Handler().ServeHTTP(rec, req)
+
+	if got := rec.Header().Get("Server-Timing"); got != `route-reserve;dur=2.00;desc="stable route"` {
+		t.Fatalf("Server-Timing = %q", got)
 	}
 }
 

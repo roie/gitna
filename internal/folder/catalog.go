@@ -39,12 +39,15 @@ type state struct {
 // auxiliary: failures are retained for diagnostics without preventing Gitna
 // from opening or switching repositories.
 type Catalog struct {
-	mu      sync.RWMutex
-	path    string
-	limit   int
-	now     func() time.Time
-	recent  []Entry
-	lastErr error
+	mu                sync.RWMutex
+	path              string
+	limit             int
+	now               func() time.Time
+	recent            []Entry
+	lastErr           error
+	persistMu         sync.Mutex
+	persistScheduleMu sync.Mutex
+	persistWG         sync.WaitGroup
 }
 
 // Open loads a catalog from path. A missing file starts an empty catalog.
@@ -75,6 +78,32 @@ func OpenDefault() *Catalog {
 // Record promotes path to the front of the catalog and persists the bounded
 // result. The path must exist so symlink aliases can be normalized.
 func (c *Catalog) Record(path string, repository bool) {
+	c.record(path, repository, false, nil)
+}
+
+// RecordDeferred promotes path immediately and persists the latest catalog in
+// the background. Route reservation uses this so auxiliary fsync latency never
+// delays navigation; persistence remains serialized with Remove and Record.
+func (c *Catalog) RecordDeferred(path string, repository bool) {
+	c.record(path, repository, true, nil)
+}
+
+// RecordDeferredObserved is RecordDeferred with an optional local completion
+// observer used by opt-in startup diagnostics.
+func (c *Catalog) RecordDeferredObserved(
+	path string,
+	repository bool,
+	done func(time.Duration, error),
+) {
+	c.record(path, repository, true, done)
+}
+
+func (c *Catalog) record(
+	path string,
+	repository bool,
+	deferred bool,
+	done func(time.Duration, error),
+) {
 	canonical, err := canonicalPath(path)
 	if err != nil {
 		c.setError(err)
@@ -87,6 +116,10 @@ func (c *Catalog) Record(path string, repository bool) {
 		LastOpened: c.now().UTC(),
 	}
 
+	if !deferred {
+		c.persistMu.Lock()
+		defer c.persistMu.Unlock()
+	}
 	c.mu.Lock()
 	next := make([]Entry, 0, min(c.limit, len(c.recent)+1))
 	next = append(next, entry)
@@ -100,9 +133,45 @@ func (c *Catalog) Record(path string, repository bool) {
 		}
 	}
 	c.recent = next
+	if deferred {
+		c.persistScheduleMu.Lock()
+		c.persistWG.Add(1)
+		c.persistScheduleMu.Unlock()
+		c.mu.Unlock()
+		go func() {
+			defer c.persistWG.Done()
+			started := time.Now()
+			err := c.persistLatest()
+			if done != nil {
+				done(time.Since(started), err)
+			}
+		}()
+		return
+	}
 	err = c.persistLocked()
 	c.lastErr = err
 	c.mu.Unlock()
+}
+
+// Flush waits for deferred persistence scheduled before the call.
+func (c *Catalog) Flush() {
+	c.persistScheduleMu.Lock()
+	c.persistWG.Wait()
+	c.persistScheduleMu.Unlock()
+}
+
+func (c *Catalog) persistLatest() error {
+	c.persistMu.Lock()
+	defer c.persistMu.Unlock()
+	c.mu.RLock()
+	path := c.path
+	recent := append([]Entry(nil), c.recent...)
+	c.mu.RUnlock()
+	err := persistState(path, recent)
+	c.mu.Lock()
+	c.lastErr = err
+	c.mu.Unlock()
+	return err
 }
 
 // Remove deletes path from recent-folder history and atomically persists the
@@ -115,6 +184,8 @@ func (c *Catalog) Remove(path string) error {
 		return err
 	}
 
+	c.persistMu.Lock()
+	defer c.persistMu.Unlock()
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	next := make([]Entry, 0, len(c.recent))
@@ -207,13 +278,17 @@ func (c *Catalog) load() {
 }
 
 func (c *Catalog) persistLocked() error {
-	if c.path == "" {
+	return persistState(c.path, c.recent)
+}
+
+func persistState(path string, recent []Entry) error {
+	if path == "" {
 		return nil
 	}
-	if err := os.MkdirAll(filepath.Dir(c.path), 0o700); err != nil {
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		return err
 	}
-	data, err := json.MarshalIndent(state{Version: stateVersion, Recent: c.recent}, "", "  ")
+	data, err := json.MarshalIndent(state{Version: stateVersion, Recent: recent}, "", "  ")
 	if err != nil {
 		return err
 	}
@@ -222,7 +297,7 @@ func (c *Catalog) persistLocked() error {
 		return fmt.Errorf("folder catalog: encoded state exceeds %d bytes", maxStateBytes)
 	}
 
-	dir := filepath.Dir(c.path)
+	dir := filepath.Dir(path)
 	temporary, err := os.CreateTemp(dir, ".folders-")
 	if err != nil {
 		return err
@@ -250,7 +325,7 @@ func (c *Catalog) persistLocked() error {
 		return err
 	}
 	defer root.Close()
-	return root.Rename(filepath.Base(temporaryPath), filepath.Base(c.path))
+	return root.Rename(filepath.Base(temporaryPath), filepath.Base(path))
 }
 
 func (c *Catalog) setError(err error) {

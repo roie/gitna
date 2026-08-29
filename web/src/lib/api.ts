@@ -134,7 +134,7 @@ export interface ApiClient {
   tags(): Promise<Tag[]>
   compare(from: string, to: string): Promise<CommitFiles>
   conflicts(): Promise<ConflictEntry[]>
-  openFolder(path: string): Promise<OpenFolderResult>
+  openFolder(path: string, signal?: AbortSignal): Promise<OpenFolderResult>
   removeRecentFolder(path: string): Promise<void>
   revealFolder(): Promise<void>
 }
@@ -361,13 +361,14 @@ export function createApi(): ApiClient {
       )
       return (await res.json()) as ConflictEntry[]
     },
-    async openFolder(path: string): Promise<OpenFolderResult> {
+    async openFolder(path: string, signal?: AbortSignal): Promise<OpenFolderResult> {
+      const timeout = AbortSignal.timeout(MUTATE_TIMEOUT)
       const res = await expectOK(
         await fetch('api/v1/folder', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ path }),
-          signal: AbortSignal.timeout(MUTATE_TIMEOUT),
+          signal: signal == null ? timeout : AbortSignal.any([signal, timeout]),
         }),
       )
       return (await res.json()) as OpenFolderResult

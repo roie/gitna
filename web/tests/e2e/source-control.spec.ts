@@ -808,6 +808,95 @@ test('folder path switches the live session and remains fully editable', async (
   await expect(nextFolderOption).toHaveCount(0)
 })
 
+test('same-tab folder switching shows and restores a branded transition', async ({ page, app }) => {
+  await page.emulateMedia({ reducedMotion: 'reduce' })
+  await page.goto(app.url)
+  await expect(page).toHaveTitle(`${basename(app.repo)} - Gitna`)
+  await page.getByRole('button', { name: 'Theme settings' }).click()
+  await page.getByRole('button', { name: 'Dark', exact: true }).click()
+  await expect(page.locator('html')).toHaveClass(/dark/)
+  await page.keyboard.press('Escape')
+  const originalTitle = await page.title()
+  const pathInput = page.getByRole('combobox', { name: 'Folder path' })
+  const longName = `folder-${'long-name-'.repeat(20)}`
+  const target = join(dirname(app.repo), longName)
+  let releaseRequest!: () => void
+  const release = new Promise<void>((resolve) => {
+    releaseRequest = resolve
+  })
+  let transitionVisibleAtRequest = false
+  await page.route('**/api/v1/folder', async (route) => {
+    transitionVisibleAtRequest = (await page.locator('[data-folder-loading]').count()) === 1
+    await release
+    await route
+      .fulfill({
+        status: 400,
+        contentType: 'application/json',
+        body: JSON.stringify({ error: 'folder is unavailable' }),
+      })
+      .catch(() => undefined)
+  })
+
+  await pathInput.fill(target)
+  await page.getByRole('button', { name: 'Switch folder' }).click()
+  const transition = page.locator('[data-folder-loading]')
+  await expect(transition).toBeVisible()
+  await expect(transition).toHaveAttribute('aria-busy', 'true')
+  await expect(transition.getByText('Gitna', { exact: true })).toBeVisible()
+  await expect(transition.locator('img[src="./gitna-logo-dark.png"]')).toBeVisible()
+  const heading = transition.getByRole('heading', { name: `Opening ${longName}` })
+  await expect(heading).toBeVisible()
+  await expect(heading).toHaveCSS('text-overflow', 'ellipsis')
+  await expect(transition.getByRole('status')).toHaveText('Preparing your folder…')
+  await expect(transition.locator('.animate-spin')).toHaveCSS('animation-name', 'none')
+  await expect(page).toHaveTitle(`Opening ${longName} - Gitna`)
+  await expect.poll(() => transitionVisibleAtRequest).toBe(true)
+
+  // A newer programmatic switch aborts the stale request and owns restoration.
+  // Programmatic submission is intentional here because the old workbench is
+  // correctly inert to user input while the transition is visible.
+  const replacementName = 'replacement-folder'
+  const replacementTarget = join(dirname(app.repo), replacementName)
+  await page.evaluate((path) => {
+    const input = document.querySelector<HTMLInputElement>('[aria-label="Folder path"]')!
+    const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set
+    setter?.call(input, path)
+    input.dispatchEvent(new Event('input', { bubbles: true }))
+  }, replacementTarget)
+  await page.waitForTimeout(0)
+  await page.evaluate(() =>
+    document.querySelector<HTMLInputElement>('[aria-label="Folder path"]')?.form?.requestSubmit(),
+  )
+  await expect(
+    transition.getByRole('heading', { name: `Opening ${replacementName}`, exact: true }),
+  ).toBeVisible()
+
+  releaseRequest()
+  await expect(transition).toHaveCount(0)
+  await expect(page).toHaveTitle(originalTitle)
+  await expect(page.getByRole('button', { name: 'Switch folder' })).toBeFocused()
+  await expect(page.getByRole('alert')).toContainText(
+    `Could not open ${replacementName}: folder is unavailable`,
+  )
+  await expect(pathInput).toHaveValue(replacementTarget)
+
+  await expect
+    .poll(() =>
+      page.evaluate(() => performance.getEntriesByType('mark').map((entry) => entry.name)),
+    )
+    .toEqual(
+      expect.arrayContaining([
+        'gitna:mount',
+        'gitna:destination-response',
+        'gitna:snapshot-ready',
+        'gitna:source-control-ready',
+        'gitna:explorer-ready',
+        'gitna:graph-ready',
+        'gitna:sse-ready',
+      ]),
+    )
+})
+
 test('stable folder routes isolate parallel browser pages', async ({ page, app }) => {
   const nextRepo = join(dirname(app.repo), 'parallel-folder')
   mkdirSync(nextRepo)

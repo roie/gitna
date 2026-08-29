@@ -95,6 +95,11 @@ const OP_LABELS: Record<string, string> = {
   'resolve-both': 'Resolving conflict',
 }
 
+function markStartup(name: string): void {
+  if (typeof performance === 'undefined') return
+  performance.mark(`gitna:${name}`)
+}
+
 function errorMessage(error: unknown): string {
   if (error instanceof DOMException && error.name === 'TimeoutError') {
     return 'Operation timed out'
@@ -267,6 +272,8 @@ export class GitnaRepository {
               : []
           this.conflictsLoading = false
           this.conflictsError = null
+          markStartup('snapshot-ready')
+          markStartup('source-control-ready')
         } catch (error) {
           if (epoch === this.repositoryEpoch) this.error = errorMessage(error)
         } finally {
@@ -337,6 +344,7 @@ export class GitnaRepository {
           this.repositoryIgnoredPaths = ignoredPaths
         }
         this.repositoryFilesTruncated = false
+        markStartup('explorer-ready')
         return
       }
       throw new Error('Repository changed while files were loading')
@@ -353,19 +361,13 @@ export class GitnaRepository {
   }
 
   async refreshCurrentFolder(): Promise<void> {
-    await Promise.all([
-      this.refreshSnapshot(),
-      this.refreshFolders(),
-      this.refreshRepositoryFiles(),
-    ])
-    if (this.snapshot?.repository) {
-      await Promise.all([
-        this.refreshGraph(),
-        this.refreshBranches(),
-        this.refreshStashes(),
-        this.refreshTags(),
-      ])
-    }
+    const folders = this.refreshFolders()
+    const explorer = this.refreshRepositoryFiles()
+    await this.refreshSnapshot()
+    const gitData = this.snapshot?.repository
+      ? [this.refreshGraph(), this.refreshBranches(), this.refreshStashes(), this.refreshTags()]
+      : []
+    await Promise.allSettled([folders, explorer, ...gitData])
   }
 
   connectEvents(): () => void {
@@ -379,6 +381,7 @@ export class GitnaRepository {
         void Promise.all([this.refreshSnapshot(), this.refreshRepositoryFiles()])
       }, 150)
     }
+    source.addEventListener('open', () => markStartup('sse-ready'))
     source.addEventListener('snapshot-invalidated', scheduleSnapshot)
     source.addEventListener('graph-invalidated', () => {
       scheduleSnapshot()
@@ -417,6 +420,7 @@ export class GitnaRepository {
       if (this.commitDiff != null && !present.has(this.commitDiff.oid)) {
         this.commitDiff = null
       }
+      markStartup('graph-ready')
     } catch (error) {
       if (request === this.graphRequest && epoch === this.repositoryEpoch) {
         this.graphError = errorMessage(error)
@@ -763,21 +767,8 @@ export class GitnaRepository {
     }
   }
 
-  async openFolder(path: string): Promise<{ root: string; href: string }> {
-    this.busy = true
-    this.activeOp = 'open-folder'
-    this.mutationError = null
-    this.emit()
-    try {
-      return await this.api.openFolder(path)
-    } catch (error) {
-      this.mutationError = errorMessage(error)
-      throw error
-    } finally {
-      this.busy = false
-      this.activeOp = null
-      this.emit()
-    }
+  openFolder(path: string, signal?: AbortSignal): Promise<{ root: string; href: string }> {
+    return signal == null ? this.api.openFolder(path) : this.api.openFolder(path, signal)
   }
 
   async removeRecentFolder(path: string): Promise<void> {

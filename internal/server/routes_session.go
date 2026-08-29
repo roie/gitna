@@ -31,7 +31,11 @@ func (s *Server) handleOpenFolder(w http.ResponseWriter, r *http.Request) {
 
 	ctx, cancel := context.WithTimeout(r.Context(), LocalMutationTimeout)
 	defer cancel()
+	ctx = withStartupTimings(ctx)
 	result, err := s.openFolder(ctx, request.Path)
+	if timing := startupServerTiming(ctx); timing != "" {
+		w.Header().Set("Server-Timing", timing)
+	}
 	if err != nil {
 		if timeoutReached(ctx, err) {
 			writeJSON(w, http.StatusGatewayTimeout, map[string]string{"error": "folder open timed out"})

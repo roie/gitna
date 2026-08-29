@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"testing/fstest"
 	"time"
@@ -21,6 +22,23 @@ import (
 	"github.com/roie/gitna/internal/server"
 	"github.com/roie/gitna/internal/watch"
 )
+
+type testWatcher struct {
+	events  chan watch.InvalidationKind
+	onClose func()
+	once    sync.Once
+}
+
+func (w *testWatcher) Events() <-chan watch.InvalidationKind { return w.events }
+func (w *testWatcher) Close() error {
+	w.once.Do(func() {
+		if w.onClose != nil {
+			w.onClose()
+		}
+		close(w.events)
+	})
+	return nil
+}
 
 type fakeDormancyTimer struct {
 	mu      sync.Mutex
@@ -128,6 +146,148 @@ func newLifecycleRegistry(t *testing.T, git bool) (*folderRegistry, *fakeDormanc
 		t.Fatal(err)
 	}
 	return registry, scheduler
+}
+
+func TestFolderRegistryReservesRoutesWhileWatchersInitialize(t *testing.T) {
+	parent := t.TempDir()
+	initialRoot := filepath.Join(parent, "initial")
+	targetRoot := filepath.Join(parent, "target")
+	for _, root := range []string{initialRoot, targetRoot} {
+		if err := os.Mkdir(root, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	runner := &gitx.ExecRunner{}
+	initial, err := gitx.OpenFolder(t.Context(), runner, initialRoot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	started := make(chan string, 4)
+	watchFactory := func(ctx context.Context, repo gitx.Repository, _ gitx.Runner, _ watch.Options) (watch.Watcher, error) {
+		started <- repo.Root
+		<-ctx.Done()
+		return nil, ctx.Err()
+	}
+	registry, err := newFolderRegistry(
+		t.Context(), runner, fstest.MapFS{"index.html": {Data: []byte("gitna")}}, "test",
+		folder.Open(filepath.Join(t.TempDir(), "folders.json"), 20), server.CapabilityPath("token"), initial,
+		folderRegistryOptions{dormancyGrace: 45 * time.Second, newWatcher: watchFactory},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer registry.close()
+
+	select {
+	case <-started:
+	case <-time.After(time.Second):
+		t.Fatal("initial watcher did not start")
+	}
+	opened := make(chan protocol.OpenFolderResult, 1)
+	openErr := make(chan error, 1)
+	go func() {
+		result, err := registry.openFolder(t.Context(), targetRoot)
+		opened <- result
+		openErr <- err
+	}()
+	select {
+	case result := <-opened:
+		if err := <-openErr; err != nil {
+			t.Fatal(err)
+		}
+		if result.Href != "../target/" {
+			t.Fatalf("href = %q", result.Href)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("route reservation waited for recursive watcher setup")
+	}
+
+	// The destination shell and APIs are usable while watcher setup is blocked.
+	shell := httptest.NewRecorder()
+	registry.ServeHTTP(shell, httptest.NewRequest(http.MethodGet, "/target/", nil))
+	if shell.Code != http.StatusOK || shell.Body.String() != "gitna" {
+		t.Fatalf("shell = %d %q", shell.Code, shell.Body.String())
+	}
+	assertSnapshotRoot(t, registry, "/target/api/v1/snapshot", targetRoot)
+}
+
+func TestFolderRegistryWatcherFailureKeepsFolderUsableAndReconcilesOnSuccess(t *testing.T) {
+	root := t.TempDir()
+	runner := &gitx.ExecRunner{}
+	initial, err := gitx.OpenFolder(t.Context(), runner, root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var calls atomic.Int32
+	watchFactory := func(context.Context, gitx.Repository, gitx.Runner, watch.Options) (watch.Watcher, error) {
+		if calls.Add(1) == 1 {
+			return nil, errors.New("watch limit reached")
+		}
+		return &testWatcher{events: make(chan watch.InvalidationKind)}, nil
+	}
+	registry, err := newFolderRegistry(
+		t.Context(), runner, fstest.MapFS{"index.html": {Data: []byte("gitna")}}, "test",
+		folder.Open(filepath.Join(t.TempDir(), "folders.json"), 20), server.CapabilityPath("token"), initial,
+		folderRegistryOptions{dormancyGrace: 45 * time.Second, newWatcher: watchFactory},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer registry.close()
+	assertSnapshotRoot(t, registry, "/"+registry.initialRoute+"/api/v1/snapshot", root)
+
+	entry := registry.byRoute[registry.initialRoute]
+	deadline := time.Now().Add(time.Second)
+	for {
+		entry.session.mu.Lock()
+		watchErr := entry.session.watchErr
+		entry.session.mu.Unlock()
+		if watchErr != nil {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("watcher failure was not stored")
+		}
+		time.Sleep(time.Millisecond)
+	}
+
+	// A capability refresh starts a replacement watcher and its ready
+	// reconciliation advances route generation.
+	if output, err := exec.Command("git", "-C", root, "init", "-q", "-b", "main").CombinedOutput(); err != nil {
+		t.Fatalf("git init: %v: %s", err, output)
+	}
+	if _, err := registry.openFolder(t.Context(), root); err != nil {
+		t.Fatal(err)
+	}
+	assertSnapshotRepository(t, registry, "/"+registry.initialRoute+"/api/v1/snapshot", true)
+	deadline = time.Now().Add(time.Second)
+	for entry.server.Generation() < 3 && time.Now().Before(deadline) {
+		time.Sleep(time.Millisecond)
+	}
+	if entry.server.Generation() < 3 {
+		t.Fatalf("generation = %d, want watcher reconciliation", entry.server.Generation())
+	}
+}
+
+func TestFolderRegistryDormantShellDoesNotReviveBackend(t *testing.T) {
+	registry, scheduler := newLifecycleRegistry(t, true)
+	defer registry.close()
+	entry := registry.byRoute[registry.initialRoute]
+	registry.subscribersChanged(entry, 1)
+	registry.subscribersChanged(entry, -1)
+	scheduler.fireNext(t)
+
+	response := httptest.NewRecorder()
+	registry.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/"+registry.initialRoute+"/", nil))
+	if response.Code != http.StatusOK || response.Body.String() != "gitna" {
+		t.Fatalf("shell = %d %q", response.Code, response.Body.String())
+	}
+	entry.mu.Lock()
+	active := entry.session != nil || entry.server != nil
+	entry.mu.Unlock()
+	if active {
+		t.Fatal("static shell revived dormant backend")
+	}
 }
 
 func TestFolderRegistryDormancyTracksFinalSubscriberAndReconnect(t *testing.T) {

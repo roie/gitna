@@ -6,6 +6,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"testing"
+	"time"
 )
 
 func initTestRepo(t *testing.T) string {
@@ -94,6 +95,22 @@ func TestDiscoverNonexistentPath(t *testing.T) {
 
 	if _, err := Discover(context.Background(), r, dir); err == nil {
 		t.Fatal("Discover on missing path = nil error, want error")
+	}
+}
+
+func TestOpenFolderReportsLocalDiscoveryPhases(t *testing.T) {
+	root := t.TempDir()
+	phases := map[string]time.Duration{}
+	ctx := WithOpenFolderTrace(t.Context(), func(phase string, duration time.Duration) {
+		phases[phase] = duration
+	})
+	if _, err := OpenFolder(ctx, &ExecRunner{}, root); err != nil {
+		t.Fatal(err)
+	}
+	for _, phase := range []string{"folder-resolve-symlink", "folder-resolve-git"} {
+		if _, exists := phases[phase]; !exists {
+			t.Fatalf("missing phase %q: %v", phase, phases)
+		}
 	}
 }
 

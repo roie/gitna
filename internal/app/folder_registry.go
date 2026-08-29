@@ -29,39 +29,44 @@ type folderRegistryOptions struct {
 	dormancyGrace time.Duration
 	afterFunc     func(time.Duration, func()) dormancyTimer
 	openFolder    func(context.Context, string) (gitx.Repository, error)
+	newWatcher    folderWatcherFactory
 }
 
 type folderRoute struct {
 	route string
 	root  string
 
-	mu          sync.Mutex
-	session     *folderSession
-	server      *server.Server
-	generation  uint64
-	active      int
-	subscribers int
-	dormancy    dormancyTimer
-	dormancyID  uint64
-	transition  chan struct{}
-	shutting    bool
-	requests    sync.WaitGroup
+	mu             sync.Mutex
+	repository     gitx.Repository
+	refreshPending bool
+	session        *folderSession
+	server         *server.Server
+	generation     uint64
+	active         int
+	subscribers    int
+	dormancy       dormancyTimer
+	dormancyID     uint64
+	transition     chan struct{}
+	shutting       bool
+	requests       sync.WaitGroup
 }
 
 // folderRegistry maps canonical folder roots to stable process-lifetime routes.
 // Route metadata survives dormancy while heavyweight watchers and servers are
 // revived lazily on the next request.
 type folderRegistry struct {
-	ctx      context.Context
-	runner   *gitx.ExecRunner
-	static   fs.FS
-	version  string
-	folders  *folder.Catalog
-	basePath string
+	ctx          context.Context
+	runner       *gitx.ExecRunner
+	static       fs.FS
+	version      string
+	folders      *folder.Catalog
+	basePath     string
+	staticServer *server.Server
 
 	dormancyGrace time.Duration
 	afterFunc     func(time.Duration, func()) dormancyTimer
 	resolveFolder func(context.Context, string) (gitx.Repository, error)
+	newWatcher    folderWatcherFactory
 	closing       atomic.Bool
 
 	mu           sync.RWMutex
@@ -99,6 +104,13 @@ func newFolderRegistry(
 		if options[0].openFolder != nil {
 			config.openFolder = options[0].openFolder
 		}
+		if options[0].newWatcher != nil {
+			config.newWatcher = options[0].newWatcher
+		}
+	}
+	staticServer, err := server.New(static, server.Options{Version: version})
+	if err != nil {
+		return nil, fmt.Errorf("create static folder server: %w", err)
 	}
 	r := &folderRegistry{
 		ctx:           ctx,
@@ -107,14 +119,17 @@ func newFolderRegistry(
 		version:       version,
 		folders:       folders,
 		basePath:      strings.TrimSuffix(basePath, "/"),
+		staticServer:  staticServer,
 		dormancyGrace: config.dormancyGrace,
 		afterFunc:     config.afterFunc,
 		resolveFolder: config.openFolder,
+		newWatcher:    config.newWatcher,
 		byRoot:        make(map[string]string),
 		byRoute:       make(map[string]*folderRoute),
 	}
 	r.mu.Lock()
 	route, err := r.addLocked(initial)
+	entry := r.byRoute[route]
 	if err == nil {
 		r.initialRoute = route
 	}
@@ -122,14 +137,31 @@ func newFolderRegistry(
 	if err != nil {
 		return nil, err
 	}
+	if err := r.ensureActive(ctx, entry, &initial); err != nil {
+		return nil, err
+	}
 	return r, nil
 }
 
 func (r *folderRegistry) openFolder(ctx context.Context, path string) (protocol.OpenFolderResult, error) {
+	started := time.Now()
+	defer func() {
+		elapsed := time.Since(started)
+		server.RecordStartupTiming(ctx, "open-total", elapsed, "folder open")
+		traceStartup("open-total", elapsed, "")
+	}()
 	if r.closing.Load() {
 		return protocol.OpenFolderResult{}, errFolderRegistryClosed
 	}
-	repo, err := r.resolveFolder(ctx, path)
+	resolveStarted := time.Now()
+	resolveCtx := gitx.WithOpenFolderTrace(ctx, func(phase string, duration time.Duration) {
+		server.RecordStartupTiming(ctx, phase, duration, "folder discovery phase")
+		traceStartup(phase, duration, "")
+	})
+	repo, err := r.resolveFolder(resolveCtx, path)
+	resolveElapsed := time.Since(resolveStarted)
+	server.RecordStartupTiming(ctx, "folder-resolve", resolveElapsed, "canonical path and Git discovery")
+	traceStartup("folder-resolve", resolveElapsed, "")
 	if err != nil {
 		return protocol.OpenFolderResult{}, fmt.Errorf("open folder: %w", err)
 	}
@@ -138,6 +170,7 @@ func (r *folderRegistry) openFolder(ctx context.Context, path string) (protocol.
 	}
 
 	rootKey := folder.PathKey(repo.Root)
+	lookupStarted := time.Now()
 	r.mu.RLock()
 	if r.closing.Load() {
 		r.mu.RUnlock()
@@ -146,28 +179,28 @@ func (r *folderRegistry) openFolder(ctx context.Context, path string) (protocol.
 	route, exists := r.byRoot[rootKey]
 	entry := r.byRoute[route]
 	r.mu.RUnlock()
+	lookupElapsed := time.Since(lookupStarted)
+	server.RecordStartupTiming(ctx, "route-lookup", lookupElapsed, "stable route lookup")
 	if exists {
 		if entry == nil {
 			return protocol.OpenFolderResult{}, fmt.Errorf("open folder: route %q is unavailable", route)
 		}
-		if err := r.ensureActive(ctx, entry, &repo); err != nil {
-			return protocol.OpenFolderResult{}, err
+		entry.mu.Lock()
+		if entry.shutting || r.closing.Load() {
+			entry.mu.Unlock()
+			return protocol.OpenFolderResult{}, errFolderRegistryClosed
 		}
-		session, release, err := r.acquire(ctx, entry)
-		if err != nil {
-			return protocol.OpenFolderResult{}, err
-		}
-		err = session.refresh(ctx, repo)
-		release()
-		if err != nil {
-			return protocol.OpenFolderResult{}, err
-		}
+		entry.repository = repo
+		entry.refreshPending = true
+		entry.mu.Unlock()
+		r.folders.RecordDeferred(repo.Root, repo.IsGit())
 		return protocol.OpenFolderResult{Root: repo.Root, Href: "../" + route + "/"}, nil
 	}
 
+	reserveStarted := time.Now()
 	r.mu.Lock()
-	defer r.mu.Unlock()
 	if r.closing.Load() {
+		r.mu.Unlock()
 		return protocol.OpenFolderResult{}, errFolderRegistryClosed
 	}
 	if route, exists = r.byRoot[rootKey]; exists {
@@ -175,13 +208,19 @@ func (r *folderRegistry) openFolder(ctx context.Context, path string) (protocol.
 	} else {
 		route, err = r.addLocked(repo)
 		if err != nil {
+			r.mu.Unlock()
 			return protocol.OpenFolderResult{}, err
 		}
 		entry = r.byRoute[route]
 	}
+	r.mu.Unlock()
+	reserveElapsed := time.Since(reserveStarted)
+	server.RecordStartupTiming(ctx, "route-reserve", reserveElapsed, "stable route reservation")
+	traceStartup("route-reserve", reserveElapsed, "route=%q", route)
 	if entry == nil {
 		return protocol.OpenFolderResult{}, fmt.Errorf("open folder: route %q is unavailable", route)
 	}
+	r.folders.RecordDeferred(repo.Root, repo.IsGit())
 	return protocol.OpenFolderResult{Root: repo.Root, Href: "../" + route + "/"}, nil
 }
 
@@ -191,13 +230,12 @@ func (r *folderRegistry) removeRecentFolder(_ context.Context, path string) erro
 
 func (r *folderRegistry) addLocked(repo gitx.Repository) (string, error) {
 	route := r.allocateRouteLocked(folderName(repo.Root))
-	entry := &folderRoute{route: route, root: repo.Root, generation: 1}
-	session, srv, err := r.createBackend(entry, repo, entry.generation)
-	if err != nil {
-		return "", err
+	entry := &folderRoute{
+		route:      route,
+		root:       repo.Root,
+		repository: repo,
+		generation: 1,
 	}
-	entry.session = session
-	entry.server = srv
 	r.byRoot[folder.PathKey(repo.Root)] = route
 	r.byRoute[route] = entry
 	return route, nil
@@ -208,7 +246,7 @@ func (r *folderRegistry) createBackend(
 	repo gitx.Repository,
 	generation uint64,
 ) (*folderSession, *server.Server, error) {
-	session, err := newFolderSession(r.ctx, r.runner, repo, r.folders)
+	session, err := newFolderSession(r.ctx, r.runner, repo, r.folders, r.newWatcher)
 	if err != nil {
 		return nil, nil, fmt.Errorf("create folder session: %w", err)
 	}
@@ -242,10 +280,6 @@ func (r *folderRegistry) ensureActive(
 			entry.mu.Unlock()
 			return errFolderRegistryClosed
 		}
-		if entry.session != nil && entry.server != nil {
-			entry.mu.Unlock()
-			return nil
-		}
 		if entry.transition != nil {
 			transition := entry.transition
 			entry.mu.Unlock()
@@ -256,12 +290,33 @@ func (r *folderRegistry) ensureActive(
 				return ctx.Err()
 			}
 		}
+		if entry.session != nil && entry.server != nil && !entry.refreshPending {
+			entry.mu.Unlock()
+			return nil
+		}
+
 		transition := make(chan struct{})
 		entry.transition = transition
 		root := entry.root
 		generation := entry.generation
+		existing := entry.session
+		pendingRepo := entry.repository
+		entry.refreshPending = false
 		entry.mu.Unlock()
 
+		if existing != nil {
+			err := existing.refresh(ctx, pendingRepo)
+			entry.mu.Lock()
+			if err != nil {
+				entry.refreshPending = true
+			}
+			entry.transition = nil
+			close(transition)
+			entry.mu.Unlock()
+			return err
+		}
+
+		activationStarted := time.Now()
 		repo := gitx.Repository{}
 		var err error
 		if opened != nil && folder.PathKey(opened.Root) == folder.PathKey(root) {
@@ -274,10 +329,16 @@ func (r *folderRegistry) ensureActive(
 		if err == nil {
 			session, srv, err = r.createBackend(entry, repo, generation)
 		}
+		activationElapsed := time.Since(activationStarted)
+		server.RecordStartupTiming(ctx, "activation-wait", activationElapsed, "folder backend activation")
+		traceStartup("activation-wait", activationElapsed, "route=%q", entry.route)
 
 		entry.mu.Lock()
 		if err == nil && !entry.shutting && !r.closing.Load() {
 			entry.root = repo.Root
+			if !entry.refreshPending {
+				entry.repository = repo
+			}
 			entry.session = session
 			entry.server = srv
 		} else if err == nil {
@@ -482,6 +543,14 @@ func (r *folderRegistry) ServeHTTP(w http.ResponseWriter, request *http.Request)
 		http.NotFound(w, request)
 		return
 	}
+	request.URL.Path = "/" + rest
+	// Stable route metadata is sufficient to render the application shell.
+	// API requests revive a dormant backend lazily, but static assets and the
+	// shell never wait for recursive watcher setup.
+	if !strings.HasPrefix(request.URL.Path, "/api/") {
+		r.staticServer.ServeHTTP(w, request)
+		return
+	}
 	srv, release, err := r.acquireServer(request.Context(), entry)
 	if err != nil {
 		if errors.Is(err, errFolderRegistryClosed) {
@@ -492,7 +561,6 @@ func (r *folderRegistry) ServeHTTP(w http.ResponseWriter, request *http.Request)
 		return
 	}
 	defer release()
-	request.URL.Path = "/" + rest
 	srv.ServeHTTP(w, request)
 }
 
@@ -554,5 +622,6 @@ func (r *folderRegistry) close() error {
 		}
 		backend.entry.mu.Unlock()
 	}
+	r.folders.Flush()
 	return firstErr
 }

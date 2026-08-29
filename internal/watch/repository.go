@@ -37,6 +37,13 @@ type Watcher interface {
 }
 
 // Options tunes Repository behavior. Zero values select defaults.
+type SetupStats struct {
+	WalkDuration time.Duration
+	Directories  int
+	Watches      int
+	AddErrors    int
+}
+
 type Options struct {
 	// Debounce is the quiet period before pending invalidations are emitted.
 	// Zero means 250ms.
@@ -50,6 +57,8 @@ type Options struct {
 	// Fingerprint overrides the repository fingerprint function. Used by
 	// tests; defaults to a hash of porcelain status.
 	Fingerprint func(ctx context.Context) (string, error)
+	// OnReady receives bounded setup counts after initial watch installation.
+	OnReady func(SetupStats)
 }
 
 // Repository watches one Git worktree plus its metadata and emits coalesced
@@ -83,15 +92,21 @@ func New(ctx context.Context, git gitx.Repository, runner gitx.Runner, opts Opti
 		events:   make(chan InvalidationKind, 32),
 		closedCh: make(chan struct{}),
 	}
-	if err := w.addWorktreeWatches(); err != nil {
+	stats := SetupStats{}
+	started := time.Now()
+	if err := w.addWorktreeWatches(ctx, &stats); err != nil {
 		_ = fsw.Close()
 		return nil, err
 	}
 	if git.IsGit() {
-		if err := w.addGitWatches(); err != nil {
+		if err := w.addGitWatches(ctx, &stats); err != nil {
 			_ = fsw.Close()
 			return nil, err
 		}
+	}
+	stats.WalkDuration = time.Since(started)
+	if opts.OnReady != nil {
+		opts.OnReady(stats)
 	}
 	go w.loop(ctx)
 	if git.IsGit() {
@@ -135,39 +150,64 @@ func (w *Repository) emit(k InvalidationKind) {
 // addWorktreeWatches registers every directory under the worktree root,
 // skipping the Git metadata directory. Missing watches for newly created
 // directories are added from the event loop.
-func (w *Repository) addWorktreeWatches() error {
-	var firstErr error
-	_ = filepath.WalkDir(w.git.Root, func(p string, d fs.DirEntry, err error) error {
+func (w *Repository) addWorktreeWatches(ctx context.Context, stats *SetupStats) error {
+	err := filepath.WalkDir(w.git.Root, func(p string, d fs.DirEntry, err error) error {
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			return ctxErr
+		}
 		if err != nil || !d.IsDir() {
 			return nil
 		}
 		if d.Name() == ".git" || w.isGitDirPath(p) {
 			return filepath.SkipDir
 		}
-		if werr := w.fsw.Add(p); werr != nil && firstErr == nil {
-			firstErr = werr
+		stats.Directories++
+		if werr := w.fsw.Add(p); werr != nil {
+			stats.AddErrors++
+			if w.opts.OnError != nil {
+				w.opts.OnError(werr)
+			}
+		} else {
+			stats.Watches++
 		}
 		return nil
 	})
-	return firstErr
+	return err
 }
 
 // addGitWatches observes the Git metadata that affects status: the metadata
 // directory itself (index, HEAD, packed-refs, config) and the refs tree
 // (branch updates).
-func (w *Repository) addGitWatches() error {
-	firstErr := w.fsw.Add(w.git.GitDir)
+func (w *Repository) addGitWatches(ctx context.Context, stats *SetupStats) error {
+	add := func(path string) {
+		stats.Directories++
+		if err := w.fsw.Add(path); err != nil {
+			stats.AddErrors++
+			if w.opts.OnError != nil {
+				w.opts.OnError(err)
+			}
+		} else {
+			stats.Watches++
+		}
+	}
+	add(w.git.GitDir)
 	refs := filepath.Join(w.git.GitDir, "refs")
-	_ = filepath.WalkDir(refs, func(p string, d fs.DirEntry, err error) error {
-		if err != nil || !d.IsDir() {
+	return filepath.WalkDir(refs, func(p string, d fs.DirEntry, err error) error {
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			return ctxErr
+		}
+		if err != nil {
+			if errors.Is(err, fs.ErrNotExist) {
+				return nil
+			}
 			return nil
 		}
-		if werr := w.fsw.Add(p); werr != nil && firstErr == nil {
-			firstErr = werr
+		if !d.IsDir() {
+			return nil
 		}
+		add(p)
 		return nil
 	})
-	return firstErr
 }
 
 // shouldWatchDir decides whether a newly created directory gets a watch. Git
@@ -256,13 +296,19 @@ func (w *Repository) loop(ctx context.Context) {
 			if ev.Op&fsnotify.Create != 0 {
 				if info, err := os.Stat(ev.Name); err == nil && info.IsDir() && w.shouldWatchDir(ev.Name) {
 					_ = filepath.WalkDir(ev.Name, func(path string, entry fs.DirEntry, err error) error {
+						if ctxErr := ctx.Err(); ctxErr != nil {
+							return ctxErr
+						}
 						if err != nil || !entry.IsDir() {
 							return nil
 						}
 						if !w.shouldWatchDir(path) {
 							return filepath.SkipDir
 						}
-						return w.fsw.Add(path)
+						if err := w.fsw.Add(path); err != nil && w.opts.OnError != nil {
+							w.opts.OnError(err)
+						}
+						return nil
 					})
 				}
 			}

@@ -2,6 +2,7 @@ package watch
 
 import (
 	"context"
+	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -114,6 +115,33 @@ func trackedRepo(t *testing.T) string {
 	runGit(t, root, "add", "tracked.txt")
 	runGit(t, root, "commit", "-q", "-m", "add tracked")
 	return root
+}
+
+func TestWatcherSetupReportsBoundedCountsAndHonorsCancellation(t *testing.T) {
+	root := t.TempDir()
+	for _, path := range []string{"one", "one/two", "three"} {
+		if err := os.MkdirAll(filepath.Join(root, path), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	var stats SetupStats
+	watcher, err := New(t.Context(), gitx.Repository{Root: root}, nil, Options{
+		FallbackInterval: -1,
+		OnReady:          func(got SetupStats) { stats = got },
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stats.Directories != 4 || stats.Watches != 4 || stats.AddErrors != 0 {
+		t.Fatalf("stats = %#v", stats)
+	}
+	_ = watcher.Close()
+
+	ctx, cancel := context.WithCancel(t.Context())
+	cancel()
+	if _, err := New(ctx, gitx.Repository{Root: root}, nil, Options{}); !errors.Is(err, context.Canceled) {
+		t.Fatalf("canceled setup error = %v", err)
+	}
 }
 
 func TestWatcherReportsOrdinaryFolderChangesWithoutGit(t *testing.T) {

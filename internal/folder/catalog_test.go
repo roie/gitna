@@ -58,6 +58,27 @@ func TestCatalogPersistsBoundedRecentFolders(t *testing.T) {
 	}
 }
 
+func TestCatalogDeferredRecordIsImmediateAndOrderedWithRemove(t *testing.T) {
+	root := t.TempDir()
+	statePath := filepath.Join(root, "folders.json")
+	opened := filepath.Join(root, "opened")
+	if err := os.Mkdir(opened, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	catalog := Open(statePath, 5)
+	catalog.RecordDeferred(opened, true)
+	if recent := catalog.Recent(); len(recent) != 1 || recent[0].Path != opened {
+		t.Fatalf("deferred recent = %#v", recent)
+	}
+	if err := catalog.Remove(opened); err != nil {
+		t.Fatal(err)
+	}
+	catalog.Flush()
+	if recent := Open(statePath, 5).Recent(); len(recent) != 0 {
+		t.Fatalf("deferred record overwrote remove: %#v", recent)
+	}
+}
+
 func TestCatalogRemovePersistsAndReopenRestoresEntry(t *testing.T) {
 	root := t.TempDir()
 	statePath := filepath.Join(root, "config", "folders.json")

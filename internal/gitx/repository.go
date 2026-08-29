@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 )
 
 // Repository describes a discovered Git worktree.
@@ -17,11 +18,30 @@ type Repository struct {
 
 var ErrNotRepository = errors.New("not inside a git repository")
 
+type openFolderTraceKey struct{}
+
+// WithOpenFolderTrace installs an opt-in local phase observer for folder
+// canonicalization and Git discovery. It carries no paths or repository data.
+func WithOpenFolderTrace(ctx context.Context, trace func(string, time.Duration)) context.Context {
+	if trace == nil {
+		return ctx
+	}
+	return context.WithValue(ctx, openFolderTraceKey{}, trace)
+}
+
+func traceOpenFolder(ctx context.Context, phase string, started time.Time) {
+	trace, _ := ctx.Value(openFolderTraceKey{}).(func(string, time.Duration))
+	if trace != nil {
+		trace(phase, time.Since(started))
+	}
+}
+
 func (r Repository) IsGit() bool { return r.GitDir != "" }
 
 // OpenFolder resolves start to a Git worktree root when one contains it,
 // otherwise to the canonical ordinary directory itself.
 func OpenFolder(ctx context.Context, runner Runner, start string) (Repository, error) {
+	canonicalStarted := time.Now()
 	absolute, err := filepath.Abs(start)
 	if err != nil {
 		return Repository{}, err
@@ -37,7 +57,10 @@ func OpenFolder(ctx context.Context, runner Runner, start string) (Repository, e
 	if !info.IsDir() {
 		return Repository{}, fmt.Errorf("open folder: %q is not a directory", root)
 	}
+	traceOpenFolder(ctx, "folder-resolve-symlink", canonicalStarted)
+	gitStarted := time.Now()
 	repo, err := Discover(ctx, runner, root)
+	traceOpenFolder(ctx, "folder-resolve-git", gitStarted)
 	if err == nil {
 		return repo, nil
 	}
