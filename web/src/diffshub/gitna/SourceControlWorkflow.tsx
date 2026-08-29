@@ -67,7 +67,11 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '../com
 import { cn } from '../lib/cn'
 import { CODE_VIEW_FILE_TREE_SEARCH_OPEN_HEIGHT } from '../lib/constants'
 import type { DiffsHubFileTreeSource } from '../lib/types'
-import { graphRangeExtractor, nextGraphFocusIndex } from './graphVirtualization'
+import {
+  graphRangeExtractor,
+  nextGraphFocusIndex,
+  shouldLoadMoreGraph,
+} from './graphVirtualization'
 import { Confirm, Modal } from './Modal'
 import { RepositoryEntryModal } from './RepositoryEntryModal'
 import { useRepository } from './repository'
@@ -2403,6 +2407,7 @@ function GraphSection({
   const [activeIndex, setActiveIndex] = useState(0)
   const [pins, setPins] = useState<ReadonlySet<string>>(() => new Set())
   const graphBodyRef = useRef<HTMLDivElement>(null)
+  const continuationArmedRef = useRef(false)
   const anchorRef = useRef<GraphScrollAnchor | null>(null)
   const previousRowsRef = useRef<readonly string[]>([])
   const laneCount = Math.max(1, ...repository.graphRows.map((row) => row.totalColumns))
@@ -2448,6 +2453,41 @@ function GraphSection({
     scrollMargin,
   })
   const virtualItems = virtualizer.getVirtualItems()
+  const graphCount =
+    repository.graphTotal == null
+      ? `${repository.graphRows.length}${repository.graphHasMore ? '+' : ''}`
+      : repository.graphHasMore
+        ? `${repository.graphRows.length} of ${repository.graphTotal}`
+        : `${repository.graphTotal}`
+  const graphSetSize =
+    repository.graphTotal ?? (repository.graphHasMore ? -1 : repository.graphRows.length)
+  const armContinuation = useCallback(() => {
+    continuationArmedRef.current = true
+  }, [])
+
+  useEffect(() => {
+    if (
+      !open ||
+      !continuationArmedRef.current ||
+      repository.graphLoading ||
+      repository.graphError != null ||
+      !repository.graphHasMore
+    ) {
+      return
+    }
+    const lastVisible = virtualizer.range?.endIndex ?? -1
+    if (!shouldLoadMoreGraph(lastVisible, repository.graphRows.length)) return
+    continuationArmedRef.current = false
+    void repository.loadMoreGraph()
+  }, [
+    open,
+    repository,
+    repository.graphError,
+    repository.graphHasMore,
+    repository.graphLoading,
+    repository.graphRows.length,
+    virtualItems,
+  ])
 
   useEffect(() => {
     const query = window.matchMedia('(max-width: 767px)')
@@ -2599,8 +2639,8 @@ function GraphSection({
             </DropdownMenu>
           </>
         }
-        count={`${repository.graphRows.length}${repository.graphHasMore ? '+' : ''}`}
-        countTitle={`${repository.graphRows.length}${repository.graphHasMore ? '+' : ''} commits in Graph`}
+        count={graphCount}
+        countTitle={`${graphCount} commits in Graph${repository.graphCountLoading ? '; exact count loading' : ''}`}
         dataSection="graph"
         headerRef={headerRef}
         icon={IconBranch}
@@ -2614,6 +2654,11 @@ function GraphSection({
             ref={graphBodyRef}
             data-pane-body="graph"
             className="graph-list cv-mini-scrollbar min-h-0 px-2 pb-4 overscroll-contain md:flex-1 md:overflow-y-auto max-md:overflow-visible"
+            onKeyDownCapture={(event) => {
+              if (['ArrowDown', 'PageDown', 'End'].includes(event.key)) armContinuation()
+            }}
+            onTouchStart={armContinuation}
+            onWheel={armContinuation}
           >
             <div
               ref={virtualizer.containerRef}
@@ -2632,7 +2677,7 @@ function GraphSection({
                     ref={virtualizer.measureElement}
                     role="listitem"
                     aria-posinset={item.index + 1}
-                    aria-setsize={repository.graphHasMore ? -1 : repository.graphRows.length}
+                    aria-setsize={graphSetSize}
                     className="graph-row absolute top-0 left-0 w-full"
                     data-graph-index={item.index}
                     data-graph-oid={row.commit.oid}
@@ -2653,21 +2698,27 @@ function GraphSection({
                 )
               })}
             </div>
-            {repository.graphHasMore && (
-              <Button
-                variant="ghost"
-                size="sm"
-                className="w-full"
-                disabled={repository.graphLoading}
-                onClick={() => void repository.loadMoreGraph()}
-              >
-                Load more
-              </Button>
+            {repository.graphLoading && repository.graphRows.length > 0 && (
+              <p role="status" className="px-2 py-2 text-xs text-muted-foreground">
+                Loading more commits…
+              </p>
             )}
             {repository.graphError != null && (
-              <p role="alert" className="px-2 py-2 text-xs text-red-500">
-                {repository.graphError}
-              </p>
+              <div className="space-y-1 px-2 py-2">
+                <p role="alert" className="text-xs text-red-500">
+                  {repository.graphError}
+                </p>
+                {repository.graphHasMore && (
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    disabled={repository.graphLoading}
+                    onClick={() => void repository.loadMoreGraph()}
+                  >
+                    Retry loading commits
+                  </Button>
+                )}
+              </div>
             )}
           </div>
         </TooltipProvider>

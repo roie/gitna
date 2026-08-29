@@ -1,12 +1,22 @@
 import { describe, expect, it } from 'vitest'
 
-import { graphRangeExtractor, nextGraphFocusIndex } from '../src/diffshub/gitna/graphVirtualization'
+import {
+  graphRangeExtractor,
+  nextGraphFocusIndex,
+  shouldLoadMoreGraph,
+} from '../src/diffshub/gitna/graphVirtualization'
 
 describe('Graph virtualization', () => {
   it('keeps focused and portal-owning rows mounted outside the visible range', () => {
     expect(
       graphRangeExtractor({ count: 600, endIndex: 19, overscan: 3, startIndex: 10 }, [0, 11, 500]),
     ).toEqual([0, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 500])
+  })
+
+  it('loads only after a user-driven visible range reaches the final ten rows', () => {
+    expect(shouldLoadMoreGraph(89, 100)).toBe(false)
+    expect(shouldLoadMoreGraph(90, 100)).toBe(true)
+    expect(shouldLoadMoreGraph(0, 0)).toBe(false)
   })
 
   it('moves disclosure focus without wrapping beyond loaded history', () => {

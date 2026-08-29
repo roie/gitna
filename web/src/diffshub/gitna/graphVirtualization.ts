@@ -4,6 +4,14 @@ export function graphRangeExtractor(range: Range, pinnedIndices: readonly number
   return [...new Set([...defaultRangeExtractor(range), ...pinnedIndices])].sort((a, b) => a - b)
 }
 
+export function shouldLoadMoreGraph(
+  lastVisible: number,
+  rowCount: number,
+  threshold = 10,
+): boolean {
+  return rowCount > 0 && lastVisible >= Math.max(0, rowCount - threshold)
+}
+
 export function nextGraphFocusIndex(index: number, key: string, count: number): number | null {
   if (count === 0) return null
   if (key === 'ArrowDown') return Math.min(index + 1, count - 1)
