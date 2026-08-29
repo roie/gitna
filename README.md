@@ -1,5 +1,9 @@
 <p align="center">
-  <img src="assets/gitna-logo.png" alt="Gitna" width="112" height="112">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="web/public/gitna-logo-dark.png">
+    <source media="(prefers-color-scheme: light)" srcset="web/public/gitna-logo-light.png">
+    <img src="web/public/gitna-logo-light.png" alt="Gitna" width="112" height="112">
+  </picture>
 </p>
 
 <h1 align="center">Gitna</h1>
