@@ -1540,6 +1540,9 @@ test('dirty repository tabs survive external file removal', async ({ page, app }
 test('ordinary folders open in Explorer and switch back to Git', async ({ page, app }) => {
   const folder = join(dirname(app.repo), 'ordinary-folder')
   mkdirSync(folder)
+  mkdirSync(join(folder, 'empty'))
+  mkdirSync(join(folder, 'nested'))
+  writeFileSync(join(folder, 'nested', 'child.txt'), 'nested child\n')
   writeFileSync(join(folder, 'large.bin'), Buffer.alloc(2_100_000))
   writeFileSync(join(folder, 'notes.txt'), 'folder note\n')
 
@@ -1557,6 +1560,15 @@ test('ordinary folders open in Explorer and switch back to Git', async ({ page, 
   await expect(page.getByPlaceholder('Commit message')).toHaveCount(0)
   await expect(page.locator('[data-section="graph"]')).toHaveCount(0)
   const explorer = page.locator('#gitna-repository-tree__tree')
+  await expect(explorer.getByRole('treeitem')).toHaveCount(4)
+  const nested = explorer.getByRole('treeitem', { name: 'nested', exact: true })
+  await expect(nested).toHaveAttribute('aria-expanded', 'false')
+  await nested.click()
+  await expect(explorer.getByRole('treeitem', { name: 'child.txt', exact: true })).toBeVisible()
+  const empty = explorer.getByRole('treeitem', { name: 'empty', exact: true })
+  await empty.click()
+  await expect(empty).not.toHaveAttribute('aria-expanded')
+
   await explorer.getByRole('treeitem', { name: 'large.bin', exact: true }).click()
   const fileError = page.getByRole('alert')
   await expect(fileError).toContainText('Couldn’t open file')

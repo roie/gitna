@@ -2,6 +2,7 @@ import type {
   Branch,
   CommitFiles,
   ConflictEntry,
+  DirectoryEntries,
   DiffScope,
   FileDiff,
   GraphPage,
@@ -119,6 +120,7 @@ export interface ApiClient {
   snapshot(): Promise<RepoSnapshot>
   folders(): Promise<FolderCatalog>
   repositoryFiles(cursor?: string): Promise<RepositoryFiles>
+  directoryEntries(path: string, cursor?: string, signal?: AbortSignal): Promise<DirectoryEntries>
   readWorktreeFile(path: string): Promise<WorktreeFile>
   writeWorktreeFile(path: string, content: string, expectedHash: string): Promise<WorktreeFile>
   createWorktreeEntry(path: string, directory: boolean): Promise<void>
@@ -219,6 +221,23 @@ export function createApi(): ApiClient {
         await fetch(`api/v1/files${query}`, { signal: AbortSignal.timeout(FETCH_TIMEOUT) }),
       )
       return (await res.json()) as RepositoryFiles
+    },
+    async directoryEntries(
+      path: string,
+      cursor?: string,
+      signal?: AbortSignal,
+    ): Promise<DirectoryEntries> {
+      const query = new URLSearchParams({ path })
+      if (cursor != null) query.set('cursor', cursor)
+      const res = await expectOK(
+        await fetch(`api/v1/directory?${query.toString()}`, {
+          signal:
+            signal == null
+              ? AbortSignal.timeout(FETCH_TIMEOUT)
+              : AbortSignal.any([signal, AbortSignal.timeout(FETCH_TIMEOUT)]),
+        }),
+      )
+      return (await res.json()) as DirectoryEntries
     },
     async readWorktreeFile(path: string): Promise<WorktreeFile> {
       const res = await expectOK(

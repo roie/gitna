@@ -28,6 +28,7 @@ import {
   BASE_FILE_TREE_OPTIONS,
   CODE_VIEW_FILE_TREE_ITEM_HEIGHT,
   getInitialBatchSize,
+  LAZY_REPOSITORY_FILE_TREE_OPTIONS,
   REPOSITORY_FILE_TREE_OPTIONS,
 } from '@/lib/constants';
 import { cn } from '@/lib/cn';
@@ -55,6 +56,8 @@ interface DiffsHubFileTreeProps {
   className?: string;
   dragAndDrop?: FileTreeDragAndDropConfig;
   modelId?: string;
+  lazyDirectories?: ReadonlySet<string>;
+  onLoadDirectory?(path: string): Promise<readonly string[]>;
   // Callback invoked with the underlying tree model once it's mounted, and
   // again with `null` on unmount. Lets parents drive imperative APIs like
   // search open/close without owning the model creation.
@@ -71,6 +74,8 @@ export const DiffsHubFileTree = memo(function DiffsHubFileTree({
   className,
   dragAndDrop,
   modelId = 'gh-code-view-tree',
+  lazyDirectories,
+  onLoadDirectory,
   onModelReady,
   onSelectItem,
   renderContextMenu,
@@ -83,6 +88,8 @@ export const DiffsHubFileTree = memo(function DiffsHubFileTree({
   const dragAndDropRef = useRef(dragAndDrop);
   const renderContextMenuRef = useRef(renderContextMenu);
   const selectedPathRef = useRef(selectedPath);
+  const lazyDirectoriesRef = useRef(lazyDirectories);
+  const onLoadDirectoryRef = useRef(onLoadDirectory);
   const syncingSelectionRef = useRef(false);
   const previousSourceRef = useRef(source);
   const [initialVisibleRowCount] = useState(getInitialBatchSize);
@@ -90,6 +97,8 @@ export const DiffsHubFileTree = memo(function DiffsHubFileTree({
   dragAndDropRef.current = dragAndDrop;
   renderContextMenuRef.current = renderContextMenu;
   selectedPathRef.current = selectedPath;
+  lazyDirectoriesRef.current = lazyDirectories;
+  onLoadDirectoryRef.current = onLoadDirectory;
   // `source.paths` aliases the streaming accumulator's live array, so it keeps
   // growing on later publishes. The FileTree model consumes its path list
   // exactly once via useFileTree's useState initializer; capture a bounded
@@ -98,6 +107,7 @@ export const DiffsHubFileTree = memo(function DiffsHubFileTree({
   // ever-growing live array.
   const initialPathsRef = useRef<readonly string[] | null>(null);
   initialPathsRef.current ??= source.paths.slice(0, source.pathCount);
+  const appliedPathsRef = useRef(new Set(initialPathsRef.current));
   const onSelectionChange = useStableCallback(
     (selectedPaths: readonly FileTreePublicId[]) => {
       if (syncingSelectionRef.current || onSelectItem == null) return;
@@ -161,7 +171,11 @@ export const DiffsHubFileTree = memo(function DiffsHubFileTree({
   );
 
   const { model } = useFileTree({
-    ...(showFolderGitStatus ? REPOSITORY_FILE_TREE_OPTIONS : BASE_FILE_TREE_OPTIONS),
+    ...(lazyDirectories != null
+      ? LAZY_REPOSITORY_FILE_TREE_OPTIONS
+      : showFolderGitStatus
+        ? REPOSITORY_FILE_TREE_OPTIONS
+        : BASE_FILE_TREE_OPTIONS),
     id: modelId,
     gitStatus: source.gitStatus,
     dragAndDrop:
@@ -180,9 +194,75 @@ export const DiffsHubFileTree = memo(function DiffsHubFileTree({
     renderRowActions: stableRenderRowActions,
     itemHeight: CODE_VIEW_FILE_TREE_ITEM_HEIGHT,
     initialVisibleRowCount,
+    initialUnloadedDirectoryPaths: lazyDirectories == null ? undefined : [...lazyDirectories],
   });
 
   useEffect(() => {
+    if (lazyDirectories == null) return;
+    const nextPaths = new Set(source.paths.slice(0, source.pathCount));
+    const operations: FileTreeBatchOperation[] = [];
+    for (const path of appliedPathsRef.current) {
+      if (!nextPaths.has(path)) operations.push({ type: 'remove', path, recursive: path.endsWith('/') });
+    }
+    for (const path of nextPaths) {
+      if (!appliedPathsRef.current.has(path)) operations.push({ type: 'add', path });
+    }
+    if (operations.length > 0) model.batch(operations);
+    appliedPathsRef.current = nextPaths;
+    for (const path of lazyDirectories) {
+      if (model.getItem(path)?.isDirectory() && model.getDirectoryLoadState(path) === 'loaded') {
+        model.markDirectoryUnloaded(path);
+      }
+    }
+  }, [lazyDirectories, model, source]);
+
+  useEffect(() => {
+    if (lazyDirectories == null || onLoadDirectory == null) return;
+    const expanded = new Set<string>();
+    const load = (path: string) => {
+      const attempt = model.beginChildLoad(path);
+      void onLoadDirectoryRef.current?.(path.replace(/\/$/, ''))
+        .then((children) => {
+          const operations: FileTreeBatchOperation[] = [];
+          for (const child of children) {
+            if (!appliedPathsRef.current.has(child)) {
+              appliedPathsRef.current.add(child);
+              operations.push({ type: 'add', path: child });
+            }
+          }
+          model.applyChildPatch(attempt, { operations });
+          for (const child of children) {
+            if (
+              child.endsWith('/') &&
+              model.getItem(child)?.isDirectory() &&
+              model.getDirectoryLoadState(child) === 'loaded'
+            ) {
+              model.markDirectoryUnloaded(child);
+            }
+          }
+          model.completeChildLoad(attempt);
+        })
+        .catch((reason: unknown) => {
+          model.failChildLoad(attempt, reason instanceof Error ? reason.message : String(reason));
+        });
+    };
+    return model.subscribe(() => {
+      const nextExpanded = new Set<string>();
+      for (const path of lazyDirectoriesRef.current ?? []) {
+        const item = model.getItem(path);
+        if (item == null || !item.isDirectory()) continue;
+        if (!(item as FileTreeDirectoryHandle).isExpanded()) continue;
+        nextExpanded.add(path);
+        const state = model.getDirectoryLoadState(path);
+        if (!expanded.has(path) && (state === 'unloaded' || state === 'error')) load(path);
+      }
+      expanded.clear();
+      for (const path of nextExpanded) expanded.add(path);
+    });
+  }, [lazyDirectories, model, onLoadDirectory]);
+
+  useEffect(() => {
+    if (lazyDirectories != null) return;
     const previousSource = previousSourceRef.current;
     if (previousSource === source) {
       return;

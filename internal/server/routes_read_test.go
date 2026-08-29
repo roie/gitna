@@ -21,6 +21,7 @@ type fakeRepo struct {
 	review          protocol.ReviewResponse
 	reviewNextAfter string
 	files           protocol.RepositoryFiles
+	directory       protocol.DirectoryEntries
 
 	graphCommits []protocol.GraphCommit
 	graphFiles   []protocol.CommitFile
@@ -80,6 +81,13 @@ func (f *fakeRepo) RepositoryFiles(context.Context, string, int) (protocol.Repos
 		return protocol.RepositoryFiles{}, f.err
 	}
 	return f.files, nil
+}
+
+func (f *fakeRepo) DirectoryEntries(context.Context, string, string, int) (protocol.DirectoryEntries, error) {
+	if f.err != nil {
+		return protocol.DirectoryEntries{}, f.err
+	}
+	return f.directory, nil
 }
 
 func (f *fakeRepo) Diff(context.Context, protocol.DiffScope, protocol.DiffOptions) (protocol.FileDiff, error) {
@@ -484,6 +492,37 @@ func TestSnapshotRouteReturnsNormalizedJSON(t *testing.T) {
 	}
 	if got.Generation == 0 {
 		t.Fatal("generation not populated")
+	}
+}
+
+func TestDirectoryEntriesRouteUsesOpaqueCursor(t *testing.T) {
+	h := newSnapshotServer(&fakeRepo{directory: protocol.DirectoryEntries{
+		Directory:  "src",
+		Entries:    []protocol.DirectoryEntry{{Name: "main.go", Path: "src/main.go", Kind: protocol.DirectoryEntryFile}},
+		Truncated:  true,
+		NextCursor: "main.go",
+	}})
+	req := httptest.NewRequest(http.MethodGet, "/g/"+testToken+"/api/v1/directory?path=src", nil)
+	req.Host = testHost
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d (%s)", rec.Code, rec.Body.String())
+	}
+	var got protocol.DirectoryEntries
+	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
+		t.Fatal(err)
+	}
+	if got.NextCursor == "" || got.NextCursor == "main.go" {
+		t.Fatalf("cursor = %q, want opaque", got.NextCursor)
+	}
+
+	bad := httptest.NewRequest(http.MethodGet, "/g/"+testToken+"/api/v1/directory?cursor=not%20base64!", nil)
+	bad.Host = testHost
+	badRec := httptest.NewRecorder()
+	h.ServeHTTP(badRec, bad)
+	if badRec.Code != http.StatusBadRequest {
+		t.Fatalf("bad cursor status = %d", badRec.Code)
 	}
 }
 

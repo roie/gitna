@@ -229,7 +229,7 @@ function createRepositoryTreeSource(
   changes: readonly TreeFile[],
 ): DiffsHubFileTreeSource {
   const statusesByPath = new Map(changes.map((change) => [change.path, gitStatus(change.kind)]))
-  const identity = new Map(paths.map((path) => [path, path]))
+  const identity = new Map(paths.filter((path) => !path.endsWith('/')).map((path) => [path, path]))
   return {
     gitStatus: paths.flatMap((path) => {
       const status = statusesByPath.get(path)
@@ -252,6 +252,7 @@ function createRepositoryListSource(
   const itemIdToPath = new Map<string, string>()
   const used = new Set<string>()
   for (const path of paths) {
+    if (path.endsWith('/')) continue
     const base = path.replaceAll('/', ' › ')
     let display = base
     while (used.has(display)) display += '\u2063'
@@ -950,7 +951,11 @@ export function GitnaSourceControl() {
           )}
           icon={<IconFileTree className="size-3" />}
           paneIcon={IconFileTree}
+          lazyDirectories={snapshot.repository ? undefined : repository.ordinaryUnloadedDirectories}
           modelId="gitna-repository-tree"
+          onLoadDirectory={
+            snapshot.repository ? undefined : (path) => repository.loadOrdinaryDirectory(path)
+          }
           open={repositoryOpen}
           selectedPath={repository.repositoryFilePath ?? repository.selection?.change.path}
           source={repositorySource}
@@ -1929,6 +1934,8 @@ interface TreeSectionProps {
   headerRef?: React.Ref<HTMLButtonElement>
   icon: ReactNode
   modelId: string
+  lazyDirectories?: ReadonlySet<string>
+  onLoadDirectory?(path: string): Promise<readonly string[]>
   onOpenChange(open: boolean): void
   onSelectPath(path: string): void
   open: boolean
@@ -1953,7 +1960,9 @@ function TreeSection({
   headerClassName,
   headerRef,
   icon,
+  lazyDirectories,
   modelId,
+  onLoadDirectory,
   onOpenChange,
   onSelectPath,
   open,
@@ -1988,7 +1997,7 @@ function TreeSection({
           className={headerClassName}
           actions={
             <>
-              {open && model != null && source.pathCount > 0 && (
+              {open && model != null && source.pathCount > 0 && lazyDirectories == null && (
                 <TreeSearchToggle
                   model={model}
                   title={dataSection === 'repository' ? 'Repository' : title}
@@ -2059,7 +2068,9 @@ function TreeSection({
                     'md:ml-2',
                   )}
                   dragAndDrop={dragAndDrop}
+                  lazyDirectories={lazyDirectories}
                   modelId={modelId}
+                  onLoadDirectory={onLoadDirectory}
                   onModelReady={setModel}
                   onSelectItem={onSelectPath}
                   renderContextMenu={renderContextMenu}

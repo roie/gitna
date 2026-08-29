@@ -175,5 +175,12 @@ export const BASE_FILE_TREE_OPTIONS = {
 // so changed-descendant dots carry useful information and stay visible.
 export const REPOSITORY_FILE_TREE_OPTIONS = {
   ...BASE_FILE_TREE_OPTIONS,
+  initialExpansion: 'closed',
   unsafeCSS: SHARED_FILE_TREE_UNSAFE_CSS,
+} as const satisfies Omit<FileTreeOptions, 'paths' | 'preparedInput'>;
+
+export const LAZY_REPOSITORY_FILE_TREE_OPTIONS = {
+  ...REPOSITORY_FILE_TREE_OPTIONS,
+  flattenEmptyDirectories: false,
+  search: false,
 } as const satisfies Omit<FileTreeOptions, 'paths' | 'preparedInput'>;

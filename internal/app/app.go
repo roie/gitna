@@ -66,6 +66,10 @@ func (a *repoAdapter) RepositoryFiles(ctx context.Context, after string, limit i
 	return a.current().RepositoryFiles(ctx, a.runner, after, limit)
 }
 
+func (a *repoAdapter) DirectoryEntries(ctx context.Context, directory, after string, limit int) (protocol.DirectoryEntries, error) {
+	return a.current().DirectoryEntries(ctx, directory, after, limit)
+}
+
 func (a *repoAdapter) ReadWorktreeFile(ctx context.Context, path string) (protocol.WorktreeFile, error) {
 	return a.current().ReadWorktreeFile(ctx, path)
 }

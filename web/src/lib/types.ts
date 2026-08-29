@@ -110,6 +110,20 @@ export interface RepositoryFiles {
   nextCursor?: string
 }
 
+export interface DirectoryEntry {
+  kind: 'directory' | 'file'
+  name: string
+  path: string
+}
+
+export interface DirectoryEntries {
+  generation: number
+  directory: string
+  entries: DirectoryEntry[]
+  truncated: boolean
+  nextCursor?: string
+}
+
 export interface Folder {
   path: string
   name: string

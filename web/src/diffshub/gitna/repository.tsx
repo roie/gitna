@@ -176,6 +176,11 @@ export class GitnaRepository {
   repositoryFilesLoading = false
   repositoryFilesError: string | null = null
   repositoryFilesTruncated = false
+  ordinaryUnloadedDirectories = new Set<string>()
+  ordinaryDirectoryErrors = new Map<string, string>()
+  private ordinaryDirectoryChildren = new Map<string, string[]>()
+  private ordinaryDirectoryRequests = new Map<string, Promise<readonly string[]>>()
+  private ordinaryDirectoryControllers = new Map<string, AbortController>()
 
   graphCommits: GraphCommit[] = []
   graphRows: GraphRow[] = []
@@ -317,6 +322,10 @@ export class GitnaRepository {
   }
 
   async refreshRepositoryFiles(): Promise<void> {
+    if (this.snapshot?.repository === false) {
+      await this.refreshOrdinaryDirectories()
+      return
+    }
     const request = ++this.repositoryFilesRequest
     this.repositoryFilesLoading = true
     this.repositoryFilesError = null
@@ -380,6 +389,74 @@ export class GitnaRepository {
     }
   }
 
+  async loadOrdinaryDirectory(directory: string, refresh = false): Promise<readonly string[]> {
+    const key = directory.replace(/\/$/, '')
+    const existing = this.ordinaryDirectoryRequests.get(key)
+    if (existing != null && !refresh) return existing
+    if (refresh) this.ordinaryDirectoryControllers.get(key)?.abort()
+    const controller = new AbortController()
+    this.ordinaryDirectoryControllers.set(key, controller)
+    const operation = (async (): Promise<readonly string[]> => {
+      this.repositoryFilesLoading = true
+      this.ordinaryDirectoryErrors.delete(key)
+      this.emit()
+      try {
+        let cursor: string | undefined
+        let generation: number | undefined
+        const paths: string[] = []
+        do {
+          const page = await this.api.directoryEntries(key, cursor, controller.signal)
+          if (generation == null) generation = page.generation
+          if (page.generation !== generation)
+            throw new Error('Folder changed while directory was loading')
+          paths.push(...page.entries.map((entry) => entry.path))
+          cursor = page.nextCursor
+        } while (cursor != null && cursor !== '')
+        if (controller.signal.aborted) return []
+        if ((generation ?? 0) < this.repositoryFilesGeneration) return []
+        this.repositoryFilesGeneration = generation ?? this.repositoryFilesGeneration
+        this.ordinaryDirectoryChildren.set(key, paths)
+        this.ordinaryUnloadedDirectories.delete(key)
+        const loadedDirectories = new Set(this.ordinaryDirectoryChildren.keys())
+        const allPaths = new Set<string>()
+        for (const children of this.ordinaryDirectoryChildren.values()) {
+          for (const path of children) allPaths.add(path)
+        }
+        const unloaded = new Set<string>()
+        for (const path of allPaths) {
+          if (path.endsWith('/') && !loadedDirectories.has(path.slice(0, -1))) unloaded.add(path)
+        }
+        this.ordinaryUnloadedDirectories = unloaded
+        this.repositoryPaths = [...allPaths].sort()
+        this.repositoryFilesError = null
+        markStartup('explorer-ready')
+        return paths
+      } catch (error) {
+        if (controller.signal.aborted) return []
+        this.ordinaryDirectoryErrors.set(key, errorMessage(error))
+        this.repositoryFilesError = errorMessage(error)
+        throw error
+      } finally {
+        if (this.ordinaryDirectoryControllers.get(key) === controller) {
+          this.ordinaryDirectoryControllers.delete(key)
+          this.ordinaryDirectoryRequests.delete(key)
+        }
+        this.repositoryFilesLoading = this.ordinaryDirectoryRequests.size > 0
+        this.emit()
+      }
+    })()
+    this.ordinaryDirectoryRequests.set(key, operation)
+    return operation
+  }
+
+  private async refreshOrdinaryDirectories(): Promise<void> {
+    const directories =
+      this.ordinaryDirectoryChildren.size === 0 ? [''] : [...this.ordinaryDirectoryChildren.keys()]
+    await Promise.allSettled(
+      directories.map((directory) => this.loadOrdinaryDirectory(directory, true)),
+    )
+  }
+
   private async reconcileInitialGenerations(): Promise<void> {
     for (let attempt = 0; attempt < 3; attempt += 1) {
       if (this.snapshot == null || this.error != null || this.repositoryFilesError != null) return
@@ -407,8 +484,8 @@ export class GitnaRepository {
 
   async refreshCurrentFolder(): Promise<void> {
     const folders = this.refreshFolders()
-    const explorer = this.refreshRepositoryFiles()
     await this.refreshSnapshot()
+    const explorer = this.refreshRepositoryFiles()
     const gitData = this.snapshot?.repository
       ? [this.refreshGraph(), this.refreshBranches(), this.refreshStashes(), this.refreshTags()]
       : []

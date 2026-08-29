@@ -64,6 +64,29 @@ type RepositoryFiles struct {
 	NextCursor   string   `json:"nextCursor,omitempty"`
 }
 
+type DirectoryEntryKind string
+
+const (
+	DirectoryEntryFile      DirectoryEntryKind = "file"
+	DirectoryEntryDirectory DirectoryEntryKind = "directory"
+)
+
+// DirectoryEntries is one bounded, deterministic page of immediate children
+// for the ordinary-folder Explorer.
+type DirectoryEntries struct {
+	Generation uint64           `json:"generation"`
+	Directory  string           `json:"directory"`
+	Entries    []DirectoryEntry `json:"entries"`
+	Truncated  bool             `json:"truncated"`
+	NextCursor string           `json:"nextCursor,omitempty"`
+}
+
+type DirectoryEntry struct {
+	Name string             `json:"name"`
+	Path string             `json:"path"`
+	Kind DirectoryEntryKind `json:"kind"`
+}
+
 // WorktreeFile is an editable text file read directly from the worktree.
 // Hash is an optimistic-concurrency token supplied again when saving.
 type WorktreeFile struct {

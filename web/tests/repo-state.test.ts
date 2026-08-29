@@ -71,6 +71,9 @@ const auxApi: ApiClient = {
   async repositoryFiles() {
     return { generation: 1, paths: [], truncated: false }
   },
+  async directoryEntries(path) {
+    return { generation: 1, directory: path, entries: [], truncated: false }
+  },
   async readWorktreeFile() {
     throw new Error('readWorktreeFile not used')
   },
@@ -298,8 +301,16 @@ describe('createRepoState', () => {
             headBranch: undefined,
           })
         },
-        async repositoryFiles() {
-          return { generation: 1, paths: ['notes.txt'], truncated: false }
+        async directoryEntries(path) {
+          return {
+            generation: 1,
+            directory: path,
+            entries: [
+              { name: 'notes.txt', path: 'notes.txt', kind: 'file' },
+              { name: 'src', path: 'src/', kind: 'directory' },
+            ],
+            truncated: false,
+          }
         },
       },
     })
@@ -307,7 +318,11 @@ describe('createRepoState', () => {
     await state.refreshCurrentFolder()
 
     expect(state.snapshot?.repository).toBe(false)
-    expect(state.repositoryPaths).toEqual(['notes.txt'])
+    expect(state.repositoryPaths).toEqual(['notes.txt', 'src/'])
+    expect(state.ordinaryUnloadedDirectories).toEqual(new Set(['src/']))
+    await state.loadOrdinaryDirectory('src')
+    expect(state.repositoryPaths).toEqual(['notes.txt', 'src/'])
+    expect(state.ordinaryUnloadedDirectories.size).toBe(0)
     expect(graph).not.toHaveBeenCalled()
     expect(branches).not.toHaveBeenCalled()
     expect(stashes).not.toHaveBeenCalled()
