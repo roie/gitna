@@ -920,6 +920,13 @@ test('command palette searches complete paths and runs workbench commands', asyn
   await search.fill('file name')
   const spacedFile = palette.getByRole('option', { name: /file name\.ts/ })
   await expect(spacedFile).toBeVisible()
+  await expect(spacedFile.locator('[data-palette-file-icon]')).toHaveAttribute(
+    'data-icon-token',
+    /.+/,
+  )
+  if (process.env.GITNA_CAPTURE_REVIEW_FIXES) {
+    await page.screenshot({ path: '/tmp/gitna-palette-file-icons.png', fullPage: true })
+  }
   const activeDescendant = await search.getAttribute('aria-activedescendant')
   expect(activeDescendant).not.toMatch(/\s/)
   await expect(spacedFile).toHaveAttribute('id', activeDescendant!)
@@ -949,6 +956,27 @@ test('command palette searches complete paths and runs workbench commands', asyn
   await search.fill('>toggle diff layout')
   const toggleLayout = palette.getByRole('option', { name: /Toggle Diff Layout/ })
   await expect(toggleLayout).toBeVisible()
+  await expect(
+    toggleLayout.locator('[data-palette-command-icon="toggle-diff-layout"] svg'),
+  ).toHaveCount(1)
+  await search.fill('>')
+  const openFolderCommand = palette.getByRole('option', { name: /^Open Folder/ })
+  const homeCommand = palette.getByRole('option', { name: /^Gitna Home/ })
+  await expect(
+    openFolderCommand.locator('[data-palette-command-icon="open-folder"] svg'),
+  ).toHaveCount(1)
+  await expect(homeCommand.locator('[data-palette-command-icon="home"] svg')).toHaveCount(1)
+  if (process.env.GITNA_CAPTURE_REVIEW_FIXES) {
+    await page.screenshot({ path: '/tmp/gitna-palette-command-icons.png', fullPage: true })
+  }
+  expect(
+    await openFolderCommand
+      .locator('[data-palette-command-icon] svg')
+      .evaluate((icon) => icon.innerHTML),
+  ).not.toBe(
+    await homeCommand.locator('[data-palette-command-icon] svg').evaluate((icon) => icon.innerHTML),
+  )
+  await search.fill('>toggle diff layout')
   await search.press('End')
   await search.press('Home')
   await expect(toggleLayout).toHaveAttribute('aria-selected', 'true')
@@ -1303,6 +1331,9 @@ test('Gitna Home searches recent folders and protects dirty drafts', async ({ pa
   const homeTitle = page.getByRole('heading', { name: 'Welcome back to Gitna', exact: true })
   const homeLogo = page.getByRole('img', { name: 'Gitna' })
   await expect(homeTitle).toBeVisible()
+  await page.keyboard.press('Control+k')
+  await expect(page.getByRole('dialog', { name: 'Command palette' })).toHaveCount(0)
+  await expect(homeTitle).toBeVisible()
   const [homeTitleBox, homeLogoBox] = await Promise.all([
     homeTitle.boundingBox(),
     homeLogo.boundingBox(),
@@ -1313,6 +1344,18 @@ test('Gitna Home searches recent folders and protects dirty drafts', async ({ pa
     Math.abs(homeTitleBox!.x + homeTitleBox!.width / 2 - (homeLogoBox!.x + homeLogoBox!.width / 2)),
   ).toBeLessThanOrEqual(1)
   expect(homeLogoBox!.y + homeLogoBox!.height).toBeLessThan(homeTitleBox!.y)
+  expect(homeLogoBox!.width).toBeGreaterThanOrEqual(80)
+  const visibleHomeLogo = homeLogo.locator('img:visible')
+  await expect(visibleHomeLogo).toHaveAttribute('src', './gitna-logo-light.png')
+  await expect
+    .poll(() => visibleHomeLogo.evaluate((image: HTMLImageElement) => image.naturalWidth))
+    .toBeGreaterThan(64)
+  if (process.env.GITNA_CAPTURE_REVIEW_FIXES) {
+    await page.screenshot({ path: '/tmp/gitna-home-logo-desktop.png', fullPage: true })
+    await page.setViewportSize({ width: 390, height: 844 })
+    await page.screenshot({ path: '/tmp/gitna-home-logo-mobile.png', fullPage: true })
+    await page.setViewportSize({ width: 1280, height: 720 })
+  }
   await expect(page.getByRole('textbox', { name: 'Folder path' })).toHaveCount(1)
   await expect(page.getByRole('button', { name: 'Switch folder' })).toHaveCount(0)
   await expect(page.getByRole('button', { name: 'Display settings' })).toHaveCount(0)
@@ -1383,13 +1426,16 @@ test('Gitna Home searches recent folders and protects dirty drafts', async ({ pa
   await openOtherInNewTab.click()
   const otherPage = await popupPromise
   try {
-    const loadingLogo = otherPage.getByRole('img', { name: 'Gitna' })
+    const loadingLogo = otherPage.locator('.brand img')
     await expect(loadingLogo).toBeVisible()
+    await expect(otherPage.locator('.brand')).toHaveText('Gitna')
     await expect
       .poll(() => loadingLogo.evaluate((image: HTMLImageElement) => image.naturalWidth))
-      .toBeGreaterThan(0)
-    await expect(otherPage.getByRole('heading', { name: basename(otherFolder) })).toBeVisible()
-    await expect(otherPage.getByRole('status')).toHaveText('Opening folder…')
+      .toBeGreaterThan(64)
+    await expect(
+      otherPage.getByRole('heading', { name: `Opening ${basename(otherFolder)}`, exact: true }),
+    ).toBeVisible()
+    await expect(otherPage.getByRole('status')).toHaveText('Preparing your folder…')
     await expect(otherPage).toHaveTitle(`Opening ${basename(otherFolder)} - Gitna`)
     if (process.env.GITNA_CAPTURE_REVIEW_FIXES) {
       await otherPage.screenshot({ path: '/tmp/gitna-folder-loading-title.png', fullPage: true })

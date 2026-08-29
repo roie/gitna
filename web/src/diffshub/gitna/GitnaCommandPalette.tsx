@@ -1,11 +1,70 @@
-import { IconFile, IconSearch } from '@pierre/icons'
-import { useEffect, useId, useMemo, useRef, useState } from 'react'
+import { IconSearch } from '@pierre/icons'
+import { createFileTreeIconResolver, getBuiltInSpriteSheet } from '@pierre/trees'
+import { type ReactNode, useEffect, useId, useMemo, useRef, useState } from 'react'
 
 import { cn } from '../lib/cn'
 import { rankPaletteFiles, paletteTextMatches } from './commandPalette'
 
+const paletteFileIconResolver = createFileTreeIconResolver('complete')
+const paletteFileIconSprite = getBuiltInSpriteSheet('complete')
+
+function PaletteFileIconSprite() {
+  const hostRef = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    const host = hostRef.current
+    if (host == null) return
+    const parsed = new DOMParser().parseFromString(paletteFileIconSprite, 'text/html')
+    const sprites = [...parsed.body.children].filter(
+      (element): element is SVGSVGElement => element.localName === 'svg',
+    )
+    if (sprites.length === 0) return
+    for (const sprite of sprites) {
+      for (const element of sprite.querySelectorAll('script, foreignObject')) element.remove()
+      for (const element of sprite.querySelectorAll('*')) {
+        for (let index = element.attributes.length - 1; index >= 0; index -= 1) {
+          const attribute = element.attributes.item(index)
+          if (attribute?.name.toLowerCase().startsWith('on')) {
+            element.removeAttribute(attribute.name)
+          }
+        }
+      }
+    }
+    host.replaceChildren(...sprites.map((sprite) => document.importNode(sprite, true)))
+    return () => host.replaceChildren()
+  }, [])
+  return <div ref={hostRef} aria-hidden="true" className="absolute size-0 overflow-hidden" />
+}
+
+function PaletteFileIcon({ path }: { path: string }) {
+  const icon = paletteFileIconResolver.resolveIcon('file-tree-icon-file', path)
+  const iconHref = `#${icon.name.replace(/^#/, '')}`
+  const iconViewBox = icon.viewBox ?? `0 0 ${String(icon.width ?? 16)} ${String(icon.height ?? 16)}`
+  return (
+    <svg
+      aria-hidden="true"
+      data-palette-file-icon
+      data-icon-name={icon.name}
+      data-icon-token={icon.token}
+      viewBox={iconViewBox}
+      width={icon.width ?? 16}
+      height={icon.height ?? 16}
+      className="size-4 shrink-0"
+      style={
+        icon.token == null
+          ? undefined
+          : {
+              color: `var(--trees-file-icon-color-${icon.token}, var(--trees-file-icon-color))`,
+            }
+      }
+    >
+      <use href={iconHref} />
+    </svg>
+  )
+}
+
 export interface GitnaPaletteCommand {
   description?: string
+  icon: ReactNode
   id: string
   keywords?: string
   label: string
@@ -128,6 +187,7 @@ export function GitnaCommandPalette({
         if (event.target === dialogRef.current) onClose()
       }}
     >
+      <PaletteFileIconSprite />
       <div className="flex items-center gap-3 border-b border-border px-4 py-3">
         <IconSearch aria-hidden="true" className="size-4 shrink-0 text-muted-foreground" />
         <input
@@ -200,9 +260,15 @@ export function GitnaCommandPalette({
             onPointerMove={() => setActiveIndex(index)}
           >
             {result.kind === 'file' ? (
-              <IconFile aria-hidden="true" className="size-4 shrink-0 text-muted-foreground" />
+              <PaletteFileIcon path={result.path} />
             ) : (
-              <IconSearch aria-hidden="true" className="size-4 shrink-0 text-muted-foreground" />
+              <span
+                aria-hidden="true"
+                data-palette-command-icon={result.command.id}
+                className="flex size-4 shrink-0 items-center justify-center text-muted-foreground [&>svg]:size-4"
+              >
+                {result.command.icon}
+              </span>
             )}
             <span className="min-w-0 flex-1">
               <span className="block truncate text-sm font-medium">

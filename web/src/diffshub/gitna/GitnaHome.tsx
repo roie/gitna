@@ -292,8 +292,8 @@ export function GitnaHome({
 
       <div className="mx-auto flex min-h-full w-full max-w-2xl flex-col px-5 pt-28 pb-16 sm:px-8 sm:pt-36 sm:pb-24 lg:pt-40">
         <div className="flex min-w-0 flex-col items-center text-center">
-          <GitnaLogo className="size-12" />
-          <div className="mt-4 min-w-0">
+          <GitnaLogo className="size-20 sm:size-24" />
+          <div className="mt-5 min-w-0">
             <h1
               id="gitna-home-title"
               className="text-balance text-2xl font-semibold tracking-[-0.02em] text-foreground sm:text-3xl"

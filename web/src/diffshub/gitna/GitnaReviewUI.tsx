@@ -1,6 +1,19 @@
 import type { CodeViewLineSelection, DiffIndicators, FileContents } from '@pierre/diffs'
 import { type CodeViewHandle, useWorkerPool } from '@pierre/diffs/react'
-import { IconX } from '@pierre/icons'
+import {
+  IconBranch,
+  IconCheck,
+  IconDiffSplit,
+  IconFolder,
+  IconFolderOpen,
+  IconHome,
+  IconMinus,
+  IconPlus,
+  IconRefresh,
+  IconSidebar,
+  IconThemes,
+  IconX,
+} from '@pierre/icons'
 import type { ColorMode } from '@pierre/theming'
 import { createFileTreeIconResolver, getBuiltInSpriteSheet } from '@pierre/trees'
 import { useThemeController } from '@pierre/theming/react'
@@ -82,7 +95,7 @@ function repositoryName(root: string): string {
 }
 
 function gitnaLogoDataUrl(dark: boolean): string | null {
-  const filename = dark ? 'favicon-dark.png' : 'favicon-light.png'
+  const filename = dark ? 'gitna-logo-dark.png' : 'gitna-logo-light.png'
   const source = [...window.document.images].find((image) => image.src.endsWith(`/${filename}`))
   if (source == null || !source.complete || source.naturalWidth === 0) return null
   const canvas = window.document.createElement('canvas')
@@ -100,7 +113,7 @@ function renderFolderLoadingDocument(newTab: Window, path: string, colorMode: Co
     colorMode === 'dark' ||
     (colorMode === 'system' && window.matchMedia('(prefers-color-scheme: dark)').matches)
   const logoUrl =
-    gitnaLogoDataUrl(dark) ?? assetUrl(dark ? 'favicon-dark.png' : 'favicon-light.png')
+    gitnaLogoDataUrl(dark) ?? assetUrl(dark ? 'gitna-logo-dark.png' : 'gitna-logo-light.png')
 
   document.documentElement.lang = 'en'
   document.documentElement.dataset.colorMode = colorMode
@@ -113,7 +126,7 @@ function renderFolderLoadingDocument(newTab: Window, path: string, colorMode: Co
   const favicon = document.createElement('link')
   favicon.rel = 'icon'
   favicon.type = 'image/png'
-  favicon.href = logoUrl
+  favicon.href = assetUrl(dark ? 'favicon-dark.png' : 'favicon-light.png')
   const style = document.createElement('style')
   style.textContent = `
     :root { color-scheme: light; --bg: #ffffff; --fg: #171717; --muted: #737373; --ring: #d4d4d4; }
@@ -124,8 +137,9 @@ function renderFolderLoadingDocument(newTab: Window, path: string, colorMode: Co
     * { box-sizing: border-box; }
     body { margin: 0; min-height: 100vh; display: grid; place-items: center; background: var(--bg); color: var(--fg); font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
     main { display: flex; max-width: calc(100vw - 3rem); flex-direction: column; align-items: center; text-align: center; }
-    img { width: 48px; height: 48px; }
-    h1 { max-width: 28rem; margin: 1rem 0 0; overflow: hidden; text-overflow: ellipsis; font-size: 1.125rem; font-weight: 600; white-space: nowrap; }
+    .brand { display: flex; align-items: center; gap: .625rem; font-size: 1rem; font-weight: 600; }
+    .brand img { width: 40px; height: 40px; }
+    h1 { max-width: 28rem; margin: 1.25rem 0 0; overflow: hidden; text-overflow: ellipsis; font-size: 1.125rem; font-weight: 600; white-space: nowrap; }
     p { margin: .375rem 0 0; color: var(--muted); font-size: .875rem; }
     .spinner { width: 18px; height: 18px; margin-top: 1.25rem; border: 2px solid var(--ring); border-top-color: var(--fg); border-radius: 999px; animation: spin .8s linear infinite; }
     @keyframes spin { to { transform: rotate(360deg); } }
@@ -134,18 +148,23 @@ function renderFolderLoadingDocument(newTab: Window, path: string, colorMode: Co
   document.head.replaceChildren(title, viewport, favicon, style)
 
   const main = document.createElement('main')
+  const brand = document.createElement('div')
+  brand.className = 'brand'
   const logo = document.createElement('img')
   logo.src = logoUrl
-  logo.alt = 'Gitna'
+  logo.alt = ''
+  const brandName = document.createElement('span')
+  brandName.textContent = 'Gitna'
+  brand.replaceChildren(logo, brandName)
   const heading = document.createElement('h1')
-  heading.textContent = folderName
+  heading.textContent = `Opening ${folderName}`
   const status = document.createElement('p')
   status.role = 'status'
-  status.textContent = 'Opening folder…'
+  status.textContent = 'Preparing your folder…'
   const spinner = document.createElement('span')
   spinner.className = 'spinner'
   spinner.setAttribute('aria-hidden', 'true')
-  main.replaceChildren(logo, heading, status, spinner)
+  main.replaceChildren(brand, heading, status, spinner)
   document.body.replaceChildren(main)
 }
 
@@ -414,6 +433,7 @@ function GitnaReviewUIInner() {
   useEffect(() => {
     const openPalette = (event: KeyboardEvent) => {
       if (
+        homeOpen ||
         event.key.toLocaleLowerCase() !== 'k' ||
         !(event.ctrlKey || event.metaKey) ||
         event.altKey ||
@@ -428,7 +448,7 @@ function GitnaReviewUIInner() {
     }
     window.addEventListener('keydown', openPalette)
     return () => window.removeEventListener('keydown', openPalette)
-  }, [])
+  }, [homeOpen])
 
   useEffect(() => {
     if (target == null) {
@@ -790,6 +810,11 @@ function GitnaReviewUIInner() {
     window.addEventListener('beforeunload', protectDrafts)
     return () => window.removeEventListener('beforeunload', protectDrafts)
   }, [dirtyPaths.size])
+  const openHome = useCallback(() => {
+    setCommandPaletteOpen(false)
+    setHomeSwitchError(null)
+    setHomeOpen(true)
+  }, [])
   const closeHome = useCallback(() => {
     restoreHomeFocusRef.current = true
     setHomeOpen(false)
@@ -972,12 +997,12 @@ function GitnaReviewUIInner() {
     const commands: GitnaPaletteCommand[] = [
       {
         id: 'open-folder',
+        icon: <IconFolderOpen />,
         label: 'Open Folder',
         description: 'Enter an absolute local folder path',
         keywords: 'switch location path',
         run() {
-          setHomeSwitchError(null)
-          setHomeOpen(true)
+          openHome()
           window.setTimeout(
             () => document.querySelector<HTMLInputElement>('[aria-label="Folder path"]')?.focus(),
             0,
@@ -986,16 +1011,15 @@ function GitnaReviewUIInner() {
       },
       {
         id: 'home',
+        icon: <IconHome />,
         label: 'Gitna Home',
         description: 'Open folders and recent history',
         keywords: 'welcome recent',
-        run() {
-          setHomeSwitchError(null)
-          setHomeOpen(true)
-        },
+        run: openHome,
       },
       {
         id: 'refresh',
+        icon: <IconRefresh />,
         label: 'Refresh',
         description: 'Refresh the current folder',
         keywords: 'reload repository explorer graph',
@@ -1003,6 +1027,7 @@ function GitnaReviewUIInner() {
       },
       {
         id: 'toggle-sidebar',
+        icon: <IconSidebar />,
         label: 'Toggle Sidebar',
         description: (mobileViewport ? fileTreeOverlayOpen : sidebarVisible)
           ? 'Hide Source Control'
@@ -1012,6 +1037,7 @@ function GitnaReviewUIInner() {
       },
       {
         id: 'toggle-diff-layout',
+        icon: <IconDiffSplit />,
         label: 'Toggle Diff Layout',
         description: diffStyle === 'split' ? 'Switch to unified view' : 'Switch to split view',
         keywords: 'split unified view',
@@ -1019,6 +1045,7 @@ function GitnaReviewUIInner() {
       },
       {
         id: 'change-theme',
+        icon: <IconThemes />,
         label: 'Change Theme',
         description:
           colorMode === 'system'
@@ -1042,6 +1069,7 @@ function GitnaReviewUIInner() {
     if (currentPath != null && worktreeDrafts.has(currentPath) && !repository.busy) {
       commands.push({
         id: 'save-file',
+        icon: <IconCheck />,
         label: 'Save File',
         description: currentPath,
         keywords: 'write dirty changes',
@@ -1054,6 +1082,7 @@ function GitnaReviewUIInner() {
     if (unstagedChange != null && !repository.busy) {
       commands.push({
         id: 'stage-file',
+        icon: <IconPlus />,
         label: 'Stage Current File',
         description: unstagedChange.path,
         keywords: 'git add',
@@ -1070,6 +1099,7 @@ function GitnaReviewUIInner() {
     if (stagedChange != null && !repository.busy) {
       commands.push({
         id: 'unstage-file',
+        icon: <IconMinus />,
         label: 'Unstage Current File',
         description: stagedChange.path,
         keywords: 'git reset index',
@@ -1088,6 +1118,7 @@ function GitnaReviewUIInner() {
         if (folder.path === repository.snapshot?.root) continue
         commands.push({
           id: `recent-folder:${folder.path}`,
+          icon: <IconFolder />,
           label: `Open Recent Folder: ${folder.name}`,
           description: folder.path,
           keywords: 'recent history switch folder',
@@ -1098,6 +1129,7 @@ function GitnaReviewUIInner() {
         if (branch.current || branch.remote) continue
         commands.push({
           id: `switch-branch:${branch.name}`,
+          icon: <IconBranch />,
           label: `Switch Branch: ${branch.name}`,
           description: branch.upstream ?? 'Local branch',
           keywords: 'git checkout branch',
@@ -1111,6 +1143,7 @@ function GitnaReviewUIInner() {
     diffStyle,
     fileTreeOverlayOpen,
     mobileViewport,
+    openHome,
     repository,
     repository.branches,
     repository.busy,
@@ -1149,10 +1182,7 @@ function GitnaReviewUIInner() {
             lineNumbers={lineNumbers}
             overflow={overflow}
             onClearGitHubToken={() => {}}
-            onOpenHome={() => {
-              setHomeSwitchError(null)
-              setHomeOpen(true)
-            }}
+            onOpenHome={openHome}
             onOpenCommandPalette={() => setCommandPaletteOpen(true)}
             onSaveGitHubToken={() => {}}
             onOpenFolder={(path) => requestFolderSwitch(path, false)}
@@ -1269,7 +1299,7 @@ function GitnaReviewUIInner() {
         commands={paletteCommands}
         error={repository.repositoryFilesError}
         loading={repository.repositoryFilesLoading}
-        open={commandPaletteOpen}
+        open={commandPaletteOpen && !homeOpen}
         openPaths={paletteFileHistory}
         paths={repository.repositoryPaths}
         onClose={() => setCommandPaletteOpen(false)}
