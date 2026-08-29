@@ -1,5 +1,5 @@
 import { execFileSync } from 'node:child_process'
-import { existsSync, mkdirSync, readFileSync, unlinkSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync, rmSync, unlinkSync, writeFileSync } from 'node:fs'
 import { basename, dirname, join } from 'node:path'
 import type { APIRequestContext, Locator } from '@playwright/test'
 import { test, expect } from './fixtures.js'
@@ -1538,6 +1538,7 @@ test('dirty repository tabs survive external file removal', async ({ page, app }
 })
 
 test('ordinary folders open in Explorer and switch back to Git', async ({ page, app }) => {
+  test.setTimeout(120_000)
   const folder = join(dirname(app.repo), 'ordinary-folder')
   mkdirSync(folder)
   mkdirSync(join(folder, 'empty'))
@@ -1622,6 +1623,20 @@ test('ordinary folders open in Explorer and switch back to Git', async ({ page, 
   await expect
     .poll(() => readFileSync(join(folder, 'notes.txt'), 'utf8'))
     .toBe('updated folder note')
+
+  await page.getByRole('button', { name: 'Close nested/child.txt' }).click()
+  rmSync(join(folder, 'nested'), { recursive: true })
+  await page.getByRole('button', { name: 'Refresh Explorer' }).click()
+  await expect(nested).toHaveCount(0)
+  await expect(explorer.getByRole('treeitem', { name: 'child.txt', exact: true })).toHaveCount(0)
+  await expect(page.getByText(/directory no longer exists/i)).toHaveCount(0)
+  await page.getByRole('button', { name: 'Open command palette' }).click()
+  await ordinaryPalette
+    .getByRole('combobox', { name: 'Search files and commands' })
+    .fill('child.txt')
+  await expect(ordinaryPalette.getByRole('option', { name: /child\.txt/ })).toHaveCount(0)
+  await expect(ordinaryPalette.getByText('No files match.')).toBeVisible()
+  await page.keyboard.press('Escape')
 
   await folderPath.fill(app.repo)
   await page.getByRole('button', { name: 'Switch folder' }).click()

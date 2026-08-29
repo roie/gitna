@@ -289,8 +289,13 @@ export const DiffsHubFileTree = memo(function DiffsHubFileTree({
     if (lazyDirectories == null) return;
     const nextPaths = new Set(source.paths.slice(0, source.pathCount));
     const operations: FileTreeBatchOperation[] = [];
-    for (const path of appliedPathsRef.current) {
-      if (!nextPaths.has(path)) operations.push({ type: 'remove', path, recursive: path.endsWith('/') });
+    const removedPaths = [...appliedPathsRef.current].filter((path) => !nextPaths.has(path));
+    const removedDirectories = removedPaths.filter((path) => path.endsWith('/'));
+    for (const path of removedPaths) {
+      if (removedDirectories.some((directory) => directory !== path && path.startsWith(directory))) {
+        continue;
+      }
+      operations.push({ type: 'remove', path, recursive: path.endsWith('/') });
     }
     for (const path of nextPaths) {
       if (!appliedPathsRef.current.has(path)) operations.push({ type: 'add', path });

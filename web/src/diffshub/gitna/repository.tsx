@@ -510,10 +510,14 @@ export class GitnaRepository {
         const separator = loaded.lastIndexOf('/')
         const parent = separator < 0 ? '' : loaded.slice(0, separator)
         const parentChildren = this.ordinaryDirectoryChildren.get(parent)
-        if (parentChildren != null && !parentChildren.includes(`${loaded}/`)) {
+        if (parentChildren == null || !parentChildren.includes(`${loaded}/`)) {
+          this.ordinaryDirectoryControllers.get(loaded)?.abort()
           this.ordinaryDirectoryChildren.delete(loaded)
+          this.ordinaryDirectoryControllers.delete(loaded)
           this.ordinaryDirectoryCursors.delete(loaded)
+          this.ordinaryDirectoryErrors.delete(loaded)
           this.ordinaryDirectoryGenerations.delete(loaded)
+          this.ordinaryDirectoryRequests.delete(loaded)
           this.ordinaryPagedDirectories.delete(loaded)
           removedDirectory = true
         }
@@ -612,30 +616,43 @@ export class GitnaRepository {
   }
 
   private async refreshOrdinaryDirectories(): Promise<void> {
-    const directories =
+    const loadedDirectories =
       this.ordinaryDirectoryChildren.size === 0 ? [''] : [...this.ordinaryDirectoryChildren.keys()]
-    directories.sort((left, right) => {
-      const depth = left.split('/').length - right.split('/').length
-      return depth || left.localeCompare(right)
-    })
-    let next = 0
-    const workerCount = Math.min(4, directories.length)
-    await Promise.all(
-      Array.from({ length: workerCount }, async () => {
-        for (;;) {
-          const index = next
-          next += 1
-          const directory = directories[index]
-          if (directory == null) return
-          try {
-            await this.loadOrdinaryDirectory(directory, true)
-          } catch {
-            // Individual directory errors are retained beside stale children;
-            // other loaded directories still receive their bounded refresh.
+    const directoriesByDepth = new Map<number, string[]>()
+    for (const directory of loadedDirectories) {
+      const depth = directory === '' ? 0 : directory.split('/').length
+      const directories = directoriesByDepth.get(depth) ?? []
+      directories.push(directory)
+      directoriesByDepth.set(depth, directories)
+    }
+
+    for (const depth of [...directoriesByDepth.keys()].sort((left, right) => left - right)) {
+      if (this.snapshot?.repository !== false) return
+      const directories = (directoriesByDepth.get(depth) ?? [])
+        .filter((directory) => directory === '' || this.ordinaryDirectoryChildren.has(directory))
+        .sort((left, right) => left.localeCompare(right))
+      let next = 0
+      const workerCount = Math.min(4, directories.length)
+      await Promise.all(
+        Array.from({ length: workerCount }, async () => {
+          for (;;) {
+            const directory = directories[next]
+            next += 1
+            if (directory == null || this.snapshot?.repository !== false) return
+            // A refreshed parent may have removed this loaded subtree. Do not
+            // turn its now-obsolete child request into a Repository-wide error.
+            if (directory !== '' && !this.ordinaryDirectoryChildren.has(directory)) continue
+            try {
+              await this.loadOrdinaryDirectory(directory, true)
+            } catch {
+              // Individual directory errors are retained beside stale children;
+              // other loaded directories at this depth still receive their
+              // bounded refresh.
+            }
           }
-        }
-      }),
-    )
+        }),
+      )
+    }
   }
 
   private async reconcileInitialGenerations(): Promise<void> {

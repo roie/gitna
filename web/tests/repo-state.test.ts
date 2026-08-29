@@ -467,6 +467,69 @@ describe('createRepoState', () => {
     expect(state.repositoryPaths).toEqual(stalePaths)
   })
 
+  it('refreshes loaded ordinary directories parent-first after external deletion', async () => {
+    let deleted = false
+    let refreshing = false
+    const refreshCalls: string[] = []
+    const searchFiles = vi.fn(async (_query: string, _options?: { refresh?: boolean }) => ({
+      generation: 1,
+      results: deleted
+        ? []
+        : [
+            {
+              path: 'parent/child/result.txt',
+              name: 'result.txt',
+              parent: 'parent/child',
+              duplicateName: false,
+            },
+          ],
+      complete: true,
+    }))
+    const state = createRepoState({
+      api: {
+        ...auxApi,
+        async directoryEntries(path) {
+          if (refreshing) refreshCalls.push(path)
+          if (deleted && path !== '') throw new Error(`directory no longer exists: ${path}`)
+          let entries: Array<{
+            name: string
+            path: string
+            kind: 'directory' | 'file'
+          }>
+          if (path === '') {
+            entries = deleted ? [] : [{ name: 'parent', path: 'parent/', kind: 'directory' }]
+          } else if (path === 'parent') {
+            entries = [{ name: 'child', path: 'parent/child/', kind: 'directory' }]
+          } else {
+            entries = [{ name: 'result.txt', path: 'parent/child/result.txt', kind: 'file' }]
+          }
+          return { generation: 1, directory: path, entries, truncated: false }
+        },
+        searchFiles,
+      },
+    })
+    state.snapshot = snapshot({ repository: false })
+    state.generation = 1
+    await state.loadOrdinaryDirectory('')
+    await state.loadOrdinaryDirectory('parent')
+    await state.loadOrdinaryDirectory('parent/child')
+    await state.searchOrdinaryFiles('result')
+    expect(state.repositoryPaths).toContain('parent/child/result.txt')
+    expect(state.ordinarySearchResults).toHaveLength(1)
+
+    deleted = true
+    refreshing = true
+    await state.refreshExplorer()
+    await state.searchOrdinaryFiles('result')
+
+    expect(refreshCalls).toEqual([''])
+    expect(state.repositoryPaths).toEqual([])
+    expect(state.repositoryFilesError).toBeNull()
+    expect(state.ordinaryDirectoryErrors.size).toBe(0)
+    expect(state.ordinarySearchResults).toEqual([])
+    expect(searchFiles).toHaveBeenCalledWith('', { refresh: true })
+  })
+
   it('loads every bounded Repository Explorer page independently from Git changes', async () => {
     const cursors: Array<string | undefined> = []
     const state = createRepoState({
