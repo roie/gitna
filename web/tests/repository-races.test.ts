@@ -149,8 +149,9 @@ describe('GitnaRepository request sequencing', () => {
     const repository = new GitnaRepository(api)
 
     const refresh = repository.refreshCurrentFolder()
-    await vi.waitFor(() => expect(api.repositoryFiles).toHaveBeenCalledTimes(1))
+    expect(api.repositoryFiles).not.toHaveBeenCalled()
     currentSnapshot.resolve(snapshot('/repo', 2))
+    await vi.waitFor(() => expect(api.repositoryFiles).toHaveBeenCalled())
     await refresh
 
     expect(api.repositoryFiles).toHaveBeenCalledTimes(2)

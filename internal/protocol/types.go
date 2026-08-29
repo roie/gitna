@@ -73,18 +73,41 @@ const (
 
 // DirectoryEntries is one bounded, deterministic page of immediate children
 // for the ordinary-folder Explorer.
+type WatchCoverage string
+
+const (
+	WatchCoverageComplete WatchCoverage = "complete"
+	WatchCoveragePartial  WatchCoverage = "partial"
+)
+
 type DirectoryEntries struct {
-	Generation uint64           `json:"generation"`
-	Directory  string           `json:"directory"`
-	Entries    []DirectoryEntry `json:"entries"`
-	Truncated  bool             `json:"truncated"`
-	NextCursor string           `json:"nextCursor,omitempty"`
+	Generation    uint64           `json:"generation"`
+	Directory     string           `json:"directory"`
+	Entries       []DirectoryEntry `json:"entries"`
+	Truncated     bool             `json:"truncated"`
+	NextCursor    string           `json:"nextCursor,omitempty"`
+	WatchCoverage WatchCoverage    `json:"watchCoverage,omitempty"`
 }
 
 type DirectoryEntry struct {
 	Name string             `json:"name"`
 	Path string             `json:"path"`
 	Kind DirectoryEntryKind `json:"kind"`
+}
+
+// FileSearchResults is a bounded server-ranked Quick Open response. Complete
+// remains false while the ordinary-folder index is still being built.
+type FileSearchResults struct {
+	Generation uint64             `json:"generation"`
+	Results    []FileSearchResult `json:"results"`
+	Complete   bool               `json:"complete"`
+}
+
+type FileSearchResult struct {
+	Path          string `json:"path"`
+	Name          string `json:"name"`
+	Parent        string `json:"parent"`
+	DuplicateName bool   `json:"duplicateName"`
 }
 
 // WorktreeFile is an editable text file read directly from the worktree.

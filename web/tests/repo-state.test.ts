@@ -74,6 +74,9 @@ const auxApi: ApiClient = {
   async directoryEntries(path) {
     return { generation: 1, directory: path, entries: [], truncated: false }
   },
+  async searchFiles() {
+    return { generation: 1, results: [], complete: true }
+  },
   async readWorktreeFile() {
     throw new Error('readWorktreeFile not used')
   },
@@ -327,6 +330,47 @@ describe('createRepoState', () => {
     expect(branches).not.toHaveBeenCalled()
     expect(stashes).not.toHaveBeenCalled()
     expect(tags).not.toHaveBeenCalled()
+  })
+
+  it('searches ordinary folders on the server and hydrates result ancestors', async () => {
+    const directories: string[] = []
+    const state = createRepoState({
+      api: {
+        ...auxApi,
+        async directoryEntries(path) {
+          directories.push(path)
+          const entries =
+            path === ''
+              ? [{ name: 'nested', path: 'nested/', kind: 'directory' as const }]
+              : [{ name: 'result.txt', path: 'nested/result.txt', kind: 'file' as const }]
+          return { generation: 1, directory: path, entries, truncated: false }
+        },
+        async searchFiles() {
+          return {
+            generation: 1,
+            complete: true,
+            results: [
+              {
+                path: 'nested/result.txt',
+                name: 'result.txt',
+                parent: 'nested',
+                duplicateName: false,
+              },
+            ],
+          }
+        },
+      },
+    })
+    state.snapshot = snapshot({ repository: false })
+    state.generation = 1
+    await state.loadOrdinaryDirectory('')
+    await state.searchOrdinaryFiles('result')
+    await state.ensureOrdinaryPathLoaded('nested/result.txt')
+
+    expect(state.ordinarySearchComplete).toBe(true)
+    expect(state.ordinarySearchResults[0]?.path).toBe('nested/result.txt')
+    expect(state.repositoryPaths).toContain('nested/result.txt')
+    expect(directories).toEqual(['', 'nested'])
   })
 
   it('loads every bounded Repository Explorer page independently from Git changes', async () => {

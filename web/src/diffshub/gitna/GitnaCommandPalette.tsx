@@ -71,12 +71,22 @@ export interface GitnaPaletteCommand {
   run(): Promise<void> | void
 }
 
+export interface GitnaPaletteFileResult {
+  duplicateName: boolean
+  name: string
+  parent: string
+  path: string
+}
+
 interface GitnaCommandPaletteProps {
   commands: readonly GitnaPaletteCommand[]
+  externalFileResults?: readonly GitnaPaletteFileResult[]
+  fileSearchComplete?: boolean
   error: string | null
   loading: boolean
   onClose(): void
   onError(error: string): void
+  onFileQueryChange?(query: string): void
   onOpenFile(path: string): void
   open: boolean
   openPaths: readonly string[]
@@ -97,9 +107,12 @@ type PaletteResult =
 export function GitnaCommandPalette({
   commands,
   error,
+  externalFileResults,
+  fileSearchComplete = true,
   loading,
   onClose,
   onError,
+  onFileQueryChange,
   onOpenFile,
   open,
   openPaths,
@@ -126,7 +139,8 @@ export function GitnaCommandPalette({
         .slice(0, 100)
         .map((command) => ({ id: `command:${command.id}`, kind: 'command', command }))
     }
-    return rankPaletteFiles(paths, query, openPaths).map((file) => ({
+    const files = externalFileResults ?? rankPaletteFiles(paths, query, openPaths)
+    return files.map((file) => ({
       id: `file:${file.path}`,
       kind: 'file',
       duplicateName: file.duplicateName,
@@ -134,7 +148,7 @@ export function GitnaCommandPalette({
       parent: file.parent,
       path: file.path,
     }))
-  }, [commandMode, commandQuery, commands, openPaths, paths, query])
+  }, [commandMode, commandQuery, commands, externalFileResults, openPaths, paths, query])
 
   useEffect(() => {
     const dialog = dialogRef.current
@@ -151,6 +165,12 @@ export function GitnaCommandPalette({
   useEffect(() => {
     setActiveIndex((current) => Math.min(current, Math.max(0, results.length - 1)))
   }, [results.length])
+
+  useEffect(() => {
+    if (!open || commandMode || onFileQueryChange == null) return
+    const timer = window.setTimeout(() => onFileQueryChange(query), fileSearchComplete ? 120 : 250)
+    return () => window.clearTimeout(timer)
+  }, [commandMode, externalFileResults, fileSearchComplete, onFileQueryChange, open, query])
 
   useEffect(() => {
     listRef.current

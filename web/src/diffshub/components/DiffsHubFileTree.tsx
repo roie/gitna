@@ -224,6 +224,21 @@ export const DiffsHubFileTree = memo(function DiffsHubFileTree({
       void onLoadDirectoryRef.current?.(path.replace(/\/$/, ''))
         .then((children) => {
           const operations: FileTreeBatchOperation[] = [];
+          const nextChildren = new Set(children);
+          const prefix = path;
+          for (const existing of appliedPathsRef.current) {
+            if (!existing.startsWith(prefix)) continue;
+            const remainder = existing.slice(prefix.length).replace(/\/$/, '');
+            if (remainder === '' || remainder.includes('/')) continue;
+            if (!nextChildren.has(existing)) {
+              operations.push({ type: 'remove', path: existing, recursive: existing.endsWith('/') });
+              for (const applied of appliedPathsRef.current) {
+                if (applied === existing || (existing.endsWith('/') && applied.startsWith(existing))) {
+                  appliedPathsRef.current.delete(applied);
+                }
+              }
+            }
+          }
           for (const child of children) {
             if (!appliedPathsRef.current.has(child)) {
               appliedPathsRef.current.add(child);
@@ -234,6 +249,7 @@ export const DiffsHubFileTree = memo(function DiffsHubFileTree({
           for (const child of children) {
             if (
               child.endsWith('/') &&
+              lazyDirectoriesRef.current?.has(child) === true &&
               model.getItem(child)?.isDirectory() &&
               model.getDirectoryLoadState(child) === 'loaded'
             ) {
@@ -248,18 +264,21 @@ export const DiffsHubFileTree = memo(function DiffsHubFileTree({
     };
     return model.subscribe(() => {
       const nextExpanded = new Set<string>();
-      for (const path of lazyDirectoriesRef.current ?? []) {
+      for (const path of appliedPathsRef.current) {
+        if (!path.endsWith('/')) continue;
         const item = model.getItem(path);
         if (item == null || !item.isDirectory()) continue;
         if (!(item as FileTreeDirectoryHandle).isExpanded()) continue;
         nextExpanded.add(path);
-        const state = model.getDirectoryLoadState(path);
-        if (!expanded.has(path) && (state === 'unloaded' || state === 'error')) load(path);
+        const wasExpanded = expanded.has(path);
+        expanded.add(path);
+        if (!wasExpanded && model.getDirectoryLoadState(path) !== 'loading') load(path);
       }
-      expanded.clear();
-      for (const path of nextExpanded) expanded.add(path);
+      for (const path of expanded) {
+        if (!nextExpanded.has(path)) expanded.delete(path);
+      }
     });
-  }, [lazyDirectories, model, onLoadDirectory]);
+  }, [model, onLoadDirectory]);
 
   useEffect(() => {
     if (lazyDirectories != null) return;

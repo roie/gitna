@@ -566,8 +566,8 @@ export function GitnaSourceControl() {
   const repositoryVisibilityFiltered = !showHiddenFiles || !showIgnoredFiles
   const repositoryCount =
     repositoryFilters.size === 0 && !repositoryVisibilityFiltered
-      ? `${repository.repositoryPaths.length}${repository.repositoryFilesLoading ? '+' : ''}`
-      : `${filteredRepositoryPaths.length} / ${repository.repositoryPaths.length}${repository.repositoryFilesLoading ? '+' : ''}`
+      ? `${repository.repositoryPaths.length}${repository.repositoryFilesLoading || repository.ordinaryUnloadedDirectories.size > 0 ? '+' : ''}`
+      : `${filteredRepositoryPaths.length} / ${repository.repositoryPaths.length}${repository.repositoryFilesLoading || repository.ordinaryUnloadedDirectories.size > 0 ? '+' : ''}`
   const stagedSource = useMemo(() => createTreeSource(staged), [staged])
   const unstagedSource = useMemo(() => createTreeSource(unstaged), [unstaged])
   const selectedScope = repository.selection?.scope
@@ -596,6 +596,10 @@ export function GitnaSourceControl() {
 
   const selectRepositoryPath = useCallback(
     (path: string) => repository.selectRepositoryFile(path),
+    [repository],
+  )
+  const loadOrdinaryDirectory = useCallback(
+    (path: string) => repository.loadOrdinaryDirectory(path),
     [repository],
   )
   const changeScopesForPath = useCallback(
@@ -911,6 +915,11 @@ export function GitnaSourceControl() {
                   {repository.repositoryFilesError}
                 </p>
               )}
+              {!snapshot.repository && repository.ordinaryWatchCoverage === 'partial' && (
+                <p className="px-8 py-2 text-xs text-muted-foreground" role="status">
+                  Unopened folders refresh when opened.
+                </p>
+              )}
             </>
           }
           renderContextMenu={renderRepositoryContextMenu}
@@ -953,9 +962,7 @@ export function GitnaSourceControl() {
           paneIcon={IconFileTree}
           lazyDirectories={snapshot.repository ? undefined : repository.ordinaryUnloadedDirectories}
           modelId="gitna-repository-tree"
-          onLoadDirectory={
-            snapshot.repository ? undefined : (path) => repository.loadOrdinaryDirectory(path)
-          }
+          onLoadDirectory={snapshot.repository ? undefined : loadOrdinaryDirectory}
           open={repositoryOpen}
           selectedPath={repository.repositoryFilePath ?? repository.selection?.change.path}
           source={repositorySource}

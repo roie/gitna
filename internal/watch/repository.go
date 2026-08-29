@@ -36,6 +36,20 @@ type Watcher interface {
 	Close() error
 }
 
+type Coverage string
+
+const (
+	CoverageComplete Coverage = "complete"
+	CoveragePartial  Coverage = "partial"
+)
+
+// DirectoryObserver is implemented by watchers that can add bounded ordinary-
+// folder observations after a directory is loaded in Explorer.
+type DirectoryObserver interface {
+	ObserveDirectory(path string) error
+	Coverage() Coverage
+}
+
 // Options tunes Repository behavior. Zero values select defaults.
 type SetupStats struct {
 	WalkDuration time.Duration
@@ -59,6 +73,11 @@ type Options struct {
 	Fingerprint func(ctx context.Context) (string, error)
 	// OnReady receives bounded setup counts after initial watch installation.
 	OnReady func(SetupStats)
+	// RootOnly avoids a recursive worktree walk. Loaded directories can be added
+	// later through DirectoryObserver. Git metadata watches remain complete.
+	RootOnly bool
+	// MaxObservedDirectories bounds RootOnly observations. Zero means 2,048.
+	MaxObservedDirectories int
 }
 
 // Repository watches one Git worktree plus its metadata and emits coalesced
@@ -71,11 +90,15 @@ type Repository struct {
 	fsw  *fsnotify.Watcher
 	opts Options
 
-	mu       sync.Mutex
-	closed   bool
-	events   chan InvalidationKind
-	closedCh chan struct{}
-	once     sync.Once
+	mu            sync.Mutex
+	closed        bool
+	events        chan InvalidationKind
+	closedCh      chan struct{}
+	once          sync.Once
+	observed      map[string]struct{}
+	observedOrder []string
+	budgetWatches int
+	coverage      Coverage
 }
 
 // New creates a watcher for git and starts its background loops. ctx and Close
@@ -91,6 +114,8 @@ func New(ctx context.Context, git gitx.Repository, runner gitx.Runner, opts Opti
 		opts:     opts,
 		events:   make(chan InvalidationKind, 32),
 		closedCh: make(chan struct{}),
+		observed: make(map[string]struct{}),
+		coverage: CoverageComplete,
 	}
 	stats := SetupStats{}
 	started := time.Now()
@@ -118,6 +143,103 @@ func New(ctx context.Context, git gitx.Repository, runner gitx.Runner, opts Opti
 // Events returns the stream of invalidation kinds. It is closed by Close.
 func (w *Repository) Events() <-chan InvalidationKind { return w.events }
 
+// Coverage reports whether the watcher observes the complete worktree. RootOnly
+// mode is intentionally partial because unloaded directories refresh on open.
+func (w *Repository) Coverage() Coverage {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	return w.coverage
+}
+
+// ObserveDirectory adds one validated ordinary-folder directory to the bounded
+// live watch set.
+func (w *Repository) ObserveDirectory(relative string) error {
+	if !w.opts.RootOnly {
+		return nil
+	}
+	if relative == "" {
+		relative = "."
+	}
+	if filepath.IsAbs(relative) || filepath.VolumeName(relative) != "" {
+		return fmt.Errorf("watch: invalid observed directory %q", relative)
+	}
+	clean := filepath.Clean(filepath.FromSlash(relative))
+	if clean == ".." || strings.HasPrefix(clean, ".."+string(filepath.Separator)) {
+		return fmt.Errorf("watch: observed directory escapes root")
+	}
+	full := filepath.Join(w.git.Root, clean)
+	rootReal, err := filepath.EvalSymlinks(w.git.Root)
+	if err != nil {
+		return err
+	}
+	fullReal, err := filepath.EvalSymlinks(full)
+	if err != nil {
+		return err
+	}
+	if fullReal != rootReal && !strings.HasPrefix(fullReal, rootReal+string(filepath.Separator)) {
+		return fmt.Errorf("watch: observed directory escapes root")
+	}
+	info, err := os.Lstat(full)
+	if err != nil {
+		return err
+	}
+	if !info.IsDir() || info.Mode()&os.ModeSymlink != 0 {
+		return fmt.Errorf("watch: observed path is not a directory")
+	}
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	if w.closed {
+		return fs.ErrClosed
+	}
+	return w.observeDirectoryLocked(full, nil)
+}
+
+func (w *Repository) observeDirectoryLocked(full string, stats *SetupStats) error {
+	full = filepath.Clean(full)
+	if _, exists := w.observed[full]; exists {
+		return nil
+	}
+	limit := w.opts.MaxObservedDirectories
+	if limit <= 0 {
+		limit = 2_048
+	}
+	for len(w.observed) >= limit && len(w.observedOrder) > 1 {
+		oldest := w.observedOrder[1]
+		w.observedOrder = append(w.observedOrder[:1], w.observedOrder[2:]...)
+		delete(w.observed, oldest)
+		_ = w.fsw.Remove(oldest)
+		if w.budgetWatches > 0 {
+			releaseOrdinaryWatchBudget(1)
+			w.budgetWatches--
+		}
+	}
+	budgeted := acquireOrdinaryWatchBudget()
+	if !budgeted && full != filepath.Clean(w.git.Root) {
+		w.coverage = CoveragePartial
+		return fmt.Errorf("watch: ordinary folder watch budget exhausted")
+	}
+	if err := w.fsw.Add(full); err != nil {
+		if budgeted {
+			releaseOrdinaryWatchBudget(1)
+		}
+		w.coverage = CoveragePartial
+		if w.opts.OnError != nil {
+			w.opts.OnError(err)
+		}
+		return err
+	}
+	if budgeted {
+		w.budgetWatches++
+	}
+	w.observed[full] = struct{}{}
+	w.observedOrder = append(w.observedOrder, full)
+	if stats != nil {
+		stats.Directories++
+		stats.Watches++
+	}
+	return nil
+}
+
 // Close stops observation and closes the Events channel. It is safe to call
 // multiple times.
 func (w *Repository) Close() error {
@@ -129,6 +251,10 @@ func (w *Repository) Close() error {
 		w.mu.Unlock()
 		close(w.closedCh)
 		err = w.fsw.Close()
+		if w.budgetWatches > 0 {
+			releaseOrdinaryWatchBudget(w.budgetWatches)
+			w.budgetWatches = 0
+		}
 	})
 	return err
 }
@@ -151,6 +277,10 @@ func (w *Repository) emit(k InvalidationKind) {
 // skipping the Git metadata directory. Missing watches for newly created
 // directories are added from the event loop.
 func (w *Repository) addWorktreeWatches(ctx context.Context, stats *SetupStats) error {
+	if w.opts.RootOnly {
+		w.coverage = CoveragePartial
+		return w.observeDirectoryLocked(w.git.Root, stats)
+	}
 	err := filepath.WalkDir(w.git.Root, func(p string, d fs.DirEntry, err error) error {
 		if ctxErr := ctx.Err(); ctxErr != nil {
 			return ctxErr
@@ -295,6 +425,13 @@ func (w *Repository) loop(ctx context.Context) {
 			}
 			if ev.Op&fsnotify.Create != 0 {
 				if info, err := os.Stat(ev.Name); err == nil && info.IsDir() && w.shouldWatchDir(ev.Name) {
+					if w.opts.RootOnly {
+						relative, relErr := filepath.Rel(w.git.Root, ev.Name)
+						if relErr == nil {
+							_ = w.ObserveDirectory(filepath.ToSlash(relative))
+						}
+						continue
+					}
 					_ = filepath.WalkDir(ev.Name, func(path string, entry fs.DirEntry, err error) error {
 						if ctxErr := ctx.Err(); ctxErr != nil {
 							return ctxErr

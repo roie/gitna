@@ -1091,6 +1091,11 @@ function GitnaReviewUIInner() {
     setSidebarVisible((visible) => !visible)
   }, [])
 
+  const searchOrdinaryPalette = useCallback(
+    (query: string) => void repository.searchOrdinaryFiles(query),
+    [repository],
+  )
+
   const paletteFileHistory = useMemo(
     () => [
       ...recentFilePaths.filter((path) => !repository.repositoryOpenPaths.includes(path)),
@@ -1408,16 +1413,32 @@ function GitnaReviewUIInner() {
         </ReviewGrid>
         <GitnaCommandPalette
           commands={paletteCommands}
-          error={repository.repositoryFilesError}
-          loading={repository.repositoryFilesLoading}
+          error={
+            repository.snapshot?.repository === false
+              ? repository.ordinarySearchError
+              : repository.repositoryFilesError
+          }
+          externalFileResults={
+            repository.snapshot?.repository === false ? repository.ordinarySearchResults : undefined
+          }
+          fileSearchComplete={repository.ordinarySearchComplete}
+          loading={
+            repository.snapshot?.repository === false
+              ? repository.ordinarySearchLoading ||
+                (!repository.ordinarySearchComplete && repository.ordinarySearchError == null)
+              : repository.repositoryFilesLoading
+          }
           open={commandPaletteOpen && !homeOpen}
           openPaths={paletteFileHistory}
           paths={repository.repositoryPaths}
           onClose={() => setCommandPaletteOpen(false)}
           onError={setReviewActionError}
+          onFileQueryChange={
+            repository.snapshot?.repository === false ? searchOrdinaryPalette : undefined
+          }
           onOpenFile={(path) => {
             setHomeOpen(false)
-            repository.selectRepositoryFile(path, true)
+            return repository.openRepositoryFile(path, true)
           }}
         />
         {pendingFolderSwitch != null && (

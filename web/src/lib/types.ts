@@ -122,6 +122,20 @@ export interface DirectoryEntries {
   entries: DirectoryEntry[]
   truncated: boolean
   nextCursor?: string
+  watchCoverage?: 'complete' | 'partial'
+}
+
+export interface FileSearchResult {
+  duplicateName: boolean
+  name: string
+  parent: string
+  path: string
+}
+
+export interface FileSearchResults {
+  generation: number
+  results: FileSearchResult[]
+  complete: boolean
 }
 
 export interface Folder {

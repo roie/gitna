@@ -17,6 +17,7 @@ import type {
   CommitStats,
   ConflictEntry,
   FileChange,
+  FileSearchResult,
   GraphCommit,
   RepoSnapshot,
   StashEntry,
@@ -178,6 +179,13 @@ export class GitnaRepository {
   repositoryFilesTruncated = false
   ordinaryUnloadedDirectories = new Set<string>()
   ordinaryDirectoryErrors = new Map<string, string>()
+  ordinaryWatchCoverage: 'complete' | 'partial' = 'complete'
+  ordinarySearchResults: FileSearchResult[] = []
+  ordinarySearchComplete = false
+  ordinarySearchLoading = false
+  ordinarySearchError: string | null = null
+  private ordinarySearchRequest = 0
+  private ordinarySearchController: AbortController | null = null
   private ordinaryDirectoryChildren = new Map<string, string[]>()
   private ordinaryDirectoryRequests = new Map<string, Promise<readonly string[]>>()
   private ordinaryDirectoryControllers = new Map<string, AbortController>()
@@ -409,6 +417,7 @@ export class GitnaRepository {
           if (generation == null) generation = page.generation
           if (page.generation !== generation)
             throw new Error('Folder changed while directory was loading')
+          if (page.watchCoverage != null) this.ordinaryWatchCoverage = page.watchCoverage
           paths.push(...page.entries.map((entry) => entry.path))
           cursor = page.nextCursor
         } while (cursor != null && cursor !== '')
@@ -417,6 +426,20 @@ export class GitnaRepository {
         this.repositoryFilesGeneration = generation ?? this.repositoryFilesGeneration
         this.ordinaryDirectoryChildren.set(key, paths)
         this.ordinaryUnloadedDirectories.delete(key)
+        let removedDirectory = true
+        while (removedDirectory) {
+          removedDirectory = false
+          for (const loaded of this.ordinaryDirectoryChildren.keys()) {
+            if (loaded === '') continue
+            const separator = loaded.lastIndexOf('/')
+            const parent = separator < 0 ? '' : loaded.slice(0, separator)
+            const parentChildren = this.ordinaryDirectoryChildren.get(parent)
+            if (parentChildren != null && !parentChildren.includes(`${loaded}/`)) {
+              this.ordinaryDirectoryChildren.delete(loaded)
+              removedDirectory = true
+            }
+          }
+        }
         const loadedDirectories = new Set(this.ordinaryDirectoryChildren.keys())
         const allPaths = new Set<string>()
         for (const children of this.ordinaryDirectoryChildren.values()) {
@@ -447,6 +470,55 @@ export class GitnaRepository {
     })()
     this.ordinaryDirectoryRequests.set(key, operation)
     return operation
+  }
+
+  async searchOrdinaryFiles(query: string): Promise<void> {
+    const request = ++this.ordinarySearchRequest
+    this.ordinarySearchController?.abort()
+    const controller = new AbortController()
+    this.ordinarySearchController = controller
+    this.ordinarySearchLoading = true
+    this.ordinarySearchError = null
+    this.emit()
+    try {
+      const response = await this.api.searchFiles(query, controller.signal)
+      if (request !== this.ordinarySearchRequest) return
+      if (response.generation < this.generation) {
+        this.ordinarySearchResults = []
+        this.ordinarySearchComplete = false
+        return
+      }
+      this.ordinarySearchResults = response.results
+      this.ordinarySearchComplete = response.complete
+    } catch (error) {
+      if (controller.signal.aborted || request !== this.ordinarySearchRequest) return
+      this.ordinarySearchError = errorMessage(error)
+    } finally {
+      if (request === this.ordinarySearchRequest) {
+        this.ordinarySearchLoading = false
+        this.emit()
+      }
+    }
+  }
+
+  async ensureOrdinaryPathLoaded(path: string): Promise<void> {
+    if (this.snapshot?.repository !== false) return
+    const segments = path.split('/')
+    let directory = ''
+    for (const segment of segments.slice(0, -1)) {
+      directory = directory === '' ? segment : `${directory}/${segment}`
+      if (!this.ordinaryDirectoryChildren.has(directory)) {
+        await this.loadOrdinaryDirectory(directory)
+      }
+    }
+  }
+
+  async openRepositoryFile(path: string, reveal = true): Promise<void> {
+    await this.ensureOrdinaryPathLoaded(path)
+    if (this.snapshot?.repository === false && !this.repositoryPaths.includes(path)) {
+      throw new Error(`File is no longer available: ${path}`)
+    }
+    this.selectRepositoryFile(path, reveal)
   }
 
   private async refreshOrdinaryDirectories(): Promise<void> {

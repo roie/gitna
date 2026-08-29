@@ -1556,7 +1556,7 @@ test('ordinary folders open in Explorer and switch back to Git', async ({ page, 
     'border-top-width',
     '0px',
   )
-  await expect(page.getByRole('status')).toContainText('Select a file from Explorer')
+  await expect(page.getByText('Select a file from Explorer')).toBeVisible()
   await expect(page.getByPlaceholder('Commit message')).toHaveCount(0)
   await expect(page.locator('[data-section="graph"]')).toHaveCount(0)
   const explorer = page.locator('#gitna-repository-tree__tree')
@@ -1577,6 +1577,13 @@ test('ordinary folders open in Explorer and switch back to Git', async ({ page, 
   await expect(explorer.getByRole('treeitem', { name: 'notes.txt', exact: true })).toBeVisible()
   await page.getByRole('button', { name: 'Open command palette' }).click()
   const ordinaryPalette = page.getByRole('dialog', { name: 'Command palette' })
+  await ordinaryPalette
+    .getByRole('combobox', { name: 'Search files and commands' })
+    .fill('child.txt')
+  await ordinaryPalette.getByRole('option', { name: /child\.txt/ }).click()
+  await expect(page.getByRole('textbox', { name: 'child.txt' })).toBeVisible()
+
+  await page.getByRole('button', { name: 'Open command palette' }).click()
   await ordinaryPalette
     .getByRole('combobox', { name: 'Search files and commands' })
     .fill('notes.txt')
@@ -1807,7 +1814,7 @@ test('Gitna Home searches recent folders and protects dirty drafts', async ({ pa
     page.getByRole('heading', { name: 'Welcome back to Gitna', exact: true }),
   ).toHaveCount(0)
   await expect(page).toHaveTitle(`${basename(folder)} - Gitna`)
-  await expect(page.getByRole('status')).toContainText('Select a file from Explorer')
+  await expect(page.getByText('Select a file from Explorer')).toBeVisible()
   await expect(page.getByRole('tablist', { name: 'Open repository files' })).toHaveCount(0)
 
   await page.getByRole('button', { name: 'Open Gitna Home' }).click()
@@ -2051,6 +2058,12 @@ test('repository tree keeps a bounded virtualized viewport for thousands of file
   )
   await expect(repositoryBody).toHaveCSS('overflow-y', 'hidden')
   await expect(repositoryVirtualScroll).toBeVisible()
+  const virtualizedFolder = repositoryTree.getByRole('treeitem', {
+    name: 'virtualized-files',
+    exact: true,
+  })
+  await virtualizedFolder.click()
+  await expect(virtualizedFolder).toHaveAttribute('aria-expanded', 'true')
   await expect.poll(() => repositoryTree.getByRole('treeitem').count()).toBeLessThan(200)
   expect(
     await repositoryVirtualScroll.evaluate(

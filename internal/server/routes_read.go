@@ -34,6 +34,8 @@ func (s *Server) apiRoutes() http.Handler {
 			s.handleRepositoryFiles(w, r)
 		case r.Method == http.MethodGet && p == "/directory":
 			s.handleDirectoryEntries(w, r)
+		case r.Method == http.MethodGet && p == "/files/search":
+			s.handleFileSearch(w, r)
 		case r.Method == http.MethodGet && p == "/worktree/file":
 			s.handleReadWorktreeFile(w, r)
 		case r.Method == http.MethodPut && p == "/worktree/file":
@@ -373,6 +375,49 @@ func (s *Server) handleDirectoryEntries(w http.ResponseWriter, r *http.Request) 
 	writeJSON(w, http.StatusConflict, map[string]string{
 		"error": "folder changed while directory was loading",
 		"code":  "directory-invalidated",
+	})
+}
+
+type fileSearchRepo interface {
+	SearchFiles(context.Context, string, int) (protocol.FileSearchResults, error)
+}
+
+const fileSearchResultLimit = 100
+
+func (s *Server) handleFileSearch(w http.ResponseWriter, r *http.Request) {
+	repo, ok := s.repo.(fileSearchRepo)
+	if !ok {
+		writeJSON(w, http.StatusNotImplemented, map[string]string{"error": "file search unavailable"})
+		return
+	}
+	query := r.URL.Query().Get("q")
+	if len(query) > 512 {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "file search query is too long"})
+		return
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), ReadTimeout)
+	defer cancel()
+	for range 3 {
+		generation := s.gen.Load()
+		results, err := repo.SearchFiles(ctx, query, fileSearchResultLimit)
+		if err != nil {
+			if timeoutReached(ctx, err) {
+				writeJSON(w, http.StatusGatewayTimeout, map[string]string{"error": "file search timed out"})
+				return
+			}
+			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+			return
+		}
+		if generation != s.gen.Load() {
+			continue
+		}
+		results.Generation = generation
+		writeJSON(w, http.StatusOK, results)
+		return
+	}
+	writeJSON(w, http.StatusConflict, map[string]string{
+		"error": "folder changed while file search was loading",
+		"code":  "search-invalidated",
 	})
 }
 

@@ -25,8 +25,11 @@ import (
 // Mutations are serialized through a shared queue so concurrent requests cannot
 // interleave Git index operations.
 type repoAdapter struct {
-	runner *gitx.ExecRunner
-	queue  *gitx.MutationQueue
+	ctx              context.Context
+	runner           *gitx.ExecRunner
+	queue            *gitx.MutationQueue
+	search           folderSearchIndex
+	observeDirectory func(string) protocol.WatchCoverage
 
 	mu   sync.RWMutex
 	repo gitx.Repository
@@ -43,6 +46,7 @@ func (a *repoAdapter) switchTo(ctx context.Context, repo gitx.Repository) error 
 		a.mu.Lock()
 		a.repo = repo
 		a.mu.Unlock()
+		a.invalidateFileSearch()
 		return nil
 	})
 }
@@ -67,7 +71,15 @@ func (a *repoAdapter) RepositoryFiles(ctx context.Context, after string, limit i
 }
 
 func (a *repoAdapter) DirectoryEntries(ctx context.Context, directory, after string, limit int) (protocol.DirectoryEntries, error) {
-	return a.current().DirectoryEntries(ctx, directory, after, limit)
+	entries, err := a.current().DirectoryEntries(ctx, directory, after, limit)
+	if err == nil && a.observeDirectory != nil {
+		entries.WatchCoverage = a.observeDirectory(directory)
+	}
+	return entries, err
+}
+
+func (a *repoAdapter) SearchFiles(ctx context.Context, query string, limit int) (protocol.FileSearchResults, error) {
+	return a.searchFiles(ctx, query, limit)
 }
 
 func (a *repoAdapter) ReadWorktreeFile(ctx context.Context, path string) (protocol.WorktreeFile, error) {
@@ -85,15 +97,23 @@ func (a *repoAdapter) WriteWorktreeFile(ctx context.Context, path, content, expe
 }
 
 func (a *repoAdapter) CreateWorktreeEntry(ctx context.Context, path string, directory bool) error {
-	return a.queue.Do(ctx, func(ctx context.Context) error {
+	err := a.queue.Do(ctx, func(ctx context.Context) error {
 		return a.current().CreateWorktreeEntry(ctx, path, directory)
 	})
+	if err == nil {
+		a.invalidateFileSearch()
+	}
+	return err
 }
 
 func (a *repoAdapter) RenameWorktreeEntry(ctx context.Context, source, destination string) error {
-	return a.queue.Do(ctx, func(ctx context.Context) error {
+	err := a.queue.Do(ctx, func(ctx context.Context) error {
 		return a.current().RenameWorktreeEntry(ctx, source, destination)
 	})
+	if err == nil {
+		a.invalidateFileSearch()
+	}
+	return err
 }
 
 func (a *repoAdapter) Diff(ctx context.Context, scope protocol.DiffScope, opts protocol.DiffOptions) (protocol.FileDiff, error) {

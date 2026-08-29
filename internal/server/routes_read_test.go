@@ -22,6 +22,7 @@ type fakeRepo struct {
 	reviewNextAfter string
 	files           protocol.RepositoryFiles
 	directory       protocol.DirectoryEntries
+	search          protocol.FileSearchResults
 
 	graphCommits []protocol.GraphCommit
 	graphFiles   []protocol.CommitFile
@@ -88,6 +89,13 @@ func (f *fakeRepo) DirectoryEntries(context.Context, string, string, int) (proto
 		return protocol.DirectoryEntries{}, f.err
 	}
 	return f.directory, nil
+}
+
+func (f *fakeRepo) SearchFiles(context.Context, string, int) (protocol.FileSearchResults, error) {
+	if f.err != nil {
+		return protocol.FileSearchResults{}, f.err
+	}
+	return f.search, nil
 }
 
 func (f *fakeRepo) Diff(context.Context, protocol.DiffScope, protocol.DiffOptions) (protocol.FileDiff, error) {
@@ -492,6 +500,27 @@ func TestSnapshotRouteReturnsNormalizedJSON(t *testing.T) {
 	}
 	if got.Generation == 0 {
 		t.Fatal("generation not populated")
+	}
+}
+
+func TestFileSearchRouteReturnsBoundedResults(t *testing.T) {
+	h := newSnapshotServer(&fakeRepo{search: protocol.FileSearchResults{
+		Complete: true,
+		Results:  []protocol.FileSearchResult{{Path: "src/main.go", Name: "main.go", Parent: "src"}},
+	}})
+	req := httptest.NewRequest(http.MethodGet, "/g/"+testToken+"/api/v1/files/search?q=main", nil)
+	req.Host = testHost
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d (%s)", rec.Code, rec.Body.String())
+	}
+	var got protocol.FileSearchResults
+	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
+		t.Fatal(err)
+	}
+	if !got.Complete || len(got.Results) != 1 || got.Results[0].Path != "src/main.go" {
+		t.Fatalf("results = %#v", got)
 	}
 }
 

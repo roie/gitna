@@ -164,6 +164,38 @@ func TestWatcherReportsOrdinaryFolderChangesWithoutGit(t *testing.T) {
 	expectNoEvent(t, events, 200*time.Millisecond)
 }
 
+func TestRootOnlyWatcherObservesLoadedDirectoriesWithinBudget(t *testing.T) {
+	root := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(root, "deep", "child"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	w, err := New(t.Context(), gitx.Repository{Root: root}, nil, Options{
+		Debounce:               20 * time.Millisecond,
+		FallbackInterval:       -1,
+		RootOnly:               true,
+		MaxObservedDirectories: 2,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = w.Close() })
+	if w.Coverage() != CoveragePartial {
+		t.Fatalf("coverage = %q", w.Coverage())
+	}
+	writeFile(t, root, "deep/child/before.txt", "before\n")
+	expectNoEvent(t, w.Events(), 100*time.Millisecond)
+	if err := w.ObserveDirectory("deep/child"); err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, root, "deep/child/after.txt", "after\n")
+	if got := nextEvent(t, w.Events()); got != InvalidateSnapshot {
+		t.Fatalf("event = %q", got)
+	}
+	if got := len(w.fsw.WatchList()); got > 2 {
+		t.Fatalf("watch count = %d, want <= 2", got)
+	}
+}
+
 func TestWatcherReportsWorktreeChanges(t *testing.T) {
 	root := trackedRepo(t)
 	w := startWatcher(t, root, Options{Debounce: 30 * time.Millisecond, FallbackInterval: -1})
