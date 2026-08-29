@@ -38,16 +38,18 @@ type folderSession struct {
 	folders    *folder.Catalog
 	newWatcher folderWatcherFactory
 
-	refreshMu sync.Mutex
-	closed    bool
-	mu        sync.Mutex
-	watcher   watch.Watcher
-	watchID   uint64
-	watchErr  error
-	setups    sync.WaitGroup
-	forwards  sync.WaitGroup
-	closeOnce sync.Once
-	closeErr  error
+	refreshMu      sync.Mutex
+	closed         bool
+	mu             sync.Mutex
+	watcher        watch.Watcher
+	watchID        uint64
+	watchErr       error
+	watchCancel    context.CancelFunc
+	watchSetupDone chan struct{}
+	setups         sync.WaitGroup
+	forwards       sync.WaitGroup
+	closeOnce      sync.Once
+	closeErr       error
 }
 
 func newFolderSession(
@@ -90,12 +92,36 @@ func newFolderSession(
 	return s, nil
 }
 
-func traceStartup(phase string, duration time.Duration, format string, args ...any) {
+type startupCount struct {
+	name  string
+	value int
+}
+
+var startupTracePhases = map[string]struct{}{
+	"activation-wait":        {},
+	"catalog-persist":        {},
+	"folder-resolve":         {},
+	"folder-resolve-git":     {},
+	"folder-resolve-symlink": {},
+	"open-total":             {},
+	"route-reserve":          {},
+	"watcher-degraded":       {},
+	"watcher-failed":         {},
+	"watcher-ready":          {},
+}
+
+func traceStartup(phase string, duration time.Duration, counts ...startupCount) {
 	if !server.StartupTraceEnabled() {
 		return
 	}
-	detail := fmt.Sprintf(format, args...)
-	fmt.Fprintf(os.Stderr, "gitna startup phase=%s duration_ms=%.2f %s\n", phase, float64(duration.Microseconds())/1000, detail)
+	if _, allowed := startupTracePhases[phase]; !allowed {
+		return
+	}
+	fmt.Fprintf(os.Stderr, "gitna startup phase=%s duration_ms=%.2f", phase, float64(duration.Microseconds())/1000)
+	for _, count := range counts {
+		fmt.Fprintf(os.Stderr, " %s=%d", count.name, count.value)
+	}
+	fmt.Fprintln(os.Stderr)
 }
 
 func (s *folderSession) recordFolder(repo gitx.Repository) {
@@ -103,12 +129,8 @@ func (s *folderSession) recordFolder(repo gitx.Repository) {
 		s.folders.RecordDeferred(repo.Root, repo.IsGit())
 		return
 	}
-	s.folders.RecordDeferredObserved(repo.Root, repo.IsGit(), func(duration time.Duration, err error) {
-		if err != nil {
-			traceStartup("catalog-persist", duration, "root=%q error=%q", repo.Root, err.Error())
-			return
-		}
-		traceStartup("catalog-persist", duration, "root=%q", repo.Root)
+	s.folders.RecordDeferredObserved(repo.Root, repo.IsGit(), func(duration time.Duration, _ error) {
+		traceStartup("catalog-persist", duration)
 	})
 }
 
@@ -118,6 +140,14 @@ func (s *folderSession) startWatcher(repo gitx.Repository) {
 		s.mu.Unlock()
 		return
 	}
+	if s.watchCancel != nil {
+		s.watchCancel()
+	}
+	previousSetupDone := s.watchSetupDone
+	setupCtx, cancel := context.WithCancel(s.ctx)
+	setupDone := make(chan struct{})
+	s.watchCancel = cancel
+	s.watchSetupDone = setupDone
 	s.watchID++
 	id := s.watchID
 	s.setups.Add(1)
@@ -125,21 +155,30 @@ func (s *folderSession) startWatcher(repo gitx.Repository) {
 
 	go func() {
 		defer s.setups.Done()
+		defer close(setupDone)
+		if previousSetupDone != nil {
+			select {
+			case <-previousSetupDone:
+			case <-setupCtx.Done():
+				return
+			}
+		}
+		if setupCtx.Err() != nil {
+			return
+		}
+
 		started := time.Now()
-		watcher, err := s.newWatcher(s.ctx, repo, s.runner, watch.Options{
-			OnError: func(err error) {
-				if server.StartupTraceEnabled() {
-					fmt.Fprintf(os.Stderr, "gitna startup phase=watcher-degraded error=%q\n", err.Error())
-				}
+		watcher, err := s.newWatcher(setupCtx, repo, s.runner, watch.Options{
+			OnError: func(error) {
+				traceStartup("watcher-degraded", 0)
 			},
 			OnReady: func(stats watch.SetupStats) {
 				traceStartup(
 					"watcher-ready",
 					stats.WalkDuration,
-					"directories=%d watches=%d add_errors=%d",
-					stats.Directories,
-					stats.Watches,
-					stats.AddErrors,
+					startupCount{name: "directories", value: stats.Directories},
+					startupCount{name: "watches", value: stats.Watches},
+					startupCount{name: "add-errors", value: stats.AddErrors},
 				)
 			},
 		})
@@ -153,11 +192,12 @@ func (s *folderSession) startWatcher(repo gitx.Repository) {
 			}
 			return
 		}
+		s.watchCancel = nil
 		if err != nil {
 			s.watchErr = err
 			s.mu.Unlock()
 			if !errors.Is(err, context.Canceled) {
-				traceStartup("watcher-failed", elapsed, "error=%q", err.Error())
+				traceStartup("watcher-failed", elapsed)
 			}
 			// Watcher setup is an enhancement. Snapshot and explicit refresh APIs
 			// remain usable even if the OS cannot allocate a watcher.
@@ -260,6 +300,10 @@ func (s *folderSession) close() error {
 		s.mu.Lock()
 		s.closed = true
 		s.watchID++
+		if s.watchCancel != nil {
+			s.watchCancel()
+			s.watchCancel = nil
+		}
 		watcher := s.watcher
 		s.watcher = nil
 		s.mu.Unlock()

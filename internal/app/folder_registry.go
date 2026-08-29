@@ -147,21 +147,21 @@ func (r *folderRegistry) openFolder(ctx context.Context, path string) (protocol.
 	started := time.Now()
 	defer func() {
 		elapsed := time.Since(started)
-		server.RecordStartupTiming(ctx, "open-total", elapsed, "folder open")
-		traceStartup("open-total", elapsed, "")
+		server.RecordStartupTiming(ctx, "open-total", elapsed)
+		traceStartup("open-total", elapsed)
 	}()
 	if r.closing.Load() {
 		return protocol.OpenFolderResult{}, errFolderRegistryClosed
 	}
 	resolveStarted := time.Now()
 	resolveCtx := gitx.WithOpenFolderTrace(ctx, func(phase string, duration time.Duration) {
-		server.RecordStartupTiming(ctx, phase, duration, "folder discovery phase")
-		traceStartup(phase, duration, "")
+		server.RecordStartupTiming(ctx, phase, duration)
+		traceStartup(phase, duration)
 	})
 	repo, err := r.resolveFolder(resolveCtx, path)
 	resolveElapsed := time.Since(resolveStarted)
-	server.RecordStartupTiming(ctx, "folder-resolve", resolveElapsed, "canonical path and Git discovery")
-	traceStartup("folder-resolve", resolveElapsed, "")
+	server.RecordStartupTiming(ctx, "folder-resolve", resolveElapsed)
+	traceStartup("folder-resolve", resolveElapsed)
 	if err != nil {
 		return protocol.OpenFolderResult{}, fmt.Errorf("open folder: %w", err)
 	}
@@ -180,7 +180,7 @@ func (r *folderRegistry) openFolder(ctx context.Context, path string) (protocol.
 	entry := r.byRoute[route]
 	r.mu.RUnlock()
 	lookupElapsed := time.Since(lookupStarted)
-	server.RecordStartupTiming(ctx, "route-lookup", lookupElapsed, "stable route lookup")
+	server.RecordStartupTiming(ctx, "route-lookup", lookupElapsed)
 	if exists {
 		if entry == nil {
 			return protocol.OpenFolderResult{}, fmt.Errorf("open folder: route %q is unavailable", route)
@@ -215,8 +215,8 @@ func (r *folderRegistry) openFolder(ctx context.Context, path string) (protocol.
 	}
 	r.mu.Unlock()
 	reserveElapsed := time.Since(reserveStarted)
-	server.RecordStartupTiming(ctx, "route-reserve", reserveElapsed, "stable route reservation")
-	traceStartup("route-reserve", reserveElapsed, "route=%q", route)
+	server.RecordStartupTiming(ctx, "route-reserve", reserveElapsed)
+	traceStartup("route-reserve", reserveElapsed)
 	if entry == nil {
 		return protocol.OpenFolderResult{}, fmt.Errorf("open folder: route %q is unavailable", route)
 	}
@@ -310,10 +310,17 @@ func (r *folderRegistry) ensureActive(
 			if err != nil {
 				entry.refreshPending = true
 			}
+			refreshPending := entry.refreshPending
 			entry.transition = nil
 			close(transition)
 			entry.mu.Unlock()
-			return err
+			if err != nil {
+				return err
+			}
+			if refreshPending {
+				continue
+			}
+			return nil
 		}
 
 		activationStarted := time.Now()
@@ -330,8 +337,8 @@ func (r *folderRegistry) ensureActive(
 			session, srv, err = r.createBackend(entry, repo, generation)
 		}
 		activationElapsed := time.Since(activationStarted)
-		server.RecordStartupTiming(ctx, "activation-wait", activationElapsed, "folder backend activation")
-		traceStartup("activation-wait", activationElapsed, "route=%q", entry.route)
+		server.RecordStartupTiming(ctx, "activation-wait", activationElapsed)
+		traceStartup("activation-wait", activationElapsed)
 
 		entry.mu.Lock()
 		if err == nil && !entry.shutting && !r.closing.Load() {
@@ -344,6 +351,7 @@ func (r *folderRegistry) ensureActive(
 		} else if err == nil {
 			err = errFolderRegistryClosed
 		}
+		refreshPending := entry.refreshPending
 		entry.transition = nil
 		close(transition)
 		entry.mu.Unlock()
@@ -352,6 +360,9 @@ func (r *folderRegistry) ensureActive(
 				_ = session.close()
 			}
 			return err
+		}
+		if refreshPending {
+			continue
 		}
 		return nil
 	}

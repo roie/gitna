@@ -56,7 +56,7 @@ import {
   diffImageAnnotations,
   type GitnaReviewAccumulator,
 } from './reviewAdapter'
-import { useRepository } from './repository'
+import { startupTraceEnabled, useRepository } from './repository'
 
 interface ReviewTarget {
   filePath?: string
@@ -98,6 +98,7 @@ function repositoryName(root: string): string {
 const switchStartupStorageKey = 'gitna:switch-start'
 
 function markDestinationStartup(): void {
+  if (!startupTraceEnabled()) return
   const navigation = performance.getEntriesByType('navigation')[0] as
     | PerformanceNavigationTiming
     | undefined
@@ -105,8 +106,13 @@ function markDestinationStartup(): void {
     performance.mark('gitna:destination-response', { startTime: navigation.responseStart })
   }
   performance.mark('gitna:mount')
-  const raw = sessionStorage.getItem(switchStartupStorageKey)
-  sessionStorage.removeItem(switchStartupStorageKey)
+  let raw: string | null
+  try {
+    raw = sessionStorage.getItem(switchStartupStorageKey)
+    sessionStorage.removeItem(switchStartupStorageKey)
+  } catch {
+    return
+  }
   if (raw == null) return
   try {
     const marker = JSON.parse(raw) as { startedAt?: unknown; version?: unknown }
@@ -886,6 +892,17 @@ function GitnaReviewUIInner() {
       folderSwitchOperationRef.current = { controller, id, previousFocus, previousTitle }
       setFolderSwitchTransition({ id, path })
       document.title = `Opening ${folderDisplayName(path)} - Gitna`
+      const traceStartup = startupTraceEnabled()
+      if (traceStartup) {
+        try {
+          sessionStorage.setItem(
+            switchStartupStorageKey,
+            JSON.stringify({ version: 1, startedAt: Date.now() }),
+          )
+        } catch {
+          // Startup diagnostics are optional and never block navigation.
+        }
+      }
 
       // Let React commit the transition before starting potentially expensive
       // local discovery. This gives immediate, truthful feedback even on a
@@ -899,14 +916,7 @@ function GitnaReviewUIInner() {
         if (target.origin !== window.location.origin) {
           throw new Error('folder route must remain on the current Gitna origin')
         }
-        try {
-          sessionStorage.setItem(
-            switchStartupStorageKey,
-            JSON.stringify({ version: 1, startedAt: Date.now() }),
-          )
-        } catch {
-          // Startup diagnostics are optional and never block navigation.
-        }
+        if (traceStartup) target.searchParams.set('trace-startup', '1')
         allowFolderNavigationRef.current = true
         window.location.assign(target.href)
       } catch (error) {
@@ -914,6 +924,13 @@ function GitnaReviewUIInner() {
         allowFolderNavigationRef.current = false
         folderSwitchOperationRef.current = null
         setFolderSwitchTransition(null)
+        if (traceStartup) {
+          try {
+            sessionStorage.removeItem(switchStartupStorageKey)
+          } catch {
+            // Startup diagnostics are optional and never block recovery.
+          }
+        }
         document.title = previousTitle
         requestAnimationFrame(() => previousFocus?.focus())
         const detail = error instanceof Error ? error.message : String(error)

@@ -11,6 +11,16 @@ import (
 
 const startupTraceEnvironment = "GITNA_TRACE_STARTUP"
 
+var startupTimingPhases = map[string]struct{}{
+	"activation-wait":        {},
+	"folder-resolve":         {},
+	"folder-resolve-git":     {},
+	"folder-resolve-symlink": {},
+	"open-total":             {},
+	"route-lookup":           {},
+	"route-reserve":          {},
+}
+
 type startupTimingKey struct{}
 
 type startupTimings struct {
@@ -30,21 +40,17 @@ func withStartupTimings(ctx context.Context) context.Context {
 
 // RecordStartupTiming adds one duration to the current open-folder request.
 // It is a no-op unless GITNA_TRACE_STARTUP=1 and the server installed a recorder.
-func RecordStartupTiming(ctx context.Context, name string, duration time.Duration, description string) {
+// Only allowlisted phase names and durations are retained; paths and errors are never recorded.
+func RecordStartupTiming(ctx context.Context, name string, duration time.Duration) {
 	timings, _ := ctx.Value(startupTimingKey{}).(*startupTimings)
 	if timings == nil {
 		return
 	}
-	name = strings.Map(func(char rune) rune {
-		if char >= 'a' && char <= 'z' || char >= '0' && char <= '9' || char == '-' {
-			return char
-		}
-		return '-'
-	}, strings.ToLower(name))
-	entry := fmt.Sprintf("%s;dur=%.2f", name, float64(duration.Microseconds())/1000)
-	if description != "" {
-		entry += fmt.Sprintf(";desc=%q", strings.ReplaceAll(description, `"`, `'`))
+	name = strings.ToLower(name)
+	if _, allowed := startupTimingPhases[name]; !allowed {
+		return
 	}
+	entry := fmt.Sprintf("%s;dur=%.2f", name, float64(duration.Microseconds())/1000)
 	timings.mu.Lock()
 	timings.entries = append(timings.entries, entry)
 	timings.mu.Unlock()

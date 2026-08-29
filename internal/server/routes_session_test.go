@@ -98,7 +98,8 @@ func TestOpenFolderRouteEmitsOptInServerTiming(t *testing.T) {
 		Host:  testHost,
 		Repo:  &fakeRepo{},
 		OpenFolder: func(ctx context.Context, _ string) (protocol.OpenFolderResult, error) {
-			RecordStartupTiming(ctx, "route-reserve", 2*time.Millisecond, "stable route")
+			RecordStartupTiming(ctx, "/private/path", time.Millisecond)
+			RecordStartupTiming(ctx, "route-reserve", 2*time.Millisecond)
 			return protocol.OpenFolderResult{Root: "/resolved/folder", Href: "../folder/"}, nil
 		},
 	})
@@ -114,7 +115,7 @@ func TestOpenFolderRouteEmitsOptInServerTiming(t *testing.T) {
 
 	srv.Handler().ServeHTTP(rec, req)
 
-	if got := rec.Header().Get("Server-Timing"); got != `route-reserve;dur=2.00;desc="stable route"` {
+	if got := rec.Header().Get("Server-Timing"); got != `route-reserve;dur=2.00` {
 		t.Fatalf("Server-Timing = %q", got)
 	}
 }

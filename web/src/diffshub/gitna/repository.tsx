@@ -95,8 +95,13 @@ const OP_LABELS: Record<string, string> = {
   'resolve-both': 'Resolving conflict',
 }
 
-function markStartup(name: string): void {
-  if (typeof performance === 'undefined') return
+export function startupTraceEnabled(): boolean {
+  if (typeof window === 'undefined') return false
+  return new URL(window.location.href).searchParams.get('trace-startup') === '1'
+}
+
+export function markStartup(name: string): void {
+  if (!startupTraceEnabled() || typeof performance === 'undefined') return
   performance.mark(`gitna:${name}`)
 }
 
@@ -360,6 +365,31 @@ export class GitnaRepository {
     }
   }
 
+  private async reconcileInitialGenerations(): Promise<void> {
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      if (this.snapshot == null || this.error != null || this.repositoryFilesError != null) return
+      if (this.generation === this.repositoryFilesGeneration) return
+      if (this.generation > this.repositoryFilesGeneration) {
+        await this.refreshRepositoryFiles()
+      } else {
+        await this.refreshSnapshot()
+      }
+    }
+    if (
+      this.snapshot != null &&
+      this.generation !== this.repositoryFilesGeneration &&
+      this.error == null &&
+      this.repositoryFilesError == null
+    ) {
+      this.repositoryPaths = []
+      this.repositoryIgnoredPaths = new Set()
+      this.repositoryFilesGeneration = 0
+      this.repositoryFilesError =
+        'Folder changed while initial data was loading. Refresh to try again.'
+      this.emit()
+    }
+  }
+
   async refreshCurrentFolder(): Promise<void> {
     const folders = this.refreshFolders()
     const explorer = this.refreshRepositoryFiles()
@@ -368,6 +398,7 @@ export class GitnaRepository {
       ? [this.refreshGraph(), this.refreshBranches(), this.refreshStashes(), this.refreshTags()]
       : []
     await Promise.allSettled([folders, explorer, ...gitData])
+    await this.reconcileInitialGenerations()
   }
 
   connectEvents(): () => void {

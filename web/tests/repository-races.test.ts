@@ -132,6 +132,58 @@ describe('GitnaRepository request sequencing', () => {
     expect(repository.repositoryPaths).toEqual(['ready.txt'])
   })
 
+  it('reloads Explorer when Snapshot wins the initial generation race', async () => {
+    const currentSnapshot = deferred<RepoSnapshot>()
+    const api = {
+      snapshot: vi.fn().mockReturnValue(currentSnapshot.promise),
+      folders: vi.fn().mockResolvedValue({ current: {}, recent: [] }),
+      repositoryFiles: vi
+        .fn()
+        .mockResolvedValueOnce({ generation: 1, paths: ['stale.txt'], truncated: false })
+        .mockResolvedValueOnce({ generation: 2, paths: ['current.txt'], truncated: false }),
+      graph: vi.fn().mockResolvedValue({ commits: [], hasMore: false }),
+      branches: vi.fn().mockResolvedValue([]),
+      stashes: vi.fn().mockResolvedValue([]),
+      tags: vi.fn().mockResolvedValue([]),
+    } as unknown as ApiClient
+    const repository = new GitnaRepository(api)
+
+    const refresh = repository.refreshCurrentFolder()
+    await vi.waitFor(() => expect(api.repositoryFiles).toHaveBeenCalledTimes(1))
+    currentSnapshot.resolve(snapshot('/repo', 2))
+    await refresh
+
+    expect(api.repositoryFiles).toHaveBeenCalledTimes(2)
+    expect(repository.generation).toBe(2)
+    expect(repository.repositoryPaths).toEqual(['current.txt'])
+  })
+
+  it('reloads Snapshot when Explorer wins the initial generation race', async () => {
+    const currentFiles = deferred<RepositoryFiles>()
+    const api = {
+      snapshot: vi
+        .fn()
+        .mockResolvedValueOnce(snapshot('/repo', 1))
+        .mockResolvedValueOnce(snapshot('/repo', 2)),
+      folders: vi.fn().mockResolvedValue({ current: {}, recent: [] }),
+      repositoryFiles: vi.fn().mockReturnValue(currentFiles.promise),
+      graph: vi.fn().mockResolvedValue({ commits: [], hasMore: false }),
+      branches: vi.fn().mockResolvedValue([]),
+      stashes: vi.fn().mockResolvedValue([]),
+      tags: vi.fn().mockResolvedValue([]),
+    } as unknown as ApiClient
+    const repository = new GitnaRepository(api)
+
+    const refresh = repository.refreshCurrentFolder()
+    await vi.waitFor(() => expect(api.snapshot).toHaveBeenCalledTimes(1))
+    currentFiles.resolve({ generation: 2, paths: ['current.txt'], truncated: false })
+    await refresh
+
+    expect(api.snapshot).toHaveBeenCalledTimes(2)
+    expect(repository.generation).toBe(2)
+    expect(repository.repositoryPaths).toEqual(['current.txt'])
+  })
+
   it('forwards folder-switch cancellation without mutating busy state', async () => {
     const controller = new AbortController()
     const api = {

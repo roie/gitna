@@ -810,7 +810,7 @@ test('folder path switches the live session and remains fully editable', async (
 
 test('same-tab folder switching shows and restores a branded transition', async ({ page, app }) => {
   await page.emulateMedia({ reducedMotion: 'reduce' })
-  await page.goto(app.url)
+  await page.goto(`${app.url}?trace-startup=1`)
   await expect(page).toHaveTitle(`${basename(app.repo)} - Gitna`)
   await page.getByRole('button', { name: 'Theme settings' }).click()
   await page.getByRole('button', { name: 'Dark', exact: true }).click()
@@ -825,8 +825,15 @@ test('same-tab folder switching shows and restores a branded transition', async 
     releaseRequest = resolve
   })
   let transitionVisibleAtRequest = false
+  let startupRecordedBeforeRequest = false
   await page.route('**/api/v1/folder', async (route) => {
     transitionVisibleAtRequest = (await page.locator('[data-folder-loading]').count()) === 1
+    startupRecordedBeforeRequest = await page.evaluate(() => {
+      const raw = sessionStorage.getItem('gitna:switch-start')
+      if (raw == null) return false
+      const marker = JSON.parse(raw) as { startedAt?: unknown }
+      return typeof marker.startedAt === 'number' && marker.startedAt <= Date.now()
+    })
     await release
     await route
       .fulfill({
@@ -851,6 +858,7 @@ test('same-tab folder switching shows and restores a branded transition', async 
   await expect(transition.locator('.animate-spin')).toHaveCSS('animation-name', 'none')
   await expect(page).toHaveTitle(`Opening ${longName} - Gitna`)
   await expect.poll(() => transitionVisibleAtRequest).toBe(true)
+  await expect.poll(() => startupRecordedBeforeRequest).toBe(true)
 
   // A newer programmatic switch aborts the stale request and owns restoration.
   // Programmatic submission is intentional here because the old workbench is
@@ -879,6 +887,9 @@ test('same-tab folder switching shows and restores a branded transition', async 
     `Could not open ${replacementName}: folder is unavailable`,
   )
   await expect(pathInput).toHaveValue(replacementTarget)
+  await expect
+    .poll(() => page.evaluate(() => sessionStorage.getItem('gitna:switch-start')))
+    .toBeNull()
 
   await expect
     .poll(() =>
@@ -895,6 +906,24 @@ test('same-tab folder switching shows and restores a branded transition', async 
         'gitna:sse-ready',
       ]),
     )
+})
+
+test('startup diagnostics are disabled without explicit opt-in', async ({ page, app }) => {
+  await page.goto(app.url)
+  await expect(page.getByRole('button', { name: 'Gitna Home' })).toBeVisible()
+  await expect
+    .poll(() =>
+      page.evaluate(() =>
+        performance
+          .getEntriesByType('mark')
+          .map((entry) => entry.name)
+          .filter((name) => name.startsWith('gitna:')),
+      ),
+    )
+    .toEqual([])
+  await expect
+    .poll(() => page.evaluate(() => sessionStorage.getItem('gitna:switch-start')))
+    .toBeNull()
 })
 
 test('stable folder routes isolate parallel browser pages', async ({ page, app }) => {

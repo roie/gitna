@@ -3,6 +3,7 @@ package app
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"net/http"
 	"net/http/httptest"
@@ -10,6 +11,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -209,6 +211,101 @@ func TestFolderRegistryReservesRoutesWhileWatchersInitialize(t *testing.T) {
 		t.Fatalf("shell = %d %q", shell.Code, shell.Body.String())
 	}
 	assertSnapshotRoot(t, registry, "/target/api/v1/snapshot", targetRoot)
+}
+
+func TestFolderRegistryDrainsConcurrentCapabilityRefreshBeforeServingAPI(t *testing.T) {
+	initialRoot := t.TempDir()
+	targetRoot := t.TempDir()
+	runner := &gitx.ExecRunner{}
+	initial, err := gitx.OpenFolder(t.Context(), runner, initialRoot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	activationStarted := make(chan struct{})
+	releaseActivation := make(chan struct{})
+	var targetResolutions atomic.Int32
+	resolve := func(ctx context.Context, path string) (gitx.Repository, error) {
+		if folder.PathKey(path) != folder.PathKey(targetRoot) {
+			return gitx.OpenFolder(ctx, runner, path)
+		}
+		switch targetResolutions.Add(1) {
+		case 1:
+			return gitx.Repository{Root: targetRoot}, nil
+		case 2:
+			close(activationStarted)
+			select {
+			case <-releaseActivation:
+				return gitx.Repository{Root: targetRoot}, nil
+			case <-ctx.Done():
+				return gitx.Repository{}, ctx.Err()
+			}
+		default:
+			return gitx.OpenFolder(ctx, runner, targetRoot)
+		}
+	}
+	watchFactory := func(context.Context, gitx.Repository, gitx.Runner, watch.Options) (watch.Watcher, error) {
+		return &testWatcher{events: make(chan watch.InvalidationKind)}, nil
+	}
+	registry, err := newFolderRegistry(
+		t.Context(), runner, fstest.MapFS{"index.html": {Data: []byte("gitna")}}, "test",
+		folder.Open(filepath.Join(t.TempDir(), "folders.json"), 20), server.CapabilityPath("token"), initial,
+		folderRegistryOptions{
+			dormancyGrace: 45 * time.Second,
+			openFolder:    resolve,
+			newWatcher:    watchFactory,
+		},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer registry.close()
+	opened, err := registry.openFolder(t.Context(), targetRoot)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	route := strings.TrimSuffix(strings.TrimPrefix(opened.Href, "../"), "/")
+	responseDone := make(chan *httptest.ResponseRecorder, 1)
+	go func() {
+		response := httptest.NewRecorder()
+		registry.ServeHTTP(
+			response,
+			httptest.NewRequest(http.MethodGet, "/"+route+"/api/v1/snapshot", nil),
+		)
+		responseDone <- response
+	}()
+	select {
+	case <-activationStarted:
+	case <-time.After(time.Second):
+		t.Fatal("destination activation did not start")
+	}
+	if output, err := exec.Command("git", "-C", targetRoot, "init", "-q", "-b", "main").CombinedOutput(); err != nil {
+		t.Fatalf("git init: %v: %s", err, output)
+	}
+	refreshed, err := registry.openFolder(t.Context(), targetRoot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if refreshed.Href != opened.Href {
+		t.Fatalf("refreshed href = %q, want %q", refreshed.Href, opened.Href)
+	}
+	close(releaseActivation)
+
+	select {
+	case response := <-responseDone:
+		if response.Code != http.StatusOK {
+			t.Fatalf("snapshot status = %d: %s", response.Code, response.Body)
+		}
+		var snapshot protocol.RepoSnapshot
+		if err := json.Unmarshal(response.Body.Bytes(), &snapshot); err != nil {
+			t.Fatal(err)
+		}
+		if !snapshot.Repository {
+			t.Fatal("destination API exposed stale ordinary-folder capability")
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("destination API did not finish after capability refresh")
+	}
 }
 
 func TestFolderRegistryWatcherFailureKeepsFolderUsableAndReconcilesOnSuccess(t *testing.T) {
