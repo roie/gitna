@@ -345,7 +345,15 @@ export class GitnaRepository {
             paths.push(path)
           }
           for (const path of files.ignoredPaths ?? []) ignoredPaths.add(path)
-          cursor = files.nextCursor
+          const nextCursor = files.nextCursor
+          if (
+            nextCursor != null &&
+            nextCursor !== '' &&
+            (files.paths.length === 0 || nextCursor !== files.paths.at(-1) || nextCursor === cursor)
+          ) {
+            throw new Error('Folder file listing returned a non-advancing cursor')
+          }
+          cursor = nextCursor
         } while (cursor != null && cursor !== '')
 
         if (restart) continue

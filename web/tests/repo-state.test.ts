@@ -377,6 +377,36 @@ describe('createRepoState', () => {
     expect(state.repositoryFilesLoading).toBe(false)
   })
 
+  it('rejects a non-advancing Explorer cursor without publishing paths', async () => {
+    const state = createRepoState({
+      api: {
+        ...auxApi,
+        async repositoryFiles(cursor) {
+          return cursor == null
+            ? {
+                generation: 3,
+                paths: ['existing.txt'],
+                truncated: true,
+                nextCursor: 'existing.txt',
+              }
+            : {
+                generation: 3,
+                paths: ['new.txt'],
+                truncated: true,
+                nextCursor: cursor,
+              }
+        },
+      },
+    })
+    state.repositoryPaths = ['previous.txt']
+
+    await state.refreshRepositoryFiles()
+
+    expect(state.repositoryPaths).toEqual(['previous.txt'])
+    expect(state.repositoryFilesError).toBe('Folder file listing returned a non-advancing cursor')
+    expect(state.repositoryFilesLoading).toBe(false)
+  })
+
   it('resolves a folder route without mutating the current repository state', async () => {
     const openFolder = vi.fn(async (path: string) => ({ root: path, href: '../next/' }))
     const state = createRepoState({ api: { ...auxApi, openFolder } })

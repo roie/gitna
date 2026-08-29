@@ -2,9 +2,10 @@ package gitx
 
 import (
 	"bytes"
+	"container/heap"
 	"context"
 	"fmt"
-	"io/fs"
+	"io"
 	"os"
 	"path/filepath"
 	"sort"
@@ -70,66 +71,130 @@ func (r Repository) RepositoryFiles(ctx context.Context, runner Runner, after st
 	return result, nil
 }
 
-func (r Repository) folderFiles(ctx context.Context, after string, limit int) (protocol.RepositoryFiles, error) {
-	result := protocol.RepositoryFiles{Paths: make([]string, 0), IgnoredPaths: make([]string, 0)}
-	paths := make([]string, 0)
-	err := filepath.WalkDir(r.Root, func(path string, entry fs.DirEntry, walkErr error) error {
-		if walkErr != nil {
-			return walkErr
-		}
-		if err := ctx.Err(); err != nil {
-			return err
-		}
-		if path == r.Root {
-			return nil
-		}
-		if entry.Name() == ".git" {
-			if entry.IsDir() {
-				return filepath.SkipDir
-			}
-			return nil
-		}
-		if entry.IsDir() {
-			return nil
-		}
-		relative, err := filepath.Rel(r.Root, path)
+type folderFileCandidate struct {
+	path      string
+	directory bool
+}
+
+type folderFileCandidates []folderFileCandidate
+
+func (candidates folderFileCandidates) Len() int { return len(candidates) }
+func (candidates folderFileCandidates) Less(left, right int) bool {
+	return candidates[left].path < candidates[right].path
+}
+func (candidates folderFileCandidates) Swap(left, right int) {
+	candidates[left], candidates[right] = candidates[right], candidates[left]
+}
+func (candidates *folderFileCandidates) Push(value any) {
+	*candidates = append(*candidates, value.(folderFileCandidate))
+}
+func (candidates *folderFileCandidates) Pop() any {
+	values := *candidates
+	last := len(values) - 1
+	value := values[last]
+	*candidates = values[:last]
+	return value
+}
+
+const folderDirectoryReadBatch = 256
+
+type folderDirectoryReader func(context.Context, string, string, func(folderFileCandidate)) error
+
+func readFolderDirectory(
+	ctx context.Context,
+	root string,
+	relative string,
+	enqueue func(folderFileCandidate),
+) error {
+	absolute := root
+	if relative != "" {
+		absolute = filepath.Join(root, filepath.FromSlash(relative))
+		info, err := os.Lstat(absolute)
 		if err != nil {
 			return err
 		}
-		paths = append(paths, filepath.ToSlash(relative))
-		return nil
-	})
-	if err != nil {
-		return protocol.RepositoryFiles{}, err
+		// A directory replaced by a symlink while paging must never be followed.
+		if !info.IsDir() || info.Mode()&os.ModeSymlink != 0 {
+			return nil
+		}
 	}
-	if err := ctx.Err(); err != nil {
+	directory, err := os.Open(absolute)
+	if err != nil {
+		return err
+	}
+	defer directory.Close()
+
+	for {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		entries, readErr := directory.ReadDir(folderDirectoryReadBatch)
+		for _, entry := range entries {
+			if entry.Name() == ".git" {
+				continue
+			}
+			path := entry.Name()
+			if relative != "" {
+				path = relative + "/" + path
+			}
+			enqueue(folderFileCandidate{path: path, directory: entry.IsDir()})
+		}
+		if readErr != nil {
+			if readErr == io.EOF {
+				return nil
+			}
+			return readErr
+		}
+	}
+}
+
+func folderCandidateMayFollow(candidate folderFileCandidate, after string) bool {
+	if !candidate.directory {
+		return candidate.path > after
+	}
+	prefix := candidate.path + "/"
+	return after == "" || strings.HasPrefix(after, prefix) || prefix > after
+}
+
+func (r Repository) folderFiles(ctx context.Context, after string, limit int) (protocol.RepositoryFiles, error) {
+	return r.folderFilesWithReader(ctx, after, limit, readFolderDirectory)
+}
+
+func (r Repository) folderFilesWithReader(
+	ctx context.Context,
+	after string,
+	limit int,
+	readDirectory folderDirectoryReader,
+) (protocol.RepositoryFiles, error) {
+	result := protocol.RepositoryFiles{Paths: make([]string, 0, limit), IgnoredPaths: make([]string, 0)}
+	candidates := make(folderFileCandidates, 0)
+	heap.Init(&candidates)
+	enqueue := func(candidate folderFileCandidate) {
+		if folderCandidateMayFollow(candidate, after) {
+			heap.Push(&candidates, candidate)
+		}
+	}
+	if err := readDirectory(ctx, r.Root, "", enqueue); err != nil {
 		return protocol.RepositoryFiles{}, err
 	}
 
-	// WalkDir is depth-first, while the cursor contract is global lexical order.
-	// Sort and compact the complete ordinary-folder manifest before taking a
-	// bounded page so adjacent pages cannot overlap at directory boundaries.
-	sort.Strings(paths)
-	if err := ctx.Err(); err != nil {
-		return protocol.RepositoryFiles{}, err
-	}
-	unique := paths[:0]
-	for index, path := range paths {
-		if index%4096 == 0 {
-			if err := ctx.Err(); err != nil {
+	for candidates.Len() > 0 {
+		if err := ctx.Err(); err != nil {
+			return protocol.RepositoryFiles{}, err
+		}
+		candidate := heap.Pop(&candidates).(folderFileCandidate)
+		if candidate.directory {
+			if err := readDirectory(ctx, r.Root, candidate.path, enqueue); err != nil {
 				return protocol.RepositoryFiles{}, err
 			}
+			continue
 		}
-		if len(unique) == 0 || path != unique[len(unique)-1] {
-			unique = append(unique, path)
+		if len(result.Paths) == limit {
+			result.Truncated = true
+			result.NextCursor = result.Paths[len(result.Paths)-1]
+			return result, nil
 		}
-	}
-	start := sort.Search(len(unique), func(index int) bool { return unique[index] > after })
-	end := min(start+limit, len(unique))
-	result.Paths = append(result.Paths, unique[start:end]...)
-	if end < len(unique) {
-		result.Truncated = true
-		result.NextCursor = result.Paths[len(result.Paths)-1]
+		result.Paths = append(result.Paths, candidate.path)
 	}
 	return result, nil
 }

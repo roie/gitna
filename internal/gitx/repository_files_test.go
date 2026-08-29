@@ -141,6 +141,75 @@ func TestRepositoryFilesPagesOrdinaryFolderInGlobalPathOrder(t *testing.T) {
 	}
 }
 
+func TestRepositoryFilesStopsAfterFindingTheNextPage(t *testing.T) {
+	root := t.TempDir()
+	readDirectories := make([]string, 0)
+	readDirectory := func(
+		ctx context.Context,
+		_ string,
+		relative string,
+		enqueue func(folderFileCandidate),
+	) error {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		readDirectories = append(readDirectories, relative)
+		switch relative {
+		case "":
+			enqueue(folderFileCandidate{path: "a", directory: true})
+			enqueue(folderFileCandidate{path: "z", directory: true})
+		case "a":
+			enqueue(folderFileCandidate{path: "a/1.txt"})
+			enqueue(folderFileCandidate{path: "a/2.txt"})
+			enqueue(folderFileCandidate{path: "a/3.txt"})
+		case "z":
+			t.Fatal("read later subtree after the page boundary")
+		}
+		return nil
+	}
+
+	page, err := (Repository{Root: root}).folderFilesWithReader(
+		t.Context(),
+		"",
+		2,
+		readDirectory,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(page.Paths, []string{"a/1.txt", "a/2.txt"}) ||
+		!page.Truncated || page.NextCursor != "a/2.txt" {
+		t.Fatalf("page = %#v", page)
+	}
+	if !reflect.DeepEqual(readDirectories, []string{"", "a"}) {
+		t.Fatalf("read directories = %#v, want root and first subtree", readDirectories)
+	}
+}
+
+func TestRepositoryFilesCancelsDuringPageTraversal(t *testing.T) {
+	ctx, cancel := context.WithCancel(t.Context())
+	readDirectory := func(
+		_ context.Context,
+		_ string,
+		relative string,
+		enqueue func(folderFileCandidate),
+	) error {
+		switch relative {
+		case "":
+			enqueue(folderFileCandidate{path: "folder", directory: true})
+		case "folder":
+			enqueue(folderFileCandidate{path: "folder/file.txt"})
+			cancel()
+		}
+		return nil
+	}
+
+	_, err := (Repository{Root: t.TempDir()}).folderFilesWithReader(ctx, "", 100, readDirectory)
+	if err != context.Canceled {
+		t.Fatalf("folderFilesWithReader error = %v, want context canceled", err)
+	}
+}
+
 func TestRepositoryFilesDeduplicatesUnmergedPaths(t *testing.T) {
 	root := initTestRepo(t)
 	path := filepath.Join(root, "conflict.txt")
