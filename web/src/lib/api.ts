@@ -122,7 +122,14 @@ export interface ApiClient {
   folders(): Promise<FolderCatalog>
   repositoryFiles(cursor?: string): Promise<RepositoryFiles>
   directoryEntries(path: string, cursor?: string, signal?: AbortSignal): Promise<DirectoryEntries>
-  searchFiles(query: string, signal?: AbortSignal): Promise<FileSearchResults>
+  searchFiles(
+    query: string,
+    options?: {
+      recentPaths?: readonly string[]
+      refresh?: boolean
+      signal?: AbortSignal
+    },
+  ): Promise<FileSearchResults>
   readWorktreeFile(path: string): Promise<WorktreeFile>
   writeWorktreeFile(path: string, content: string, expectedHash: string): Promise<WorktreeFile>
   createWorktreeEntry(path: string, directory: boolean): Promise<void>
@@ -241,14 +248,23 @@ export function createApi(): ApiClient {
       )
       return (await res.json()) as DirectoryEntries
     },
-    async searchFiles(query: string, signal?: AbortSignal): Promise<FileSearchResults> {
+    async searchFiles(
+      query: string,
+      options: {
+        recentPaths?: readonly string[]
+        refresh?: boolean
+        signal?: AbortSignal
+      } = {},
+    ): Promise<FileSearchResults> {
       const params = new URLSearchParams({ q: query })
+      for (const path of options.recentPaths?.slice(-20) ?? []) params.append('recent', path)
+      if (options.refresh === true) params.set('refresh', '1')
       const res = await expectOK(
         await fetch(`api/v1/files/search?${params.toString()}`, {
           signal:
-            signal == null
+            options.signal == null
               ? AbortSignal.timeout(FETCH_TIMEOUT)
-              : AbortSignal.any([signal, AbortSignal.timeout(FETCH_TIMEOUT)]),
+              : AbortSignal.any([options.signal, AbortSignal.timeout(FETCH_TIMEOUT)]),
         }),
       )
       return (await res.json()) as FileSearchResults

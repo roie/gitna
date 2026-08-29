@@ -41,6 +41,17 @@ describe('command palette file ranking', () => {
     })
   })
 
+  it('applies recency before the bounded cutoff used by ordinary folder search', () => {
+    const results = rankPaletteFiles(
+      ['a/main.go', 'b/main.go', 'z/main.go'],
+      'main',
+      ['z/main.go'],
+      2,
+    )
+
+    expect(results.map((result) => result.path)).toEqual(['z/main.go', 'a/main.go'])
+  })
+
   it('bounds rendered results', () => {
     const paths = Array.from({ length: 250 }, (_, index) => `src/file-${index}.ts`)
     expect(rankPaletteFiles(paths, 'file', [])).toHaveLength(COMMAND_PALETTE_RESULT_LIMIT)

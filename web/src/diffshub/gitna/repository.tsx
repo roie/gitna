@@ -472,7 +472,7 @@ export class GitnaRepository {
     return operation
   }
 
-  async searchOrdinaryFiles(query: string): Promise<void> {
+  async searchOrdinaryFiles(query: string, recentPaths: readonly string[] = []): Promise<void> {
     const request = ++this.ordinarySearchRequest
     this.ordinarySearchController?.abort()
     const controller = new AbortController()
@@ -481,7 +481,10 @@ export class GitnaRepository {
     this.ordinarySearchError = null
     this.emit()
     try {
-      const response = await this.api.searchFiles(query, controller.signal)
+      const response = await this.api.searchFiles(query, {
+        recentPaths,
+        signal: controller.signal,
+      })
       if (request !== this.ordinarySearchRequest) return
       if (response.generation < this.generation) {
         this.ordinarySearchResults = []
@@ -521,11 +524,44 @@ export class GitnaRepository {
     this.selectRepositoryFile(path, reveal)
   }
 
+  async refreshExplorer(): Promise<void> {
+    if (this.snapshot?.repository !== false) {
+      await this.refreshRepositoryFiles()
+      return
+    }
+    // An explicit refresh is authoritative even for unopened directories that
+    // are outside partial watch coverage. Restart the server-side Quick Open
+    // index before refreshing the stale-but-visible loaded tree.
+    await Promise.allSettled([
+      this.api.searchFiles('', { refresh: true }),
+      this.refreshOrdinaryDirectories(),
+    ])
+  }
+
   private async refreshOrdinaryDirectories(): Promise<void> {
     const directories =
       this.ordinaryDirectoryChildren.size === 0 ? [''] : [...this.ordinaryDirectoryChildren.keys()]
-    await Promise.allSettled(
-      directories.map((directory) => this.loadOrdinaryDirectory(directory, true)),
+    directories.sort((left, right) => {
+      const depth = left.split('/').length - right.split('/').length
+      return depth || left.localeCompare(right)
+    })
+    let next = 0
+    const workerCount = Math.min(4, directories.length)
+    await Promise.all(
+      Array.from({ length: workerCount }, async () => {
+        for (;;) {
+          const index = next
+          next += 1
+          const directory = directories[index]
+          if (directory == null) return
+          try {
+            await this.loadOrdinaryDirectory(directory, true)
+          } catch {
+            // Individual directory errors are retained beside stale children;
+            // other loaded directories still receive their bounded refresh.
+          }
+        }
+      }),
     )
   }
 

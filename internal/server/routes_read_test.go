@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"reflect"
 	"strings"
 	"sync"
 	"testing"
@@ -23,6 +24,8 @@ type fakeRepo struct {
 	files           protocol.RepositoryFiles
 	directory       protocol.DirectoryEntries
 	search          protocol.FileSearchResults
+	searchRecent    []string
+	searchRefresh   bool
 
 	graphCommits []protocol.GraphCommit
 	graphFiles   []protocol.CommitFile
@@ -91,10 +94,12 @@ func (f *fakeRepo) DirectoryEntries(context.Context, string, string, int) (proto
 	return f.directory, nil
 }
 
-func (f *fakeRepo) SearchFiles(context.Context, string, int) (protocol.FileSearchResults, error) {
+func (f *fakeRepo) SearchFiles(_ context.Context, _ string, recent []string, refresh bool, _ int) (protocol.FileSearchResults, error) {
 	if f.err != nil {
 		return protocol.FileSearchResults{}, f.err
 	}
+	f.searchRecent = append([]string(nil), recent...)
+	f.searchRefresh = refresh
 	return f.search, nil
 }
 
@@ -504,11 +509,12 @@ func TestSnapshotRouteReturnsNormalizedJSON(t *testing.T) {
 }
 
 func TestFileSearchRouteReturnsBoundedResults(t *testing.T) {
-	h := newSnapshotServer(&fakeRepo{search: protocol.FileSearchResults{
+	repo := &fakeRepo{search: protocol.FileSearchResults{
 		Complete: true,
 		Results:  []protocol.FileSearchResult{{Path: "src/main.go", Name: "main.go", Parent: "src"}},
-	}})
-	req := httptest.NewRequest(http.MethodGet, "/g/"+testToken+"/api/v1/files/search?q=main", nil)
+	}}
+	h := newSnapshotServer(repo)
+	req := httptest.NewRequest(http.MethodGet, "/g/"+testToken+"/api/v1/files/search?q=main&recent=docs%2Fmain.go&recent=src%2Fmain.go&refresh=1", nil)
 	req.Host = testHost
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, req)
@@ -521,6 +527,9 @@ func TestFileSearchRouteReturnsBoundedResults(t *testing.T) {
 	}
 	if !got.Complete || len(got.Results) != 1 || got.Results[0].Path != "src/main.go" {
 		t.Fatalf("results = %#v", got)
+	}
+	if !repo.searchRefresh || !reflect.DeepEqual(repo.searchRecent, []string{"docs/main.go", "src/main.go"}) {
+		t.Fatalf("refresh=%t recent=%#v", repo.searchRefresh, repo.searchRecent)
 	}
 }
 

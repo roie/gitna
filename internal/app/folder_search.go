@@ -144,7 +144,12 @@ func (a *repoAdapter) startFileSearchIndex() {
 	}()
 }
 
-func (a *repoAdapter) searchFiles(ctx context.Context, query string, limit int) (protocol.FileSearchResults, error) {
+func (a *repoAdapter) searchFiles(
+	ctx context.Context,
+	query string,
+	recentPaths []string,
+	limit int,
+) (protocol.FileSearchResults, error) {
 	if limit <= 0 {
 		return protocol.FileSearchResults{Results: make([]protocol.FileSearchResult, 0)}, nil
 	}
@@ -154,6 +159,10 @@ func (a *repoAdapter) searchFiles(ctx context.Context, query string, limit int) 
 	defer a.search.mu.RUnlock()
 	if a.search.err != nil {
 		return protocol.FileSearchResults{}, a.search.err
+	}
+	recency := make(map[string]int, len(recentPaths))
+	for index, path := range recentPaths {
+		recency[path] = index + 1
 	}
 	matches := make(folderSearchHeap, 0, limit)
 	heap.Init(&matches)
@@ -167,7 +176,8 @@ func (a *repoAdapter) searchFiles(ctx context.Context, query string, limit int) 
 		if !ok {
 			continue
 		}
-		candidate := scoredFolderFile{entry: entry, score: score}
+		recent := recency[entry.path]
+		candidate := scoredFolderFile{entry: entry, score: score - min(recent, 10)}
 		if matches.Len() < limit {
 			heap.Push(&matches, candidate)
 		} else if candidate.betterThan(matches[0]) {

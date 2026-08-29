@@ -379,7 +379,7 @@ func (s *Server) handleDirectoryEntries(w http.ResponseWriter, r *http.Request) 
 }
 
 type fileSearchRepo interface {
-	SearchFiles(context.Context, string, int) (protocol.FileSearchResults, error)
+	SearchFiles(context.Context, string, []string, bool, int) (protocol.FileSearchResults, error)
 }
 
 const fileSearchResultLimit = 100
@@ -395,11 +395,25 @@ func (s *Server) handleFileSearch(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "file search query is too long"})
 		return
 	}
+	recentPaths := r.URL.Query()["recent"]
+	if len(recentPaths) > 20 {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "too many recent file paths"})
+		return
+	}
+	totalRecentLength := 0
+	for _, path := range recentPaths {
+		totalRecentLength += len(path)
+	}
+	if totalRecentLength > 8_192 {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "recent file paths are too long"})
+		return
+	}
+	refresh := r.URL.Query().Get("refresh") == "1"
 	ctx, cancel := context.WithTimeout(r.Context(), ReadTimeout)
 	defer cancel()
 	for range 3 {
 		generation := s.gen.Load()
-		results, err := repo.SearchFiles(ctx, query, fileSearchResultLimit)
+		results, err := repo.SearchFiles(ctx, query, recentPaths, refresh, fileSearchResultLimit)
 		if err != nil {
 			if timeoutReached(ctx, err) {
 				writeJSON(w, http.StatusGatewayTimeout, map[string]string{"error": "file search timed out"})

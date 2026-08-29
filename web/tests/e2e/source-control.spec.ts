@@ -1542,7 +1542,10 @@ test('ordinary folders open in Explorer and switch back to Git', async ({ page, 
   mkdirSync(folder)
   mkdirSync(join(folder, 'empty'))
   mkdirSync(join(folder, 'nested'))
+  mkdirSync(join(folder, 'drop-target'))
   writeFileSync(join(folder, 'nested', 'child.txt'), 'nested child\n')
+  writeFileSync(join(folder, 'drop-target', 'existing.txt'), 'existing\n')
+  writeFileSync(join(folder, 'move-me.txt'), 'move me\n')
   writeFileSync(join(folder, 'large.bin'), Buffer.alloc(2_100_000))
   writeFileSync(join(folder, 'notes.txt'), 'folder note\n')
 
@@ -1560,14 +1563,36 @@ test('ordinary folders open in Explorer and switch back to Git', async ({ page, 
   await expect(page.getByPlaceholder('Commit message')).toHaveCount(0)
   await expect(page.locator('[data-section="graph"]')).toHaveCount(0)
   const explorer = page.locator('#gitna-repository-tree__tree')
-  await expect(explorer.getByRole('treeitem')).toHaveCount(4)
+  await expect(explorer.getByRole('treeitem')).toHaveCount(6)
   const nested = explorer.getByRole('treeitem', { name: 'nested', exact: true })
   await expect(nested).toHaveAttribute('aria-expanded', 'false')
-  await nested.click()
+  await nested.focus()
+  await page.keyboard.press('ArrowRight')
+  await expect(nested).toHaveAttribute('aria-expanded', 'true')
   await expect(explorer.getByRole('treeitem', { name: 'child.txt', exact: true })).toBeVisible()
+  await expect(nested).toMatchAriaSnapshot('- treeitem "nested" [expanded]')
   const empty = explorer.getByRole('treeitem', { name: 'empty', exact: true })
   await empty.click()
   await expect(empty).not.toHaveAttribute('aria-expanded')
+
+  const moveSource = explorer.getByRole('treeitem', { name: 'move-me.txt', exact: true })
+  const dropTarget = explorer.getByRole('treeitem', { name: 'drop-target', exact: true })
+  const dataTransfer = await page.evaluateHandle(() => new DataTransfer())
+  const targetBox = await dropTarget.boundingBox()
+  expect(targetBox).not.toBeNull()
+  const dragPoint = {
+    clientX: targetBox!.x + targetBox!.width / 2,
+    clientY: targetBox!.y + targetBox!.height / 2,
+    dataTransfer,
+  }
+  await moveSource.dispatchEvent('dragstart', { dataTransfer })
+  await dropTarget.dispatchEvent('dragenter', dragPoint)
+  await dropTarget.dispatchEvent('dragover', dragPoint)
+  await expect(dropTarget).toHaveAttribute('aria-expanded', 'true', { timeout: 2_000 })
+  await expect(explorer.getByRole('treeitem', { name: 'existing.txt', exact: true })).toBeVisible()
+  await moveSource.dispatchEvent('dragend', { dataTransfer })
+  expect(existsSync(join(folder, 'move-me.txt'))).toBe(true)
+  await page.getByRole('button', { name: 'Close move-me.txt' }).click()
 
   await explorer.getByRole('treeitem', { name: 'large.bin', exact: true }).click()
   const fileError = page.getByRole('alert')

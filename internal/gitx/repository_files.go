@@ -72,8 +72,11 @@ func (r Repository) RepositoryFiles(ctx context.Context, runner Runner, after st
 }
 
 type folderFileCandidate struct {
-	path      string
-	directory bool
+	path         string
+	directory    bool
+	continuation bool
+	parent       string
+	after        string
 }
 
 type folderFileCandidates []folderFileCandidate
@@ -98,54 +101,119 @@ func (candidates *folderFileCandidates) Pop() any {
 
 const folderDirectoryReadBatch = 256
 
-type folderDirectoryReader func(context.Context, string, string, func(folderFileCandidate)) error
+type folderDirectoryPage struct {
+	candidates  []folderFileCandidate
+	truncated   bool
+	nextCursor  string
+	maxRetained int
+}
+
+type folderDirectoryReader func(context.Context, string, string, string, string, int) (folderDirectoryPage, error)
+
+type folderFileSelection []folderFileCandidate
+
+func (values folderFileSelection) Len() int { return len(values) }
+func (values folderFileSelection) Less(left, right int) bool {
+	return values[left].path > values[right].path
+}
+func (values folderFileSelection) Swap(left, right int) {
+	values[left], values[right] = values[right], values[left]
+}
+func (values *folderFileSelection) Push(value any) {
+	*values = append(*values, value.(folderFileCandidate))
+}
+func (values *folderFileSelection) Pop() any {
+	items := *values
+	last := len(items) - 1
+	value := items[last]
+	*values = items[:last]
+	return value
+}
+
+func selectFolderDirectoryCandidates(
+	ctx context.Context,
+	read directoryBatchReader,
+	relative string,
+	globalAfter string,
+	pageAfter string,
+	limit int,
+) (folderDirectoryPage, error) {
+	retainedLimit := limit + 1
+	selected := make(folderFileSelection, 0, retainedLimit)
+	heap.Init(&selected)
+	maxRetained := 0
+	for {
+		if err := ctx.Err(); err != nil {
+			return folderDirectoryPage{}, err
+		}
+		entries, readErr := read(folderDirectoryReadBatch)
+		for _, entry := range entries {
+			if entry.Name() == ".git" {
+				continue
+			}
+			candidatePath := entry.Name()
+			if relative != "" {
+				candidatePath = relative + "/" + candidatePath
+			}
+			candidate := folderFileCandidate{path: candidatePath, directory: entry.IsDir()}
+			if candidate.path <= pageAfter || !folderCandidateMayFollow(candidate, globalAfter) {
+				continue
+			}
+			if selected.Len() < retainedLimit {
+				heap.Push(&selected, candidate)
+			} else if candidate.path < selected[0].path {
+				selected[0] = candidate
+				heap.Fix(&selected, 0)
+			}
+			if selected.Len() > maxRetained {
+				maxRetained = selected.Len()
+			}
+		}
+		if readErr != nil {
+			if readErr == io.EOF {
+				break
+			}
+			return folderDirectoryPage{}, readErr
+		}
+	}
+	ordered := make([]folderFileCandidate, len(selected))
+	copy(ordered, selected)
+	sort.Slice(ordered, func(left, right int) bool { return ordered[left].path < ordered[right].path })
+	page := folderDirectoryPage{candidates: ordered, maxRetained: maxRetained}
+	if len(page.candidates) > limit {
+		page.candidates = page.candidates[:limit]
+		page.truncated = true
+		page.nextCursor = page.candidates[len(page.candidates)-1].path
+	}
+	return page, nil
+}
 
 func readFolderDirectory(
 	ctx context.Context,
 	root string,
 	relative string,
-	enqueue func(folderFileCandidate),
-) error {
+	globalAfter string,
+	pageAfter string,
+	limit int,
+) (folderDirectoryPage, error) {
 	absolute := root
 	if relative != "" {
 		absolute = filepath.Join(root, filepath.FromSlash(relative))
 		info, err := os.Lstat(absolute)
 		if err != nil {
-			return err
+			return folderDirectoryPage{}, err
 		}
 		// A directory replaced by a symlink while paging must never be followed.
 		if !info.IsDir() || info.Mode()&os.ModeSymlink != 0 {
-			return nil
+			return folderDirectoryPage{}, nil
 		}
 	}
 	directory, err := os.Open(absolute)
 	if err != nil {
-		return err
+		return folderDirectoryPage{}, err
 	}
 	defer directory.Close()
-
-	for {
-		if err := ctx.Err(); err != nil {
-			return err
-		}
-		entries, readErr := directory.ReadDir(folderDirectoryReadBatch)
-		for _, entry := range entries {
-			if entry.Name() == ".git" {
-				continue
-			}
-			path := entry.Name()
-			if relative != "" {
-				path = relative + "/" + path
-			}
-			enqueue(folderFileCandidate{path: path, directory: entry.IsDir()})
-		}
-		if readErr != nil {
-			if readErr == io.EOF {
-				return nil
-			}
-			return readErr
-		}
-	}
+	return selectFolderDirectoryCandidates(ctx, directory.ReadDir, relative, globalAfter, pageAfter, limit)
 }
 
 func folderCandidateMayFollow(candidate folderFileCandidate, after string) bool {
@@ -167,14 +235,27 @@ func (r Repository) folderFilesWithReader(
 	readDirectory folderDirectoryReader,
 ) (protocol.RepositoryFiles, error) {
 	result := protocol.RepositoryFiles{Paths: make([]string, 0, limit), IgnoredPaths: make([]string, 0)}
-	candidates := make(folderFileCandidates, 0)
+	candidates := make(folderFileCandidates, 0, limit+2)
 	heap.Init(&candidates)
-	enqueue := func(candidate folderFileCandidate) {
-		if folderCandidateMayFollow(candidate, after) {
+	enqueuePage := func(relative, cursor string) error {
+		page, err := readDirectory(ctx, r.Root, relative, after, cursor, limit)
+		if err != nil {
+			return err
+		}
+		for _, candidate := range page.candidates {
 			heap.Push(&candidates, candidate)
 		}
+		if page.truncated {
+			// NUL is not valid in filesystem names and sorts immediately after the
+			// retained candidate, allowing descendants to stay globally ordered.
+			heap.Push(&candidates, folderFileCandidate{
+				path: page.nextCursor + "\x00", continuation: true,
+				parent: relative, after: page.nextCursor,
+			})
+		}
+		return nil
 	}
-	if err := readDirectory(ctx, r.Root, "", enqueue); err != nil {
+	if err := enqueuePage("", ""); err != nil {
 		return protocol.RepositoryFiles{}, err
 	}
 
@@ -182,19 +263,24 @@ func (r Repository) folderFilesWithReader(
 		if err := ctx.Err(); err != nil {
 			return protocol.RepositoryFiles{}, err
 		}
-		candidate := heap.Pop(&candidates).(folderFileCandidate)
-		if candidate.directory {
-			if err := readDirectory(ctx, r.Root, candidate.path, enqueue); err != nil {
-				return protocol.RepositoryFiles{}, err
-			}
-			continue
-		}
 		if len(result.Paths) == limit {
 			result.Truncated = true
 			result.NextCursor = result.Paths[len(result.Paths)-1]
 			return result, nil
 		}
-		result.Paths = append(result.Paths, candidate.path)
+		candidate := heap.Pop(&candidates).(folderFileCandidate)
+		switch {
+		case candidate.continuation:
+			if err := enqueuePage(candidate.parent, candidate.after); err != nil {
+				return protocol.RepositoryFiles{}, err
+			}
+		case candidate.directory:
+			if err := enqueuePage(candidate.path, ""); err != nil {
+				return protocol.RepositoryFiles{}, err
+			}
+		default:
+			result.Paths = append(result.Paths, candidate.path)
+		}
 	}
 	return result, nil
 }

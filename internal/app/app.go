@@ -78,8 +78,17 @@ func (a *repoAdapter) DirectoryEntries(ctx context.Context, directory, after str
 	return entries, err
 }
 
-func (a *repoAdapter) SearchFiles(ctx context.Context, query string, limit int) (protocol.FileSearchResults, error) {
-	return a.searchFiles(ctx, query, limit)
+func (a *repoAdapter) SearchFiles(
+	ctx context.Context,
+	query string,
+	recentPaths []string,
+	refresh bool,
+	limit int,
+) (protocol.FileSearchResults, error) {
+	if refresh {
+		a.invalidateFileSearch()
+	}
+	return a.searchFiles(ctx, query, recentPaths, limit)
 }
 
 func (a *repoAdapter) ReadWorktreeFile(ctx context.Context, path string) (protocol.WorktreeFile, error) {

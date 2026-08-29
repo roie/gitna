@@ -6,6 +6,8 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -96,6 +98,93 @@ func TestFolderSessionCancelsSupersededWatcherBeforeStartingReplacement(t *testi
 	case <-orderViolation:
 		t.Fatal("replacement watcher started before superseded setup exited")
 	default:
+	}
+}
+
+type observingTestWatcher struct {
+	*testWatcher
+	mu          sync.Mutex
+	directories []string
+}
+
+func newObservingTestWatcher() *observingTestWatcher {
+	return &observingTestWatcher{testWatcher: &testWatcher{events: make(chan watch.InvalidationKind)}}
+}
+
+func (w *observingTestWatcher) ObserveDirectory(path string) error {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	w.directories = append(w.directories, path)
+	return nil
+}
+
+func (w *observingTestWatcher) Coverage() watch.Coverage { return watch.CoveragePartial }
+
+func (w *observingTestWatcher) observed() []string {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	return append([]string(nil), w.directories...)
+}
+
+func TestFolderSessionBoundsObservedDirectoryReplayWithRootPreservingLRU(t *testing.T) {
+	root := t.TempDir()
+	runner := &gitx.ExecRunner{}
+	repo, err := gitx.OpenFolder(t.Context(), runner, root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	created := make(chan *observingTestWatcher, 2)
+	factory := func(context.Context, gitx.Repository, gitx.Runner, watch.Options) (watch.Watcher, error) {
+		watcher := newObservingTestWatcher()
+		created <- watcher
+		return watcher, nil
+	}
+	session, err := newFolderSession(t.Context(), runner, repo, nil, factory)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer session.close()
+	select {
+	case <-created:
+	case <-time.After(time.Second):
+		t.Fatal("initial watcher setup did not finish")
+	}
+
+	for index := 0; index < watch.DefaultMaxObservedDirectories+16; index++ {
+		session.observeDirectory("dir-" + strconv.Itoa(index))
+	}
+	// Touch an older retained directory so replay proves true LRU behavior.
+	touched := "dir-16"
+	session.observeDirectory(touched)
+	session.startWatcher(repo)
+
+	var replacement *observingTestWatcher
+	select {
+	case replacement = <-created:
+	case <-time.After(time.Second):
+		t.Fatal("replacement watcher setup did not start")
+	}
+	deadline := time.Now().Add(time.Second)
+	for len(replacement.observed()) < watch.DefaultMaxObservedDirectories {
+		if time.Now().After(deadline) {
+			t.Fatalf("replayed %d directories, want %d", len(replacement.observed()), watch.DefaultMaxObservedDirectories)
+		}
+		time.Sleep(time.Millisecond)
+	}
+	observed := replacement.observed()
+	if len(observed) != watch.DefaultMaxObservedDirectories {
+		t.Fatalf("replayed %d directories, want bounded %d", len(observed), watch.DefaultMaxObservedDirectories)
+	}
+	if observed[0] != "" {
+		t.Fatalf("first replay = %q, want root", observed[0])
+	}
+	if observed[len(observed)-1] != touched {
+		t.Fatalf("last replay = %q, want recently touched %q", observed[len(observed)-1], touched)
+	}
+	for _, directory := range observed {
+		if directory == "dir-0" {
+			t.Fatal("evicted directory dir-0 was replayed")
+		}
 	}
 }
 

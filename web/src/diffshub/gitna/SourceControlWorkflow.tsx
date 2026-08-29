@@ -692,7 +692,7 @@ export function GitnaSourceControl() {
         onCreate={(kind, initialPath) => setRepositoryEntryDialog({ kind, initialPath })}
         onOpen={selectRepositoryPath}
         onOpenChange={(scope, path) => repository.select(scope, path)}
-        onRefresh={() => void repository.refreshRepositoryFiles()}
+        onRefresh={() => void repository.refreshExplorer()}
         onRename={(source) =>
           setRepositoryEntryDialog({ kind: 'rename', source, initialPath: source })
         }
@@ -937,7 +937,7 @@ export function GitnaSourceControl() {
               onClearFilters={() => setRepositoryFilters(new Set())}
               onIsolateFilter={(status) => setRepositoryFilters(new Set([status]))}
               onCreate={(kind, initialPath) => setRepositoryEntryDialog({ kind, initialPath })}
-              onRefresh={() => void repository.refreshRepositoryFiles()}
+              onRefresh={() => void repository.refreshExplorer()}
               onShowHiddenFilesChange={setShowHiddenFiles}
               onShowIgnoredFilesChange={setShowIgnoredFiles}
               onRename={(source) =>

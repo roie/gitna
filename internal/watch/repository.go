@@ -22,6 +22,10 @@ import (
 type InvalidationKind string
 
 const (
+	// DefaultMaxObservedDirectories bounds ordinary-folder observation while
+	// retaining the root watch. Sessions use the same limit for replay state.
+	DefaultMaxObservedDirectories = 2_048
+
 	// InvalidateSnapshot means the source-control snapshot may have changed.
 	InvalidateSnapshot InvalidationKind = "snapshot-invalidated"
 	// InvalidateGraph means branch topology may have changed (consumed by the
@@ -197,11 +201,12 @@ func (w *Repository) ObserveDirectory(relative string) error {
 func (w *Repository) observeDirectoryLocked(full string, stats *SetupStats) error {
 	full = filepath.Clean(full)
 	if _, exists := w.observed[full]; exists {
+		w.touchObservedLocked(full)
 		return nil
 	}
 	limit := w.opts.MaxObservedDirectories
 	if limit <= 0 {
-		limit = 2_048
+		limit = DefaultMaxObservedDirectories
 	}
 	for len(w.observed) >= limit && len(w.observedOrder) > 1 {
 		oldest := w.observedOrder[1]
@@ -238,6 +243,21 @@ func (w *Repository) observeDirectoryLocked(full string, stats *SetupStats) erro
 		stats.Watches++
 	}
 	return nil
+}
+
+func (w *Repository) touchObservedLocked(full string) {
+	root := filepath.Clean(w.git.Root)
+	if full == root {
+		return
+	}
+	for index := 1; index < len(w.observedOrder); index++ {
+		if w.observedOrder[index] != full {
+			continue
+		}
+		copy(w.observedOrder[index:], w.observedOrder[index+1:])
+		w.observedOrder[len(w.observedOrder)-1] = full
+		return
+	}
 }
 
 // Close stops observation and closes the Events channel. It is safe to call

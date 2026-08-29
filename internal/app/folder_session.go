@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
@@ -38,19 +39,20 @@ type folderSession struct {
 	folders    *folder.Catalog
 	newWatcher folderWatcherFactory
 
-	refreshMu           sync.Mutex
-	closed              bool
-	mu                  sync.Mutex
-	watcher             watch.Watcher
-	watchID             uint64
-	watchErr            error
-	watchCancel         context.CancelFunc
-	watchSetupDone      chan struct{}
-	observedDirectories map[string]struct{}
-	setups              sync.WaitGroup
-	forwards            sync.WaitGroup
-	closeOnce           sync.Once
-	closeErr            error
+	refreshMu            sync.Mutex
+	closed               bool
+	mu                   sync.Mutex
+	watcher              watch.Watcher
+	watchID              uint64
+	watchErr             error
+	watchCancel          context.CancelFunc
+	watchSetupDone       chan struct{}
+	observedDirectories  map[string]struct{}
+	observedDirectoryLRU []string
+	setups               sync.WaitGroup
+	forwards             sync.WaitGroup
+	closeOnce            sync.Once
+	closeErr             error
 }
 
 func newFolderSession(
@@ -80,14 +82,15 @@ func newFolderSession(
 	}
 	sessionCtx, cancel := context.WithCancel(ctx)
 	s := &folderSession{
-		ctx:                 sessionCtx,
-		cancel:              cancel,
-		runner:              runner,
-		adapter:             &repoAdapter{ctx: sessionCtx, runner: runner, repo: repo, queue: gitx.NewMutationQueue()},
-		events:              make(chan watch.InvalidationKind, 16),
-		folders:             folders,
-		newWatcher:          newWatcher,
-		observedDirectories: make(map[string]struct{}),
+		ctx:                  sessionCtx,
+		cancel:               cancel,
+		runner:               runner,
+		adapter:              &repoAdapter{ctx: sessionCtx, runner: runner, repo: repo, queue: gitx.NewMutationQueue()},
+		events:               make(chan watch.InvalidationKind, 16),
+		folders:              folders,
+		newWatcher:           newWatcher,
+		observedDirectories:  map[string]struct{}{"": {}},
+		observedDirectoryLRU: []string{""},
 	}
 	s.adapter.observeDirectory = s.observeDirectory
 	s.recordFolder(repo)
@@ -173,7 +176,7 @@ func (s *folderSession) startWatcher(repo gitx.Repository) {
 		started := time.Now()
 		watcher, err := s.newWatcher(setupCtx, repo, s.runner, watch.Options{
 			RootOnly:               !repo.IsGit(),
-			MaxObservedDirectories: 2_048,
+			MaxObservedDirectories: watch.DefaultMaxObservedDirectories,
 			OnError: func(error) {
 				traceStartup("watcher-degraded", 0)
 			},
@@ -211,10 +214,7 @@ func (s *folderSession) startWatcher(repo gitx.Repository) {
 		previous := s.watcher
 		s.watcher = watcher
 		s.watchErr = nil
-		observed := make([]string, 0, len(s.observedDirectories))
-		for directory := range s.observedDirectories {
-			observed = append(observed, directory)
-		}
+		observed := append([]string(nil), s.observedDirectoryLRU...)
 		s.mu.Unlock()
 
 		if observer, ok := watcher.(watch.DirectoryObserver); ok {
@@ -238,12 +238,13 @@ func (s *folderSession) startWatcher(repo gitx.Repository) {
 }
 
 func (s *folderSession) observeDirectory(directory string) protocol.WatchCoverage {
+	directory = strings.TrimSuffix(filepath.ToSlash(directory), "/")
 	s.mu.Lock()
 	if s.closed {
 		s.mu.Unlock()
 		return protocol.WatchCoveragePartial
 	}
-	s.observedDirectories[directory] = struct{}{}
+	s.rememberObservedDirectoryLocked(directory)
 	watcher := s.watcher
 	s.mu.Unlock()
 	observer, ok := watcher.(watch.DirectoryObserver)
@@ -257,6 +258,29 @@ func (s *folderSession) observeDirectory(directory string) protocol.WatchCoverag
 		return protocol.WatchCoverageComplete
 	}
 	return protocol.WatchCoveragePartial
+}
+
+func (s *folderSession) rememberObservedDirectoryLocked(directory string) {
+	if _, exists := s.observedDirectories[directory]; exists {
+		if directory == "" {
+			return
+		}
+		for index := 1; index < len(s.observedDirectoryLRU); index++ {
+			if s.observedDirectoryLRU[index] != directory {
+				continue
+			}
+			copy(s.observedDirectoryLRU[index:], s.observedDirectoryLRU[index+1:])
+			s.observedDirectoryLRU[len(s.observedDirectoryLRU)-1] = directory
+			return
+		}
+	}
+	for len(s.observedDirectoryLRU) >= watch.DefaultMaxObservedDirectories && len(s.observedDirectoryLRU) > 1 {
+		oldest := s.observedDirectoryLRU[1]
+		s.observedDirectoryLRU = append(s.observedDirectoryLRU[:1], s.observedDirectoryLRU[2:]...)
+		delete(s.observedDirectories, oldest)
+	}
+	s.observedDirectories[directory] = struct{}{}
+	s.observedDirectoryLRU = append(s.observedDirectoryLRU, directory)
 }
 
 func (s *folderSession) forward(watcher watch.Watcher) {

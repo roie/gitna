@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"slices"
+	"strings"
 	"testing"
 )
 
@@ -141,6 +142,30 @@ func TestRepositoryFilesPagesOrdinaryFolderInGlobalPathOrder(t *testing.T) {
 	}
 }
 
+func testFolderDirectoryPage(
+	candidates []folderFileCandidate,
+	globalAfter string,
+	pageAfter string,
+	limit int,
+) folderDirectoryPage {
+	filtered := make([]folderFileCandidate, 0, len(candidates))
+	for _, candidate := range candidates {
+		if candidate.path > pageAfter && folderCandidateMayFollow(candidate, globalAfter) {
+			filtered = append(filtered, candidate)
+		}
+	}
+	slices.SortFunc(filtered, func(left, right folderFileCandidate) int {
+		return strings.Compare(left.path, right.path)
+	})
+	page := folderDirectoryPage{candidates: filtered}
+	if len(filtered) > limit {
+		page.candidates = filtered[:limit]
+		page.truncated = true
+		page.nextCursor = page.candidates[len(page.candidates)-1].path
+	}
+	return page
+}
+
 func TestRepositoryFilesStopsAfterFindingTheNextPage(t *testing.T) {
 	root := t.TempDir()
 	readDirectories := make([]string, 0)
@@ -148,24 +173,24 @@ func TestRepositoryFilesStopsAfterFindingTheNextPage(t *testing.T) {
 		ctx context.Context,
 		_ string,
 		relative string,
-		enqueue func(folderFileCandidate),
-	) error {
+		globalAfter string,
+		pageAfter string,
+		limit int,
+	) (folderDirectoryPage, error) {
 		if err := ctx.Err(); err != nil {
-			return err
+			return folderDirectoryPage{}, err
 		}
 		readDirectories = append(readDirectories, relative)
+		var candidates []folderFileCandidate
 		switch relative {
 		case "":
-			enqueue(folderFileCandidate{path: "a", directory: true})
-			enqueue(folderFileCandidate{path: "z", directory: true})
+			candidates = []folderFileCandidate{{path: "a", directory: true}, {path: "z", directory: true}}
 		case "a":
-			enqueue(folderFileCandidate{path: "a/1.txt"})
-			enqueue(folderFileCandidate{path: "a/2.txt"})
-			enqueue(folderFileCandidate{path: "a/3.txt"})
+			candidates = []folderFileCandidate{{path: "a/1.txt"}, {path: "a/2.txt"}, {path: "a/3.txt"}}
 		case "z":
 			t.Fatal("read later subtree after the page boundary")
 		}
-		return nil
+		return testFolderDirectoryPage(candidates, globalAfter, pageAfter, limit), nil
 	}
 
 	page, err := (Repository{Root: root}).folderFilesWithReader(
@@ -186,27 +211,84 @@ func TestRepositoryFilesStopsAfterFindingTheNextPage(t *testing.T) {
 	}
 }
 
+func TestRepositoryFilesContinuesPastWideEmptyDirectoryPages(t *testing.T) {
+	readDirectory := func(
+		_ context.Context,
+		_ string,
+		relative string,
+		globalAfter string,
+		pageAfter string,
+		limit int,
+	) (folderDirectoryPage, error) {
+		if relative != "" {
+			return folderDirectoryPage{}, nil
+		}
+		candidates := []folderFileCandidate{
+			{path: "a", directory: true}, {path: "b", directory: true},
+			{path: "c", directory: true}, {path: "d", directory: true},
+			{path: "z.txt"},
+		}
+		return testFolderDirectoryPage(candidates, globalAfter, pageAfter, limit), nil
+	}
+	page, err := (Repository{Root: t.TempDir()}).folderFilesWithReader(t.Context(), "", 1, readDirectory)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(page.Paths, []string{"z.txt"}) || page.Truncated {
+		t.Fatalf("page = %#v, want final z.txt after empty directory pages", page)
+	}
+}
+
 func TestRepositoryFilesCancelsDuringPageTraversal(t *testing.T) {
 	ctx, cancel := context.WithCancel(t.Context())
 	readDirectory := func(
 		_ context.Context,
 		_ string,
 		relative string,
-		enqueue func(folderFileCandidate),
-	) error {
+		globalAfter string,
+		pageAfter string,
+		limit int,
+	) (folderDirectoryPage, error) {
+		var candidates []folderFileCandidate
 		switch relative {
 		case "":
-			enqueue(folderFileCandidate{path: "folder", directory: true})
+			candidates = []folderFileCandidate{{path: "folder", directory: true}}
 		case "folder":
-			enqueue(folderFileCandidate{path: "folder/file.txt"})
+			candidates = []folderFileCandidate{{path: "folder/file.txt"}}
 			cancel()
 		}
-		return nil
+		return testFolderDirectoryPage(candidates, globalAfter, pageAfter, limit), nil
 	}
 
 	_, err := (Repository{Root: t.TempDir()}).folderFilesWithReader(ctx, "", 100, readDirectory)
 	if err != context.Canceled {
 		t.Fatalf("folderFilesWithReader error = %v, want context canceled", err)
+	}
+}
+
+func TestFolderManifestSelectionBoundsMillionWideDirectoryFrontier(t *testing.T) {
+	page, err := selectFolderDirectoryCandidates(
+		t.Context(), millionWideDirectoryReader(), "", "", "", 2_000,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if page.maxRetained != 2_001 || len(page.candidates) != 2_000 || !page.truncated {
+		t.Fatalf("page retained=%d candidates=%d truncated=%t, want 2001/2000/true", page.maxRetained, len(page.candidates), page.truncated)
+	}
+	if page.candidates[0].path != "file-0000001.txt" || page.nextCursor != "file-0002000.txt" {
+		t.Fatalf("page range = %q..%q", page.candidates[0].path, page.nextCursor)
+	}
+}
+
+func BenchmarkFolderManifestSelectionMillionWide(b *testing.B) {
+	for b.Loop() {
+		page, err := selectFolderDirectoryCandidates(
+			context.Background(), millionWideDirectoryReader(), "", "", "", 2_000,
+		)
+		if err != nil || page.maxRetained != 2_001 || len(page.candidates) != 2_000 {
+			b.Fatalf("retained=%d candidates=%d err=%v", page.maxRetained, len(page.candidates), err)
+		}
 	}
 }
 

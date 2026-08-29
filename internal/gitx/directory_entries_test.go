@@ -2,10 +2,15 @@ package gitx
 
 import (
 	"context"
+	"fmt"
+	"io"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"reflect"
+	"runtime"
 	"testing"
+	"time"
 
 	"github.com/roie/gitna/internal/protocol"
 )
@@ -47,6 +52,77 @@ func TestDirectoryEntriesPagesImmediateChildren(t *testing.T) {
 	}
 	if second.Truncated {
 		t.Fatalf("second page unexpectedly truncated: %#v", second)
+	}
+}
+
+type syntheticDirectoryEntry string
+
+func (entry syntheticDirectoryEntry) Name() string { return string(entry) }
+func (syntheticDirectoryEntry) IsDir() bool        { return false }
+func (syntheticDirectoryEntry) Type() fs.FileMode  { return 0 }
+func (entry syntheticDirectoryEntry) Info() (fs.FileInfo, error) {
+	return syntheticFileInfo(entry), nil
+}
+
+type syntheticFileInfo string
+
+func (info syntheticFileInfo) Name() string  { return string(info) }
+func (syntheticFileInfo) Size() int64        { return 0 }
+func (syntheticFileInfo) Mode() fs.FileMode  { return 0 }
+func (syntheticFileInfo) ModTime() time.Time { return time.Time{} }
+func (syntheticFileInfo) IsDir() bool        { return false }
+func (syntheticFileInfo) Sys() any           { return nil }
+
+func millionWideDirectoryReader() directoryBatchReader {
+	const total = 1_000_000
+	next := 0
+	return func(limit int) ([]fs.DirEntry, error) {
+		if next >= total {
+			return nil, io.EOF
+		}
+		count := min(limit, total-next)
+		entries := make([]fs.DirEntry, count)
+		for index := range count {
+			// Descending names exercise replacement in the bounded max-heap.
+			entries[index] = syntheticDirectoryEntry(fmt.Sprintf("file-%07d.txt", total-next-index))
+		}
+		next += count
+		return entries, nil
+	}
+}
+
+func TestDirectoryEntrySelectionBoundsMillionWideDirectoryMemory(t *testing.T) {
+	runtime.GC()
+	var before runtime.MemStats
+	runtime.ReadMemStats(&before)
+	selected, maxRetained, err := selectDirectoryEntries(
+		t.Context(), millionWideDirectoryReader(), "", 2_000,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var after runtime.MemStats
+	runtime.ReadMemStats(&after)
+	if maxRetained != 2_001 || len(selected) != 2_001 {
+		t.Fatalf("retained max=%d selected=%d, want bounded 2001", maxRetained, len(selected))
+	}
+	if selected[0].name != "file-0000001.txt" || selected[len(selected)-1].name != "file-0002001.txt" {
+		t.Fatalf("selected range = %q..%q", selected[0].name, selected[len(selected)-1].name)
+	}
+	const practicalAllocationLimit = 256 << 20
+	if allocated := after.TotalAlloc - before.TotalAlloc; allocated > practicalAllocationLimit {
+		t.Fatalf("million-entry scan allocated %d bytes, want <= %d", allocated, practicalAllocationLimit)
+	}
+}
+
+func BenchmarkDirectoryEntrySelectionMillionWide(b *testing.B) {
+	for b.Loop() {
+		selected, maxRetained, err := selectDirectoryEntries(
+			context.Background(), millionWideDirectoryReader(), "", 2_000,
+		)
+		if err != nil || len(selected) != 2_001 || maxRetained != 2_001 {
+			b.Fatalf("selected=%d max=%d err=%v", len(selected), maxRetained, err)
+		}
 	}
 }
 

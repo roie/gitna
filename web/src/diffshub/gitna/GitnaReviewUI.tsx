@@ -1091,17 +1091,17 @@ function GitnaReviewUIInner() {
     setSidebarVisible((visible) => !visible)
   }, [])
 
-  const searchOrdinaryPalette = useCallback(
-    (query: string) => void repository.searchOrdinaryFiles(query),
-    [repository],
-  )
-
   const paletteFileHistory = useMemo(
     () => [
       ...recentFilePaths.filter((path) => !repository.repositoryOpenPaths.includes(path)),
       ...repository.repositoryOpenPaths,
     ],
     [recentFilePaths, repository.repositoryOpenPaths],
+  )
+
+  const searchOrdinaryPalette = useCallback(
+    (query: string) => void repository.searchOrdinaryFiles(query, paletteFileHistory),
+    [paletteFileHistory, repository],
   )
 
   const paletteCommands = useMemo<GitnaPaletteCommand[]>(() => {

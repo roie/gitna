@@ -373,6 +373,59 @@ describe('createRepoState', () => {
     expect(directories).toEqual(['', 'nested'])
   })
 
+  it('bounds loaded-directory refreshes and restarts ordinary Quick Open indexing', async () => {
+    let refreshing = false
+    let inFlight = 0
+    let maxInFlight = 0
+    let searchRefresh = false
+    const directoryNames = Array.from({ length: 12 }, (_, index) => `dir-${index}`)
+    const state = createRepoState({
+      api: {
+        ...auxApi,
+        async directoryEntries(path) {
+          if (refreshing) {
+            inFlight += 1
+            maxInFlight = Math.max(maxInFlight, inFlight)
+            await new Promise((resolve) => setTimeout(resolve, 5))
+            inFlight -= 1
+          }
+          return {
+            generation: 1,
+            directory: path,
+            entries:
+              path === ''
+                ? directoryNames.map((name) => ({
+                    name,
+                    path: `${name}/`,
+                    kind: 'directory' as const,
+                  }))
+                : [],
+            truncated: false,
+          }
+        },
+        async searchFiles(_query, options) {
+          searchRefresh = options?.refresh === true
+          return { generation: 1, results: [], complete: false }
+        },
+      },
+    })
+    state.snapshot = snapshot({ repository: false })
+    state.generation = 1
+    await state.loadOrdinaryDirectory('')
+    for (const directory of directoryNames) await state.loadOrdinaryDirectory(directory)
+    const stalePaths = [...state.repositoryPaths]
+
+    refreshing = true
+    const refresh = state.refreshExplorer()
+    expect(state.repositoryPaths).toEqual(stalePaths)
+    await refresh
+
+    expect(searchRefresh).toBe(true)
+    expect(maxInFlight).toBeGreaterThan(1)
+    expect(maxInFlight).toBeLessThanOrEqual(4)
+    expect(state.repositoryPaths).toEqual(stalePaths)
+  })
+
   it('loads every bounded Repository Explorer page independently from Git changes', async () => {
     const cursors: Array<string | undefined> = []
     const state = createRepoState({
