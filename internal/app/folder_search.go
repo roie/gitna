@@ -37,6 +37,37 @@ type folderSearchIndex struct {
 	retiredPaths  []string
 }
 
+// retirePathLocked defers removal while any index reader may still have the
+// file open. Readers are tracked conservatively across index generations so
+// replacement remains safe on platforms that cannot unlink open files.
+func (index *folderSearchIndex) retirePathLocked(path string) string {
+	if path == "" {
+		return ""
+	}
+	for _, retired := range index.retiredPaths {
+		if retired == path {
+			return ""
+		}
+	}
+	if index.readers > 0 {
+		index.retiredPaths = append(index.retiredPaths, path)
+		return ""
+	}
+	return path
+}
+
+func folderSearchWalkError(root, path string, walkErr error) error {
+	if walkErr == nil {
+		return nil
+	}
+	if filepath.Clean(path) == filepath.Clean(root) {
+		return walkErr
+	}
+	// A descendant can disappear or become unreadable between directory reads.
+	// Skip that entry while retaining the rest of the progressively built index.
+	return nil
+}
+
 func (a *repoAdapter) invalidateFileSearch() {
 	a.directories.invalidate()
 	a.search.mu.Lock()
@@ -92,13 +123,9 @@ func (a *repoAdapter) startFileSearchIndex() {
 	if a.search.cancel != nil {
 		a.search.cancel()
 	}
-	ctx := a.ctx
-	if ctx == nil {
-		ctx = context.Background()
-	}
-	buildCtx, cancel := context.WithCancel(ctx)
 	file, err := os.CreateTemp("", "gitna-folder-search-*")
 	if err != nil {
+		removePath := a.search.retirePathLocked(a.search.path)
 		a.search.rootKey = rootKey
 		a.search.path = ""
 		a.search.complete = false
@@ -106,9 +133,18 @@ func (a *repoAdapter) startFileSearchIndex() {
 		a.search.err = err
 		a.search.cancel = nil
 		a.search.mu.Unlock()
+		if removePath != "" {
+			_ = os.Remove(removePath)
+		}
 		return
 	}
+	ctx := a.ctx
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	buildCtx, cancel := context.WithCancel(ctx)
 	indexPath := file.Name()
+	removePath := a.search.retirePathLocked(a.search.path)
 	a.search.rootKey = rootKey
 	a.search.path = indexPath
 	a.search.publishedSize = 0
@@ -117,8 +153,12 @@ func (a *repoAdapter) startFileSearchIndex() {
 	a.search.err = nil
 	a.search.cancel = cancel
 	a.search.mu.Unlock()
+	if removePath != "" {
+		_ = os.Remove(removePath)
+	}
 
 	go func() {
+		defer cancel()
 		writer := bufio.NewWriterSize(file, 256*1024)
 		encoder := json.NewEncoder(writer)
 		pending := 0
@@ -142,8 +182,11 @@ func (a *repoAdapter) startFileSearchIndex() {
 			if err := buildCtx.Err(); err != nil {
 				return err
 			}
+			if err := folderSearchWalkError(repo.Root, path, walkErr); err != nil {
+				return err
+			}
 			if walkErr != nil {
-				return walkErr
+				return nil
 			}
 			if path == repo.Root {
 				return nil
@@ -176,6 +219,7 @@ func (a *repoAdapter) startFileSearchIndex() {
 		}
 		a.search.mu.Lock()
 		stale := a.search.rootKey != rootKey || a.search.path != indexPath
+		removePath := ""
 		if !stale {
 			a.search.building = false
 			a.search.cancel = nil
@@ -185,9 +229,12 @@ func (a *repoAdapter) startFileSearchIndex() {
 				a.search.err = err
 			}
 		}
-		a.search.mu.Unlock()
 		if stale || buildCtx.Err() != nil {
-			_ = os.Remove(indexPath)
+			removePath = a.search.retirePathLocked(indexPath)
+		}
+		a.search.mu.Unlock()
+		if removePath != "" {
+			_ = os.Remove(removePath)
 		}
 	}()
 }

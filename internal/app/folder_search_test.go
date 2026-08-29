@@ -4,7 +4,9 @@ import (
 	"bufio"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"slices"
@@ -60,6 +62,65 @@ func TestFolderSearchIndexesAndRanksOrdinaryFiles(t *testing.T) {
 	results := waitForFolderSearch(t, adapter, "main", nil, 100)
 	if len(results.Results) != 2 || results.Results[0].Name != "main.go" || !results.Results[0].DuplicateName {
 		t.Fatalf("results = %#v", results)
+	}
+}
+
+func TestFolderSearchSkipsDisappearingAndUnreadableDescendants(t *testing.T) {
+	root := t.TempDir()
+	for name, walkErr := range map[string]error{
+		"disappearing": fs.ErrNotExist,
+		"unreadable":   fs.ErrPermission,
+	} {
+		t.Run(name, func(t *testing.T) {
+			path := filepath.Join(root, name, "file.txt")
+			if err := folderSearchWalkError(root, path, walkErr); err != nil {
+				t.Fatalf("descendant error = %v, want skipped", err)
+			}
+		})
+	}
+	if err := folderSearchWalkError(root, root, fs.ErrPermission); !errors.Is(err, fs.ErrPermission) {
+		t.Fatalf("root error = %v, want permission error", err)
+	}
+}
+
+func TestFolderSearchFailedRetriesRemoveRetiredIndexes(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "missing")
+	adapter := &repoAdapter{
+		ctx:   t.Context(),
+		repo:  gitx.Repository{Root: root},
+		queue: gitx.NewMutationQueue(),
+	}
+	waitForFailure := func() string {
+		t.Helper()
+		for deadline := time.Now().Add(5 * time.Second); time.Now().Before(deadline); {
+			adapter.search.mu.RLock()
+			indexPath := adapter.search.path
+			failed := adapter.search.err != nil && !adapter.search.building
+			adapter.search.mu.RUnlock()
+			if failed {
+				if indexPath == "" {
+					t.Fatal("failed index did not retain its temporary path")
+				}
+				return indexPath
+			}
+			time.Sleep(10 * time.Millisecond)
+		}
+		t.Fatal("search index did not fail")
+		return ""
+	}
+
+	adapter.startFileSearchIndex()
+	previousPath := waitForFailure()
+	for range 3 {
+		adapter.startFileSearchIndex()
+		if _, err := os.Stat(previousPath); !errors.Is(err, fs.ErrNotExist) {
+			t.Fatalf("retired index %q still exists: %v", previousPath, err)
+		}
+		previousPath = waitForFailure()
+	}
+	adapter.invalidateFileSearch()
+	if _, err := os.Stat(previousPath); !errors.Is(err, fs.ErrNotExist) {
+		t.Fatalf("final failed index %q still exists after invalidation: %v", previousPath, err)
 	}
 }
 

@@ -1,9 +1,56 @@
 import type { FileTree, FileTreeChildLoadAttempt } from '@pierre/trees'
 import { describe, expect, it, vi } from 'vitest'
 
-import { applyLazyDirectoryChildren } from '../src/diffshub/components/DiffsHubFileTree'
+import {
+  applyLazyDirectoryChildren,
+  buildLazyPathReconciliationOperations,
+} from '../src/diffshub/components/DiffsHubFileTree'
 
 describe('lazy FileTree child reconciliation', () => {
+  it('emits deterministic minimal recursive removals and uncovered files', () => {
+    const applied = new Set([
+      'z.txt',
+      'removed/child.txt',
+      'kept.txt',
+      'removed/',
+      'removed/nested/',
+      'a.txt',
+    ])
+    const next = new Set(['new-z.txt', 'kept.txt', 'new-a.txt'])
+
+    expect(buildLazyPathReconciliationOperations(applied, next)).toEqual([
+      { type: 'remove', path: 'a.txt', recursive: false },
+      { type: 'remove', path: 'removed/', recursive: true },
+      { type: 'remove', path: 'z.txt', recursive: false },
+      { type: 'add', path: 'new-a.txt' },
+      { type: 'add', path: 'new-z.txt' },
+    ])
+  })
+
+  it('bounds wide and deep reconciliation to minimal directory roots', () => {
+    const applied = new Set<string>(['deep/'])
+    let deepPath = 'deep/'
+    for (let index = 0; index < 1_000; index += 1) {
+      deepPath += `d${index}/`
+      applied.add(deepPath)
+      applied.add(`${deepPath}file.txt`)
+    }
+    for (let index = 0; index < 5_000; index += 1) {
+      const directory = `wide-${index.toString().padStart(4, '0')}/`
+      applied.add(directory)
+      applied.add(`${directory}file.txt`)
+    }
+
+    const operations = buildLazyPathReconciliationOperations(applied, new Set())
+    expect(operations).toHaveLength(5_001)
+    expect(operations[0]).toEqual({ type: 'remove', path: 'deep/', recursive: true })
+    expect(operations.at(-1)).toEqual({
+      type: 'remove',
+      path: 'wide-4999/',
+      recursive: true,
+    })
+  })
+
   it('does not mutate applied paths when a stale child attempt resolves after its replacement', () => {
     const newer = { attemptId: 2, nodeId: 1, reused: false } satisfies FileTreeChildLoadAttempt
     const stale = { attemptId: 1, nodeId: 1, reused: false } satisfies FileTreeChildLoadAttempt

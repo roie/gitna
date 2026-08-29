@@ -43,6 +43,24 @@ type FileTreeSortComparator = Exclude<
 // follows the same patch path sequence that drives the code view.
 const PRESERVE_INPUT_ORDER_SORT: FileTreeSortComparator = () => 0;
 
+export function buildLazyPathReconciliationOperations(
+  appliedPaths: ReadonlySet<string>,
+  nextPaths: ReadonlySet<string>
+): FileTreeBatchOperation[] {
+  const operations: FileTreeBatchOperation[] = [];
+  const removedPaths = [...appliedPaths].filter((path) => !nextPaths.has(path)).sort();
+  let coveringDirectory: string | null = null;
+  for (const path of removedPaths) {
+    if (coveringDirectory != null && path.startsWith(coveringDirectory)) continue;
+    coveringDirectory = null;
+    operations.push({ type: 'remove', path, recursive: path.endsWith('/') });
+    if (path.endsWith('/')) coveringDirectory = path;
+  }
+  const addedPaths = [...nextPaths].filter((path) => !appliedPaths.has(path)).sort();
+  for (const path of addedPaths) operations.push({ type: 'add', path });
+  return operations;
+}
+
 // Layout-only overrides. Colors flow through from the resolved Shiki theme
 // (via themeToTreeStyles) so the sidebar matches the diff theme, but the
 // density and padding stay tuned for the diffshub layout regardless of
@@ -288,18 +306,7 @@ export const DiffsHubFileTree = memo(function DiffsHubFileTree({
   useEffect(() => {
     if (lazyDirectories == null) return;
     const nextPaths = new Set(source.paths.slice(0, source.pathCount));
-    const operations: FileTreeBatchOperation[] = [];
-    const removedPaths = [...appliedPathsRef.current].filter((path) => !nextPaths.has(path));
-    const removedDirectories = removedPaths.filter((path) => path.endsWith('/'));
-    for (const path of removedPaths) {
-      if (removedDirectories.some((directory) => directory !== path && path.startsWith(directory))) {
-        continue;
-      }
-      operations.push({ type: 'remove', path, recursive: path.endsWith('/') });
-    }
-    for (const path of nextPaths) {
-      if (!appliedPathsRef.current.has(path)) operations.push({ type: 'add', path });
-    }
+    const operations = buildLazyPathReconciliationOperations(appliedPathsRef.current, nextPaths);
     if (operations.length > 0) model.batch(operations);
     appliedPathsRef.current = nextPaths;
     for (const path of lazyDirectories) {
