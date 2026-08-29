@@ -51,8 +51,12 @@ func (w *workbenchRepo) Review(ctx context.Context, scope protocol.DiffScope, op
 	return w.repo.Review(ctx, w.runner, scope, opts, after)
 }
 
-func (w *workbenchRepo) History(ctx context.Context, skip, limit int) ([]protocol.GraphCommit, error) {
-	return w.repo.History(ctx, w.runner, skip, limit)
+func (w *workbenchRepo) HistoryAt(ctx context.Context, tip string, skip, limit int) ([]protocol.GraphCommit, error) {
+	return w.repo.HistoryAt(ctx, w.runner, tip, skip, limit)
+}
+
+func (w *workbenchRepo) HistoryCount(ctx context.Context, tip string) (int, error) {
+	return w.repo.HistoryCount(ctx, w.runner, tip)
 }
 
 func (w *workbenchRepo) FilesChanged(ctx context.Context, oid string) (protocol.CommitFiles, error) {

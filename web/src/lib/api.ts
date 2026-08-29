@@ -6,6 +6,7 @@ import type {
   DiffScope,
   FileDiff,
   FileSearchResults,
+  GraphCount,
   GraphPage,
   OpenFolderResult,
   RepositoryFiles,
@@ -138,7 +139,8 @@ export interface ApiClient {
   review(request: ReviewRequest): Promise<ReviewResponse>
   mutate(request: MutateRequest): Promise<void>
   commit(request: CommitRequest): Promise<OperationResult>
-  graph(skip?: number): Promise<GraphPage>
+  graph(skip?: number, tip?: string, signal?: AbortSignal): Promise<GraphPage>
+  graphCount(tip: string, signal?: AbortSignal): Promise<GraphCount>
   commitFiles(oid: string): Promise<CommitFiles>
   branches(): Promise<Branch[]>
   stashes(): Promise<StashEntry[]>
@@ -365,11 +367,25 @@ export function createApi(): ApiClient {
       )
       return (await res.json()) as OperationResult
     },
-    async graph(skip = 0): Promise<GraphPage> {
+    async graph(skip = 0, tip?: string, signal?: AbortSignal): Promise<GraphPage> {
+      const query = new URLSearchParams({ skip: String(skip) })
+      if (tip != null && tip !== '') query.set('tip', tip)
+      const timeout = AbortSignal.timeout(FETCH_TIMEOUT)
       const res = await expectOK(
-        await fetch(`api/v1/graph?skip=${skip}`, { signal: AbortSignal.timeout(FETCH_TIMEOUT) }),
+        await fetch(`api/v1/graph?${query}`, {
+          signal: signal == null ? timeout : AbortSignal.any([signal, timeout]),
+        }),
       )
       return (await res.json()) as GraphPage
+    },
+    async graphCount(tip: string, signal?: AbortSignal): Promise<GraphCount> {
+      const timeout = AbortSignal.timeout(FETCH_TIMEOUT)
+      const res = await expectOK(
+        await fetch(`api/v1/graph/count?tip=${encodeURIComponent(tip)}`, {
+          signal: signal == null ? timeout : AbortSignal.any([signal, timeout]),
+        }),
+      )
+      return (await res.json()) as GraphCount
     },
     async commitFiles(oid: string): Promise<CommitFiles> {
       const res = await expectOK(

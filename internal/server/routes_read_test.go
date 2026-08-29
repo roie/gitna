@@ -28,6 +28,7 @@ type fakeRepo struct {
 	searchRefresh   bool
 
 	graphCommits []protocol.GraphCommit
+	graphTotal   int
 	graphFiles   []protocol.CommitFile
 	graphStats   protocol.CommitStats
 	branches     []protocol.Branch
@@ -57,6 +58,9 @@ type fakeRepo struct {
 	compareCalls []string
 	reviewCalls  []protocol.ReviewIdentity
 	reviewAfters []string
+	graphTips    []string
+	graphSkips   []int
+	graphLimits  []int
 }
 
 // opFail returns the error a mutation method should report. opErr takes
@@ -126,11 +130,22 @@ func (f *fakeRepo) Review(_ context.Context, scope protocol.DiffScope, opts prot
 	return protocol.ReviewPage{Response: f.review, NextAfter: f.reviewNextAfter}, nil
 }
 
-func (f *fakeRepo) History(context.Context, int, int) ([]protocol.GraphCommit, error) {
+func (f *fakeRepo) HistoryAt(_ context.Context, tip string, skip, limit int) ([]protocol.GraphCommit, error) {
+	f.graphTips = append(f.graphTips, tip)
+	f.graphSkips = append(f.graphSkips, skip)
+	f.graphLimits = append(f.graphLimits, limit)
 	if f.err != nil {
 		return nil, f.err
 	}
 	return f.graphCommits, nil
+}
+
+func (f *fakeRepo) HistoryCount(_ context.Context, tip string) (int, error) {
+	f.graphTips = append(f.graphTips, tip)
+	if f.err != nil {
+		return 0, f.err
+	}
+	return f.graphTotal, nil
 }
 
 func (f *fakeRepo) FilesChanged(context.Context, string) (protocol.CommitFiles, error) {
@@ -778,7 +793,7 @@ func TestDiffUnavailableWithoutRepo(t *testing.T) {
 }
 
 func TestGraphRouteReturnsHistory(t *testing.T) {
-	repo := &fakeRepo{graphCommits: []protocol.GraphCommit{
+	repo := &fakeRepo{snap: protocol.RepoSnapshot{HeadOID: "abc123"}, graphCommits: []protocol.GraphCommit{
 		{
 			OID:        "abc123",
 			Parents:    []string{"def456"},
@@ -806,6 +821,85 @@ func TestGraphRouteReturnsHistory(t *testing.T) {
 	}
 	if got.Commits[0].Refs[0].Kind != protocol.RefKindHead {
 		t.Fatalf("refs = %+v, want head ref", got.Commits[0].Refs)
+	}
+	if got.Tip != "abc123" || got.Generation == 0 {
+		t.Fatalf("tip/generation = %q/%d, want abc123/non-zero", got.Tip, got.Generation)
+	}
+	if !reflect.DeepEqual(repo.graphTips, []string{"abc123"}) ||
+		!reflect.DeepEqual(repo.graphSkips, []int{50}) ||
+		!reflect.DeepEqual(repo.graphLimits, []int{graphPageSize + 1}) {
+		t.Fatalf("graph call = tips %v skips %v limits %v", repo.graphTips, repo.graphSkips, repo.graphLimits)
+	}
+}
+
+func TestGraphRouteReturnsEmptyPageForUnbornHead(t *testing.T) {
+	repo := &fakeRepo{}
+	h := newSnapshotServer(repo)
+	req := httptest.NewRequest(http.MethodGet, "/g/"+testToken+"/api/v1/graph", nil)
+	req.Host = testHost
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200", rec.Code)
+	}
+	var page protocol.GraphPage
+	if err := json.Unmarshal(rec.Body.Bytes(), &page); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if page.Tip != "" || len(page.Commits) != 0 || page.HasMore || len(repo.graphTips) != 0 {
+		t.Fatalf("unborn page/calls = %+v/%v", page, repo.graphTips)
+	}
+}
+
+func TestGraphRouteUsesLookaheadAndRejectsChangedTip(t *testing.T) {
+	commits := make([]protocol.GraphCommit, graphPageSize+1)
+	for i := range commits {
+		commits[i].OID = "commit"
+	}
+	repo := &fakeRepo{snap: protocol.RepoSnapshot{HeadOID: "tip-a"}, graphCommits: commits}
+	h := newSnapshotServer(repo)
+
+	req := httptest.NewRequest(http.MethodGet, "/g/"+testToken+"/api/v1/graph?tip=tip-a", nil)
+	req.Host = testHost
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200", rec.Code)
+	}
+	var page protocol.GraphPage
+	if err := json.Unmarshal(rec.Body.Bytes(), &page); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if len(page.Commits) != graphPageSize || !page.HasMore {
+		t.Fatalf("commits/hasMore = %d/%v, want %d/true", len(page.Commits), page.HasMore, graphPageSize)
+	}
+
+	repo.snap.HeadOID = "tip-b"
+	req = httptest.NewRequest(http.MethodGet, "/g/"+testToken+"/api/v1/graph?skip=100&tip=tip-a", nil)
+	req.Host = testHost
+	rec = httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	if rec.Code != http.StatusConflict {
+		t.Fatalf("changed-tip status = %d, want 409", rec.Code)
+	}
+}
+
+func TestGraphCountUsesRequestedCurrentTip(t *testing.T) {
+	repo := &fakeRepo{snap: protocol.RepoSnapshot{HeadOID: "tip-a"}, graphTotal: 5826}
+	h := newSnapshotServer(repo)
+	req := httptest.NewRequest(http.MethodGet, "/g/"+testToken+"/api/v1/graph/count?tip=tip-a", nil)
+	req.Host = testHost
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200", rec.Code)
+	}
+	var count protocol.GraphCount
+	if err := json.Unmarshal(rec.Body.Bytes(), &count); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if count.Tip != "tip-a" || count.Total != 5826 {
+		t.Fatalf("count = %+v", count)
 	}
 }
 

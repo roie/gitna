@@ -16,7 +16,7 @@ import (
 const DefaultHistoryLimit = 100
 
 // maxHistoryLimit caps a single history page request.
-const maxHistoryLimit = 500
+const maxHistoryLimit = 501
 
 // logFormat is the machine-delimited pretty format used for history. Fields
 // are separated by NUL, a byte that cannot appear in any commit field (so a
@@ -24,10 +24,18 @@ const maxHistoryLimit = 500
 // decoration field %D carries --decorate=full names.
 const logFormat = "%H%x00%P%x00%s%x00%an%x00%aI%x00%D"
 
-// History returns up to limit commits in topological order starting at skip.
+// History returns up to limit commits reachable from the current HEAD.
+func (r Repository) History(ctx context.Context, runner Runner, skip, limit int) ([]protocol.GraphCommit, error) {
+	return r.HistoryAt(ctx, runner, "HEAD", skip, limit)
+}
+
+// HistoryAt returns up to limit commits reachable from one immutable tip.
 // --max-count bounds the page so the runner's output cap is a backstop rather
 // than the primary protection.
-func (r Repository) History(ctx context.Context, runner Runner, skip, limit int) ([]protocol.GraphCommit, error) {
+func (r Repository) HistoryAt(ctx context.Context, runner Runner, tip string, skip, limit int) ([]protocol.GraphCommit, error) {
+	if err := validateRef(tip); err != nil {
+		return nil, err
+	}
 	if limit <= 0 {
 		limit = DefaultHistoryLimit
 	}
@@ -41,7 +49,7 @@ func (r Repository) History(ctx context.Context, runner Runner, skip, limit int)
 	if skip > 0 {
 		args = append(args, "--skip", strconv.Itoa(skip))
 	}
-	args = append(args, "--max-count", strconv.Itoa(limit))
+	args = append(args, "--max-count", strconv.Itoa(limit), tip)
 
 	res, err := runner.Run(ctx, r.Root, args...)
 	if err != nil {
@@ -51,6 +59,26 @@ func (r Repository) History(ctx context.Context, runner Runner, skip, limit int)
 		return nil, fmt.Errorf("gitx: log failed: %s", strings.TrimSpace(string(res.Stderr)))
 	}
 	return ParseLog(res.Stdout)
+}
+
+// HistoryCount returns the exact number of commits reachable from tip. In a
+// shallow clone this is the exact locally reachable history up to its boundary.
+func (r Repository) HistoryCount(ctx context.Context, runner Runner, tip string) (int, error) {
+	if err := validateRef(tip); err != nil {
+		return 0, err
+	}
+	res, err := runner.Run(ctx, r.Root, "rev-list", "--count", tip)
+	if err != nil {
+		return 0, err
+	}
+	if res.ExitCode != 0 {
+		return 0, fmt.Errorf("gitx: history count failed: %s", strings.TrimSpace(string(res.Stderr)))
+	}
+	total, err := strconv.Atoi(strings.TrimSpace(string(res.Stdout)))
+	if err != nil || total < 0 {
+		return 0, fmt.Errorf("gitx: malformed history count %q", strings.TrimSpace(string(res.Stdout)))
+	}
+	return total, nil
 }
 
 // ParseLog parses the NUL-delimited git log records emitted by History into

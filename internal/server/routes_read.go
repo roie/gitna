@@ -50,6 +50,8 @@ func (s *Server) apiRoutes() http.Handler {
 			s.handleReview(w, r)
 		case r.Method == http.MethodGet && p == "/graph":
 			s.handleGraph(w, r)
+		case r.Method == http.MethodGet && p == "/graph/count":
+			s.handleGraphCount(w, r)
 		case r.Method == http.MethodGet && p == "/branches":
 			s.handleBranches(w, r)
 		case r.Method == http.MethodGet && p == "/stashes":
@@ -439,9 +441,7 @@ func (s *Server) handleFileSearch(w http.ResponseWriter, r *http.Request) {
 // HasMore clears.
 const graphPageSize = 100
 
-// handleGraph returns a page of history in topological order. skip advances
-// the page for pagination; the page size is capped so a busy repository cannot
-// ship unbounded output.
+// handleGraph returns a bounded history page pinned to one immutable HEAD OID.
 func (s *Server) handleGraph(w http.ResponseWriter, r *http.Request) {
 	if s.repo == nil {
 		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "repository unavailable"})
@@ -466,7 +466,8 @@ func (s *Server) handleGraph(w http.ResponseWriter, r *http.Request) {
 	}
 	ctx, cancel := context.WithTimeout(r.Context(), GraphTimeout)
 	defer cancel()
-	commits, err := s.repo.History(ctx, skip, limit)
+	generation := s.gen.Load()
+	snapshot, err := s.repo.Snapshot(ctx)
 	if err != nil {
 		if timeoutReached(ctx, err) {
 			writeJSON(w, http.StatusGatewayTimeout, map[string]string{"error": "history timed out"})
@@ -475,10 +476,75 @@ func (s *Server) handleGraph(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 		return
 	}
+	tip := r.URL.Query().Get("tip")
+	if tip == "" {
+		tip = snapshot.HeadOID
+	} else if tip != snapshot.HeadOID {
+		writeJSON(w, http.StatusConflict, map[string]string{"error": "graph tip changed"})
+		return
+	}
+	if tip == "" {
+		writeJSON(w, http.StatusOK, protocol.GraphPage{Commits: []protocol.GraphCommit{}, Generation: generation})
+		return
+	}
+	commits, err := s.repo.HistoryAt(ctx, tip, skip, limit+1)
+	if err != nil {
+		if timeoutReached(ctx, err) {
+			writeJSON(w, http.StatusGatewayTimeout, map[string]string{"error": "history timed out"})
+			return
+		}
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return
+	}
+	if generation != s.gen.Load() {
+		writeJSON(w, http.StatusConflict, map[string]string{"error": "graph changed while loading"})
+		return
+	}
+	hasMore := len(commits) > limit
+	if hasMore {
+		commits = commits[:limit]
+	}
 	writeJSON(w, http.StatusOK, protocol.GraphPage{
-		Commits: commits,
-		HasMore: len(commits) == limit,
+		Commits: commits, HasMore: hasMore, Tip: tip, Generation: generation,
 	})
+}
+
+// handleGraphCount counts the same immutable tip without delaying a history page.
+func (s *Server) handleGraphCount(w http.ResponseWriter, r *http.Request) {
+	if s.repo == nil {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "repository unavailable"})
+		return
+	}
+	tip := r.URL.Query().Get("tip")
+	if tip == "" {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "tip is required"})
+		return
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), GraphCountTimeout)
+	defer cancel()
+	snapshot, err := s.repo.Snapshot(ctx)
+	if err != nil {
+		if timeoutReached(ctx, err) {
+			writeJSON(w, http.StatusGatewayTimeout, map[string]string{"error": "history count timed out"})
+			return
+		}
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return
+	}
+	if snapshot.HeadOID != tip {
+		writeJSON(w, http.StatusConflict, map[string]string{"error": "graph tip changed"})
+		return
+	}
+	total, err := s.repo.HistoryCount(ctx, tip)
+	if err != nil {
+		if timeoutReached(ctx, err) {
+			writeJSON(w, http.StatusGatewayTimeout, map[string]string{"error": "history count timed out"})
+			return
+		}
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return
+	}
+	writeJSON(w, http.StatusOK, protocol.GraphCount{Tip: tip, Total: total})
 }
 
 // handleBranches returns every local and remote branch with its upstream

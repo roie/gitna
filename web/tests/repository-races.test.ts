@@ -39,6 +39,8 @@ function graphPage(oid: string): GraphPage {
       },
     ],
     hasMore: false,
+    tip: oid,
+    generation: 1,
   }
 }
 

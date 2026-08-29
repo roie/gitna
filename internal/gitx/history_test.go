@@ -150,6 +150,35 @@ func TestHistorySkipAndLimit(t *testing.T) {
 	}
 }
 
+func TestHistoryAtAndCountStayPinnedAfterHeadMoves(t *testing.T) {
+	root := buildHistoryFixture(t)
+	repo, runner := historyDiscover(t, root)
+	tip := strings.TrimSpace(runGit(t, root, "rev-parse", "HEAD"))
+
+	before, err := repo.HistoryCount(context.Background(), runner, tip)
+	if err != nil {
+		t.Fatalf("HistoryCount before move: %v", err)
+	}
+	writeFile(t, filepath.Join(root, "later.txt"), "later\n")
+	runGit(t, root, "add", "later.txt")
+	runGit(t, root, "commit", "-qm", "later")
+
+	pinned, err := repo.HistoryAt(context.Background(), runner, tip, 0, maxHistoryLimit)
+	if err != nil {
+		t.Fatalf("HistoryAt pinned tip: %v", err)
+	}
+	after, err := repo.HistoryCount(context.Background(), runner, tip)
+	if err != nil {
+		t.Fatalf("HistoryCount after move: %v", err)
+	}
+	if len(pinned) != before || after != before {
+		t.Fatalf("pinned history/count = %d/%d, want %d", len(pinned), after, before)
+	}
+	if pinned[0].OID != tip {
+		t.Fatalf("pinned first oid = %q, want %q", pinned[0].OID, tip)
+	}
+}
+
 func TestHistoryRejectsInvalidPagination(t *testing.T) {
 	root := buildHistoryFixture(t)
 	repo, runner := historyDiscover(t, root)

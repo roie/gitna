@@ -37,6 +37,9 @@ func TestLimitConstantsPositive(t *testing.T) {
 	if GraphTimeout <= 0 {
 		t.Fatalf("GraphTimeout = %v, want > 0", GraphTimeout)
 	}
+	if GraphCountTimeout <= 0 {
+		t.Fatalf("GraphCountTimeout = %v, want > 0", GraphCountTimeout)
+	}
 	if ReadTimeout <= 0 {
 		t.Fatalf("ReadTimeout = %v, want > 0", ReadTimeout)
 	}
@@ -267,8 +270,11 @@ func (s *slowRepo) Diff(ctx context.Context, _ protocol.DiffScope, _ protocol.Di
 func (s *slowRepo) Review(ctx context.Context, _ protocol.DiffScope, _ protocol.DiffOptions, _ string) (protocol.ReviewPage, error) {
 	return protocol.ReviewPage{}, s.block(ctx)
 }
-func (s *slowRepo) History(ctx context.Context, _, _ int) ([]protocol.GraphCommit, error) {
+func (s *slowRepo) HistoryAt(ctx context.Context, _ string, _, _ int) ([]protocol.GraphCommit, error) {
 	return nil, s.block(ctx)
+}
+func (s *slowRepo) HistoryCount(ctx context.Context, _ string) (int, error) {
+	return 0, s.block(ctx)
 }
 func (s *slowRepo) FilesChanged(ctx context.Context, _ string) (protocol.CommitFiles, error) {
 	return protocol.CommitFiles{}, s.block(ctx)

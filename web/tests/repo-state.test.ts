@@ -102,7 +102,10 @@ const auxApi: ApiClient = {
     throw new Error('commit not used')
   },
   async graph() {
-    return { commits: [], hasMore: false }
+    return { commits: [], hasMore: false, tip: 'abc123', generation: 1 }
+  },
+  async graphCount(tip) {
+    return { tip, total: 0 }
   },
   async commitFiles() {
     return { files: [] }
@@ -153,7 +156,10 @@ function graphApi(
     },
     async graph() {
       const page = queue.shift() ?? []
-      return { commits: page, hasMore: queue.length > 0 }
+      return { commits: page, hasMore: queue.length > 0, tip: 'abc123', generation: 1 }
+    },
+    async graphCount(tip) {
+      return { tip, total: pages.reduce((total, page) => total + page.length, 0) }
     },
     async commitFiles(oid) {
       return { files: filesByOid[oid] ?? [] }
@@ -1051,6 +1057,88 @@ describe('createRepoState', () => {
     expect(state.graphHasMore).toBe(false)
   })
 
+  it('pins continuation pages and resolves the exact count without blocking the first page', async () => {
+    let resolveCount!: (value: { tip: string; total: number }) => void
+    const count = new Promise<{ tip: string; total: number }>((resolve) => {
+      resolveCount = resolve
+    })
+    const graphCalls: Array<{ skip?: number; tip?: string }> = []
+    const api: ApiClient = {
+      ...auxApi,
+      async graph(skip, tip) {
+        graphCalls.push({ skip, tip })
+        if ((skip ?? 0) === 0) {
+          return {
+            commits: [graphCommit('c4', ['c3']), graphCommit('c3', ['c2'])],
+            hasMore: true,
+            tip: 'tip-a',
+            generation: 7,
+          }
+        }
+        return {
+          commits: [graphCommit('c2', ['c1']), graphCommit('c1')],
+          hasMore: false,
+          tip: 'tip-a',
+          generation: 7,
+        }
+      },
+      async graphCount() {
+        return count
+      },
+    }
+    const state = createRepoState({ api })
+
+    await state.refreshGraph()
+    expect(state.graphRows).toHaveLength(2)
+    expect(state.graphCountLoading).toBe(true)
+    expect(state.graphTotal).toBeNull()
+
+    await state.loadMoreGraph()
+    expect(graphCalls).toEqual([
+      { skip: 0, tip: undefined },
+      { skip: 2, tip: 'tip-a' },
+    ])
+    expect(state.graphRows).toHaveLength(4)
+
+    resolveCount({ tip: 'tip-a', total: 4 })
+    await vi.waitFor(() => expect(state.graphTotal).toBe(4))
+    expect(state.graphCountLoading).toBe(false)
+  })
+
+  it('keeps continuation single-flight and resets after a tip conflict', async () => {
+    let appendCalls = 0
+    let refreshCalls = 0
+    const api: ApiClient = {
+      ...auxApi,
+      async graph(skip) {
+        if ((skip ?? 0) === 0) {
+          refreshCalls += 1
+          const tip = refreshCalls === 1 ? 'tip-a' : 'tip-b'
+          return {
+            commits: [graphCommit(tip, [])],
+            hasMore: refreshCalls === 1,
+            tip,
+            generation: refreshCalls,
+          }
+        }
+        appendCalls += 1
+        throw new ApiError(409, 'graph tip changed')
+      },
+      async graphCount(tip) {
+        return { tip, total: 1 }
+      },
+    }
+    const state = createRepoState({ api })
+    await state.refreshGraph()
+
+    await Promise.all([state.loadMoreGraph(), state.loadMoreGraph()])
+    expect(appendCalls).toBe(1)
+    expect(refreshCalls).toBe(2)
+    expect(state.graphTip).toBe('tip-b')
+    expect(state.graphRows.map((row) => row.commit.oid)).toEqual(['tip-b'])
+    expect(state.graphError).toBeNull()
+  })
+
   it('selecting a commit file sets the commit diff and clears the worktree selection', async () => {
     const state = createRepoState({
       api: graphApi(
@@ -1100,7 +1188,7 @@ describe('branch and sync operations', () => {
         throw new Error('not used')
       },
       async graph() {
-        return { commits: [], hasMore: false }
+        return { commits: [], hasMore: false, tip: 'abc123', generation: 1 }
       },
       async commitFiles() {
         return { files: [] }
@@ -1136,7 +1224,7 @@ describe('branch and sync operations', () => {
         throw new Error('not used')
       },
       async graph() {
-        return { commits: [], hasMore: false }
+        return { commits: [], hasMore: false, tip: 'abc123', generation: 1 }
       },
       async commitFiles() {
         return { files: [] }
@@ -1180,7 +1268,7 @@ describe('branch and sync operations', () => {
         throw new Error('not used')
       },
       async graph() {
-        return { commits: [], hasMore: false }
+        return { commits: [], hasMore: false, tip: 'abc123', generation: 1 }
       },
       async commitFiles() {
         return { files: [] }
@@ -1212,7 +1300,7 @@ describe('branch and sync operations', () => {
         throw new Error('not used')
       },
       async graph() {
-        return { commits: [], hasMore: false }
+        return { commits: [], hasMore: false, tip: 'abc123', generation: 1 }
       },
       async commitFiles() {
         return { files: [] }
@@ -1246,7 +1334,7 @@ describe('stash, tag, compare, and history operations', () => {
         throw new Error('not used')
       },
       async graph() {
-        return { commits: [], hasMore: false }
+        return { commits: [], hasMore: false, tip: 'abc123', generation: 1 }
       },
       async commitFiles() {
         return { files: [] }
@@ -1293,7 +1381,7 @@ describe('stash, tag, compare, and history operations', () => {
         throw new Error('not used')
       },
       async graph() {
-        return { commits: [], hasMore: false }
+        return { commits: [], hasMore: false, tip: 'abc123', generation: 1 }
       },
       async commitFiles() {
         return { files: [] }

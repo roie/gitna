@@ -7,7 +7,7 @@ import {
   useSyncExternalStore,
 } from 'react'
 
-import { createApi, type ApiClient, type MutateRequest } from '../../lib/api'
+import { ApiError, createApi, type ApiClient, type MutateRequest } from '../../lib/api'
 import { appendGraph, computeGraph, type GraphRow } from '../../lib/graph-lanes'
 import type {
   Branch,
@@ -198,6 +198,10 @@ export class GitnaRepository {
   graphLoading = false
   graphError: string | null = null
   graphHasMore = false
+  graphTip = ''
+  graphGeneration = 0
+  graphTotal: number | null = null
+  graphCountLoading = false
   expanded: Record<string, boolean> = {}
   commitFiles: Record<string, CommitFile[]> = {}
   commitStats: Record<string, CommitStats> = {}
@@ -234,6 +238,10 @@ export class GitnaRepository {
   private repositoryEpoch = 0
   private folderRequest = 0
   private graphRequest = 0
+  private graphCountRequest = 0
+  private graphController: AbortController | null = null
+  private graphCountController: AbortController | null = null
+  private graphCountCache = new Map<string, number>()
   private branchesRequest = 0
   private stashesRequest = 0
   private tagsRequest = 0
@@ -718,16 +726,24 @@ export class GitnaRepository {
 
   async refreshGraph(): Promise<void> {
     const request = ++this.graphRequest
+    const countRequest = ++this.graphCountRequest
     const epoch = this.repositoryEpoch
+    this.graphController?.abort()
+    this.graphCountController?.abort()
+    const controller = new AbortController()
+    this.graphController = controller
     this.graphLoading = true
     this.graphError = null
     this.emit()
     try {
-      const page = await this.api.graph(0)
+      const page = await this.api.graph(0, undefined, controller.signal)
       if (request !== this.graphRequest || epoch !== this.repositoryEpoch) return
       this.graphCommits = page.commits
       this.graphRows = computeGraph(page.commits)
       this.graphHasMore = page.hasMore
+      this.graphTip = page.tip
+      this.graphGeneration = page.generation
+      this.graphTotal = page.tip === '' ? 0 : (this.graphCountCache.get(page.tip) ?? null)
       const present = new Set(page.commits.map((commit) => commit.oid))
       this.expanded = Object.fromEntries(
         Object.entries(this.expanded).filter(([oid, open]) => open && present.has(oid)),
@@ -741,12 +757,20 @@ export class GitnaRepository {
       if (this.commitDiff != null && !present.has(this.commitDiff.oid)) {
         this.commitDiff = null
       }
+      if (page.tip !== '' && this.graphTotal == null) {
+        void this.loadGraphCount(page.tip, page.generation, countRequest, epoch)
+      }
       markStartup('graph-ready')
     } catch (error) {
-      if (request === this.graphRequest && epoch === this.repositoryEpoch) {
+      if (
+        request === this.graphRequest &&
+        epoch === this.repositoryEpoch &&
+        !controller.signal.aborted
+      ) {
         this.graphError = errorMessage(error)
       }
     } finally {
+      if (this.graphController === controller) this.graphController = null
       if (request === this.graphRequest && epoch === this.repositoryEpoch) {
         this.graphLoading = false
         this.emit()
@@ -754,31 +778,89 @@ export class GitnaRepository {
     }
   }
 
+  private async loadGraphCount(
+    tip: string,
+    generation: number,
+    request: number,
+    epoch: number,
+  ): Promise<void> {
+    const cached = this.graphCountCache.get(tip)
+    if (cached != null) {
+      this.graphTotal = cached
+      this.emit()
+      return
+    }
+    const controller = new AbortController()
+    this.graphCountController = controller
+    this.graphCountLoading = true
+    this.emit()
+    try {
+      const count = await this.api.graphCount(tip, controller.signal)
+      if (
+        controller.signal.aborted ||
+        request !== this.graphCountRequest ||
+        epoch !== this.repositoryEpoch ||
+        tip !== this.graphTip ||
+        generation !== this.graphGeneration ||
+        count.tip !== tip
+      ) {
+        return
+      }
+      this.graphCountCache.set(tip, count.total)
+      this.graphTotal = count.total
+    } catch {
+      // Counting is optional metadata; loaded history remains usable and truthful.
+    } finally {
+      if (this.graphCountController === controller) {
+        this.graphCountController = null
+        this.graphCountLoading = false
+        this.emit()
+      }
+    }
+  }
+
   async loadMoreGraph(): Promise<void> {
+    if (this.graphLoading || !this.graphHasMore || this.graphTip === '') return
     const request = ++this.graphRequest
     const epoch = this.repositoryEpoch
     const skip = this.graphCommits.length
+    const tip = this.graphTip
+    const generation = this.graphGeneration
+    const controller = new AbortController()
+    this.graphController = controller
+    let refresh = false
     this.graphLoading = true
     this.emit()
     try {
-      const page = await this.api.graph(skip)
+      const page = await this.api.graph(skip, tip, controller.signal)
       if (request !== this.graphRequest || epoch !== this.repositoryEpoch) return
-      const seen = new Set(this.graphCommits.map((commit) => commit.oid))
-      const appended = page.commits.filter((commit) => !seen.has(commit.oid))
-      this.graphCommits = [...this.graphCommits, ...appended]
-      this.graphRows = appendGraph(this.graphRows, appended)
-      this.graphHasMore = page.hasMore
-      this.graphError = null
+      if (page.tip !== tip || page.generation !== generation) {
+        refresh = true
+      } else {
+        const seen = new Set(this.graphCommits.map((commit) => commit.oid))
+        const appended = page.commits.filter((commit) => !seen.has(commit.oid))
+        this.graphCommits = [...this.graphCommits, ...appended]
+        this.graphRows = appendGraph(this.graphRows, appended)
+        this.graphHasMore = page.hasMore
+        this.graphError = null
+      }
     } catch (error) {
-      if (request === this.graphRequest && epoch === this.repositoryEpoch) {
-        this.graphError = errorMessage(error)
+      if (
+        request === this.graphRequest &&
+        epoch === this.repositoryEpoch &&
+        !controller.signal.aborted
+      ) {
+        if (error instanceof ApiError && error.status === 409) refresh = true
+        else this.graphError = errorMessage(error)
       }
     } finally {
+      if (this.graphController === controller) this.graphController = null
       if (request === this.graphRequest && epoch === this.repositoryEpoch) {
         this.graphLoading = false
         this.emit()
       }
     }
+    if (refresh) await this.refreshGraph()
   }
 
   async loadCommitDetails(oid: string): Promise<void> {

@@ -310,11 +310,19 @@ type CommitFile struct {
 	Kind    ChangeKind `json:"kind"`
 }
 
-// GraphPage is one page of history in topological order. HasMore reports
-// whether the page was full and more history may be available after it.
+// GraphPage is one page of history in topological order pinned to Tip.
+// Generation lets clients reject continuations after repository invalidation.
 type GraphPage struct {
-	Commits []GraphCommit `json:"commits"`
-	HasMore bool          `json:"hasMore"`
+	Commits    []GraphCommit `json:"commits"`
+	HasMore    bool          `json:"hasMore"`
+	Tip        string        `json:"tip"`
+	Generation uint64        `json:"generation"`
+}
+
+// GraphCount is the exact number of commits reachable from one immutable tip.
+type GraphCount struct {
+	Tip   string `json:"tip"`
+	Total int    `json:"total"`
 }
 
 // CommitStats summarizes a commit against its first parent. BinaryFiles counts

@@ -15,11 +15,12 @@ const (
 // These protect against hanging Git commands (e.g. a fetch to a dead remote).
 const (
 	// Read timeouts.
-	SnapshotTimeout = 30 * time.Second
-	DiffTimeout     = 10 * time.Second
-	ReviewTimeout   = 30 * time.Second
-	GraphTimeout    = 15 * time.Second
-	ReadTimeout     = 15 * time.Second // branches, stashes, tags, conflicts, compare, commit-files
+	SnapshotTimeout   = 30 * time.Second
+	DiffTimeout       = 10 * time.Second
+	ReviewTimeout     = 30 * time.Second
+	GraphTimeout      = 15 * time.Second
+	GraphCountTimeout = 2 * time.Second
+	ReadTimeout       = 15 * time.Second // branches, stashes, tags, conflicts, compare, commit-files
 
 	// Mutation timeouts.
 	LocalMutationTimeout = 60 * time.Second  // stage, unstage, discard, delete, commit, branch, stash, tag, history ops

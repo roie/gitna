@@ -26,6 +26,13 @@ export interface GraphCommit {
 export interface GraphPage {
   commits: GraphCommit[]
   hasMore: boolean
+  tip: string
+  generation: number
+}
+
+export interface GraphCount {
+  tip: string
+  total: number
 }
 
 export interface CommitFile {

@@ -141,8 +141,12 @@ func (a *repoAdapter) Review(ctx context.Context, scope protocol.DiffScope, opts
 	return a.current().Review(ctx, a.runner, scope, opts, after)
 }
 
-func (a *repoAdapter) History(ctx context.Context, skip, limit int) ([]protocol.GraphCommit, error) {
-	return a.current().History(ctx, a.runner, skip, limit)
+func (a *repoAdapter) HistoryAt(ctx context.Context, tip string, skip, limit int) ([]protocol.GraphCommit, error) {
+	return a.current().HistoryAt(ctx, a.runner, tip, skip, limit)
+}
+
+func (a *repoAdapter) HistoryCount(ctx context.Context, tip string) (int, error) {
+	return a.current().HistoryCount(ctx, a.runner, tip)
 }
 
 func (a *repoAdapter) FilesChanged(ctx context.Context, oid string) (protocol.CommitFiles, error) {

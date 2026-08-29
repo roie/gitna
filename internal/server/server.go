@@ -23,7 +23,8 @@ type Repo interface {
 	RepositoryFiles(ctx context.Context, after string, limit int) (protocol.RepositoryFiles, error)
 	Diff(ctx context.Context, scope protocol.DiffScope, opts protocol.DiffOptions) (protocol.FileDiff, error)
 	Review(ctx context.Context, scope protocol.DiffScope, opts protocol.DiffOptions, after string) (protocol.ReviewPage, error)
-	History(ctx context.Context, skip, limit int) ([]protocol.GraphCommit, error)
+	HistoryAt(ctx context.Context, tip string, skip, limit int) ([]protocol.GraphCommit, error)
+	HistoryCount(ctx context.Context, tip string) (int, error)
 	FilesChanged(ctx context.Context, oid string) (protocol.CommitFiles, error)
 	Branches(ctx context.Context) ([]protocol.Branch, error)
 	StagePaths(ctx context.Context, paths []string) error
