@@ -321,7 +321,7 @@ function LocalFolderForm({
           id={listboxId}
           role="listbox"
           aria-label="Recent folders"
-          className="absolute top-full left-0 z-50 mt-1 max-h-72 w-full min-w-72 overflow-y-auto rounded-md border border-border bg-background py-1 text-foreground md:w-96"
+          className="gitna-scrollbar absolute top-full left-0 z-50 mt-1 max-h-72 w-full min-w-72 overflow-y-auto overscroll-contain rounded-md border border-border bg-background py-1 text-foreground md:w-96"
         >
           <TooltipProvider delayDuration={500}>
             {suggestions.map((folder, index) => {
@@ -1011,7 +1011,7 @@ function ThemeList({
       </DropdownMenuItem>
       <div
         ref={scrollContainerRef}
-        className="cv-mini-scrollbar mt-1 max-h-[320px] overflow-y-auto overscroll-contain"
+        className="gitna-scrollbar mt-1 max-h-[320px] overflow-y-auto overscroll-contain"
       >
         {themes.map((theme) => (
           <DropdownMenuItem

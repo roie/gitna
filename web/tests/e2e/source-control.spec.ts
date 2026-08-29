@@ -193,7 +193,7 @@ test('real binary renders repository source-control state', async ({ page, app }
   await expect(page.getByText('base fixture', { exact: true })).toBeVisible()
   const sourcePaneBody = page.locator('[data-pane-body="source-control"]')
   const sourcePaneHeader = page.locator('[data-section="workflow"]')
-  await expect(sourcePaneBody).toHaveClass(/cv-mini-scrollbar/)
+  await expect(sourcePaneBody).toHaveClass(/gitna-scrollbar/)
   await expect(sourcePaneBody).toHaveCSS('overflow-y', 'hidden')
   expect(
     await sourcePaneBody.evaluate(
@@ -1207,7 +1207,7 @@ test('command palette searches complete paths and runs workbench commands', asyn
   const paletteResults = palette.getByRole('listbox', { name: 'Files' })
   await expect(palette).toBeVisible()
   await expect(palette).toHaveCSS('box-shadow', 'none')
-  await expect(paletteResults).toHaveClass(/cv-mini-scrollbar/)
+  await expect(paletteResults).toHaveClass(/gitna-scrollbar/)
   await expect(search).toBeFocused()
   await search.fill('file name')
   const spacedFile = palette.getByRole('option', { name: /file name\.ts/ })

@@ -6,7 +6,7 @@ import { useLayoutEffect } from 'react';
 // standalone Vite boundary remains resolvable outside the donor monorepo.
 import { detectGutterSize } from '../lib/gutterDetector';
 
-const SCROLLBARS_TO_MEASURE: string[] = ['cv', 'cv-mini'];
+const SCROLLBARS_TO_MEASURE: string[] = ['cv', 'gitna'];
 
 export function ScrollbarGutterVariables() {
   useLayoutEffect(() => {

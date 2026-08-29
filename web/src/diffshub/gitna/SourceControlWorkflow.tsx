@@ -768,7 +768,7 @@ export function GitnaSourceControl() {
     >
       <div
         ref={containerRef}
-        className="pane-stack grid min-h-0 flex-1 overflow-hidden max-md:block max-md:overflow-y-auto"
+        className="pane-stack gitna-scrollbar grid min-h-0 flex-1 overflow-hidden max-md:block max-md:overflow-y-auto"
         style={{
           gridTemplateRows: snapshot.repository
             ? `${workflowOpen && !workflowCompact ? (useNaturalWorkflowHeight ? `${naturalWorkflowHeight}px` : `minmax(142px, ${sizes[0]}fr)`) : 'max-content'} 0 ${repositoryOpen ? `minmax(142px, ${sizes[1]}fr)` : 'max-content'} 0 ${graphOpen ? `minmax(142px, ${sizes[2]}fr)` : 'max-content'}`
@@ -809,7 +809,7 @@ export function GitnaSourceControl() {
               <div
                 ref={workflowContent}
                 data-pane-body="source-control"
-                className="cv-mini-scrollbar min-h-0 overscroll-contain md:flex md:flex-1 md:flex-col md:overflow-hidden max-md:overflow-visible"
+                className="gitna-scrollbar min-h-0 overscroll-contain md:flex md:flex-1 md:flex-col md:overflow-hidden max-md:overflow-visible"
               >
                 <form
                   className="commit-composer shrink-0 px-3 py-2"
@@ -2653,7 +2653,7 @@ function GraphSection({
           <div
             ref={graphBodyRef}
             data-pane-body="graph"
-            className="graph-list cv-mini-scrollbar min-h-0 px-2 pb-4 overscroll-contain md:flex-1 md:overflow-y-auto max-md:overflow-visible"
+            className="graph-list gitna-scrollbar min-h-0 px-2 pb-4 overscroll-contain md:flex-1 md:overflow-y-auto max-md:overflow-visible"
             onKeyDownCapture={(event) => {
               if (['ArrowDown', 'PageDown', 'End'].includes(event.key)) armContinuation()
             }}

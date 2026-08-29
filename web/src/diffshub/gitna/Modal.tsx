@@ -41,7 +41,9 @@ export function Modal({ children, onClose, title }: ModalProps) {
           <IconX className="size-4" />
         </Button>
       </div>
-      <div className="max-h-[calc(100dvh-8rem)] overflow-y-auto p-4">{children}</div>
+      <div className="gitna-scrollbar max-h-[calc(100dvh-8rem)] overflow-y-auto overscroll-contain p-4">
+        {children}
+      </div>
     </dialog>
   )
 }

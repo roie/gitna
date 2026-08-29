@@ -184,8 +184,8 @@
   --diffs-font-family: var(--font-berkeley-mono);
   --cv-gutter-vertical: 0px;
   --cv-gutter-horizontal: 0px;
-  --cv-mini-gutter-vertical: 0px;
-  --cv-mini-gutter-horizontal: 0px;
+  --gitna-gutter-vertical: 0px;
+  --gitna-gutter-horizontal: 0px;
   color-scheme: light;
   -webkit-font-smoothing: antialiased;
 }
@@ -312,29 +312,40 @@
   border-radius: 6px;
 }
 
-.cv-mini-scrollbar {
-  --cv-mini-scrollbar-thumb-bg: transparent;
+/* Gitna-owned scrollers use one compact treatment. Pierre FileTree and CodeView
+   retain their package-owned scroll roots and scrollbar styling. */
+.gitna-scrollbar {
+  --gitna-scrollbar-thumb-color: var(
+    --diffshub-scrollbar-thumb-bg,
+    light-dark(
+      color-mix(in lab, var(--background) 85%, black),
+      color-mix(in lab, var(--background) 80%, white)
+    )
+  );
+  --gitna-scrollbar-thumb-bg: color-mix(
+    in srgb,
+    var(--gitna-scrollbar-thumb-color) 55%,
+    transparent
+  );
   scrollbar-gutter: stable;
 }
 
-.cv-mini-scrollbar::-webkit-scrollbar {
+.gitna-scrollbar:hover,
+.gitna-scrollbar:focus-within {
+  --gitna-scrollbar-thumb-bg: var(--gitna-scrollbar-thumb-color);
+}
+
+.gitna-scrollbar::-webkit-scrollbar {
   width: 10px;
   height: 10px;
 }
 
-.cv-mini-scrollbar::-webkit-scrollbar-track {
+.gitna-scrollbar::-webkit-scrollbar-track {
   background: transparent;
 }
 
-.cv-mini-scrollbar:hover {
-  --cv-mini-scrollbar-thumb-bg: light-dark(
-    color-mix(in lab, var(--background) 85%, black),
-    color-mix(in lab, var(--background) 80%, white)
-  );
-}
-
-.cv-mini-scrollbar::-webkit-scrollbar-thumb {
-  background-color: var(--cv-mini-scrollbar-thumb-bg);
+.gitna-scrollbar::-webkit-scrollbar-thumb {
+  background-color: var(--gitna-scrollbar-thumb-bg);
   background-clip: content-box;
   border: 3px solid transparent;
   border-radius: 5px;
@@ -345,8 +356,8 @@
     scrollbar-color: var(--cv-scrollbar-thumb-bg)
       var(--diffshub-scrollbar-track-bg, transparent);
   }
-  .cv-mini-scrollbar {
-    scrollbar-color: var(--cv-mini-scrollbar-thumb-bg) transparent;
+  .gitna-scrollbar {
+    scrollbar-color: var(--gitna-scrollbar-thumb-bg) transparent;
     scrollbar-width: thin;
   }
 }

@@ -103,8 +103,8 @@ export const DiffsHubCommentsList = memo(function DiffsHubCommentsList({
   return (
     <div
       className={cn(
-        'cv-mini-scrollbar',
-        'h-full min-h-0 overflow-auto overscroll-contain pl-3 pb-3 pr-[max(0px,calc(12px-var(--cv-mini-gutter-vertical)))]'
+        'gitna-scrollbar',
+        'h-full min-h-0 overflow-auto overscroll-contain pl-3 pb-3 pr-[max(0px,calc(12px-var(--gitna-gutter-vertical)))]'
       )}
     >
       {commentSections.map((section) => (

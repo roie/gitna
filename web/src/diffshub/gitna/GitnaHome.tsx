@@ -274,7 +274,7 @@ export function GitnaHome({
     <ThemedSurface
       as="main"
       aria-labelledby="gitna-home-title"
-      className="relative col-span-full row-span-full min-h-0 overflow-y-auto [grid-column:1/-1] [grid-row:1/-1]"
+      className="gitna-scrollbar relative col-span-full row-span-full min-h-0 overflow-y-auto overscroll-contain [grid-column:1/-1] [grid-row:1/-1]"
     >
       <Button
         type="button"
@@ -383,7 +383,7 @@ export function GitnaHome({
             {filteredRecent.length > 0 && (
               <ul
                 ref={recentListRef}
-                className="mt-3 divide-y divide-border border-y border-border"
+                className="gitna-scrollbar mt-3 max-h-[min(50dvh,28rem)] divide-y divide-border overflow-y-auto overscroll-contain border-y border-border"
                 onKeyDown={(event) => {
                   if (
                     event.key !== 'ArrowDown' &&
