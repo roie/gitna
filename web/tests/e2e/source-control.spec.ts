@@ -215,21 +215,25 @@ test('real binary renders repository source-control state', async ({ page, app }
   await expect(graphFile).toBeVisible()
   await graphFile.click()
   await expect(repositoryTabs).toHaveCount(0)
-  const openHistoricalFile = page.getByRole('button', {
-    name: `Open modified.txt at commit ${app.baseOid.slice(0, 8)}`,
+  const openWorkingFile = page.getByRole('button', {
+    name: 'Open modified.txt in Repository',
   })
-  await expect(openHistoricalFile).toBeVisible()
-  await openHistoricalFile.click()
-  const historicalTab = repositoryTabs.getByRole('tab', {
-    name: `modified.txt @ ${app.baseOid.slice(0, 8)}`,
-  })
-  await expect(historicalTab).toHaveAttribute('aria-selected', 'true')
-  await expect(page.getByText('base', { exact: true })).toBeVisible()
-  await expect(page.getByText('unstaged change', { exact: true })).toHaveCount(0)
-  await expect(page.getByRole('textbox', { name: 'modified.txt' })).toHaveCount(0)
-  await expect(page.getByRole('button', { name: 'Save', exact: true })).toHaveCount(0)
+  await expect(openWorkingFile).toBeVisible()
+  await openWorkingFile.click()
+  await expect(repositoryTabs.getByRole('tab', { name: 'modified.txt' })).toHaveAttribute(
+    'aria-selected',
+    'true',
+  )
+  await expect(page.getByRole('textbox', { name: 'modified.txt' })).toContainText('unstaged change')
   await graphFile.click()
   await expect(repositoryTabs).toHaveCount(0)
+  const missingWorkingFile = graphTree.getByRole('treeitem', {
+    name: 'delete.txt',
+    exact: true,
+  })
+  await missingWorkingFile.click()
+  await expect(page.getByRole('button', { name: 'Open delete.txt in Repository' })).toHaveCount(0)
+  await graphFile.click()
   expect(
     await graphTree.evaluate((tree) => tree.scrollHeight - tree.clientHeight),
   ).toBeLessThanOrEqual(1)
@@ -882,8 +886,10 @@ test('command palette searches complete paths and runs workbench commands', asyn
 
   const palette = page.getByRole('dialog', { name: 'Command palette' })
   const search = palette.getByRole('combobox', { name: 'Search files and commands' })
+  const paletteResults = palette.getByRole('listbox', { name: 'Files' })
   await expect(palette).toBeVisible()
   await expect(palette).toHaveCSS('box-shadow', 'none')
+  await expect(paletteResults).toHaveClass(/cv-mini-scrollbar/)
   await expect(search).toBeFocused()
   await search.fill('file name')
   const spacedFile = palette.getByRole('option', { name: /file name\.ts/ })
@@ -1268,9 +1274,19 @@ test('Gitna Home searches recent folders and protects dirty drafts', async ({ pa
 
   await page.getByRole('button', { name: 'Open Gitna Home' }).click()
   await expect(page).toHaveURL(capabilityUrl)
-  await expect(
-    page.getByRole('heading', { name: 'Welcome back to Gitna', exact: true }),
-  ).toBeVisible()
+  const homeTitle = page.getByRole('heading', { name: 'Welcome back to Gitna', exact: true })
+  const homeLogo = page.getByRole('img', { name: 'Gitna' })
+  await expect(homeTitle).toBeVisible()
+  const [homeTitleBox, homeLogoBox] = await Promise.all([
+    homeTitle.boundingBox(),
+    homeLogo.boundingBox(),
+  ])
+  expect(homeTitleBox).not.toBeNull()
+  expect(homeLogoBox).not.toBeNull()
+  expect(
+    Math.abs(homeTitleBox!.x + homeTitleBox!.width / 2 - (homeLogoBox!.x + homeLogoBox!.width / 2)),
+  ).toBeLessThanOrEqual(1)
+  expect(homeLogoBox!.y + homeLogoBox!.height).toBeLessThan(homeTitleBox!.y)
   await expect(page.getByRole('textbox', { name: 'Folder path' })).toHaveCount(1)
   await expect(page.getByRole('button', { name: 'Switch folder' })).toHaveCount(0)
   await expect(page.getByRole('button', { name: 'Display settings' })).toHaveCount(0)
@@ -1325,9 +1341,32 @@ test('Gitna Home searches recent folders and protects dirty drafts', async ({ pa
   await expect(page.getByRole('alert')).toContainText('test route failure')
   await expect.poll(() => failedPopup.isClosed()).toBe(true)
 
+  let releaseFolderOpen!: () => void
+  const folderOpenGate = new Promise<void>((resolve) => {
+    releaseFolderOpen = resolve
+  })
+  await page.route(
+    '**/api/v1/folder',
+    async (route) => {
+      await folderOpenGate
+      await route.continue()
+    },
+    { times: 1 },
+  )
   const popupPromise = page.waitForEvent('popup')
   await openOtherInNewTab.click()
   const otherPage = await popupPromise
+  try {
+    const loadingLogo = otherPage.getByRole('img', { name: 'Gitna' })
+    await expect(loadingLogo).toBeVisible()
+    await expect
+      .poll(() => loadingLogo.evaluate((image: HTMLImageElement) => image.naturalWidth))
+      .toBeGreaterThan(0)
+    await expect(otherPage.getByRole('heading', { name: basename(otherFolder) })).toBeVisible()
+    await expect(otherPage.getByRole('status')).toHaveText('Opening folder…')
+  } finally {
+    releaseFolderOpen()
+  }
   await expect(otherPage).toHaveTitle(`${basename(otherFolder)} - Gitna`)
   await expect(otherPage).toHaveURL(/\/home-other-folder\/$/)
   await expect(

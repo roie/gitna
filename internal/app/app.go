@@ -108,10 +108,6 @@ func (a *repoAdapter) FilesChanged(ctx context.Context, oid string) (protocol.Co
 	return a.current().CommitDetails(ctx, a.runner, oid)
 }
 
-func (a *repoAdapter) CommitFile(ctx context.Context, oid, path string, before bool) (protocol.FileDiff, error) {
-	return a.current().ReadCommitFile(ctx, a.runner, oid, path, before)
-}
-
 func (a *repoAdapter) Branches(ctx context.Context) ([]protocol.Branch, error) {
 	return a.current().ListBranches(ctx, a.runner)
 }

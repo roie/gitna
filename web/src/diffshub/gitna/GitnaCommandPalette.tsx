@@ -182,7 +182,7 @@ export function GitnaCommandPalette({
         id={listboxId}
         role="listbox"
         aria-label={commandMode ? 'Commands' : 'Files'}
-        className="max-h-[min(560px,calc(84dvh-58px))] overflow-y-auto overscroll-contain p-1.5"
+        className="cv-mini-scrollbar max-h-[min(560px,calc(84dvh-58px))] overflow-y-auto overscroll-contain p-1.5"
       >
         {results.map((result, index) => (
           <button

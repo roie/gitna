@@ -65,6 +65,7 @@ export interface GitnaEditorActions {
 
 export interface GitnaOpenFileAction {
   ariaLabel(path: string): string;
+  canOpenFile(path: string): boolean;
   onOpenFile(path: string): void;
 }
 
@@ -493,6 +494,7 @@ export const DiffsHubViewer = memo(function DiffsHubViewer({
       if (gitnaActions != null) return <GitnaHeaderActions actions={gitnaActions} item={item} />;
       if (gitnaOpenFileAction == null) return null;
       const path = item.fileDiff.name;
+      if (!gitnaOpenFileAction.canOpenFile(path)) return null;
       return (
         <FileHeaderAction
           type="button"

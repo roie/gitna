@@ -42,10 +42,9 @@ import {
   diffImageAnnotations,
   type GitnaReviewAccumulator,
 } from './reviewAdapter'
-import { type HistoricalFileTarget, useRepository } from './repository'
+import { useRepository } from './repository'
 
 interface ReviewTarget {
-  commitFile?: HistoricalFileTarget
   filePath?: string
   key: string
   oldPath?: string
@@ -80,6 +79,73 @@ function previousWorktreePath(path: string, source: string, destination: string)
 
 function repositoryName(root: string): string {
   return root.split(/[\\/]/).filter(Boolean).at(-1) ?? root
+}
+
+function gitnaLogoDataUrl(dark: boolean): string | null {
+  const filename = dark ? 'favicon-dark.png' : 'favicon-light.png'
+  const source = [...window.document.images].find((image) => image.src.endsWith(`/${filename}`))
+  if (source == null || !source.complete || source.naturalWidth === 0) return null
+  const canvas = window.document.createElement('canvas')
+  canvas.width = source.naturalWidth
+  canvas.height = source.naturalHeight
+  canvas.getContext('2d')?.drawImage(source, 0, 0)
+  return canvas.toDataURL('image/png')
+}
+
+function renderFolderLoadingDocument(newTab: Window, path: string, colorMode: ColorMode): void {
+  const document = newTab.document
+  const folderName = repositoryName(path)
+  const assetUrl = (name: string) => new URL(`./${name}`, window.location.href).href
+  const dark =
+    colorMode === 'dark' ||
+    (colorMode === 'system' && window.matchMedia('(prefers-color-scheme: dark)').matches)
+  const logoUrl =
+    gitnaLogoDataUrl(dark) ?? assetUrl(dark ? 'favicon-dark.png' : 'favicon-light.png')
+
+  document.documentElement.lang = 'en'
+  document.documentElement.dataset.colorMode = colorMode
+  document.title = `Opening ${folderName} - Gitna`
+
+  const viewport = document.createElement('meta')
+  viewport.name = 'viewport'
+  viewport.content = 'width=device-width, initial-scale=1'
+  const favicon = document.createElement('link')
+  favicon.rel = 'icon'
+  favicon.type = 'image/png'
+  favicon.href = logoUrl
+  const style = document.createElement('style')
+  style.textContent = `
+    :root { color-scheme: light; --bg: #ffffff; --fg: #171717; --muted: #737373; --ring: #d4d4d4; }
+    :root[data-color-mode="dark"] { color-scheme: dark; --bg: #0f0f0f; --fg: #f5f5f5; --muted: #a3a3a3; --ring: #404040; }
+    @media (prefers-color-scheme: dark) {
+      :root[data-color-mode="system"] { color-scheme: dark; --bg: #0f0f0f; --fg: #f5f5f5; --muted: #a3a3a3; --ring: #404040; }
+    }
+    * { box-sizing: border-box; }
+    body { margin: 0; min-height: 100vh; display: grid; place-items: center; background: var(--bg); color: var(--fg); font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+    main { display: flex; max-width: calc(100vw - 3rem); flex-direction: column; align-items: center; text-align: center; }
+    img { width: 48px; height: 48px; }
+    h1 { max-width: 28rem; margin: 1rem 0 0; overflow: hidden; text-overflow: ellipsis; font-size: 1.125rem; font-weight: 600; white-space: nowrap; }
+    p { margin: .375rem 0 0; color: var(--muted); font-size: .875rem; }
+    .spinner { width: 18px; height: 18px; margin-top: 1.25rem; border: 2px solid var(--ring); border-top-color: var(--fg); border-radius: 999px; animation: spin .8s linear infinite; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    @media (prefers-reduced-motion: reduce) { .spinner { animation: none; } }
+  `
+  document.head.replaceChildren(viewport, favicon, style)
+
+  const main = document.createElement('main')
+  const logo = document.createElement('img')
+  logo.src = logoUrl
+  logo.alt = 'Gitna'
+  const heading = document.createElement('h1')
+  heading.textContent = folderName
+  const status = document.createElement('p')
+  status.role = 'status'
+  status.textContent = 'Opening folder…'
+  const spinner = document.createElement('span')
+  spinner.className = 'spinner'
+  spinner.setAttribute('aria-hidden', 'true')
+  main.replaceChildren(logo, heading, status, spinner)
+  document.body.replaceChildren(main)
 }
 
 function updateViewerItems(
@@ -130,23 +196,12 @@ function repositoryFileErrorMessage(error: unknown): string {
   if (error instanceof ApiError) {
     if (error.code === 'file-too-large') return 'This file is too large to open in Gitna.'
     if (error.code === 'binary-file') return 'Binary files can’t be opened in the editor.'
-    if (error.code === 'file-not-found') return 'This file does not exist at the selected commit.'
   }
   return error instanceof Error ? error.message : String(error)
 }
 
 function useReviewTarget(): ReviewTarget | null {
   const repository = useRepository()
-  const historicalFile = repository.historicalFiles.find(
-    (file) => file.key === repository.historicalFileKey,
-  )
-  if (historicalFile != null) {
-    return {
-      commitFile: historicalFile,
-      key: `historical:${historicalFile.key}`,
-      selectedPath: historicalFile.path,
-    }
-  }
   if (repository.compare != null) {
     return {
       key: `compare:${repository.compare.from}:${repository.compare.to}`,
@@ -216,7 +271,6 @@ function GitnaReviewUIInner() {
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
   const [reviewData, setReviewData] = useState<LoadedDiffsHubData | null>(null)
   const [imageDiff, setImageDiff] = useState<FileDiff | null>(null)
-  const [historicalFileDiff, setHistoricalFileDiff] = useState<FileDiff | null>(null)
   const [reviewAttempt, setReviewAttempt] = useState(0)
   const [reviewActionError, setReviewActionError] = useState<string | null>(null)
   const [homeOpen, setHomeOpen] = useState(false)
@@ -379,7 +433,6 @@ function GitnaReviewUIInner() {
     if (target == null) {
       reviewDataRef.current = null
       setReviewData(null)
-      setHistoricalFileDiff(null)
       setErrorMessage(null)
       setLoadState(repository.snapshot?.repository === false ? 'ready' : 'fetching')
       return
@@ -395,16 +448,6 @@ function GitnaReviewUIInner() {
       setLoadState('fetching')
     }
     setErrorMessage(null)
-    setHistoricalFileDiff(null)
-    let loadedHistoricalFile: FileDiff | null = null
-    const loadHistoricalFile = async (file: HistoricalFileTarget): Promise<LoadedDiffsHubData> => {
-      const diff = await repository.api.commitFile(file.oid, file.path, file.before)
-      loadedHistoricalFile = diff
-      return adaptGitnaFile(diff, repository.generation, {
-        key: file.key,
-        revision: file.revision,
-      })
-    }
     const loadRepositoryFile = async (path: string): Promise<LoadedDiffsHubData> => {
       try {
         const loaded = await repository.api.readWorktreeFile(path)
@@ -468,28 +511,22 @@ function GitnaReviewUIInner() {
       }
       return result.data
     }
-    const dataPromise =
-      target.commitFile == null
-        ? target.filePath == null
-          ? loadReview()
-          : loadRepositoryFile(target.filePath)
-        : loadHistoricalFile(target.commitFile)
+    const dataPromise = target.filePath == null ? loadReview() : loadRepositoryFile(target.filePath)
     dataPromise
       .then((data) => {
         if (!active) return
         if (!refreshingVisibleReview) setLoadState('parsing')
-        setHistoricalFileDiff(loadedHistoricalFile)
         setReviewData(data)
         setLoadState('ready')
       })
       .catch((error: unknown) => {
         if (!active) return
         const nextError =
-          target.filePath != null || target.commitFile != null
-            ? repositoryFileErrorMessage(error)
-            : error instanceof Error
+          target.filePath == null
+            ? error instanceof Error
               ? error.message
               : String(error)
+            : repositoryFileErrorMessage(error)
         if (reviewDataRef.current == null) {
           setErrorMessage(nextError)
           setLoadState('error')
@@ -728,18 +765,15 @@ function GitnaReviewUIInner() {
           onError: setReviewActionError,
         }
 
-  const graphCommitFile = repository.commitDiff
+  const graphPath = repository.commitDiff?.path
   const gitnaOpenFileAction =
-    graphCommitFile == null
+    graphPath == null || !repository.canOpenRepositoryFile(graphPath)
       ? undefined
       : {
-          ariaLabel: (path: string) => `Open ${path} at commit ${graphCommitFile.oid.slice(0, 8)}`,
-          onOpenFile: () =>
-            repository.openCommitFile(
-              graphCommitFile.oid,
-              graphCommitFile.subject,
-              graphCommitFile,
-            ),
+          ariaLabel: (path: string) => `Open ${path} in Repository`,
+          canOpenFile: (path: string) =>
+            path === graphPath && repository.canOpenRepositoryFile(path),
+          onOpenFile: (path: string) => repository.selectRepositoryFile(path, true),
         }
 
   const dirtyPaths = useMemo(() => new Set(worktreeDrafts.keys()), [worktreeDrafts])
@@ -785,6 +819,7 @@ function GitnaReviewUIInner() {
       if (newTab == null) {
         return Promise.reject(new Error('Allow pop-ups to open this folder in a new tab.'))
       }
+      renderFolderLoadingDocument(newTab, path, colorMode)
       return repository
         .openFolder(path)
         .then((result) => {
@@ -799,7 +834,7 @@ function GitnaReviewUIInner() {
           throw error
         })
     },
-    [repository],
+    [colorMode, repository],
   )
   const requestFolderSwitch = useCallback(
     async (path: string, returnHome: boolean) => {
@@ -1176,19 +1211,7 @@ function GitnaReviewUIInner() {
           <div className="flex min-h-0 flex-col [grid-area:viewer]">
             <RepositoryFileTabs dirtyPaths={dirtyPaths} onClose={closeRepositoryFiles} />
             <div className="min-h-0 flex-1">
-              {target?.commitFile != null && historicalFileDiff?.tooLarge === true ? (
-                <HistoricalFilePlaceholder
-                  path={target?.selectedPath ?? ''}
-                  message="This historical file is too large to display."
-                />
-              ) : target?.commitFile != null &&
-                historicalFileDiff?.binary === true &&
-                historicalFileDiff.after.image == null ? (
-                <HistoricalFilePlaceholder
-                  path={target?.selectedPath ?? ''}
-                  message="This historical file is binary and cannot be displayed as text."
-                />
-              ) : repository.snapshot?.repository === false && target == null ? (
+              {repository.snapshot?.repository === false && target == null ? (
                 <FolderEmptyState />
               ) : loadState === 'ready' && reviewData != null && reviewData.items.length === 0 ? (
                 <GitnaEmptyState scope={target?.request?.scope} />
@@ -1360,32 +1383,16 @@ function RepositoryFileTabs({
     path: string
   } | null>(null)
   const openPaths = repository.repositoryOpenPaths
-  const historicalFiles = repository.historicalFiles
-  const tabs = useMemo(
-    () => [
-      ...openPaths.map((path) => ({ key: `working:${path}`, path, historical: false as const })),
-      ...historicalFiles.map((file) => ({ ...file, historical: true as const })),
-    ],
-    [historicalFiles, openPaths],
-  )
   useEffect(() => {
-    const activeIndex = tabs.findIndex((tab) =>
-      tab.historical
-        ? tab.key === repository.historicalFileKey
-        : tab.path === repository.repositoryFilePath && repository.historicalFileKey == null,
-    )
+    const activeIndex = openPaths.indexOf(repository.repositoryFilePath ?? '')
     if (activeIndex < 0) return
     queueMicrotask(() =>
       tablistRef.current
         ?.querySelector<HTMLElement>(`[data-tab-index="${activeIndex}"]`)
         ?.scrollIntoView({ block: 'nearest', inline: 'nearest' }),
     )
-  }, [repository.historicalFileKey, repository.repositoryFilePath, tabs])
-  if (
-    tabs.length === 0 ||
-    (repository.repositoryFilePath == null && repository.historicalFileKey == null)
-  )
-    return null
+  }, [openPaths, repository.repositoryFilePath])
+  if (repository.repositoryFilePath == null || openPaths.length === 0) return null
   const openContextMenu = (
     path: string,
     index: number,
@@ -1413,25 +1420,16 @@ function RepositoryFileTabs({
           if (event.currentTarget.scrollLeft !== previousScrollLeft) event.preventDefault()
         }}
       >
-        {tabs.map((tab, index) => {
-          const active = tab.historical
-            ? repository.historicalFileKey === tab.key
-            : repository.historicalFileKey == null && repository.repositoryFilePath === tab.path
-          const name = tab.path.split('/').at(-1) ?? tab.path
-          const label = tab.historical ? `${name} @ ${tab.oid.slice(0, 8)}` : name
-          const title = tab.historical ? `${tab.path} at commit ${tab.oid}` : tab.path
-          const closeLabel = tab.historical ? label : tab.path
-          const icon = repositoryTabIconResolver.resolveIcon('file-tree-icon-file', tab.path)
+        {openPaths.map((path, index) => {
+          const active = repository.repositoryFilePath === path
+          const name = path.split('/').at(-1) ?? path
+          const icon = repositoryTabIconResolver.resolveIcon('file-tree-icon-file', path)
           const iconHref = `#${icon.name.replace(/^#/, '')}`
           const iconViewBox =
             icon.viewBox ?? `0 0 ${String(icon.width ?? 16)} ${String(icon.height ?? 16)}`
-          const closeTab = () => {
-            if (tab.historical) repository.closeHistoricalFiles([tab.key])
-            else onClose([tab.path])
-          }
           return (
             <div
-              key={tab.key}
+              key={path}
               data-tab-index={index}
               className={cn(
                 'group/tab flex h-7 max-w-64 shrink-0 items-center rounded-md text-xs',
@@ -1442,16 +1440,12 @@ function RepositoryFileTabs({
               onAuxClick={(event) => {
                 if (event.button !== 1) return
                 event.preventDefault()
-                closeTab()
+                onClose([path])
               }}
               onContextMenu={(event) => {
-                if (tab.historical) return
                 event.preventDefault()
-                const target = event.currentTarget.querySelector<HTMLButtonElement>('[role="tab"]')
-                if (target != null) {
-                  const workingIndex = openPaths.indexOf(tab.path)
-                  openContextMenu(tab.path, workingIndex, target, target.getBoundingClientRect())
-                }
+                const tab = event.currentTarget.querySelector<HTMLButtonElement>('[role="tab"]')
+                if (tab != null) openContextMenu(path, index, tab, tab.getBoundingClientRect())
               }}
               onMouseDown={(event) => {
                 if (event.button === 1) event.preventDefault()
@@ -1462,23 +1456,15 @@ function RepositoryFileTabs({
                 role="tab"
                 aria-selected={active}
                 className="flex min-w-0 flex-1 cursor-pointer items-center gap-1.5 py-1 pl-2.5 text-left"
-                title={title}
-                onClick={() =>
-                  tab.historical
-                    ? repository.selectHistoricalFile(tab.key)
-                    : repository.selectRepositoryFile(tab.path)
-                }
+                title={path}
+                onClick={() => repository.selectRepositoryFile(path)}
                 onKeyDown={(event) => {
-                  if (
-                    tab.historical ||
-                    (event.key !== 'ContextMenu' && !(event.shiftKey && event.key === 'F10'))
-                  )
+                  if (event.key !== 'ContextMenu' && !(event.shiftKey && event.key === 'F10'))
                     return
                   event.preventDefault()
-                  const workingIndex = openPaths.indexOf(tab.path)
                   openContextMenu(
-                    tab.path,
-                    workingIndex,
+                    path,
+                    index,
                     event.currentTarget,
                     event.currentTarget.getBoundingClientRect(),
                   )
@@ -1502,8 +1488,8 @@ function RepositoryFileTabs({
                 >
                   <use href={iconHref} />
                 </svg>
-                <span className="truncate">{label}</span>
-                {!tab.historical && dirtyPaths.has(tab.path) && (
+                <span className="truncate">{name}</span>
+                {dirtyPaths.has(path) && (
                   <span
                     aria-label="Unsaved changes"
                     className="size-1.5 shrink-0 rounded-full bg-current"
@@ -1513,9 +1499,9 @@ function RepositoryFileTabs({
               <button
                 type="button"
                 className="mr-1 flex size-5 shrink-0 cursor-pointer items-center justify-center rounded text-muted-foreground opacity-0 hover:bg-background/70 hover:text-foreground group-focus-within/tab:opacity-100 group-hover/tab:opacity-100"
-                aria-label={`Close ${closeLabel}`}
-                title={`Close ${closeLabel}`}
-                onClick={closeTab}
+                aria-label={`Close ${path}`}
+                title={`Close ${path}`}
+                onClick={() => onClose([path])}
               >
                 <IconX className="size-3" />
               </button>
@@ -1592,17 +1578,6 @@ function RepositoryFileTabs({
           </DropdownMenuContent>
         </DropdownMenu>
       )}
-    </div>
-  )
-}
-
-function HistoricalFilePlaceholder({ path, message }: { path: string; message: string }) {
-  return (
-    <div className="flex h-full min-h-0 items-center justify-center bg-background p-6">
-      <section role="status" className="max-w-md text-center">
-        <p className="font-medium">{path}</p>
-        <p className="mt-1 text-sm text-muted-foreground">{message}</p>
-      </section>
     </div>
   )
 }

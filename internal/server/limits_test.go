@@ -273,9 +273,6 @@ func (s *slowRepo) History(ctx context.Context, _, _ int) ([]protocol.GraphCommi
 func (s *slowRepo) FilesChanged(ctx context.Context, _ string) (protocol.CommitFiles, error) {
 	return protocol.CommitFiles{}, s.block(ctx)
 }
-func (s *slowRepo) CommitFile(ctx context.Context, _, _ string, _ bool) (protocol.FileDiff, error) {
-	return protocol.FileDiff{}, s.block(ctx)
-}
 func (s *slowRepo) Branches(ctx context.Context) ([]protocol.Branch, error) {
 	return nil, s.block(ctx)
 }

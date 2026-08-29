@@ -72,40 +72,34 @@ export function adaptWorktreeFile(
   }
 }
 
-export function adaptGitnaFile(
-  diff: FileDiff,
-  generation: number,
-  identity?: { key: string; revision: number },
-): LoadedDiffsHubData {
+export function adaptGitnaFile(diff: FileDiff, generation: number): LoadedDiffsHubData {
   const path = diff.after.path || diff.before.path
-  const itemId = identity == null ? path : `historical:${identity.key}`
-  const version = identity == null ? generation : -identity.revision
   const contents = diff.binary || diff.tooLarge ? '' : diff.after.content
   const file: FileContents = {
     name: path,
     contents,
     lang: diff.after.language as FileContents['lang'],
-    cacheKey: identity == null ? `file:${generation}:${path}` : `historical:${identity.key}`,
+    cacheKey: `file:${generation}:${path}`,
   }
   const lineCount =
     contents.length === 0 ? 0 : contents.split('\n').length - (contents.endsWith('\n') ? 1 : 0)
   return {
     diffStats: { addedLines: 0, deletedLines: 0, fileCount: 1, totalLinesOfCode: lineCount },
-    itemIdToFile: new Map([[itemId, { fileOrder: 0, path }]]),
+    itemIdToFile: new Map([[path, { fileOrder: 0, path }]]),
     items: [
       {
-        id: itemId,
+        id: path,
         type: 'file',
         file,
         annotations: fileImageAnnotations(diff, path),
-        version,
+        version: generation,
       },
     ],
     treeSource: {
       gitStatus: [],
       pathCount: 1,
       paths: [path],
-      pathToItemId: new Map([[path, itemId]]),
+      pathToItemId: new Map([[path, path]]),
     },
   }
 }
