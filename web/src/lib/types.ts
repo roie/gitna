@@ -32,6 +32,7 @@ export interface GraphPage {
 
 export interface GraphCount {
   tip: string
+  generation: number
   total: number
 }
 

@@ -520,8 +520,18 @@ func (s *Server) handleGraphCount(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "tip is required"})
 		return
 	}
+	generationValue := r.URL.Query().Get("generation")
+	generation, err := strconv.ParseUint(generationValue, 10, 64)
+	if generationValue == "" || err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "valid generation is required"})
+		return
+	}
 	ctx, cancel := context.WithTimeout(r.Context(), GraphCountTimeout)
 	defer cancel()
+	if generation != s.gen.Load() {
+		writeJSON(w, http.StatusConflict, map[string]string{"error": "graph changed while counting"})
+		return
+	}
 	snapshot, err := s.repo.Snapshot(ctx)
 	if err != nil {
 		if timeoutReached(ctx, err) {
@@ -535,7 +545,15 @@ func (s *Server) handleGraphCount(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusConflict, map[string]string{"error": "graph tip changed"})
 		return
 	}
+	if generation != s.gen.Load() {
+		writeJSON(w, http.StatusConflict, map[string]string{"error": "graph changed while counting"})
+		return
+	}
 	total, err := s.repo.HistoryCount(ctx, tip)
+	if generation != s.gen.Load() {
+		writeJSON(w, http.StatusConflict, map[string]string{"error": "graph changed while counting"})
+		return
+	}
 	if err != nil {
 		if timeoutReached(ctx, err) {
 			writeJSON(w, http.StatusGatewayTimeout, map[string]string{"error": "history count timed out"})
@@ -544,7 +562,7 @@ func (s *Server) handleGraphCount(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 		return
 	}
-	writeJSON(w, http.StatusOK, protocol.GraphCount{Tip: tip, Total: total})
+	writeJSON(w, http.StatusOK, protocol.GraphCount{Tip: tip, Generation: generation, Total: total})
 }
 
 // handleBranches returns every local and remote branch with its upstream

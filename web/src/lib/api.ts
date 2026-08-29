@@ -140,7 +140,7 @@ export interface ApiClient {
   mutate(request: MutateRequest): Promise<void>
   commit(request: CommitRequest): Promise<OperationResult>
   graph(skip?: number, tip?: string, signal?: AbortSignal): Promise<GraphPage>
-  graphCount(tip: string, signal?: AbortSignal): Promise<GraphCount>
+  graphCount(tip: string, generation: number, signal?: AbortSignal): Promise<GraphCount>
   commitFiles(oid: string): Promise<CommitFiles>
   branches(): Promise<Branch[]>
   stashes(): Promise<StashEntry[]>
@@ -378,10 +378,11 @@ export function createApi(): ApiClient {
       )
       return (await res.json()) as GraphPage
     },
-    async graphCount(tip: string, signal?: AbortSignal): Promise<GraphCount> {
+    async graphCount(tip: string, generation: number, signal?: AbortSignal): Promise<GraphCount> {
       const timeout = AbortSignal.timeout(FETCH_TIMEOUT)
+      const query = new URLSearchParams({ tip, generation: String(generation) })
       const res = await expectOK(
-        await fetch(`api/v1/graph/count?tip=${encodeURIComponent(tip)}`, {
+        await fetch(`api/v1/graph/count?${query}`, {
           signal: signal == null ? timeout : AbortSignal.any([signal, timeout]),
         }),
       )

@@ -319,10 +319,12 @@ type GraphPage struct {
 	Generation uint64        `json:"generation"`
 }
 
-// GraphCount is the exact number of commits reachable from one immutable tip.
+// GraphCount is the exact number of commits reachable from one immutable tip
+// within a repository generation.
 type GraphCount struct {
-	Tip   string `json:"tip"`
-	Total int    `json:"total"`
+	Tip        string `json:"tip"`
+	Generation uint64 `json:"generation"`
+	Total      int    `json:"total"`
 }
 
 // CommitStats summarizes a commit against its first parent. BinaryFiles counts

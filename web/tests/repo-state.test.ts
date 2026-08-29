@@ -104,8 +104,8 @@ const auxApi: ApiClient = {
   async graph() {
     return { commits: [], hasMore: false, tip: 'abc123', generation: 1 }
   },
-  async graphCount(tip) {
-    return { tip, total: 0 }
+  async graphCount(tip, generation) {
+    return { tip, generation, total: 0 }
   },
   async commitFiles() {
     return { files: [] }
@@ -158,8 +158,8 @@ function graphApi(
       const page = queue.shift() ?? []
       return { commits: page, hasMore: queue.length > 0, tip: 'abc123', generation: 1 }
     },
-    async graphCount(tip) {
-      return { tip, total: pages.reduce((total, page) => total + page.length, 0) }
+    async graphCount(tip, generation) {
+      return { tip, generation, total: pages.reduce((total, page) => total + page.length, 0) }
     },
     async commitFiles(oid) {
       return { files: filesByOid[oid] ?? [] }
@@ -1058,8 +1058,8 @@ describe('createRepoState', () => {
   })
 
   it('pins continuation pages and resolves the exact count without blocking the first page', async () => {
-    let resolveCount!: (value: { tip: string; total: number }) => void
-    const count = new Promise<{ tip: string; total: number }>((resolve) => {
+    let resolveCount!: (value: { tip: string; generation: number; total: number }) => void
+    const count = new Promise<{ tip: string; generation: number; total: number }>((resolve) => {
       resolveCount = resolve
     })
     const graphCalls: Array<{ skip?: number; tip?: string }> = []
@@ -1100,9 +1100,73 @@ describe('createRepoState', () => {
     ])
     expect(state.graphRows).toHaveLength(4)
 
-    resolveCount({ tip: 'tip-a', total: 4 })
+    resolveCount({ tip: 'tip-a', generation: 7, total: 4 })
     await vi.waitFor(() => expect(state.graphTotal).toBe(4))
     expect(state.graphCountLoading).toBe(false)
+  })
+
+  it('keys count caching and in-flight acceptance by tip and generation', async () => {
+    let generation = 7
+    let resolveOldCount!: (value: { tip: string; generation: number; total: number }) => void
+    const oldCount = new Promise<{ tip: string; generation: number; total: number }>((resolve) => {
+      resolveOldCount = resolve
+    })
+    const countCalls: number[] = []
+    const api: ApiClient = {
+      ...auxApi,
+      async graph() {
+        return {
+          commits: [graphCommit('commit-a')],
+          hasMore: false,
+          tip: 'tip-a',
+          generation,
+        }
+      },
+      async graphCount(tip, requestedGeneration) {
+        countCalls.push(requestedGeneration)
+        if (requestedGeneration === 7) return oldCount
+        return { tip, generation: requestedGeneration, total: 8 }
+      },
+    }
+    const state = createRepoState({ api })
+
+    await state.refreshGraph()
+    expect(state.graphTotal).toBeNull()
+    generation = 8
+    await state.refreshGraph()
+    await vi.waitFor(() => expect(state.graphTotal).toBe(8))
+
+    resolveOldCount({ tip: 'tip-a', generation: 7, total: 4 })
+    await vi.waitFor(() => expect(state.graphCountLoading).toBe(false))
+    expect(state.graphTotal).toBe(8)
+    expect(countCalls).toEqual([7, 8])
+
+    await state.refreshGraph()
+    expect(state.graphTotal).toBe(8)
+    expect(countCalls).toEqual([7, 8])
+  })
+
+  it('rejects a count response whose generation does not match its request', async () => {
+    const state = createRepoState({
+      api: {
+        ...auxApi,
+        async graph() {
+          return {
+            commits: [graphCommit('commit-a')],
+            hasMore: false,
+            tip: 'tip-a',
+            generation: 11,
+          }
+        },
+        async graphCount(tip) {
+          return { tip, generation: 10, total: 99 }
+        },
+      },
+    })
+
+    await state.refreshGraph()
+    await vi.waitFor(() => expect(state.graphCountLoading).toBe(false))
+    expect(state.graphTotal).toBeNull()
   })
 
   it('keeps continuation single-flight and resets after a tip conflict', async () => {
@@ -1124,8 +1188,8 @@ describe('createRepoState', () => {
         appendCalls += 1
         throw new ApiError(409, 'graph tip changed')
       },
-      async graphCount(tip) {
-        return { tip, total: 1 }
+      async graphCount(tip, generation) {
+        return { tip, generation, total: 1 }
       },
     }
     const state = createRepoState({ api })

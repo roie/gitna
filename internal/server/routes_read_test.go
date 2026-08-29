@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -27,14 +28,15 @@ type fakeRepo struct {
 	searchRecent    []string
 	searchRefresh   bool
 
-	graphCommits []protocol.GraphCommit
-	graphTotal   int
-	graphFiles   []protocol.CommitFile
-	graphStats   protocol.CommitStats
-	branches     []protocol.Branch
-	stashes      []protocol.StashEntry
-	tags         []protocol.Tag
-	compareFiles []protocol.CommitFile
+	graphCommits   []protocol.GraphCommit
+	graphTotal     int
+	onHistoryCount func()
+	graphFiles     []protocol.CommitFile
+	graphStats     protocol.CommitStats
+	branches       []protocol.Branch
+	stashes        []protocol.StashEntry
+	tags           []protocol.Tag
+	compareFiles   []protocol.CommitFile
 
 	mu            sync.Mutex
 	stageOps      []string
@@ -142,6 +144,9 @@ func (f *fakeRepo) HistoryAt(_ context.Context, tip string, skip, limit int) ([]
 
 func (f *fakeRepo) HistoryCount(_ context.Context, tip string) (int, error) {
 	f.graphTips = append(f.graphTips, tip)
+	if f.onHistoryCount != nil {
+		f.onHistoryCount()
+	}
 	if f.err != nil {
 		return 0, f.err
 	}
@@ -884,13 +889,17 @@ func TestGraphRouteUsesLookaheadAndRejectsChangedTip(t *testing.T) {
 	}
 }
 
-func TestGraphCountUsesRequestedCurrentTip(t *testing.T) {
+func TestGraphCountUsesRequestedCurrentIdentity(t *testing.T) {
 	repo := &fakeRepo{snap: protocol.RepoSnapshot{HeadOID: "tip-a"}, graphTotal: 5826}
-	h := newSnapshotServer(repo)
-	req := httptest.NewRequest(http.MethodGet, "/g/"+testToken+"/api/v1/graph/count?tip=tip-a", nil)
+	srv, err := New(newTestFS(), Options{Token: testToken, Host: testHost, Repo: repo})
+	if err != nil {
+		t.Fatal(err)
+	}
+	generation := srv.gen.Load()
+	req := httptest.NewRequest(http.MethodGet, fmt.Sprintf("/g/%s/api/v1/graph/count?tip=tip-a&generation=%d", testToken, generation), nil)
 	req.Host = testHost
 	rec := httptest.NewRecorder()
-	h.ServeHTTP(rec, req)
+	srv.Handler().ServeHTTP(rec, req)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d, want 200", rec.Code)
 	}
@@ -898,8 +907,49 @@ func TestGraphCountUsesRequestedCurrentTip(t *testing.T) {
 	if err := json.Unmarshal(rec.Body.Bytes(), &count); err != nil {
 		t.Fatalf("unmarshal: %v", err)
 	}
-	if count.Tip != "tip-a" || count.Total != 5826 {
+	if count.Tip != "tip-a" || count.Generation != generation || count.Total != 5826 {
 		t.Fatalf("count = %+v", count)
+	}
+}
+
+func TestGraphCountRejectsChangedGenerationWithUnchangedHead(t *testing.T) {
+	repo := &fakeRepo{snap: protocol.RepoSnapshot{HeadOID: "tip-a"}, graphTotal: 5826}
+	srv, err := New(newTestFS(), Options{Token: testToken, Host: testHost, Repo: repo})
+	if err != nil {
+		t.Fatal(err)
+	}
+	generation := srv.gen.Load()
+	srv.gen.Add(1)
+	req := httptest.NewRequest(http.MethodGet, fmt.Sprintf("/g/%s/api/v1/graph/count?tip=tip-a&generation=%d", testToken, generation), nil)
+	req.Host = testHost
+	rec := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(rec, req)
+	if rec.Code != http.StatusConflict {
+		t.Fatalf("status = %d, want 409", rec.Code)
+	}
+	if len(repo.graphTips) != 0 {
+		t.Fatalf("history count called for stale generation: %v", repo.graphTips)
+	}
+}
+
+func TestGraphCountRejectsShallowDeepeningDuringCount(t *testing.T) {
+	repo := &fakeRepo{snap: protocol.RepoSnapshot{HeadOID: "tip-a"}, graphTotal: 5826}
+	srv, err := New(newTestFS(), Options{Token: testToken, Host: testHost, Repo: repo})
+	if err != nil {
+		t.Fatal(err)
+	}
+	generation := srv.gen.Load()
+	// Shallow deepening changes the locally reachable count while HEAD stays put.
+	repo.onHistoryCount = func() { srv.gen.Add(1) }
+	req := httptest.NewRequest(http.MethodGet, fmt.Sprintf("/g/%s/api/v1/graph/count?tip=tip-a&generation=%d", testToken, generation), nil)
+	req.Host = testHost
+	rec := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(rec, req)
+	if rec.Code != http.StatusConflict {
+		t.Fatalf("status = %d, want 409", rec.Code)
+	}
+	if !reflect.DeepEqual(repo.graphTips, []string{"tip-a"}) {
+		t.Fatalf("history count tips = %v, want tip-a", repo.graphTips)
 	}
 }
 

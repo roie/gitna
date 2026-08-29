@@ -121,6 +121,10 @@ function sameStringSet(left: ReadonlySet<string>, right: ReadonlySet<string>): b
   return left.size === right.size && [...left].every((value) => right.has(value))
 }
 
+function graphCountCacheKey(tip: string, generation: number): string {
+  return `${generation}:${tip}`
+}
+
 function changeList(snapshot: RepoSnapshot, scope: ChangeScope): FileChange[] {
   return scope === 'staged' ? snapshot.staged : snapshot.unstaged
 }
@@ -743,7 +747,10 @@ export class GitnaRepository {
       this.graphHasMore = page.hasMore
       this.graphTip = page.tip
       this.graphGeneration = page.generation
-      this.graphTotal = page.tip === '' ? 0 : (this.graphCountCache.get(page.tip) ?? null)
+      this.graphTotal =
+        page.tip === ''
+          ? 0
+          : (this.graphCountCache.get(graphCountCacheKey(page.tip, page.generation)) ?? null)
       const present = new Set(page.commits.map((commit) => commit.oid))
       this.expanded = Object.fromEntries(
         Object.entries(this.expanded).filter(([oid, open]) => open && present.has(oid)),
@@ -784,7 +791,8 @@ export class GitnaRepository {
     request: number,
     epoch: number,
   ): Promise<void> {
-    const cached = this.graphCountCache.get(tip)
+    const cacheKey = graphCountCacheKey(tip, generation)
+    const cached = this.graphCountCache.get(cacheKey)
     if (cached != null) {
       this.graphTotal = cached
       this.emit()
@@ -795,18 +803,19 @@ export class GitnaRepository {
     this.graphCountLoading = true
     this.emit()
     try {
-      const count = await this.api.graphCount(tip, controller.signal)
+      const count = await this.api.graphCount(tip, generation, controller.signal)
       if (
         controller.signal.aborted ||
         request !== this.graphCountRequest ||
         epoch !== this.repositoryEpoch ||
         tip !== this.graphTip ||
         generation !== this.graphGeneration ||
-        count.tip !== tip
+        count.tip !== tip ||
+        count.generation !== generation
       ) {
         return
       }
-      this.graphCountCache.set(tip, count.total)
+      this.graphCountCache.set(cacheKey, count.total)
       this.graphTotal = count.total
     } catch {
       // Counting is optional metadata; loaded history remains usable and truthful.
