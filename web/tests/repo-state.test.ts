@@ -346,6 +346,37 @@ describe('createRepoState', () => {
     expect(state.repositoryFilesError).toBeNull()
   })
 
+  it('reports duplicate Explorer paths without publishing them to Pierre', async () => {
+    const state = createRepoState({
+      api: {
+        ...auxApi,
+        async repositoryFiles(cursor) {
+          return cursor == null
+            ? {
+                generation: 3,
+                paths: ['existing.txt', 'src/main.ts'],
+                truncated: true,
+                nextCursor: 'src/main.ts',
+              }
+            : {
+                generation: 3,
+                paths: ['src/main.ts', 'vendor/generated.js'],
+                truncated: false,
+              }
+        },
+      },
+    })
+    state.repositoryPaths = ['previous.txt']
+
+    await state.refreshRepositoryFiles()
+
+    expect(state.repositoryPaths).toEqual(['previous.txt'])
+    expect(state.repositoryFilesError).toBe(
+      'Folder file listing returned duplicate path: src/main.ts',
+    )
+    expect(state.repositoryFilesLoading).toBe(false)
+  })
+
   it('resolves a folder route without mutating the current repository state', async () => {
     const openFolder = vi.fn(async (path: string) => ({ root: path, href: '../next/' }))
     const state = createRepoState({ api: { ...auxApi, openFolder } })

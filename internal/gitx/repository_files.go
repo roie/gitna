@@ -3,7 +3,6 @@ package gitx
 import (
 	"bytes"
 	"context"
-	"errors"
 	"fmt"
 	"io/fs"
 	"os"
@@ -71,10 +70,9 @@ func (r Repository) RepositoryFiles(ctx context.Context, runner Runner, after st
 	return result, nil
 }
 
-var errFolderPageFull = errors.New("folder file page full")
-
 func (r Repository) folderFiles(ctx context.Context, after string, limit int) (protocol.RepositoryFiles, error) {
 	result := protocol.RepositoryFiles{Paths: make([]string, 0), IgnoredPaths: make([]string, 0)}
+	paths := make([]string, 0)
 	err := filepath.WalkDir(r.Root, func(path string, entry fs.DirEntry, walkErr error) error {
 		if walkErr != nil {
 			return walkErr
@@ -98,20 +96,40 @@ func (r Repository) folderFiles(ctx context.Context, after string, limit int) (p
 		if err != nil {
 			return err
 		}
-		relative = filepath.ToSlash(relative)
-		if relative <= after {
-			return nil
-		}
-		if len(result.Paths) == limit {
-			result.Truncated = true
-			result.NextCursor = result.Paths[len(result.Paths)-1]
-			return errFolderPageFull
-		}
-		result.Paths = append(result.Paths, relative)
+		paths = append(paths, filepath.ToSlash(relative))
 		return nil
 	})
-	if err != nil && !errors.Is(err, errFolderPageFull) {
+	if err != nil {
 		return protocol.RepositoryFiles{}, err
+	}
+	if err := ctx.Err(); err != nil {
+		return protocol.RepositoryFiles{}, err
+	}
+
+	// WalkDir is depth-first, while the cursor contract is global lexical order.
+	// Sort and compact the complete ordinary-folder manifest before taking a
+	// bounded page so adjacent pages cannot overlap at directory boundaries.
+	sort.Strings(paths)
+	if err := ctx.Err(); err != nil {
+		return protocol.RepositoryFiles{}, err
+	}
+	unique := paths[:0]
+	for index, path := range paths {
+		if index%4096 == 0 {
+			if err := ctx.Err(); err != nil {
+				return protocol.RepositoryFiles{}, err
+			}
+		}
+		if len(unique) == 0 || path != unique[len(unique)-1] {
+			unique = append(unique, path)
+		}
+	}
+	start := sort.Search(len(unique), func(index int) bool { return unique[index] > after })
+	end := min(start+limit, len(unique))
+	result.Paths = append(result.Paths, unique[start:end]...)
+	if end < len(unique) {
+		result.Truncated = true
+		result.NextCursor = result.Paths[len(result.Paths)-1]
 	}
 	return result, nil
 }

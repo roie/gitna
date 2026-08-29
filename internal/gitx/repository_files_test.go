@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"testing"
 )
 
@@ -82,6 +83,64 @@ func TestRepositoryFilesReportsTruncation(t *testing.T) {
 	}
 }
 
+func TestRepositoryFilesPagesOrdinaryFolderInGlobalPathOrder(t *testing.T) {
+	root := t.TempDir()
+	paths := []string{
+		"transport/index.js",
+		"transport/package.json",
+		"transport-exit-immediately.js",
+		"z-last.txt",
+	}
+	for _, path := range paths {
+		full := filepath.Join(root, filepath.FromSlash(path))
+		if err := os.MkdirAll(filepath.Dir(full), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(full, []byte(path), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	want := append([]string(nil), paths...)
+	slices.Sort(want)
+	var got []string
+	seen := make(map[string]struct{})
+	cursor := ""
+	for pageNumber := 0; ; pageNumber++ {
+		page, err := (Repository{Root: root}).RepositoryFiles(t.Context(), &ExecRunner{}, cursor, 1)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !slices.IsSorted(page.Paths) {
+			t.Fatalf("page %d paths = %#v, want sorted", pageNumber, page.Paths)
+		}
+		for _, path := range page.Paths {
+			if path <= cursor {
+				t.Fatalf("page %d path %q is not after cursor %q", pageNumber, path, cursor)
+			}
+			if _, duplicate := seen[path]; duplicate {
+				t.Fatalf("page %d repeats path %q", pageNumber, path)
+			}
+			seen[path] = struct{}{}
+			got = append(got, path)
+		}
+		if !page.Truncated {
+			if page.NextCursor != "" {
+				t.Fatalf("final page cursor = %q, want empty", page.NextCursor)
+			}
+			break
+		}
+		if len(page.Paths) == 0 || page.NextCursor != page.Paths[len(page.Paths)-1] {
+			t.Fatalf("page %d = %#v, want cursor at final path", pageNumber, page)
+		}
+		cursor = page.NextCursor
+	}
+
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("paged paths = %#v, want %#v", got, want)
+	}
+}
+
 func TestRepositoryFilesDeduplicatesUnmergedPaths(t *testing.T) {
 	root := initTestRepo(t)
 	path := filepath.Join(root, "conflict.txt")
@@ -143,10 +202,15 @@ func TestRepositoryFilesListsOrdinaryFolderWithoutGitMetadata(t *testing.T) {
 }
 
 func TestRepositoryFilesHonorsCanceledContext(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	cancel()
-	_, err := (Repository{Root: initTestRepo(t)}).RepositoryFiles(ctx, &ExecRunner{}, "", 10)
-	if err != context.Canceled {
-		t.Fatalf("error = %v, want context canceled", err)
+	for _, repository := range []Repository{
+		{Root: initTestRepo(t)},
+		{Root: t.TempDir()},
+	} {
+		ctx, cancel := context.WithCancel(context.Background())
+		cancel()
+		_, err := repository.RepositoryFiles(ctx, &ExecRunner{}, "", 10)
+		if err != context.Canceled {
+			t.Fatalf("RepositoryFiles(%q) error = %v, want context canceled", repository.Root, err)
+		}
 	}
 }

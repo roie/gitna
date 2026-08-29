@@ -326,6 +326,7 @@ export class GitnaRepository {
         let cursor: string | undefined
         let pageGeneration: number | undefined
         const paths: string[] = []
+        const seenPaths = new Set<string>()
         const ignoredPaths = new Set<string>()
         let restart = false
         do {
@@ -336,7 +337,13 @@ export class GitnaRepository {
             restart = true
             break
           }
-          paths.push(...files.paths)
+          for (const path of files.paths) {
+            if (seenPaths.has(path)) {
+              throw new Error(`Folder file listing returned duplicate path: ${path}`)
+            }
+            seenPaths.add(path)
+            paths.push(path)
+          }
           for (const path of files.ignoredPaths ?? []) ignoredPaths.add(path)
           cursor = files.nextCursor
         } while (cursor != null && cursor !== '')
