@@ -300,6 +300,180 @@ test('real binary renders repository source-control state', async ({ page, app }
   }
 })
 
+test('Graph virtualizes loaded history while preserving expansion, focus, portals, and anchors', async ({
+  page,
+  app,
+}) => {
+  test.setTimeout(120_000)
+  const oid = (index: number) => index.toString(16).padStart(40, '0')
+  const commits = Array.from({ length: 600 }, (_, index) => ({
+    oid: oid(index + 1),
+    parents: index === 599 ? [] : [oid(index + 2)],
+    subject: `virtual commit ${index.toString().padStart(3, '0')}`,
+    authorName: 'Gitna benchmark',
+    authorTime: new Date(Date.UTC(2026, 0, 1, 0, 0, 0) - index * 60_000).toISOString(),
+    refs: index === 0 ? [{ name: 'main', kind: 'head' }] : [],
+  }))
+  let refreshAddsHead = false
+  await page.route('**/api/v1/graph?skip=*', async (route) => {
+    const url = new URL(route.request().url())
+    const skip = Number(url.searchParams.get('skip') ?? 0)
+    const available =
+      refreshAddsHead && skip === 0
+        ? [
+            {
+              ...commits[0]!,
+              oid: 'f'.repeat(40),
+              parents: [commits[0]!.oid],
+              subject: 'new virtual head',
+              refs: [{ name: 'main', kind: 'head' }],
+            },
+            ...commits,
+          ]
+        : commits
+    const pageCommits = available.slice(skip, skip + 100)
+    await route.fulfill({
+      contentType: 'application/json',
+      body: JSON.stringify({
+        commits: pageCommits,
+        hasMore: skip + pageCommits.length < available.length,
+      }),
+    })
+  })
+  await page.route('**/api/v1/commit/*/files', async (route) => {
+    await route.fulfill({
+      contentType: 'application/json',
+      body: JSON.stringify({
+        files: Array.from({ length: 40 }, (_, index) => ({
+          path: `src/virtual-${index.toString().padStart(2, '0')}.ts`,
+          kind: 'modified',
+        })),
+        stats: { files: 40, additions: 40, deletions: 0, binaryFiles: 0 },
+      }),
+    })
+  })
+
+  await page.goto(app.url)
+  await page.locator('[data-section="graph"]').click()
+  const graph = page.locator('[data-pane="graph"]')
+  const graphBody = graph.locator('[data-pane-body="graph"]')
+  const virtualList = graph.getByRole('list', { name: 'Commits' })
+  await expect(virtualList).toBeVisible()
+  await expect.poll(() => graph.locator('.graph-row').count()).toBeGreaterThan(0)
+  expect(await graph.locator('.graph-row').count()).toBeLessThanOrEqual(30)
+  await expect(graph.locator('.graph-row').first()).toHaveAttribute('aria-setsize', '-1')
+
+  const loadedCount = async () =>
+    Number.parseInt(
+      (await graph.locator('[data-section="graph"] .section-count').textContent())!,
+      10,
+    )
+  const loadPage = async () => {
+    const previous = await loadedCount()
+    await page.getByRole('button', { name: 'Graph actions' }).click()
+    await page.getByRole('menuitem', { name: 'Load more commits' }).click()
+    await expect.poll(loadedCount).toBeGreaterThan(previous)
+  }
+  for (let pageIndex = 1; pageIndex < 5; pageIndex += 1) await loadPage()
+  await expect.poll(loadedCount).toBe(500)
+  await expect(page.getByRole('button', { name: 'Graph actions' })).toBeFocused()
+
+  const firstDisclosure = graph.locator('[data-graph-disclosure]').first()
+  await firstDisclosure.focus()
+  await expect(firstDisclosure).toBeFocused()
+  await page.keyboard.press('End')
+  const focusedAtEnd = graph.locator('[data-graph-index="499"] [data-graph-disclosure]')
+  await expect(focusedAtEnd).toBeFocused()
+  const topVisibleOid = async () =>
+    graphBody.evaluate((body) => {
+      const bodyTop = body.getBoundingClientRect().top
+      const rows = [...body.querySelectorAll<HTMLElement>('.graph-row')].sort(
+        (left, right) => left.getBoundingClientRect().top - right.getBoundingClientRect().top,
+      )
+      return (
+        rows.find((row) => row.getBoundingClientRect().bottom > bodyTop)?.dataset.graphOid ?? null
+      )
+    })
+  const topBeforeAppend = await topVisibleOid()
+  await loadPage()
+  await expect.poll(loadedCount).toBe(600)
+  await expect.poll(topVisibleOid).toBe(topBeforeAppend)
+  expect(await graph.locator('.graph-row').count()).toBeLessThanOrEqual(30)
+  await expect(graph.locator('.graph-row').last()).toHaveAttribute('aria-setsize', '600')
+
+  await focusedAtEnd.focus()
+  await expect(focusedAtEnd).toBeFocused()
+  await page.keyboard.press('Home')
+  const headDisclosure = graph.locator('[data-graph-index="0"] [data-graph-disclosure]')
+  await expect(headDisclosure).toBeFocused()
+  await headDisclosure.click()
+  const expandedRow = graph.locator('[data-graph-index="0"]')
+  await expect(expandedRow.getByRole('tree')).toBeVisible()
+  await expect.poll(async () => (await expandedRow.boundingBox())?.height ?? 0).toBeGreaterThan(28)
+  const expandedHeight = (await expandedRow.boundingBox())!.height
+  expect(await graph.locator('.graph-row').count()).toBeLessThanOrEqual(30)
+
+  const secondActions = graph.locator('[data-graph-index="1"]').getByRole('button', {
+    name: 'Actions for virtual commit 001',
+  })
+  await secondActions.click()
+  await expect(page.getByRole('menuitem', { name: 'Cherry-pick' })).toBeVisible()
+  await graphBody.evaluate((body) => {
+    body.scrollTop = body.scrollHeight
+  })
+  await expect(graph.locator('[data-graph-index="1"]')).toHaveCount(1)
+  await expect(page.getByRole('menuitem', { name: 'Cherry-pick' })).toBeVisible()
+  await page.keyboard.press('Escape')
+  await expect(secondActions).toBeFocused()
+
+  await page.setViewportSize({ width: 390, height: 844 })
+  const openSourceControl = page.getByRole('button', { name: 'Open Source Control' })
+  if (await openSourceControl.isVisible()) await openSourceControl.click()
+  const paneStack = page.locator('.pane-stack')
+  await paneStack.evaluate((pane) => {
+    pane.scrollTop = pane.scrollHeight
+  })
+  await expect.poll(() => graph.locator('.graph-row').count()).toBeLessThanOrEqual(35)
+  await expect(graph.locator('[data-graph-index="599"]')).toBeVisible()
+
+  await page.setViewportSize({ width: 1280, height: 720 })
+  await graphBody.evaluate(
+    (body, offset) => {
+      body.scrollTop = offset
+    },
+    expandedHeight + 50 * 28,
+  )
+  const anchorRow = graph.locator('[data-graph-index="50"]')
+  await expect(anchorRow).toBeVisible()
+  await anchorRow.locator('[data-graph-disclosure]').focus()
+  const topBeforeRefresh = await topVisibleOid()
+  refreshAddsHead = true
+  await page.getByRole('button', { name: 'Refresh Graph' }).click()
+  await expect.poll(loadedCount).toBe(100)
+  await expect.poll(topVisibleOid).toBe(topBeforeRefresh)
+  const anchoredDisclosure = graph
+    .locator(`[data-graph-oid="${topBeforeRefresh}"]`)
+    .locator('[data-graph-disclosure]')
+  await anchoredDisclosure.focus()
+  await page.keyboard.press('Home')
+  await expect(graph.locator('[data-graph-index="0"]')).toHaveAttribute(
+    'data-graph-oid',
+    'f'.repeat(40),
+  )
+
+  const adjacentGutters = graph.locator(
+    '[data-graph-index="2"] [data-graph-gutter], [data-graph-index="3"] [data-graph-gutter]',
+  )
+  await expect(adjacentGutters).toHaveCount(2)
+  const laneGap = await adjacentGutters.evaluateAll((gutters) => {
+    const boxes = gutters
+      .map((gutter) => gutter.getBoundingClientRect())
+      .sort((left, right) => left.top - right.top)
+    return Math.abs(boxes[0]!.bottom - boxes[1]!.top)
+  })
+  expect(laneGap).toBeLessThanOrEqual(1)
+})
+
 test('Graph deletion does not open a re-added current file', async ({ page, app }) => {
   runGit(app.repo, 'reset', '--hard', 'HEAD')
   runGit(app.repo, 'clean', '-fd')

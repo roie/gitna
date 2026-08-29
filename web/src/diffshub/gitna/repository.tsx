@@ -8,7 +8,7 @@ import {
 } from 'react'
 
 import { createApi, type ApiClient, type MutateRequest } from '../../lib/api'
-import { computeGraph, type GraphRow } from '../../lib/graph-lanes'
+import { appendGraph, computeGraph, type GraphRow } from '../../lib/graph-lanes'
 import type {
   Branch,
   ChangeKind,
@@ -474,11 +474,9 @@ export class GitnaRepository {
       const page = await this.api.graph(skip)
       if (request !== this.graphRequest || epoch !== this.repositoryEpoch) return
       const seen = new Set(this.graphCommits.map((commit) => commit.oid))
-      this.graphCommits = [
-        ...this.graphCommits,
-        ...page.commits.filter((commit) => !seen.has(commit.oid)),
-      ]
-      this.graphRows = computeGraph(this.graphCommits)
+      const appended = page.commits.filter((commit) => !seen.has(commit.oid))
+      this.graphCommits = [...this.graphCommits, ...appended]
+      this.graphRows = appendGraph(this.graphRows, appended)
       this.graphHasMore = page.hasMore
       this.graphError = null
     } catch (error) {

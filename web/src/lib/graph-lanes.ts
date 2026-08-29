@@ -32,9 +32,15 @@ export interface GraphRow {
  * - lanes that were waiting for a commit but did not become its column merge
  *   into the node (they "bend in").
  */
-export function computeGraph(commits: GraphCommit[]): GraphRow[] {
-  const lanes: (string | null)[] = []
+function computeGraphFrom(
+  commits: GraphCommit[],
+  initialLanes: readonly (string | null)[],
+): GraphRow[] {
+  const lanes = [...initialLanes]
   const freed: number[] = []
+  for (let column = 0; column < lanes.length; column += 1) {
+    if (lanes[column] === null) freed.push(column)
+  }
 
   function claimColumn(): number {
     if (freed.length > 0) {
@@ -98,4 +104,44 @@ export function computeGraph(commits: GraphCommit[]): GraphRow[] {
     })
   }
   return rows
+}
+
+export function computeGraph(commits: GraphCommit[]): GraphRow[] {
+  return computeGraphFrom(commits, [])
+}
+
+/** Extends an existing graph page without recomputing rows already displayed. */
+export function appendGraph(existing: readonly GraphRow[], commits: GraphCommit[]): GraphRow[] {
+  if (existing.length === 0) return computeGraph(commits)
+  if (commits.length === 0) return [...existing]
+
+  const last = existing.at(-1)!
+  const laneCount = Math.max(
+    last.totalColumns,
+    last.column + 1,
+    ...last.lanes.map((lane) => lane.column + 1),
+    ...last.outgoing.map((column) => column + 1),
+  )
+  const lanes: (string | null)[] = Array.from({ length: laneCount }, () => null)
+  for (const lane of last.lanes) lanes[lane.column] = lane.next
+
+  for (let column = 0; column < lanes.length; column += 1) {
+    if (lanes[column] === last.commit.oid && column !== last.column) lanes[column] = null
+  }
+  const [first, ...rest] = last.commit.parents
+  lanes[last.column] = first ?? null
+  const freeColumns = () => {
+    const columns: number[] = []
+    for (let column = 0; column < lanes.length; column += 1) {
+      if (lanes[column] === null) columns.push(column)
+    }
+    return columns
+  }
+  for (const parent of rest) {
+    const column = freeColumns()[0] ?? lanes.length
+    lanes[column] = parent
+  }
+  while (lanes.length > 0 && lanes.at(-1) === null) lanes.pop()
+
+  return [...existing, ...computeGraphFrom(commits, lanes)]
 }

@@ -25,13 +25,17 @@ import type {
   GitStatusEntry,
 } from '@pierre/trees'
 import { useFileTreeSearch } from '@pierre/trees/react'
+import { type Range, useVirtualizer } from '@tanstack/react-virtual'
 import {
   type ComponentType,
   type CSSProperties,
   type FormEvent,
+  type KeyboardEvent as ReactKeyboardEvent,
   type ReactNode,
+  memo,
   useCallback,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -63,6 +67,7 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '../com
 import { cn } from '../lib/cn'
 import { CODE_VIEW_FILE_TREE_SEARCH_OPEN_HEIGHT } from '../lib/constants'
 import type { DiffsHubFileTreeSource } from '../lib/types'
+import { graphRangeExtractor, nextGraphFocusIndex } from './graphVirtualization'
 import { Confirm, Modal } from './Modal'
 import { RepositoryEntryModal } from './RepositoryEntryModal'
 import { useRepository } from './repository'
@@ -967,6 +972,7 @@ export function GitnaSourceControl() {
         {snapshot.repository && (
           <GraphSection
             headerRef={graphHeader}
+            scrollRootRef={containerRef}
             open={graphOpen}
             onConfirm={setPendingConfirm}
             onOpenChange={setGraphOpen}
@@ -2282,6 +2288,7 @@ function ChangeSection({
 
 interface GraphSectionProps {
   headerRef: React.RefObject<HTMLButtonElement | null>
+  scrollRootRef: React.RefObject<HTMLDivElement | null>
   onConfirm(confirm: PendingConfirm): void
   onOpenChange(open: boolean): void
   open: boolean
@@ -2325,10 +2332,177 @@ function relativeCommitTime(value: string): string {
   return formatter.format(elapsedSeconds, 'second')
 }
 
-function GraphSection({ headerRef, onConfirm, onOpenChange, open }: GraphSectionProps) {
+type GraphPinReason = 'menu' | 'tooltip'
+
+interface GraphScrollAnchor {
+  index: number
+  offset: number
+  oid: string
+}
+
+function GraphSection({
+  headerRef,
+  scrollRootRef,
+  onConfirm,
+  onOpenChange,
+  open,
+}: GraphSectionProps) {
   const repository = useRepository()
   const [view, setView] = useState<RepositoryViewMode>('tree')
+  const [mobile, setMobile] = useState(() => window.matchMedia('(max-width: 767px)').matches)
+  const [scrollMargin, setScrollMargin] = useState(0)
+  const [activeIndex, setActiveIndex] = useState(0)
+  const [pins, setPins] = useState<ReadonlySet<string>>(() => new Set())
+  const graphBodyRef = useRef<HTMLDivElement>(null)
+  const anchorRef = useRef<GraphScrollAnchor | null>(null)
+  const previousRowsRef = useRef<readonly string[]>([])
   const laneCount = Math.max(1, ...repository.graphRows.map((row) => row.totalColumns))
+  const pinnedIndices = useMemo(() => {
+    const indices = new Set<number>()
+    if (repository.graphRows[activeIndex] != null) indices.add(activeIndex)
+    for (const pin of pins) {
+      const oid = pin.slice(pin.indexOf(':') + 1)
+      const index = repository.graphRows.findIndex((row) => row.commit.oid === oid)
+      if (index >= 0) indices.add(index)
+    }
+    return [...indices]
+  }, [activeIndex, pins, repository.graphRows])
+  const rangeExtractor = useCallback(
+    (range: Range) => graphRangeExtractor(range, pinnedIndices),
+    [pinnedIndices],
+  )
+  const virtualizer = useVirtualizer({
+    count: repository.graphRows.length,
+    directDomUpdates: true,
+    directDomUpdatesMode: 'transform',
+    enabled: open,
+    estimateSize: () => GRAPH_ROW_HEIGHT + 8,
+    getItemKey: (index) => repository.graphRows[index]?.commit.oid ?? index,
+    getScrollElement: () => (mobile ? scrollRootRef.current : graphBodyRef.current),
+    onChange(instance) {
+      const scrollOffset = instance.scrollOffset ?? 0
+      const item = instance.getVirtualItems().find((candidate) => candidate.end > scrollOffset)
+      const oid =
+        item == null
+          ? undefined
+          : (previousRowsRef.current[item.index] ?? repository.graphRows[item.index]?.commit.oid)
+      if (item != null && oid != null) {
+        anchorRef.current = {
+          index: item.index,
+          offset: scrollOffset - item.start,
+          oid,
+        }
+      }
+    },
+    overscan: 2,
+    rangeExtractor,
+    scrollMargin,
+  })
+  const virtualItems = virtualizer.getVirtualItems()
+
+  useEffect(() => {
+    const query = window.matchMedia('(max-width: 767px)')
+    const update = () => setMobile(query.matches)
+    update()
+    query.addEventListener('change', update)
+    return () => query.removeEventListener('change', update)
+  }, [])
+
+  useLayoutEffect(() => {
+    if (!open || !mobile) {
+      setScrollMargin(0)
+      return
+    }
+    const body = graphBodyRef.current
+    const root = scrollRootRef.current
+    if (body == null || root == null) return
+    const update = () => {
+      const bodyBox = body.getBoundingClientRect()
+      const rootBox = root.getBoundingClientRect()
+      setScrollMargin(Math.round(bodyBox.top - rootBox.top + root.scrollTop))
+    }
+    update()
+    const observer = new ResizeObserver(update)
+    observer.observe(body)
+    observer.observe(root)
+    for (const pane of root.querySelectorAll<HTMLElement>('[data-pane]')) observer.observe(pane)
+    return () => observer.disconnect()
+  }, [mobile, open, scrollRootRef])
+
+  useLayoutEffect(() => {
+    const rows = repository.graphRows.map((row) => row.commit.oid)
+    const previousRows = previousRowsRef.current
+    const anchor = anchorRef.current
+    if (anchor != null && previousRows.length > 0) {
+      const previousIndex = previousRows.indexOf(anchor.oid)
+      const nextIndex = rows.indexOf(anchor.oid)
+      if (previousIndex >= 0 && nextIndex >= 0) {
+        virtualizer.scrollToIndex(nextIndex, { align: 'start' })
+        requestAnimationFrame(() => {
+          const item = virtualizer
+            .getVirtualItems()
+            .find((candidate) => candidate.index === nextIndex)
+          if (item != null) virtualizer.scrollToOffset(item.start + anchor.offset)
+        })
+      }
+    }
+    const activeOid = previousRows[activeIndex]
+    if (activeOid != null) {
+      const nextActiveIndex = rows.indexOf(activeOid)
+      setActiveIndex(nextActiveIndex >= 0 ? nextActiveIndex : 0)
+    } else if (activeIndex >= rows.length) {
+      setActiveIndex(Math.max(0, rows.length - 1))
+    }
+    previousRowsRef.current = rows
+  }, [repository.graphRows])
+
+  const setPinned = useCallback((oid: string, reason: GraphPinReason, pinned: boolean) => {
+    const key = `${reason}:${oid}`
+    setPins((current) => {
+      const next = new Set(current)
+      if (pinned) next.add(key)
+      else next.delete(key)
+      return next.size === current.size && [...next].every((value) => current.has(value))
+        ? current
+        : next
+    })
+  }, [])
+
+  const focusIndex = useCallback(
+    (index: number) => {
+      setActiveIndex(index)
+      virtualizer.scrollToIndex(index, { align: 'auto' })
+      let attempts = 0
+      const focus = () => {
+        const disclosure = graphBodyRef.current?.querySelector<HTMLButtonElement>(
+          `[data-graph-index="${index}"] [data-graph-disclosure]`,
+        )
+        if (disclosure != null) {
+          disclosure.focus()
+          return
+        }
+        attempts += 1
+        if (attempts < 20) requestAnimationFrame(focus)
+      }
+      requestAnimationFrame(focus)
+    },
+    [virtualizer],
+  )
+  const handleDisclosureFocus = useCallback((index: number) => setActiveIndex(index), [])
+  const handleDisclosureKeyDown = useCallback(
+    (index: number, event: ReactKeyboardEvent<HTMLElement>) => {
+      const next = nextGraphFocusIndex(index, event.key, repository.graphRows.length)
+      if (next == null || next === index) return
+      event.preventDefault()
+      focusIndex(next)
+    },
+    [focusIndex, repository.graphRows.length],
+  )
+  const handlePinChange = useCallback(
+    (oid: string, reason: GraphPinReason, pinned: boolean) => setPinned(oid, reason, pinned),
+    [setPinned],
+  )
+
   return (
     <section data-pane="graph" className="section min-h-0 overflow-hidden md:flex md:flex-col">
       <PaneSectionHeader
@@ -2388,18 +2562,48 @@ function GraphSection({ headerRef, onConfirm, onOpenChange, open }: GraphSection
       {open && (
         <TooltipProvider delayDuration={500} skipDelayDuration={150}>
           <div
+            ref={graphBodyRef}
             data-pane-body="graph"
             className="graph-list cv-mini-scrollbar min-h-0 px-2 pb-4 overscroll-contain md:flex-1 md:overflow-y-auto max-md:overflow-visible"
           >
-            {repository.graphRows.map((row) => (
-              <GraphCommitRow
-                key={row.commit.oid}
-                laneCount={laneCount}
-                row={row}
-                view={view}
-                onConfirm={onConfirm}
-              />
-            ))}
+            <div
+              ref={virtualizer.containerRef}
+              role="list"
+              aria-label="Commits"
+              aria-busy={repository.graphLoading || undefined}
+              data-graph-virtual-list
+              className="relative w-full"
+            >
+              {virtualItems.map((item) => {
+                const row = repository.graphRows[item.index]
+                if (row == null) return null
+                return (
+                  <div
+                    key={item.key}
+                    ref={virtualizer.measureElement}
+                    role="listitem"
+                    aria-posinset={item.index + 1}
+                    aria-setsize={repository.graphHasMore ? -1 : repository.graphRows.length}
+                    className="graph-row absolute top-0 left-0 w-full"
+                    data-graph-index={item.index}
+                    data-graph-oid={row.commit.oid}
+                    data-index={item.index}
+                  >
+                    <GraphCommitRow
+                      disclosureTabIndex={item.index === activeIndex ? 0 : -1}
+                      index={item.index}
+                      laneCount={laneCount}
+                      row={row}
+                      view={view}
+                      onConfirm={onConfirm}
+                      onDisclosureFocus={handleDisclosureFocus}
+                      onDisclosureKeyDown={handleDisclosureKeyDown}
+                      onPinChange={handlePinChange}
+                    />
+                  </div>
+                )
+              })}
+            </div>
             {repository.graphHasMore && (
               <Button
                 variant="ghost"
@@ -2513,16 +2717,26 @@ function GraphLaneGutter({
   )
 }
 
-function GraphCommitRow({
+const GraphCommitRow = memo(function GraphCommitRow({
+  disclosureTabIndex,
+  index,
   laneCount,
   row,
   view,
   onConfirm,
+  onDisclosureFocus,
+  onDisclosureKeyDown,
+  onPinChange,
 }: {
+  disclosureTabIndex: number
+  index: number
   laneCount: number
   row: GraphRow
   view: RepositoryViewMode
   onConfirm(confirm: PendingConfirm): void
+  onDisclosureFocus(index: number): void
+  onDisclosureKeyDown(index: number, event: ReactKeyboardEvent<HTMLElement>): void
+  onPinChange(oid: string, reason: GraphPinReason, pinned: boolean): void
 }) {
   const repository = useRepository()
   const open = repository.expanded[row.commit.oid] === true
@@ -2550,10 +2764,18 @@ function GraphCommitRow({
   const visibleRefs = refs.slice(0, 2)
   const authorTime = new Date(row.commit.authorTime)
   return (
-    <div className="graph-row">
+    <div
+      className="graph-row-content"
+      onKeyDownCapture={(event) => {
+        if ((event.target as HTMLElement).closest('[data-graph-disclosure]') != null) {
+          onDisclosureKeyDown(index, event)
+        }
+      }}
+    >
       <div className="group flex h-7 items-center gap-1 text-xs">
         <Tooltip
           onOpenChange={(tooltipOpen) => {
+            onPinChange(row.commit.oid, 'tooltip', tooltipOpen)
             if (tooltipOpen) void repository.loadCommitDetails(row.commit.oid)
           }}
         >
@@ -2564,8 +2786,13 @@ function GraphCommitRow({
                 'flex h-7 min-w-0 flex-1 cursor-pointer items-center gap-1 rounded px-1 text-left hover:bg-muted focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-[var(--diffshub-primary-fg)]',
                 open && 'bg-muted',
               )}
+              id={`gitna-graph-disclosure-${row.commit.oid}`}
+              data-graph-disclosure
+              aria-controls={`gitna-graph-files-${row.commit.oid}`}
               aria-expanded={open}
+              tabIndex={disclosureTabIndex}
               onClick={() => void repository.toggleCommit(row.commit.oid)}
+              onFocus={() => onDisclosureFocus(index)}
             >
               <GraphLaneGutter laneCount={laneCount} open={open} row={row} />
               <span className="min-w-0 flex-1 truncate font-medium">{row.commit.subject}</span>
@@ -2653,7 +2880,12 @@ function GraphCommitRow({
             </div>
           </TooltipContent>
         </Tooltip>
-        <DropdownMenu>
+        <DropdownMenu
+          onOpenChange={(menuOpen) => {
+            if (menuOpen) onDisclosureFocus(index)
+            onPinChange(row.commit.oid, 'menu', menuOpen)
+          }}
+        >
           <DropdownMenuTrigger asChild>
             <Button
               variant="ghost"
@@ -2710,7 +2942,9 @@ function GraphCommitRow({
       </div>
       {open && (
         <div
+          id={`gitna-graph-files-${row.commit.oid}`}
           data-graph-files
+          aria-labelledby={`gitna-graph-disclosure-${row.commit.oid}`}
           className="border-l-2 pl-1"
           style={{
             borderColor: graphLaneColor(row.column),
@@ -2749,7 +2983,7 @@ function GraphCommitRow({
       )}
     </div>
   )
-}
+})
 
 function ConflictPanel({ onError }: { onError(error: string | null): void }) {
   const repository = useRepository()

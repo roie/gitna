@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { computeGraph, type GraphLane, type GraphRow } from '../src/lib/graph-lanes'
+import { appendGraph, computeGraph, type GraphLane, type GraphRow } from '../src/lib/graph-lanes'
 import type { GraphCommit } from '../src/lib/types'
 
 function commit(oid: string, parents: string[], subject = oid): GraphCommit {
@@ -141,6 +141,46 @@ describe('computeGraph', () => {
 
   it('empty history yields no rows', () => {
     expect(computeGraph([])).toEqual([])
+  })
+
+  it('appends paged rows without changing lane assignment', () => {
+    const commits = [
+      commit('M', ['A', 'B', 'C']),
+      commit('A', ['R']),
+      commit('B', ['Bp']),
+      commit('Bp', ['R']),
+      commit('C', ['R']),
+      commit('R', ['S']),
+      commit('S', []),
+    ]
+    const expected = computeGraph(commits)
+    for (let split = 1; split < commits.length; split += 1) {
+      expect(appendGraph(computeGraph(commits.slice(0, split)), commits.slice(split))).toEqual(
+        expected,
+      )
+    }
+  })
+
+  it('matches full computation across large merge-heavy page boundaries', () => {
+    const commits = Array.from({ length: 200 }, (_, index) => {
+      const parents = index === 199 ? [] : [`c${index + 1}`]
+      if (index % 7 === 0 && index + 3 < 200) parents.push(`c${index + 3}`)
+      if (index % 11 === 0 && index + 5 < 200) parents.push(`c${index + 5}`)
+      return commit(`c${index}`, parents)
+    })
+    const expected = computeGraph(commits)
+    for (const split of [1, 7, 50, 99, 100, 101, 150, 199]) {
+      expect(appendGraph(computeGraph(commits.slice(0, split)), commits.slice(split))).toEqual(
+        expected,
+      )
+    }
+  })
+
+  it('preserves existing row identity when extending history', () => {
+    const first = computeGraph([commit('c', ['b']), commit('b', ['a'])])
+    const appended = appendGraph(first, [commit('a', [])])
+    expect(appended.slice(0, first.length)).toEqual(first)
+    expect(appended[0]).toBe(first[0])
   })
 
   it('tolerates sibling parents emitted in any order', () => {
