@@ -277,11 +277,11 @@ export const DiffsHubFileTree = memo(function DiffsHubFileTree({
   );
 
   const { model } = useFileTree({
-    ...(lazyDirectories != null
-      ? LAZY_REPOSITORY_FILE_TREE_OPTIONS
-      : showFolderGitStatus
+    ...(lazyDirectories == null
+      ? showFolderGitStatus
         ? REPOSITORY_FILE_TREE_OPTIONS
-        : BASE_FILE_TREE_OPTIONS),
+        : BASE_FILE_TREE_OPTIONS
+      : LAZY_REPOSITORY_FILE_TREE_OPTIONS),
     id: modelId,
     gitStatus: source.gitStatus,
     dragAndDrop:
