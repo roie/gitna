@@ -1,13 +1,18 @@
 package app
 
 import (
+	"bufio"
 	"context"
+	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"slices"
 	"testing"
 	"time"
+	"unsafe"
 
+	"github.com/roie/gitna/internal/folder"
 	"github.com/roie/gitna/internal/gitx"
 	"github.com/roie/gitna/internal/protocol"
 )
@@ -79,6 +84,48 @@ func TestFolderSearchExplicitRefreshRestartsIndexForUnobservedExternalChange(t *
 	if len(refreshed.Results) != 1 || refreshed.Results[0].Path != "unopened/external.txt" {
 		t.Fatalf("refreshed results = %#v", refreshed.Results)
 	}
+}
+
+func BenchmarkFolderSearchMillionFileDiskIndex(b *testing.B) {
+	root := b.TempDir()
+	file, err := os.CreateTemp(b.TempDir(), "search-index-*")
+	if err != nil {
+		b.Fatal(err)
+	}
+	writer := bufio.NewWriterSize(file, 256*1024)
+	encoder := json.NewEncoder(writer)
+	for index := range 1_000_000 {
+		if err := encoder.Encode(fmt.Sprintf("packages/pkg-%06d/src/file-%06d.ts", index/100, index)); err != nil {
+			b.Fatal(err)
+		}
+	}
+	if err := writer.Flush(); err != nil {
+		b.Fatal(err)
+	}
+	size, err := file.Seek(0, 1)
+	if err != nil {
+		b.Fatal(err)
+	}
+	if err := file.Close(); err != nil {
+		b.Fatal(err)
+	}
+	adapter := &repoAdapter{ctx: b.Context(), repo: gitx.Repository{Root: root}, queue: gitx.NewMutationQueue()}
+	adapter.search.rootKey = folder.PathKey(root)
+	adapter.search.path = file.Name()
+	adapter.search.publishedSize = size
+	adapter.search.complete = true
+	b.ReportAllocs()
+	b.ResetTimer()
+	for range b.N {
+		results, err := adapter.searchFiles(b.Context(), "file-999999", []string{"packages/pkg-009999/src/file-999999.ts"}, 100)
+		if err != nil {
+			b.Fatal(err)
+		}
+		if len(results.Results) != 1 || results.Results[0].Path != "packages/pkg-009999/src/file-999999.ts" {
+			b.Fatalf("results = %#v", results.Results)
+		}
+	}
+	b.ReportMetric(float64(unsafe.Sizeof(adapter.search)), "retained-index-bytes")
 }
 
 func TestFolderSearchAppliesPaletteRecencyBeforeBoundedCutoff(t *testing.T) {

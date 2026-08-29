@@ -93,6 +93,9 @@ func newFolderSession(
 		observedDirectoryLRU: []string{""},
 	}
 	s.adapter.observeDirectory = s.observeDirectory
+	if !repo.IsGit() {
+		s.adapter.startFileSearchIndex()
+	}
 	s.recordFolder(repo)
 	s.startWatcher(repo)
 	return s, nil
@@ -374,6 +377,7 @@ func (s *folderSession) close() error {
 		// Wait for a context-aware setup walk to observe cancellation before
 		// closing the installed watcher and event source.
 		s.setups.Wait()
+		s.adapter.invalidateFileSearch()
 		s.folders.Flush()
 		if watcher != nil {
 			s.closeErr = watcher.Close()

@@ -566,8 +566,9 @@ export function GitnaSourceControl() {
   const repositoryVisibilityFiltered = !showHiddenFiles || !showIgnoredFiles
   const repositoryCount =
     repositoryFilters.size === 0 && !repositoryVisibilityFiltered
-      ? `${repository.repositoryPaths.length}${repository.repositoryFilesLoading || repository.ordinaryUnloadedDirectories.size > 0 ? '+' : ''}`
-      : `${filteredRepositoryPaths.length} / ${repository.repositoryPaths.length}${repository.repositoryFilesLoading || repository.ordinaryUnloadedDirectories.size > 0 ? '+' : ''}`
+      ? `${repository.repositoryPaths.length}${repository.repositoryFilesLoading || repository.ordinaryUnloadedDirectories.size > 0 || repository.ordinaryPagedDirectories.size > 0 ? '+' : ''}`
+      : `${filteredRepositoryPaths.length} / ${repository.repositoryPaths.length}${repository.repositoryFilesLoading || repository.ordinaryUnloadedDirectories.size > 0 || repository.ordinaryPagedDirectories.size > 0 ? '+' : ''}`
+  const pagedOrdinaryDirectory = repository.ordinaryPagedDirectories.values().next().value
   const stagedSource = useMemo(() => createTreeSource(staged), [staged])
   const unstagedSource = useMemo(() => createTreeSource(unstaged), [unstaged])
   const selectedScope = repository.selection?.scope
@@ -600,6 +601,10 @@ export function GitnaSourceControl() {
   )
   const loadOrdinaryDirectory = useCallback(
     (path: string) => repository.loadOrdinaryDirectory(path),
+    [repository],
+  )
+  const loadMoreOrdinaryDirectory = useCallback(
+    (path: string) => repository.loadMoreOrdinaryDirectory(path),
     [repository],
   )
   const changeScopesForPath = useCallback(
@@ -915,6 +920,24 @@ export function GitnaSourceControl() {
                   {repository.repositoryFilesError}
                 </p>
               )}
+              {!snapshot.repository && pagedOrdinaryDirectory != null && (
+                <div className="px-6 py-1">
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    disabled={repository.repositoryFilesLoading}
+                    onClick={() =>
+                      void repository.loadMoreOrdinaryDirectory(pagedOrdinaryDirectory)
+                    }
+                  >
+                    Load more files in{' '}
+                    {pagedOrdinaryDirectory === ''
+                      ? repositoryName(snapshot.root)
+                      : (pagedOrdinaryDirectory.split('/').at(-1) ?? pagedOrdinaryDirectory)}
+                  </Button>
+                </div>
+              )}
               {!snapshot.repository && repository.ordinaryWatchCoverage === 'partial' && (
                 <p className="px-8 py-2 text-xs text-muted-foreground" role="status">
                   Unopened folders refresh when opened.
@@ -961,8 +984,10 @@ export function GitnaSourceControl() {
           icon={<IconFileTree className="size-3" />}
           paneIcon={IconFileTree}
           lazyDirectories={snapshot.repository ? undefined : repository.ordinaryUnloadedDirectories}
+          pagedDirectories={snapshot.repository ? undefined : repository.ordinaryPagedDirectories}
           modelId="gitna-repository-tree"
           onLoadDirectory={snapshot.repository ? undefined : loadOrdinaryDirectory}
+          onLoadMoreDirectory={snapshot.repository ? undefined : loadMoreOrdinaryDirectory}
           open={repositoryOpen}
           selectedPath={repository.repositoryFilePath ?? repository.selection?.change.path}
           source={repositorySource}
@@ -1942,7 +1967,9 @@ interface TreeSectionProps {
   icon: ReactNode
   modelId: string
   lazyDirectories?: ReadonlySet<string>
-  onLoadDirectory?(path: string): Promise<readonly string[]>
+  pagedDirectories?: ReadonlySet<string>
+  onLoadDirectory?(path: string): Promise<readonly string[] | null>
+  onLoadMoreDirectory?(path: string): Promise<readonly string[] | null>
   onOpenChange(open: boolean): void
   onSelectPath(path: string): void
   open: boolean
@@ -1968,8 +1995,10 @@ function TreeSection({
   headerRef,
   icon,
   lazyDirectories,
+  pagedDirectories,
   modelId,
   onLoadDirectory,
+  onLoadMoreDirectory,
   onOpenChange,
   onSelectPath,
   open,
@@ -2076,8 +2105,10 @@ function TreeSection({
                   )}
                   dragAndDrop={dragAndDrop}
                   lazyDirectories={lazyDirectories}
+                  pagedDirectories={pagedDirectories}
                   modelId={modelId}
                   onLoadDirectory={onLoadDirectory}
+                  onLoadMoreDirectory={onLoadMoreDirectory}
                   onModelReady={setModel}
                   onSelectItem={onSelectPath}
                   renderContextMenu={renderContextMenu}

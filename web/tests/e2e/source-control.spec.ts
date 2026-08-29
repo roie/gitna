@@ -1592,7 +1592,8 @@ test('ordinary folders open in Explorer and switch back to Git', async ({ page, 
   await expect(explorer.getByRole('treeitem', { name: 'existing.txt', exact: true })).toBeVisible()
   await moveSource.dispatchEvent('dragend', { dataTransfer })
   expect(existsSync(join(folder, 'move-me.txt'))).toBe(true)
-  await page.getByRole('button', { name: 'Close move-me.txt' }).click()
+  const closeMoveSource = page.getByRole('button', { name: 'Close move-me.txt' })
+  if ((await closeMoveSource.count()) > 0) await closeMoveSource.click()
 
   await explorer.getByRole('treeitem', { name: 'large.bin', exact: true }).click()
   const fileError = page.getByRole('alert')
@@ -1626,6 +1627,41 @@ test('ordinary folders open in Explorer and switch back to Git', async ({ page, 
   await page.getByRole('button', { name: 'Switch folder' }).click()
   await expect(page.getByPlaceholder('Commit message')).toBeVisible()
   await expect(page.locator('[data-section="graph"]')).toBeVisible()
+})
+
+test('wide ordinary folders page near the Explorer end with an accessible fallback', async ({
+  page,
+  app,
+}) => {
+  test.setTimeout(120_000)
+  const folder = join(dirname(app.repo), 'wide-ordinary-folder')
+  mkdirSync(folder)
+  for (let index = 0; index < 4_105; index += 1) {
+    writeFileSync(join(folder, `file-${index.toString().padStart(4, '0')}.txt`), 'content\n')
+  }
+
+  await page.goto(app.url)
+  const folderPath = page.getByRole('combobox', { name: 'Folder path' })
+  await folderPath.fill(folder)
+  await page.getByRole('button', { name: 'Switch folder' }).click()
+
+  const explorer = page.locator('#gitna-repository-tree__tree')
+  const loadMore = page.getByRole('button', { name: 'Load more files in wide-ordinary-folder' })
+  await expect(loadMore).toBeVisible()
+  expect(await explorer.getByRole('treeitem').count()).toBeLessThan(100)
+  await loadMore.click()
+  await expect(loadMore).toBeVisible()
+  expect(await explorer.getByRole('treeitem').count()).toBeLessThan(100)
+  const scroller = explorer.locator('[data-file-tree-virtualized-scroll="true"]')
+  await scroller.hover()
+  await page.mouse.wheel(0, 100_000)
+  await expect(loadMore).toHaveCount(0)
+  await scroller.evaluate((element) => {
+    element.scrollTop = element.scrollHeight
+    element.dispatchEvent(new Event('scroll'))
+  })
+  await expect(explorer.getByRole('treeitem', { name: 'file-4104.txt', exact: true })).toBeVisible()
+  expect(await explorer.getByRole('treeitem').count()).toBeLessThan(100)
 })
 
 test('Gitna Home searches recent folders and protects dirty drafts', async ({ page, app }) => {

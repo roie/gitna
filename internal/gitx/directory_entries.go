@@ -90,6 +90,86 @@ func selectDirectoryEntries(
 	return ordered, maxRetained, nil
 }
 
+func (r Repository) openDirectoryForScan(directory string) (*os.Root, *os.File, error) {
+	directory = strings.TrimSuffix(directory, "/")
+	if directory != "" {
+		if err := validateWorktreePath(directory); err != nil {
+			return nil, nil, err
+		}
+	}
+	root, err := os.OpenRoot(r.Root)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	// Check every ancestor without following symlinks. os.Root confines the
+	// lookup, while Lstat makes the no-directory-symlink contract explicit.
+	current := ""
+	for _, segment := range strings.Split(directory, "/") {
+		if segment == "" {
+			continue
+		}
+		current = path.Join(current, segment)
+		info, statErr := root.Lstat(current)
+		if statErr != nil {
+			root.Close()
+			return nil, nil, statErr
+		}
+		if info.Mode()&os.ModeSymlink != 0 || !info.IsDir() {
+			root.Close()
+			return nil, nil, fmt.Errorf("%w: %q is not a directory", protocol.ErrInvalidPath, current)
+		}
+	}
+
+	openPath := directory
+	if openPath == "" {
+		openPath = "."
+	}
+	file, err := root.Open(openPath)
+	if err != nil {
+		root.Close()
+		return nil, nil, err
+	}
+	return root, file, nil
+}
+
+// ScanDirectoryEntries visits the immediate children of one validated
+// directory in bounded read batches without following directory symlinks.
+// Ordering is deliberately unspecified; callers that page results must impose
+// and persist their own deterministic ordering.
+func (r Repository) ScanDirectoryEntries(
+	ctx context.Context,
+	directory string,
+	visit func(name string, directory bool) error,
+) error {
+	root, file, err := r.openDirectoryForScan(directory)
+	if err != nil {
+		return err
+	}
+	defer root.Close()
+	defer file.Close()
+	for {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		entries, readErr := file.ReadDir(folderDirectoryReadBatch)
+		for _, entry := range entries {
+			if entry.Name() == ".git" {
+				continue
+			}
+			if err := visit(entry.Name(), entry.IsDir()); err != nil {
+				return err
+			}
+		}
+		if readErr != nil {
+			if readErr == io.EOF {
+				return nil
+			}
+			return readErr
+		}
+	}
+}
+
 // DirectoryEntries returns one deterministic page of immediate children. It
 // never follows directory symlinks and keeps Git metadata outside Explorer.
 func (r Repository) DirectoryEntries(
@@ -106,45 +186,14 @@ func (r Repository) DirectoryEntries(
 		return result, nil
 	}
 	directory = strings.TrimSuffix(directory, "/")
-	if directory != "" {
-		if err := validateWorktreePath(directory); err != nil {
-			return protocol.DirectoryEntries{}, err
-		}
-	}
 	if strings.Contains(after, "/") || after == "." || after == ".." {
 		return protocol.DirectoryEntries{}, fmt.Errorf("%w: invalid directory cursor", protocol.ErrInvalidPath)
 	}
-	root, err := os.OpenRoot(r.Root)
+	root, file, err := r.openDirectoryForScan(directory)
 	if err != nil {
 		return protocol.DirectoryEntries{}, err
 	}
 	defer root.Close()
-
-	// Check every ancestor without following symlinks. os.Root confines the
-	// lookup, while Lstat makes the no-directory-symlink contract explicit.
-	current := ""
-	for _, segment := range strings.Split(directory, "/") {
-		if segment == "" {
-			continue
-		}
-		current = path.Join(current, segment)
-		info, statErr := root.Lstat(current)
-		if statErr != nil {
-			return protocol.DirectoryEntries{}, statErr
-		}
-		if info.Mode()&os.ModeSymlink != 0 || !info.IsDir() {
-			return protocol.DirectoryEntries{}, fmt.Errorf("%w: %q is not a directory", protocol.ErrInvalidPath, current)
-		}
-	}
-
-	openPath := directory
-	if openPath == "" {
-		openPath = "."
-	}
-	file, err := root.Open(openPath)
-	if err != nil {
-		return protocol.DirectoryEntries{}, err
-	}
 	defer file.Close()
 
 	entries, _, err := selectDirectoryEntries(ctx, file.ReadDir, after, limit)

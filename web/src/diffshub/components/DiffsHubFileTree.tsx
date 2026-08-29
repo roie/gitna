@@ -3,6 +3,7 @@
 import { useStableCallback } from '@pierre/diffs/react';
 import type {
   FileTreeBatchOperation,
+  FileTreeChildLoadAttempt,
   FileTree as FileTreeModel,
   FileTreeDirectoryHandle,
   FileTreeDragAndDropConfig,
@@ -14,6 +15,7 @@ import { type FileTreeProps, useFileTree } from '@pierre/trees/react';
 import {
   type CSSProperties,
   type MouseEvent as ReactMouseEvent,
+  type WheelEvent as ReactWheelEvent,
   memo,
   useEffect,
   useRef,
@@ -46,6 +48,47 @@ const PRESERVE_INPUT_ORDER_SORT: FileTreeSortComparator = () => 0;
 // density and padding stay tuned for the diffshub layout regardless of
 // which theme the user picks. `--trees-git-renamed-color-override` is kept
 // because most Shiki themes don't define a "renamed" decoration color.
+export function applyLazyDirectoryChildren(
+  model: FileTreeModel,
+  attempt: FileTreeChildLoadAttempt,
+  prefix: string,
+  children: readonly string[],
+  appliedPaths: Set<string>
+): boolean {
+  const operations: FileTreeBatchOperation[] = [];
+  const nextChildren = new Set(children);
+  for (const existing of appliedPaths) {
+    if (!existing.startsWith(prefix)) continue;
+    const remainder = existing.slice(prefix.length).replace(/\/$/, '');
+    if (remainder === '' || remainder.includes('/')) continue;
+    if (!nextChildren.has(existing)) {
+      operations.push({ type: 'remove', path: existing, recursive: existing.endsWith('/') });
+    }
+  }
+  for (const child of children) {
+    if (!appliedPaths.has(child)) operations.push({ type: 'add', path: child });
+  }
+  if (!model.applyChildPatch(attempt, { operations })) return false;
+  for (const operation of operations) {
+    if (operation.type === 'add') {
+      appliedPaths.add(operation.path);
+      continue;
+    }
+    if (operation.type !== 'remove') continue;
+    for (const applied of appliedPaths) {
+      if (
+        applied === operation.path ||
+        (operation.recursive === true &&
+          operation.path.endsWith('/') &&
+          applied.startsWith(operation.path))
+      ) {
+        appliedPaths.delete(applied);
+      }
+    }
+  }
+  return true;
+}
+
 const DENSITY_OVERRIDE_STYLES = {
   '--trees-density-override': 0.8,
   '--trees-padding-inline-override': 8,
@@ -57,7 +100,9 @@ interface DiffsHubFileTreeProps {
   dragAndDrop?: FileTreeDragAndDropConfig;
   modelId?: string;
   lazyDirectories?: ReadonlySet<string>;
-  onLoadDirectory?(path: string): Promise<readonly string[]>;
+  pagedDirectories?: ReadonlySet<string>;
+  onLoadDirectory?(path: string): Promise<readonly string[] | null>;
+  onLoadMoreDirectory?(path: string): Promise<readonly string[] | null>;
   // Callback invoked with the underlying tree model once it's mounted, and
   // again with `null` on unmount. Lets parents drive imperative APIs like
   // search open/close without owning the model creation.
@@ -75,7 +120,9 @@ export const DiffsHubFileTree = memo(function DiffsHubFileTree({
   dragAndDrop,
   modelId = 'gh-code-view-tree',
   lazyDirectories,
+  pagedDirectories,
   onLoadDirectory,
+  onLoadMoreDirectory,
   onModelReady,
   onSelectItem,
   renderContextMenu,
@@ -89,7 +136,10 @@ export const DiffsHubFileTree = memo(function DiffsHubFileTree({
   const renderContextMenuRef = useRef(renderContextMenu);
   const selectedPathRef = useRef(selectedPath);
   const lazyDirectoriesRef = useRef(lazyDirectories);
+  const pagedDirectoriesRef = useRef(pagedDirectories);
   const onLoadDirectoryRef = useRef(onLoadDirectory);
+  const onLoadMoreDirectoryRef = useRef(onLoadMoreDirectory);
+  const loadingMoreDirectoriesRef = useRef(new Set<string>());
   const syncingSelectionRef = useRef(false);
   const previousSourceRef = useRef(source);
   const [initialVisibleRowCount] = useState(getInitialBatchSize);
@@ -98,7 +148,9 @@ export const DiffsHubFileTree = memo(function DiffsHubFileTree({
   renderContextMenuRef.current = renderContextMenu;
   selectedPathRef.current = selectedPath;
   lazyDirectoriesRef.current = lazyDirectories;
+  pagedDirectoriesRef.current = pagedDirectories;
   onLoadDirectoryRef.current = onLoadDirectory;
+  onLoadMoreDirectoryRef.current = onLoadMoreDirectory;
   // `source.paths` aliases the streaming accumulator's live array, so it keeps
   // growing on later publishes. The FileTree model consumes its path list
   // exactly once via useFileTree's useState initializer; capture a bounded
@@ -164,6 +216,42 @@ export const DiffsHubFileTree = memo(function DiffsHubFileTree({
     }
   );
 
+  const loadMoreForPaths = useStableCallback((paths: readonly string[]) => {
+    for (const rowPath of [...paths].reverse()) {
+      const normalized = rowPath.replace(/\/$/, '');
+      const separator = normalized.lastIndexOf('/');
+      const parent = separator < 0 ? '' : normalized.slice(0, separator);
+      if (pagedDirectoriesRef.current?.has(parent) !== true) continue;
+      if (loadingMoreDirectoriesRef.current.has(parent)) return;
+      loadingMoreDirectoriesRef.current.add(parent);
+      void onLoadMoreDirectoryRef.current?.(parent).finally(() => {
+        loadingMoreDirectoriesRef.current.delete(parent);
+      });
+      return;
+    }
+  });
+
+  const handleWheelCapture = useStableCallback((event: ReactWheelEvent<HTMLElement>) => {
+    if (event.deltaY <= 0 || pagedDirectoriesRef.current == null) return;
+    const scroller = event.nativeEvent
+      .composedPath()
+      .find(
+        (target): target is HTMLElement =>
+          target instanceof HTMLElement && target.dataset.fileTreeVirtualizedScroll === 'true'
+      );
+    if (scroller == null || scroller.scrollTop + scroller.clientHeight < scroller.scrollHeight - 12 * CODE_VIEW_FILE_TREE_ITEM_HEIGHT) {
+      return;
+    }
+    const root = scroller.getRootNode();
+    if (!(root instanceof ShadowRoot)) return;
+    const paths = [
+      ...root.querySelectorAll<HTMLElement>(
+        '[data-type="item"][data-item-path]:not([data-item-parked="true"])'
+      ),
+    ].slice(-8).flatMap((row) => (row.dataset.itemPath == null ? [] : [row.dataset.itemPath]));
+    loadMoreForPaths(paths);
+  });
+
   const stableRenderRowActions = useStableCallback(
     (
       context: Parameters<NonNullable<FileTreeOptions['renderRowActions']>>[0]
@@ -223,29 +311,13 @@ export const DiffsHubFileTree = memo(function DiffsHubFileTree({
       const attempt = model.beginChildLoad(path);
       void onLoadDirectoryRef.current?.(path.replace(/\/$/, ''))
         .then((children) => {
-          const operations: FileTreeBatchOperation[] = [];
-          const nextChildren = new Set(children);
-          const prefix = path;
-          for (const existing of appliedPathsRef.current) {
-            if (!existing.startsWith(prefix)) continue;
-            const remainder = existing.slice(prefix.length).replace(/\/$/, '');
-            if (remainder === '' || remainder.includes('/')) continue;
-            if (!nextChildren.has(existing)) {
-              operations.push({ type: 'remove', path: existing, recursive: existing.endsWith('/') });
-              for (const applied of appliedPathsRef.current) {
-                if (applied === existing || (existing.endsWith('/') && applied.startsWith(existing))) {
-                  appliedPathsRef.current.delete(applied);
-                }
-              }
-            }
+          if (children == null) {
+            model.failChildLoad(attempt, 'Directory loading was canceled');
+            return;
           }
-          for (const child of children) {
-            if (!appliedPathsRef.current.has(child)) {
-              appliedPathsRef.current.add(child);
-              operations.push({ type: 'add', path: child });
-            }
+          if (!applyLazyDirectoryChildren(model, attempt, path, children, appliedPathsRef.current)) {
+            return;
           }
-          model.applyChildPatch(attempt, { operations });
           for (const child of children) {
             if (
               child.endsWith('/') &&
@@ -358,6 +430,7 @@ export const DiffsHubFileTree = memo(function DiffsHubFileTree({
       className={cn('h-full min-h-0 overflow-auto overscroll-contain md:ml-3', className)}
       model={model}
       onClickCapture={handleClickCapture}
+      onWheelCapture={handleWheelCapture}
       reconcileForegroundFromChrome
       renderContextMenu={renderContextMenu == null ? undefined : stableRenderContextMenu}
       style={DENSITY_OVERRIDE_STYLES}

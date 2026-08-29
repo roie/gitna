@@ -178,6 +178,7 @@ export class GitnaRepository {
   repositoryFilesError: string | null = null
   repositoryFilesTruncated = false
   ordinaryUnloadedDirectories = new Set<string>()
+  ordinaryPagedDirectories = new Set<string>()
   ordinaryDirectoryErrors = new Map<string, string>()
   ordinaryWatchCoverage: 'complete' | 'partial' = 'complete'
   ordinarySearchResults: FileSearchResult[] = []
@@ -187,7 +188,9 @@ export class GitnaRepository {
   private ordinarySearchRequest = 0
   private ordinarySearchController: AbortController | null = null
   private ordinaryDirectoryChildren = new Map<string, string[]>()
-  private ordinaryDirectoryRequests = new Map<string, Promise<readonly string[]>>()
+  private ordinaryDirectoryCursors = new Map<string, string>()
+  private ordinaryDirectoryGenerations = new Map<string, number>()
+  private ordinaryDirectoryRequests = new Map<string, Promise<readonly string[] | null>>()
   private ordinaryDirectoryControllers = new Map<string, AbortController>()
 
   graphCommits: GraphCommit[] = []
@@ -397,65 +400,91 @@ export class GitnaRepository {
     }
   }
 
-  async loadOrdinaryDirectory(directory: string, refresh = false): Promise<readonly string[]> {
+  async loadOrdinaryDirectory(
+    directory: string,
+    refresh = false,
+  ): Promise<readonly string[] | null> {
     const key = directory.replace(/\/$/, '')
+    if (!refresh) {
+      const loaded = this.ordinaryDirectoryChildren.get(key)
+      if (loaded != null) return loaded
+      const existing = this.ordinaryDirectoryRequests.get(key)
+      if (existing != null) return existing
+    }
+    return this.fetchOrdinaryDirectoryPage(key, undefined, refresh)
+  }
+
+  async loadMoreOrdinaryDirectory(directory: string): Promise<readonly string[] | null> {
+    const key = directory.replace(/\/$/, '')
+    const cursor = this.ordinaryDirectoryCursors.get(key)
+    if (cursor == null) return this.ordinaryDirectoryChildren.get(key) ?? []
     const existing = this.ordinaryDirectoryRequests.get(key)
-    if (existing != null && !refresh) return existing
+    if (existing != null) return existing
+    return this.fetchOrdinaryDirectoryPage(key, cursor, false)
+  }
+
+  private fetchOrdinaryDirectoryPage(
+    key: string,
+    cursor: string | undefined,
+    refresh: boolean,
+  ): Promise<readonly string[] | null> {
     if (refresh) this.ordinaryDirectoryControllers.get(key)?.abort()
     const controller = new AbortController()
     this.ordinaryDirectoryControllers.set(key, controller)
-    const operation = (async (): Promise<readonly string[]> => {
+    const operation = (async (): Promise<readonly string[] | null> => {
       this.repositoryFilesLoading = true
       this.ordinaryDirectoryErrors.delete(key)
       this.emit()
       try {
-        let cursor: string | undefined
-        let generation: number | undefined
-        const paths: string[] = []
-        do {
-          const page = await this.api.directoryEntries(key, cursor, controller.signal)
-          if (generation == null) generation = page.generation
-          if (page.generation !== generation)
-            throw new Error('Folder changed while directory was loading')
-          if (page.watchCoverage != null) this.ordinaryWatchCoverage = page.watchCoverage
-          paths.push(...page.entries.map((entry) => entry.path))
-          cursor = page.nextCursor
-        } while (cursor != null && cursor !== '')
-        if (controller.signal.aborted) return []
-        if ((generation ?? 0) < this.repositoryFilesGeneration) return []
-        this.repositoryFilesGeneration = generation ?? this.repositoryFilesGeneration
-        this.ordinaryDirectoryChildren.set(key, paths)
-        this.ordinaryUnloadedDirectories.delete(key)
-        let removedDirectory = true
-        while (removedDirectory) {
-          removedDirectory = false
-          for (const loaded of this.ordinaryDirectoryChildren.keys()) {
-            if (loaded === '') continue
-            const separator = loaded.lastIndexOf('/')
-            const parent = separator < 0 ? '' : loaded.slice(0, separator)
-            const parentChildren = this.ordinaryDirectoryChildren.get(parent)
-            if (parentChildren != null && !parentChildren.includes(`${loaded}/`)) {
-              this.ordinaryDirectoryChildren.delete(loaded)
-              removedDirectory = true
-            }
+        const page = await this.api.directoryEntries(key, cursor, controller.signal)
+        if (
+          controller.signal.aborted ||
+          this.ordinaryDirectoryControllers.get(key) !== controller
+        ) {
+          return null
+        }
+        if (page.generation < this.repositoryFilesGeneration) return null
+        const directoryGeneration = this.ordinaryDirectoryGenerations.get(key)
+        if (
+          cursor != null &&
+          directoryGeneration != null &&
+          page.generation !== directoryGeneration
+        ) {
+          throw new Error('Folder changed while directory was loading')
+        }
+        if (page.watchCoverage != null) this.ordinaryWatchCoverage = page.watchCoverage
+        this.repositoryFilesGeneration = page.generation
+        this.ordinaryDirectoryGenerations.set(key, page.generation)
+        const pagePaths = page.entries.map((entry) => entry.path)
+        const previous = cursor == null ? [] : (this.ordinaryDirectoryChildren.get(key) ?? [])
+        const seen = new Set(previous)
+        const paths = [...previous]
+        for (const path of pagePaths) {
+          if (!seen.has(path)) {
+            seen.add(path)
+            paths.push(path)
           }
         }
-        const loadedDirectories = new Set(this.ordinaryDirectoryChildren.keys())
-        const allPaths = new Set<string>()
-        for (const children of this.ordinaryDirectoryChildren.values()) {
-          for (const path of children) allPaths.add(path)
+        paths.sort()
+        this.ordinaryDirectoryChildren.set(key, paths)
+        if (page.nextCursor == null || page.nextCursor === '') {
+          this.ordinaryDirectoryCursors.delete(key)
+          this.ordinaryPagedDirectories.delete(key)
+        } else {
+          this.ordinaryDirectoryCursors.set(key, page.nextCursor)
+          this.ordinaryPagedDirectories.add(key)
         }
-        const unloaded = new Set<string>()
-        for (const path of allPaths) {
-          if (path.endsWith('/') && !loadedDirectories.has(path.slice(0, -1))) unloaded.add(path)
-        }
-        this.ordinaryUnloadedDirectories = unloaded
-        this.repositoryPaths = [...allPaths].sort()
+        this.rebuildOrdinaryTreePaths()
         this.repositoryFilesError = null
         markStartup('explorer-ready')
         return paths
       } catch (error) {
-        if (controller.signal.aborted) return []
+        if (
+          controller.signal.aborted ||
+          this.ordinaryDirectoryControllers.get(key) !== controller
+        ) {
+          return null
+        }
         this.ordinaryDirectoryErrors.set(key, errorMessage(error))
         this.repositoryFilesError = errorMessage(error)
         throw error
@@ -470,6 +499,37 @@ export class GitnaRepository {
     })()
     this.ordinaryDirectoryRequests.set(key, operation)
     return operation
+  }
+
+  private rebuildOrdinaryTreePaths(): void {
+    let removedDirectory = true
+    while (removedDirectory) {
+      removedDirectory = false
+      for (const loaded of this.ordinaryDirectoryChildren.keys()) {
+        if (loaded === '') continue
+        const separator = loaded.lastIndexOf('/')
+        const parent = separator < 0 ? '' : loaded.slice(0, separator)
+        const parentChildren = this.ordinaryDirectoryChildren.get(parent)
+        if (parentChildren != null && !parentChildren.includes(`${loaded}/`)) {
+          this.ordinaryDirectoryChildren.delete(loaded)
+          this.ordinaryDirectoryCursors.delete(loaded)
+          this.ordinaryDirectoryGenerations.delete(loaded)
+          this.ordinaryPagedDirectories.delete(loaded)
+          removedDirectory = true
+        }
+      }
+    }
+    const loadedDirectories = new Set(this.ordinaryDirectoryChildren.keys())
+    const allPaths = new Set<string>()
+    for (const children of this.ordinaryDirectoryChildren.values()) {
+      for (const path of children) allPaths.add(path)
+    }
+    const unloaded = new Set<string>()
+    for (const path of allPaths) {
+      if (path.endsWith('/') && !loadedDirectories.has(path.slice(0, -1))) unloaded.add(path)
+    }
+    this.ordinaryUnloadedDirectories = unloaded
+    this.repositoryPaths = [...allPaths].sort()
   }
 
   async searchOrdinaryFiles(query: string, recentPaths: readonly string[] = []): Promise<void> {
@@ -506,13 +566,26 @@ export class GitnaRepository {
 
   async ensureOrdinaryPathLoaded(path: string): Promise<void> {
     if (this.snapshot?.repository !== false) return
+    if (!this.ordinaryDirectoryChildren.has('')) await this.loadOrdinaryDirectory('')
     const segments = path.split('/')
-    let directory = ''
+    let parent = ''
     for (const segment of segments.slice(0, -1)) {
-      directory = directory === '' ? segment : `${directory}/${segment}`
+      const directory = parent === '' ? segment : `${parent}/${segment}`
+      const directoryPath = `${directory}/`
+      const parentChildren = this.ordinaryDirectoryChildren.get(parent) ?? []
+      if (!parentChildren.includes(directoryPath)) {
+        this.ordinaryDirectoryChildren.set(parent, [...parentChildren, directoryPath].sort())
+        this.rebuildOrdinaryTreePaths()
+      }
       if (!this.ordinaryDirectoryChildren.has(directory)) {
         await this.loadOrdinaryDirectory(directory)
       }
+      parent = directory
+    }
+    const parentChildren = this.ordinaryDirectoryChildren.get(parent) ?? []
+    if (!parentChildren.includes(path)) {
+      this.ordinaryDirectoryChildren.set(parent, [...parentChildren, path].sort())
+      this.rebuildOrdinaryTreePaths()
     }
   }
 

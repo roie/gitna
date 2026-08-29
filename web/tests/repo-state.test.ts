@@ -332,6 +332,47 @@ describe('createRepoState', () => {
     expect(tags).not.toHaveBeenCalled()
   })
 
+  it('publishes only the first page of a million-wide ordinary directory', async () => {
+    const firstPage = Array.from({ length: 2_000 }, (_, index) => ({
+      name: `file-${index.toString().padStart(7, '0')}.txt`,
+      path: `file-${index.toString().padStart(7, '0')}.txt`,
+      kind: 'file' as const,
+    }))
+    const secondPage = [
+      { name: 'file-0002000.txt', path: 'file-0002000.txt', kind: 'file' as const },
+    ]
+    const directoryEntries = vi
+      .fn()
+      .mockResolvedValueOnce({
+        generation: 1,
+        directory: '',
+        entries: firstPage,
+        truncated: true,
+        nextCursor: 'page-2-of-500',
+      })
+      .mockResolvedValueOnce({
+        generation: 1,
+        directory: '',
+        entries: secondPage,
+        truncated: true,
+        nextCursor: 'page-3-of-500',
+      })
+    const state = createRepoState({ api: { ...auxApi, directoryEntries } })
+    state.snapshot = snapshot({ repository: false })
+    state.generation = 1
+
+    await state.loadOrdinaryDirectory('')
+
+    expect(directoryEntries).toHaveBeenCalledTimes(1)
+    expect(state.repositoryPaths).toHaveLength(2_000)
+    expect(state.ordinaryPagedDirectories).toEqual(new Set(['']))
+
+    await state.loadMoreOrdinaryDirectory('')
+    expect(directoryEntries).toHaveBeenCalledTimes(2)
+    expect(directoryEntries.mock.calls[1]?.[1]).toBe('page-2-of-500')
+    expect(state.repositoryPaths).toHaveLength(2_001)
+  })
+
   it('searches ordinary folders on the server and hydrates result ancestors', async () => {
     const directories: string[] = []
     const state = createRepoState({

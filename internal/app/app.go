@@ -29,6 +29,7 @@ type repoAdapter struct {
 	runner           *gitx.ExecRunner
 	queue            *gitx.MutationQueue
 	search           folderSearchIndex
+	directories      folderDirectoryIndexCache
 	observeDirectory func(string) protocol.WatchCoverage
 
 	mu   sync.RWMutex
@@ -71,7 +72,14 @@ func (a *repoAdapter) RepositoryFiles(ctx context.Context, after string, limit i
 }
 
 func (a *repoAdapter) DirectoryEntries(ctx context.Context, directory, after string, limit int) (protocol.DirectoryEntries, error) {
-	entries, err := a.current().DirectoryEntries(ctx, directory, after, limit)
+	repo := a.current()
+	var entries protocol.DirectoryEntries
+	var err error
+	if repo.IsGit() {
+		entries, err = repo.DirectoryEntries(ctx, directory, after, limit)
+	} else {
+		entries, err = a.directories.page(ctx, repo, directory, after, limit)
+	}
 	if err == nil && a.observeDirectory != nil {
 		entries.WatchCoverage = a.observeDirectory(directory)
 	}
