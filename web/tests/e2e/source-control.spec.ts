@@ -300,6 +300,32 @@ test('real binary renders repository source-control state', async ({ page, app }
   }
 })
 
+test('Graph deletion does not open a re-added current file', async ({ page, app }) => {
+  runGit(app.repo, 'reset', '--hard', 'HEAD')
+  runGit(app.repo, 'clean', '-fd')
+  writeFileSync(join(app.repo, 'readded.txt'), 'committed content\n')
+  runGit(app.repo, 'add', '--', 'readded.txt')
+  runGit(app.repo, 'commit', '-m', 'add readded fixture')
+  runGit(app.repo, 'rm', '--', 'readded.txt')
+  runGit(app.repo, 'commit', '-m', 'historical deletion fixture')
+  writeFileSync(join(app.repo, 'readded.txt'), 'current replacement\n')
+  runGit(app.repo, 'add', '--', 'readded.txt')
+  runGit(app.repo, 'commit', '-m', 're-add current fixture')
+  expect(readFileSync(join(app.repo, 'readded.txt'), 'utf8')).toBe('current replacement\n')
+
+  await page.goto(app.url)
+  await page.locator('[data-section="graph"]').click()
+  const deletedRow = page.locator('.graph-row').filter({
+    has: page.getByRole('button', { name: /^historical deletion fixture/ }),
+  })
+  await deletedRow.getByRole('button', { name: /^historical deletion fixture/ }).click()
+  await deletedRow.getByRole('treeitem', { name: 'readded.txt', exact: true }).click()
+  await expect(page.getByRole('button', { name: 'Open readded.txt in Repository' })).toHaveCount(0)
+  if (process.env.GITNA_CAPTURE_REVIEW_FIXES) {
+    await page.screenshot({ path: '/tmp/gitna-graph-deleted-current.png', fullPage: true })
+  }
+})
+
 test('repository invalidations refresh the review without remounting it', async ({ page, app }) => {
   await page.goto(app.url)
   const viewer = page.locator('.code-view')
@@ -1364,6 +1390,10 @@ test('Gitna Home searches recent folders and protects dirty drafts', async ({ pa
       .toBeGreaterThan(0)
     await expect(otherPage.getByRole('heading', { name: basename(otherFolder) })).toBeVisible()
     await expect(otherPage.getByRole('status')).toHaveText('Opening folder…')
+    await expect(otherPage).toHaveTitle(`Opening ${basename(otherFolder)} - Gitna`)
+    if (process.env.GITNA_CAPTURE_REVIEW_FIXES) {
+      await otherPage.screenshot({ path: '/tmp/gitna-folder-loading-title.png', fullPage: true })
+    }
   } finally {
     releaseFolderOpen()
   }

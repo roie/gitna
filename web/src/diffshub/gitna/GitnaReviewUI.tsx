@@ -104,8 +104,9 @@ function renderFolderLoadingDocument(newTab: Window, path: string, colorMode: Co
 
   document.documentElement.lang = 'en'
   document.documentElement.dataset.colorMode = colorMode
-  document.title = `Opening ${folderName} - Gitna`
 
+  const title = document.createElement('title')
+  title.textContent = `Opening ${folderName} - Gitna`
   const viewport = document.createElement('meta')
   viewport.name = 'viewport'
   viewport.content = 'width=device-width, initial-scale=1'
@@ -130,7 +131,7 @@ function renderFolderLoadingDocument(newTab: Window, path: string, colorMode: Co
     @keyframes spin { to { transform: rotate(360deg); } }
     @media (prefers-reduced-motion: reduce) { .spinner { animation: none; } }
   `
-  document.head.replaceChildren(viewport, favicon, style)
+  document.head.replaceChildren(title, viewport, favicon, style)
 
   const main = document.createElement('main')
   const logo = document.createElement('img')
@@ -765,9 +766,13 @@ function GitnaReviewUIInner() {
           onError: setReviewActionError,
         }
 
-  const graphPath = repository.commitDiff?.path
+  const graphFile = repository.commitDiff
+  const graphPath = graphFile?.path
   const gitnaOpenFileAction =
-    graphPath == null || !repository.canOpenRepositoryFile(graphPath)
+    graphFile == null ||
+    graphPath == null ||
+    graphFile.kind === 'deleted' ||
+    !repository.canOpenRepositoryFile(graphPath)
       ? undefined
       : {
           ariaLabel: (path: string) => `Open ${path} in Repository`,
