@@ -84,6 +84,47 @@ jobs:
           path: dist/*.tar.gz
           if-no-files-found: error
 
+  package-macos:
+    needs: verify
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: macos-15
+            target: darwin-arm64
+            asset_arch: arm64
+          - runner: macos-15-intel
+            target: darwin-x64
+            asset_arch: x64
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+      - uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v4.4.0
+        with:
+          version: 11.4.0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # zizmor: ignore[cache-poisoning] pinned release toolchain
+        with:
+          node-version: 24
+      - uses: actions/setup-go@d35c59abb061a4a6fb18e82ac0862c26744d6ab5 # v5.5.0
+        with:
+          go-version-file: go.mod
+          cache: false
+      - name: Package macOS asset
+        run: ./scripts/package.sh "${GITHUB_REF_NAME}" dist "${{ matrix.target }}"
+      - name: Smoke test exact macOS release binary
+        run: | # zizmor: ignore[adhoc-packages]
+          version="${GITHUB_REF_NAME#v}"
+          mkdir release-smoke
+          tar -xzf "dist/gitna_${version}_darwin_${{ matrix.asset_arch }}.tar.gz" -C release-smoke
+          ./scripts/smoke-release.sh "$PWD/release-smoke/gitna" "$version"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: macos-${{ matrix.asset_arch }}-release-assets
+          path: dist/*.tar.gz
+          if-no-files-found: error
+
   package-windows:
     needs: verify
     runs-on: windows-latest
@@ -128,6 +169,7 @@ jobs:
   publish:
     needs:
       - package-linux
+      - package-macos
       - package-windows
     runs-on: ubuntu-latest
     permissions:

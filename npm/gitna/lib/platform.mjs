@@ -1,4 +1,6 @@
 const targets = new Map([
+  ['darwin-arm64', { asset: 'gitna_{version}_darwin_arm64.tar.gz', executable: 'gitna' }],
+  ['darwin-x64', { asset: 'gitna_{version}_darwin_x64.tar.gz', executable: 'gitna' }],
   ['linux-arm64', { asset: 'gitna_{version}_linux_arm64.tar.gz', executable: 'gitna' }],
   ['linux-x64', { asset: 'gitna_{version}_linux_x64.tar.gz', executable: 'gitna' }],
   ['win32-x64', { asset: 'gitna_{version}_windows_x64.zip', executable: 'gitna.exe' }],

@@ -2,18 +2,33 @@ import { execFileSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
 import { access, chmod, mkdir, mkdtemp, readFile, rename, rm, writeFile } from 'node:fs/promises'
 import { homedir } from 'node:os'
-import { dirname, join, resolve } from 'node:path'
+import { dirname, join, posix, resolve, win32 } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { targetFor } from './platform.mjs'
 
 const packageRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 
-function defaultCacheRoot() {
-  if (process.env.GITNA_CACHE_DIR) return resolve(process.env.GITNA_CACHE_DIR)
-  if (process.platform === 'win32') {
-    return join(process.env.LOCALAPPDATA ?? join(homedir(), 'AppData', 'Local'), 'Gitna', 'Cache')
+/**
+ * @param {NodeJS.Platform} platform
+ * @param {NodeJS.ProcessEnv} env
+ * @param {string} home
+ */
+export function cacheRootFor(platform, env, home) {
+  const hostPath = platform === 'win32' ? win32 : posix
+  if (env.GITNA_CACHE_DIR) return hostPath.resolve(env.GITNA_CACHE_DIR)
+  if (platform === 'win32') {
+    return hostPath.join(
+      env.LOCALAPPDATA ?? hostPath.join(home, 'AppData', 'Local'),
+      'Gitna',
+      'Cache',
+    )
   }
-  return join(process.env.XDG_CACHE_HOME ?? join(homedir(), '.cache'), 'gitna')
+  if (platform === 'darwin') return hostPath.join(home, 'Library', 'Caches', 'gitna')
+  return hostPath.join(env.XDG_CACHE_HOME ?? hostPath.join(home, '.cache'), 'gitna')
+}
+
+function defaultCacheRoot() {
+  return cacheRootFor(process.platform, process.env, homedir())
 }
 
 async function packageVersion() {

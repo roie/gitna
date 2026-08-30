@@ -1,13 +1,14 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-if [[ $# -lt 1 || $# -gt 2 ]]; then
-  echo "usage: $0 <version> [output-directory]" >&2
+if [[ $# -lt 1 || $# -gt 3 ]]; then
+  echo "usage: $0 <version> [output-directory] [linux|darwin-x64|darwin-arm64]" >&2
   exit 2
 fi
 
 version="${1#v}"
 output_dir="${2:-dist}"
+target="${3:-linux}"
 if [[ ! "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+([.-][0-9A-Za-z.-]+)?$ ]]; then
   echo "invalid release version: $1" >&2
   exit 2
@@ -23,14 +24,15 @@ pnpm --dir web build
 node scripts/generate-third-party-licenses.mjs
 git diff --exit-code -- THIRD_PARTY_LICENSES.txt
 
-package_linux() {
-  local arch="$1"
-  local asset_arch="$2"
+package_unix() {
+  local goos="$1"
+  local arch="$2"
+  local asset_arch="$3"
   local stage
   stage="$(mktemp -d)"
   trap 'rm -rf "$stage"' RETURN
 
-  GOOS=linux GOARCH="$arch" CGO_ENABLED=0 go build \
+  GOOS="$goos" GOARCH="$arch" CGO_ENABLED=0 go build \
     -trimpath \
     -ldflags "-s -w -X main.version=$version" \
     -o "$stage/gitna" \
@@ -40,10 +42,24 @@ package_linux() {
   cp -R LICENSES "$stage/"
   mkdir "$stage/patches"
   cp web/patches/*.patch "$stage/patches/"
-  tar -C "$stage" -czf "$output_dir/gitna_${version}_linux_${asset_arch}.tar.gz" .
+  tar -C "$stage" -czf "$output_dir/gitna_${version}_${goos}_${asset_arch}.tar.gz" .
   rm -rf "$stage"
   trap - RETURN
 }
 
-package_linux amd64 x64
-package_linux arm64 arm64
+case "$target" in
+  linux)
+    package_unix linux amd64 x64
+    package_unix linux arm64 arm64
+    ;;
+  darwin-x64)
+    package_unix darwin amd64 x64
+    ;;
+  darwin-arm64)
+    package_unix darwin arm64 arm64
+    ;;
+  *)
+    echo "unsupported package target: $target" >&2
+    exit 2
+    ;;
+esac
