@@ -1160,11 +1160,11 @@ export class GitnaRepository {
       this.mutationError = errorMessage(error)
       throw error
     } finally {
-      if (this.commitDiff != null) await this.refreshGraph()
-      await Promise.allSettled([this.refreshSnapshot(), this.refreshRepositoryFiles()])
       this.busy = false
       this.activeOp = null
       this.emit()
+      if (this.commitDiff != null) await this.refreshGraph()
+      await Promise.allSettled([this.refreshSnapshot(), this.refreshRepositoryFiles()])
     }
   }
 
