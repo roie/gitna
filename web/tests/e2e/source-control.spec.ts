@@ -206,7 +206,7 @@ test('real binary renders repository source-control state', async ({ page, app }
   const sourcePaneBody = page.locator('[data-pane-body="source-control"]')
   const sourcePaneHeader = page.locator('[data-section="workflow"]')
   await expect(sourcePaneBody).toHaveClass(/gitna-scrollbar/)
-  await expect(sourcePaneBody).toHaveCSS('overflow-y', 'hidden')
+  await expect(sourcePaneBody).toHaveCSS('overflow-y', 'auto')
   expect(
     await sourcePaneBody.evaluate(
       (body) => !body.contains(document.querySelector('[data-section="workflow"]')),
@@ -1017,6 +1017,22 @@ test('same-tab folder switching shows and restores a branded transition', async 
   await page.emulateMedia({ reducedMotion: 'reduce' })
   await page.goto(`${app.url}?trace-startup=1`)
   await expect(page).toHaveTitle(`${basename(app.repo)} - Gitna`)
+  await expect
+    .poll(
+      () => page.evaluate(() => performance.getEntriesByType('mark').map((entry) => entry.name)),
+      { timeout: 30_000 },
+    )
+    .toEqual(
+      expect.arrayContaining([
+        'gitna:mount',
+        'gitna:destination-response',
+        'gitna:snapshot-ready',
+        'gitna:source-control-ready',
+        'gitna:explorer-ready',
+        'gitna:graph-ready',
+        'gitna:sse-ready',
+      ]),
+    )
   await page.getByRole('button', { name: 'Theme settings' }).click()
   await page.getByRole('button', { name: 'Dark', exact: true }).click()
   await expect(page.locator('html')).toHaveClass(/dark/)
@@ -1095,23 +1111,6 @@ test('same-tab folder switching shows and restores a branded transition', async 
   await expect
     .poll(() => page.evaluate(() => sessionStorage.getItem('gitna:switch-start')))
     .toBeNull()
-
-  await expect
-    .poll(
-      () => page.evaluate(() => performance.getEntriesByType('mark').map((entry) => entry.name)),
-      { timeout: 30_000 },
-    )
-    .toEqual(
-      expect.arrayContaining([
-        'gitna:mount',
-        'gitna:destination-response',
-        'gitna:snapshot-ready',
-        'gitna:source-control-ready',
-        'gitna:explorer-ready',
-        'gitna:graph-ready',
-        'gitna:sse-ready',
-      ]),
-    )
 })
 
 test('startup diagnostics are disabled without explicit opt-in', async ({ page, app }) => {
