@@ -816,7 +816,7 @@ export function GitnaSourceControl() {
               <div
                 ref={workflowContent}
                 data-pane-body="source-control"
-                className="gitna-scrollbar min-h-0 overscroll-contain md:flex md:flex-1 md:flex-col md:overflow-hidden max-md:overflow-visible"
+                className="gitna-scrollbar min-h-0 overscroll-contain md:flex md:flex-1 md:flex-col md:overflow-x-hidden md:overflow-y-auto max-md:overflow-visible"
               >
                 <form
                   className="commit-composer shrink-0 px-3 py-2"

@@ -704,12 +704,13 @@ describe('createRepoState', () => {
     expect(state.folders.recent.map((folder) => folder.path)).toEqual(['/tmp/current'])
   })
 
-  it('does not open a deleted path that remains in the repository catalog', () => {
+  it('opens only available files from the repository catalog', () => {
     const state = createRepoState({ api: auxApi })
     state.snapshot = snapshot({ staged: [change('staged', 'deleted.txt', 'deleted')] })
-    state.repositoryPaths = ['deleted.txt', 'current.txt']
+    state.repositoryPaths = ['deleted.txt', 'current.txt', 'nested/']
 
     expect(state.canOpenRepositoryFile('deleted.txt')).toBe(false)
+    expect(state.canOpenRepositoryFile('nested/')).toBe(false)
     expect(state.canOpenRepositoryFile('current.txt')).toBe(true)
   })
 

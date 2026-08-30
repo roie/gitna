@@ -244,10 +244,10 @@ function updateViewerItems(
   }
 }
 
-function imageDiffRequest(target: ReviewTarget | null): DiffRequest | null {
+function imageDiffRequest(target: ReviewTarget | null, repository: boolean): DiffRequest | null {
   const path = target?.selectedPath ?? target?.filePath
   if (path == null || !rasterImagePattern.test(path)) return null
-  if (target?.filePath != null) return { scope: 'unstaged', path }
+  if (target?.filePath != null) return repository ? { scope: 'unstaged', path } : null
   if (target?.request == null) return null
   return { ...target.request, path, oldPath: target.oldPath }
 }
@@ -256,8 +256,11 @@ function repositoryFileErrorMessage(error: unknown): string {
   if (error instanceof ApiError) {
     if (error.code === 'file-too-large') return 'This file is too large to open in Gitna.'
     if (error.code === 'binary-file') return 'Binary files can’t be opened in the editor.'
+    if (error.code === 'file-not-found') {
+      return 'This file is no longer available. Refresh Explorer or select another file.'
+    }
   }
-  return error instanceof Error ? error.message : String(error)
+  return 'Gitna couldn’t read this file. Try again or select another file.'
 }
 
 function useReviewTarget(): ReviewTarget | null {
@@ -570,12 +573,19 @@ function GitnaReviewUIInner() {
         if (draft != null && baseline != null) {
           return adaptWorktreeFile(baseline, repository.generation, draft)
         }
-        if (
-          !repository.snapshot?.repository ||
-          !(error instanceof ApiError) ||
-          (error.code !== 'binary-file' && error.code !== 'file-too-large')
-        ) {
-          throw error
+        const unavailableTextFile =
+          error instanceof ApiError &&
+          (error.code === 'binary-file' || error.code === 'file-too-large')
+        if (!unavailableTextFile) throw error
+        if (!repository.snapshot?.repository) {
+          if (!rasterImagePattern.test(path)) throw error
+          const diff = await repository.api.compareWorktreeFiles(
+            path,
+            path,
+            reviewAbortController.signal,
+          )
+          if (diff.tooLarge || diff.after.image == null) throw error
+          return adaptGitnaFile(diff, repository.generation)
         }
         const diff = await repository.api.diff({ scope: 'unstaged', path })
         return adaptGitnaFile(diff, repository.generation)
@@ -665,12 +675,12 @@ function GitnaReviewUIInner() {
               ? error.message
               : String(error)
             : repositoryFileErrorMessage(error)
-        if (!refreshingVisibleReview) {
-          setErrorMessage(nextError)
-          setLoadState('error')
-        } else {
+        if (refreshingVisibleReview) {
           setReviewActionError(`Could not refresh review: ${nextError}`)
           setLoadState('ready')
+        } else {
+          setErrorMessage(nextError)
+          setLoadState('error')
         }
       })
     return () => {
@@ -758,8 +768,14 @@ function GitnaReviewUIInner() {
   }, [loadMoreReview])
 
   const selectedImageRequest = useMemo(
-    () => imageDiffRequest(target),
-    [target?.filePath, target?.key, target?.oldPath, target?.selectedPath],
+    () => imageDiffRequest(target, repository.snapshot?.repository === true),
+    [
+      repository.snapshot?.repository,
+      target?.filePath,
+      target?.key,
+      target?.oldPath,
+      target?.selectedPath,
+    ],
   )
 
   useEffect(() => {

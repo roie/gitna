@@ -936,6 +936,7 @@ export class GitnaRepository {
   }
 
   canOpenRepositoryFile(path: string): boolean {
+    if (path.endsWith('/')) return false
     const snapshot = this.snapshot
     const changes =
       snapshot == null

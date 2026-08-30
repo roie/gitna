@@ -1569,6 +1569,41 @@ test('dirty repository tabs survive external file removal', async ({ page, app }
   await expect(editor).toHaveText('draft remains available')
 })
 
+test('source control keeps staged and unstaged files reachable', async ({ page, app }) => {
+  runGit(app.repo, 'reset', '--hard', 'HEAD')
+  runGit(app.repo, 'clean', '-fd')
+  const paths = Array.from({ length: 10 }, (_, index) => `sidebar-${index + 1}.txt`)
+  for (const path of paths) writeFileSync(join(app.repo, path), `initial ${path}\n`)
+  runGit(app.repo, 'add', '--', ...paths)
+  runGit(app.repo, 'commit', '-qm', 'add sidebar fixtures')
+  for (const path of paths) writeFileSync(join(app.repo, path), `changed ${path}\n`)
+  runGit(app.repo, 'add', '--', paths[0]!, paths[1]!)
+
+  await page.goto(app.url)
+  const sectionCount = (section: 'staged' | 'changes') =>
+    page
+      .locator(`[data-section="${section}"]`)
+      .locator('xpath=ancestor::section[1]')
+      .locator('.section-count')
+  await expect(sectionCount('staged')).toHaveText('2')
+  await expect(sectionCount('changes')).toHaveText('8')
+
+  const workflow = page.locator('[data-pane-body="source-control"]')
+  await expect(workflow).toHaveCSS('overflow-y', 'auto')
+  await expect
+    .poll(() => workflow.evaluate((element) => element.scrollHeight > element.clientHeight))
+    .toBe(true)
+  await workflow.hover()
+  await page.mouse.wheel(0, 600)
+  await expect.poll(() => workflow.evaluate((element) => element.scrollTop)).toBeGreaterThan(0)
+  await expect(page.getByText('Changes', { exact: true })).toBeInViewport()
+  await expect(
+    page
+      .locator('#gitna-unstaged-tree__tree')
+      .getByRole('treeitem', { name: 'sidebar-10.txt', exact: true }),
+  ).toBeVisible()
+})
+
 test('ordinary folders open in Explorer and switch back to Git', async ({ page, app }) => {
   test.setTimeout(120_000)
   const folder = join(dirname(app.repo), 'ordinary-folder')
@@ -1581,6 +1616,13 @@ test('ordinary folders open in Explorer and switch back to Git', async ({ page, 
   writeFileSync(join(folder, 'move-me.txt'), 'move me\n')
   writeFileSync(join(folder, 'large.bin'), Buffer.alloc(2_100_000))
   writeFileSync(join(folder, 'notes.txt'), 'folder note\n')
+  writeFileSync(
+    join(folder, 'preview.png'),
+    Buffer.from(
+      'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=',
+      'base64',
+    ),
+  )
 
   await page.goto(app.url)
   await switchFolderWithKeyboard(page, app.repo, folder)
@@ -1595,7 +1637,7 @@ test('ordinary folders open in Explorer and switch back to Git', async ({ page, 
   await expect(page.getByPlaceholder('Commit message')).toHaveCount(0)
   await expect(page.locator('[data-section="graph"]')).toHaveCount(0)
   const explorer = page.locator('#gitna-repository-tree__tree')
-  await expect(explorer.getByRole('treeitem')).toHaveCount(6)
+  await expect(explorer.getByRole('treeitem')).toHaveCount(7)
   const nested = explorer.getByRole('treeitem', { name: 'nested', exact: true })
   await expect(nested).toHaveAttribute('aria-expanded', 'false')
   await nested.focus()
@@ -1606,6 +1648,12 @@ test('ordinary folders open in Explorer and switch back to Git', async ({ page, 
   const empty = explorer.getByRole('treeitem', { name: 'empty', exact: true })
   await empty.click()
   await expect(empty).not.toHaveAttribute('aria-expanded')
+  await expect(page.getByText('Select a file from Explorer')).toBeVisible()
+  await expect(page.getByRole('alert')).toHaveCount(0)
+
+  await explorer.getByRole('treeitem', { name: 'preview.png', exact: true }).click()
+  await expect(page.getByRole('img', { name: 'preview.png', exact: true })).toBeVisible()
+  await expect(page.getByRole('alert')).toHaveCount(0)
 
   const moveSource = explorer.getByRole('treeitem', { name: 'move-me.txt', exact: true })
   const dropTarget = explorer.getByRole('treeitem', { name: 'drop-target', exact: true })
@@ -1631,6 +1679,21 @@ test('ordinary folders open in Explorer and switch back to Git', async ({ page, 
   const fileError = page.getByRole('alert')
   await expect(fileError).toContainText('Couldn’t open file')
   await expect(fileError).toContainText('This file is too large to open in Gitna.')
+
+  const fileRoute = '**/api/v1/worktree/file?*'
+  await page.route(fileRoute, (route) =>
+    route.fulfill({
+      body: JSON.stringify({ error: 'read notes.txt: unexpected internal failure' }),
+      contentType: 'application/json',
+      status: 500,
+    }),
+  )
+  await explorer.getByRole('treeitem', { name: 'notes.txt', exact: true }).click()
+  await expect(fileError).toContainText(
+    'Gitna couldn’t read this file. Try again or select another file.',
+  )
+  await expect(fileError).not.toContainText('unexpected internal failure')
+  await page.unroute(fileRoute)
 
   await expect(explorer.getByRole('treeitem', { name: 'notes.txt', exact: true })).toBeVisible()
   await page.getByRole('button', { name: 'Open command palette' }).click()
