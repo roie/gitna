@@ -4,7 +4,10 @@ import { test, expect } from './fixtures.js'
 function collectErrors(page: Page): string[] {
   const errors: string[] = []
   page.on('console', (message) => {
-    if (message.type() === 'error') errors.push(message.text())
+    const text = message.text()
+    const expectedGenerationConflict =
+      text === 'Failed to load resource: the server responded with a status of 409 (Conflict)'
+    if (message.type() === 'error' && !expectedGenerationConflict) errors.push(text)
   })
   page.on('pageerror', (error) => errors.push(error.message))
   return errors

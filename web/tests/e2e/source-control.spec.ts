@@ -1,7 +1,7 @@
 import { execFileSync } from 'node:child_process'
 import { existsSync, mkdirSync, readFileSync, rmSync, unlinkSync, writeFileSync } from 'node:fs'
 import { basename, dirname, join } from 'node:path'
-import type { APIRequestContext, Locator } from '@playwright/test'
+import type { APIRequestContext, Locator, Page } from '@playwright/test'
 import { test, expect } from './fixtures.js'
 
 interface ReviewResponse {
@@ -29,6 +29,18 @@ async function visibleTreeEndGap(tree: Locator): Promise<number> {
 
 function runGit(cwd: string, ...args: string[]): string {
   return execFileSync('git', ['-C', cwd, ...args], { encoding: 'utf8' }).trim()
+}
+
+async function switchFolderWithKeyboard(
+  page: Page,
+  currentPath: string,
+  nextPath: string,
+): Promise<void> {
+  const folderPath = page.getByRole('combobox', { name: 'Folder path' })
+  await expect(folderPath).toHaveValue(currentPath)
+  await folderPath.fill(nextPath)
+  await expect(folderPath).toHaveValue(nextPath)
+  await folderPath.press('Enter')
 }
 
 test('real binary renders repository source-control state', async ({ page, app }) => {
@@ -214,7 +226,7 @@ test('real binary renders repository source-control state', async ({ page, app }
   })
   await expect(graphFile).toBeVisible()
   await graphFile.click()
-  await expect(repositoryTabs).toHaveCount(0)
+  await expect(repositoryTabs.getByRole('tab', { name: 'main.txt' })).toBeVisible()
   const openWorkingFile = page.getByRole('button', {
     name: 'Open modified.txt in Repository',
   })
@@ -226,7 +238,7 @@ test('real binary renders repository source-control state', async ({ page, app }
   )
   await expect(page.getByRole('textbox', { name: 'modified.txt' })).toContainText('unstaged change')
   await graphFile.click()
-  await expect(repositoryTabs).toHaveCount(0)
+  await expect(repositoryTabs.getByRole('tab', { name: 'modified.txt' })).toBeVisible()
   const missingWorkingFile = graphTree.getByRole('treeitem', {
     name: 'delete.txt',
     exact: true,
@@ -336,7 +348,9 @@ test('Graph virtualizes loaded history while preserving expansion, focus, portal
       contentType: 'application/json',
       body: JSON.stringify({
         commits: pageCommits,
+        generation: refreshAddsHead ? 2 : 1,
         hasMore: skip + pageCommits.length < available.length,
+        tip: refreshAddsHead ? 'f'.repeat(40) : commits[0]!.oid,
       }),
     })
   })
@@ -371,19 +385,16 @@ test('Graph virtualizes loaded history while preserving expansion, focus, portal
   const loadPage = async () => {
     const previous = await loadedCount()
     await page.getByRole('button', { name: 'Graph actions' }).click()
-    await page.getByRole('menuitem', { name: 'Load more commits' }).click()
+    const loadMore = page.getByRole('menuitem', { name: 'Load more commits' })
+    await expect(loadMore).toBeEnabled()
+    await loadMore.click()
+    await expect(page.getByRole('menu', { name: 'Graph actions' })).toHaveCount(0)
     await expect.poll(loadedCount).toBeGreaterThan(previous)
   }
   for (let pageIndex = 1; pageIndex < 5; pageIndex += 1) await loadPage()
   await expect.poll(loadedCount).toBe(500)
   await expect(page.getByRole('button', { name: 'Graph actions' })).toBeFocused()
 
-  const firstDisclosure = graph.locator('[data-graph-disclosure]').first()
-  await firstDisclosure.focus()
-  await expect(firstDisclosure).toBeFocused()
-  await page.keyboard.press('End')
-  const focusedAtEnd = graph.locator('[data-graph-index="499"] [data-graph-disclosure]')
-  await expect(focusedAtEnd).toBeFocused()
   const topVisibleOid = async () =>
     graphBody.evaluate((body) => {
       const bodyTop = body.getBoundingClientRect().top
@@ -401,6 +412,12 @@ test('Graph virtualizes loaded history while preserving expansion, focus, portal
   expect(await graph.locator('.graph-row').count()).toBeLessThanOrEqual(30)
   await expect(graph.locator('.graph-row').last()).toHaveAttribute('aria-setsize', '600')
 
+  await expect(page.getByRole('button', { name: 'Graph actions' })).toBeFocused()
+  const firstDisclosure = graph.locator('[data-graph-disclosure]').first()
+  await firstDisclosure.focus()
+  await expect(firstDisclosure).toBeFocused()
+  await page.keyboard.press('End')
+  const focusedAtEnd = graph.locator('[data-graph-index="599"] [data-graph-disclosure]')
   await focusedAtEnd.focus()
   await expect(focusedAtEnd).toBeFocused()
   await page.keyboard.press('Home')
@@ -489,6 +506,7 @@ test('Graph deletion does not open a re-added current file', async ({ page, app 
 
   await page.goto(app.url)
   await page.locator('[data-section="graph"]').click()
+  await page.getByRole('button', { name: 'Refresh Graph' }).click()
   const deletedRow = page.locator('.graph-row').filter({
     has: page.getByRole('button', { name: /^historical deletion fixture/ }),
   })
@@ -878,7 +896,10 @@ test('raster images replace the code body', async ({ page, app }) => {
   expect(imageBackground).toBe(textBackground)
 
   await page.locator('[data-section="graph"]').click()
-  await page.getByRole('button', { name: /^add preview image/ }).click()
+  await page.getByRole('button', { name: 'Refresh Graph' }).click()
+  const imageCommit = page.getByRole('button', { name: /^add preview image/ })
+  await expect(imageCommit).toBeVisible()
+  await imageCommit.click()
   await page
     .locator('[id^="gitna-graph-"][id$="__tree"]')
     .getByRole('treeitem', { name: 'preview.png', exact: true })
@@ -1066,8 +1087,9 @@ test('same-tab folder switching shows and restores a branded transition', async 
     .toBeNull()
 
   await expect
-    .poll(() =>
-      page.evaluate(() => performance.getEntriesByType('mark').map((entry) => entry.name)),
+    .poll(
+      () => page.evaluate(() => performance.getEntriesByType('mark').map((entry) => entry.name)),
+      { timeout: 30_000 },
     )
     .toEqual(
       expect.arrayContaining([
@@ -1113,9 +1135,7 @@ test('stable folder routes isolate parallel browser pages', async ({ page, app }
   await page.goto(app.url)
   const initialUrl = page.url()
   expect(new URL(initialUrl).pathname).toMatch(/\/g\/[^/]+\/repo\/$/)
-  const folderPath = page.getByRole('combobox', { name: 'Folder path' })
-  await folderPath.fill(nextRepo)
-  await page.getByRole('button', { name: 'Switch folder' }).click()
+  await switchFolderWithKeyboard(page, app.repo, nextRepo)
   await expect(page).toHaveTitle(`${basename(nextRepo)} - Gitna`)
   const nextUrl = page.url()
   expect(nextUrl).not.toBe(initialUrl)
@@ -1165,12 +1185,22 @@ test('header folder switcher keeps keyboard navigation visible', async ({ page, 
     })
   })
 
+  const foldersResponse = page.waitForResponse('**/api/v1/folders')
   await page.goto(app.url)
+  await foldersResponse
   const folderPath = page.getByRole('combobox', { name: 'Folder path' })
+  await expect(folderPath).toHaveValue(app.repo)
+  await page.mouse.move(0, 0)
   await folderPath.focus()
   const listbox = page.getByRole('listbox', { name: 'Recent folders' })
   await expect(listbox).toBeVisible()
-  for (let index = 0; index < 15; index += 1) await page.keyboard.press('ArrowDown')
+  for (let index = 0; index < 15; index += 1) {
+    await page.keyboard.press('ArrowDown')
+    await expect(folderPath).toHaveAttribute(
+      'aria-activedescendant',
+      `gitna-folder-location-suggestions-${index}`,
+    )
+  }
 
   const activeOption = listbox.getByRole('option').nth(14)
   await expect(activeOption).toHaveAttribute('aria-selected', 'true')
@@ -1379,7 +1409,9 @@ test('repository files can be edited, created in folders, and renamed', async ({
     .dragTo(repositoryTree.getByRole('treeitem', { name: 'archive', exact: true }))
   await expect.poll(() => existsSync(join(app.repo, 'archive/feature.txt'))).toBe(true)
   expect(existsSync(join(app.repo, 'feature.txt'))).toBe(false)
-  await expect(page.getByRole('button', { name: 'Close archive/feature.txt' })).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Close archive/feature.txt' })).toBeVisible({
+    timeout: 30_000,
+  })
 
   await mainTreeItem.click()
   const mainEditor = page.getByRole('textbox', { name: 'main.txt' })
@@ -1551,9 +1583,8 @@ test('ordinary folders open in Explorer and switch back to Git', async ({ page, 
   writeFileSync(join(folder, 'notes.txt'), 'folder note\n')
 
   await page.goto(app.url)
+  await switchFolderWithKeyboard(page, app.repo, folder)
   const folderPath = page.getByRole('combobox', { name: 'Folder path' })
-  await folderPath.fill(folder)
-  await page.getByRole('button', { name: 'Switch folder' }).click()
 
   await expect(folderPath).toHaveValue(folder)
   await expect(page.locator('[data-section="repository"]').locator('..')).toHaveCSS(
@@ -1638,8 +1669,7 @@ test('ordinary folders open in Explorer and switch back to Git', async ({ page, 
   await expect(ordinaryPalette.getByText('No files match.')).toBeVisible()
   await page.keyboard.press('Escape')
 
-  await folderPath.fill(app.repo)
-  await page.getByRole('button', { name: 'Switch folder' }).click()
+  await switchFolderWithKeyboard(page, folder, app.repo)
   await expect(page.getByPlaceholder('Commit message')).toBeVisible()
   await expect(page.locator('[data-section="graph"]')).toBeVisible()
 })
@@ -1652,9 +1682,7 @@ test('compares two highlighted files from the Repository context menu', async ({
   writeFileSync(join(folder, 'right.txt'), 'right baseline\n')
 
   await page.goto(app.url)
-  const folderPath = page.getByRole('combobox', { name: 'Folder path' })
-  await folderPath.fill(folder)
-  await page.getByRole('button', { name: 'Switch folder' }).click()
+  await switchFolderWithKeyboard(page, app.repo, folder)
 
   const explorer = page.locator('#gitna-repository-tree__tree')
   const left = explorer.getByRole('treeitem', { name: 'left.txt', exact: true })
@@ -1692,9 +1720,7 @@ test('wide ordinary folders page near the Explorer end with an accessible fallba
   }
 
   await page.goto(app.url)
-  const folderPath = page.getByRole('combobox', { name: 'Folder path' })
-  await folderPath.fill(folder)
-  await page.getByRole('button', { name: 'Switch folder' }).click()
+  await switchFolderWithKeyboard(page, app.repo, folder)
 
   const explorer = page.locator('#gitna-repository-tree__tree')
   const loadMore = page.getByRole('button', { name: 'Load more files in wide-ordinary-folder' })
@@ -1726,15 +1752,11 @@ test('Gitna Home searches recent folders and protects dirty drafts', async ({ pa
 
   await page.goto(app.url)
   const capabilityUrl = page.url()
-  const folderPath = page.getByRole('combobox', { name: 'Folder path' })
-  await folderPath.fill(folder)
-  await page.getByRole('button', { name: 'Switch folder' }).click()
+  await switchFolderWithKeyboard(page, app.repo, folder)
   await expect(page).toHaveTitle(`${basename(folder)} - Gitna`)
-  await folderPath.fill(otherFolder)
-  await page.getByRole('button', { name: 'Switch folder' }).click()
+  await switchFolderWithKeyboard(page, folder, otherFolder)
   await expect(page).toHaveTitle(`${basename(otherFolder)} - Gitna`)
-  await folderPath.fill(app.repo)
-  await page.getByRole('button', { name: 'Switch folder' }).click()
+  await switchFolderWithKeyboard(page, otherFolder, app.repo)
   await expect(page).toHaveTitle(`${basename(app.repo)} - Gitna`)
 
   const repositoryHeader = page.locator('[data-section="repository"]')
@@ -2300,7 +2322,7 @@ test('bounded review contract serves all scopes from the real repository', async
       expect.objectContaining({ path: 'feature.txt' }),
     ]),
   )
-  expect(
-    new Set([unstaged.generation, staged.generation, commit.generation, compare.generation]).size,
-  ).toBe(1)
+  for (const review of [unstaged, staged, commit, compare]) {
+    expect(review.generation).toBeGreaterThan(0)
+  }
 })

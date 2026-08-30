@@ -173,6 +173,17 @@ async function stopGitna(child: ChildProcess): Promise<void> {
   await exited
 }
 
+function removeTempFixture(temp: string): void {
+  try {
+    rmSync(temp, { recursive: true, force: true, maxRetries: 20, retryDelay: 250 })
+  } catch (error) {
+    if (process.platform !== 'win32' || (error as NodeJS.ErrnoException).code !== 'EPERM') {
+      throw error
+    }
+    console.warn(`Could not remove Windows test fixture ${temp}: ${String(error)}`)
+  }
+}
+
 export const test = base.extend<{ app: GitnaFixture }>({
   app: async ({ browserName }, use) => {
     const binary = process.env.GITNA_E2E_BINARY
@@ -193,7 +204,7 @@ export const test = base.extend<{ app: GitnaFixture }>({
       })
     } finally {
       if (child) await stopGitna(child)
-      rmSync(temp, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
+      removeTempFixture(temp)
     }
   },
 })

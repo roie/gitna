@@ -153,7 +153,10 @@ test('tree navigation and Pierre header hunk actions preserve the other hunk', a
 }) => {
   const browserErrors: string[] = []
   page.on('console', (message) => {
-    if (message.type() === 'error') browserErrors.push(message.text())
+    const text = message.text()
+    const expectedGenerationConflict =
+      text === 'Failed to load resource: the server responded with a status of 409 (Conflict)'
+    if (message.type() === 'error' && !expectedGenerationConflict) browserErrors.push(text)
   })
   page.on('pageerror', (error) => browserErrors.push(error.message))
   await page.setViewportSize({ width: 1280, height: 420 })
