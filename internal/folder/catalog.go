@@ -355,10 +355,30 @@ func canonicalRemovalPath(path string) (string, error) {
 	if err == nil {
 		return filepath.Clean(resolved), nil
 	}
-	if errors.Is(err, os.ErrNotExist) {
-		return filepath.Clean(absolute), nil
+	if !errors.Is(err, os.ErrNotExist) {
+		return "", err
 	}
-	return "", err
+
+	current := absolute
+	missing := make([]string, 0, 1)
+	for {
+		parent := filepath.Dir(current)
+		if parent == current {
+			return filepath.Clean(absolute), nil
+		}
+		missing = append(missing, filepath.Base(current))
+		current = parent
+		resolved, err = filepath.EvalSymlinks(current)
+		if err == nil {
+			for index := len(missing) - 1; index >= 0; index-- {
+				resolved = filepath.Join(resolved, missing[index])
+			}
+			return filepath.Clean(resolved), nil
+		}
+		if !errors.Is(err, os.ErrNotExist) {
+			return "", err
+		}
+	}
 }
 
 func folderName(path string) string {

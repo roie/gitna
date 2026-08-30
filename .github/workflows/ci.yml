@@ -102,8 +102,12 @@ jobs:
         with:
           go-version-file: go.mod
           cache: false
-      - name: Test native macOS seams
+      - name: Test native macOS browser and folder seams
         run: go test ./internal/browser ./internal/folder
+      - name: Test native macOS filesystem seams
+        run: |
+          go test ./internal/watch
+          go test ./internal/gitx -run '^(TestWorktreeFileReadWriteAndConflict|TestCreateAndRenameWorktreeEntries)$'
       - name: Package native macOS asset
         run: ./scripts/package.sh 0.0.0 dist-package "${{ matrix.target }}"
       - name: Smoke test native macOS asset

@@ -96,8 +96,10 @@ func waitForWatch(t *testing.T, w *Repository, dir string) {
 	t.Helper()
 	deadline := time.Now().Add(5 * time.Second)
 	for {
-		for _, p := range w.fsw.WatchList() {
-			if p == dir {
+		for _, path := range w.fsw.WatchList() {
+			watched, watchedErr := os.Stat(path)
+			expected, expectedErr := os.Stat(dir)
+			if watchedErr == nil && expectedErr == nil && os.SameFile(watched, expected) {
 				return
 			}
 		}
