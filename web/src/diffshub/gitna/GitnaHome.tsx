@@ -16,6 +16,7 @@ import { Input } from '../components/Input'
 import { ThemedSurface } from '../components/ThemedSurface'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '../components/Tooltip'
 import { GitnaLogo } from './GitnaLogo'
+import { formatOpenedAt } from './homeTime'
 
 interface GitnaHomeProps {
   catalog: FolderCatalog | null
@@ -29,16 +30,6 @@ interface GitnaHomeProps {
   onOpenFolderInNewTab(path: string): Promise<void>
   onRefresh(): void
   onRemoveRecentFolder(path: string): Promise<void>
-}
-
-const openedAt = new Intl.DateTimeFormat(undefined, {
-  dateStyle: 'medium',
-  timeStyle: 'short',
-})
-
-function formatOpenedAt(value: string): string | null {
-  const date = new Date(value)
-  return Number.isNaN(date.getTime()) ? null : openedAt.format(date)
 }
 
 function OpenFolderForm({
@@ -163,10 +154,12 @@ function FolderRow({
         </span>
         {opened != null && (
           <time
+            aria-label={`Last opened ${opened.exact}`}
             className="hidden shrink-0 text-right text-[11px] text-muted-foreground md:block"
             dateTime={folder.lastOpened}
+            title={`Last opened ${opened.exact}`}
           >
-            {opened}
+            {opened.relative}
           </time>
         )}
       </button>
@@ -290,7 +283,7 @@ export function GitnaHome({
         <span className="sm:hidden">Back</span>
       </Button>
 
-      <div className="mx-auto flex min-h-full w-full max-w-2xl flex-col px-5 pt-28 pb-16 sm:px-8 sm:pt-36 sm:pb-24 lg:pt-40">
+      <div className="mx-auto flex min-h-full w-full max-w-2xl flex-col px-5 pt-20 pb-16 sm:px-8 sm:pt-24 sm:pb-24 lg:pt-28">
         <div className="flex min-w-0 flex-col items-center text-center">
           <GitnaLogo className="size-20 sm:size-24" />
           <div className="mt-5 min-w-0">
@@ -383,7 +376,7 @@ export function GitnaHome({
             {filteredRecent.length > 0 && (
               <ul
                 ref={recentListRef}
-                className="gitna-scrollbar mt-3 max-h-[min(50dvh,28rem)] divide-y divide-border overflow-y-auto overscroll-contain border-y border-border"
+                className="mt-3 divide-y divide-border border-y border-border"
                 onKeyDown={(event) => {
                   if (
                     event.key !== 'ArrowDown' &&

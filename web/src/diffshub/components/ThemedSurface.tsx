@@ -9,6 +9,7 @@ import type { ThemeInput } from '@/lib/theme/ThemeSource';
 
 interface ThemedSurfaceProps {
   as?: ElementType;
+  'aria-labelledby'?: string;
   children?: ReactNode;
   className?: string;
   mapping?: ChromeMapping;
@@ -21,6 +22,7 @@ interface ThemedSurfaceProps {
 // Caller `style` (spread after) still wins on key collisions.
 export function ThemedSurface({
   as,
+  'aria-labelledby': ariaLabelledBy,
   children,
   className,
   mapping = diffshubChromeMapping,
@@ -30,7 +32,11 @@ export function ThemedSurface({
   const Component = as ?? 'div';
   const themeProps = useChromeThemeProps(mapping, theme);
   return (
-    <Component className={className} style={{ ...themeProps.style, ...style }}>
+    <Component
+      aria-labelledby={ariaLabelledBy}
+      className={className}
+      style={{ ...themeProps.style, ...style }}
+    >
       {children}
     </Component>
   );
