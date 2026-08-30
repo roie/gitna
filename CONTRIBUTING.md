@@ -49,13 +49,20 @@ pnpm --dir web test:e2e
 Create Linux x64 and arm64 release archives with:
 
 ```sh
-./scripts/package.sh 0.1.0
+./scripts/package.sh 0.3.0
+```
+
+Create one native macOS archive at a time with:
+
+```sh
+./scripts/package.sh 0.3.0 dist darwin-arm64
+./scripts/package.sh 0.3.0 dist darwin-x64
 ```
 
 Create the Windows x64 archive from PowerShell with:
 
 ```powershell
-./scripts/package.ps1 0.1.0
+./scripts/package.ps1 0.3.0
 ```
 
 Release archives contain the native executable, README, reproducible Pierre patches, and required license notices. Create the npm launcher tarball separately with `node scripts/package-npm.mjs <version> <output-directory>`; it downloads the matching native archive from the GitHub Release during installation.
@@ -69,7 +76,7 @@ Release archives contain the native executable, README, reproducible Pierre patc
 5. Push only that tag.
 6. Verify the GitHub Release archives, checksums, npm packages, and installation paths.
 
-The tag workflow builds and smoke-tests the exact Linux and Windows release archives before publishing. Do not reuse a published npm version or move a published release tag.
+The tag workflow builds and smoke-tests the exact Linux, macOS, and Windows release archives before publishing. Do not reuse a published npm version or move a published release tag.
 
 npm publishing uses GitHub Actions OIDC trusted publishing; do not add a long-lived publish token.
 
@@ -81,6 +88,17 @@ npm publishing uses GitHub Actions OIDC trusted publishing; do not add a long-li
 4. Confirm the session opens in the normal Windows browser through localhost.
 5. Stage, unstage, commit, expand a Graph commit, and inspect a split diff.
 6. Confirm no Node.js runtime, WSLg application, FUSE mount, or Windows access to `\\wsl$` is required.
+
+## macOS release receipt
+
+Perform the receipt on both Apple silicon and Intel hardware, using the matching release archive:
+
+1. Extract the archive and run `gitna --version`.
+2. Open an ordinary folder and confirm Gitna opens in the default browser.
+3. Reveal the active folder in Finder.
+4. Open a Git repository and inspect Source Control and Graph.
+5. Quit Gitna and confirm its local server exits.
+6. Install the npm package and confirm it selects the matching Darwin architecture.
 
 ## Security reports
 

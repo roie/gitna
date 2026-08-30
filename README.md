@@ -16,7 +16,7 @@
   <a href="LICENSE"><img src="https://img.shields.io/github/license/roie/gitna?style=flat-square" alt="Apache-2.0 license"></a>
 </p>
 
-Gitna brings source control, visual diffs, repository history, and everyday Git operations into one focused interface. It runs on your machine, uses your installed Git, and keeps repository data local.
+Gitna brings fast local-folder browsing, source control, visual diffs, repository history, and everyday Git operations into one focused interface. It runs on your machine, uses your installed Git when a folder is a repository, and keeps folder data local.
 
 ![Gitna reviewing, staging, editing, and browsing repository history](assets/gitna-demo.gif)
 
@@ -31,30 +31,36 @@ Install with npm:
 npm install -g gitna
 ```
 
-Open any Git repository:
+Open any local folder:
 
 ```sh
-cd your-repository
+cd your-folder
 gitna
 ```
 
-Gitna starts a local server and opens an authenticated session in your default browser. You can also pass a repository or subdirectory explicitly:
+Gitna starts a local server and opens an authenticated session in your default browser. You can also pass a folder explicitly:
 
 ```sh
-gitna /path/to/repository
+gitna /path/to/folder
 ```
+
+Folders backed by Git automatically gain source control, history, branches, stashes, tags, and Git operations. Ordinary folders retain Gitna’s Explorer, tabs, editing, search, and file tools.
 
 ## What you can do
 
+- Start from Home, reopen recent folders, and switch folders without restarting Gitna
+- Explore huge ordinary folders through lazy directory loading and bounded watching
+- Press `Cmd/Ctrl+K` to search every indexed file, or type `>` to run commands from the unified command palette
 - Review staged and unstaged changes with Pierre-powered split or unified diffs
 - Preview PNG, JPEG, WebP, and GIF changes alongside text diffs
 - Browse and edit working-tree files in repository tabs
+- Select two Explorer files with `Cmd/Ctrl`-click, then right-click and choose **Compare Selected**
 - Stage and unstage files, folders, or individual hunks
 - Commit and amend while preserving normal Git hook behavior
+- Scroll continuously through a virtualized commit Graph with an exact HEAD-reachable count
 - Browse branches, tags, stashes, and commit history
 - Fetch, pull, push, compare, merge, rebase, cherry-pick, and revert
 - Resolve conflicts with explicit ours, theirs, or combined content
-- Switch between local repositories without restarting Gitna
 
 ## Install
 
@@ -80,6 +86,8 @@ Download the archive for your platform from [GitHub Releases](https://github.com
 
 Supported release targets:
 
+- macOS Apple silicon (arm64)
+- macOS Intel (x64)
 - Linux x64
 - Linux arm64
 - Windows x64
