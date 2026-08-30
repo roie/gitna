@@ -2486,12 +2486,7 @@ function GraphSection({
     scrollMargin,
   })
   const virtualItems = virtualizer.getVirtualItems()
-  const graphCount =
-    repository.graphTotal == null
-      ? `${repository.graphRows.length}${repository.graphHasMore ? '+' : ''}`
-      : repository.graphHasMore
-        ? `${repository.graphRows.length} of ${repository.graphTotal}`
-        : `${repository.graphTotal}`
+  const graphCount = repository.graphTotal == null ? null : `${repository.graphTotal}`
   const graphSetSize =
     repository.graphTotal ?? (repository.graphHasMore ? -1 : repository.graphRows.length)
   const armContinuation = useCallback(() => {
@@ -2673,7 +2668,13 @@ function GraphSection({
           </>
         }
         count={graphCount}
-        countTitle={`${graphCount} commits in Graph${repository.graphCountLoading ? '; exact count loading' : ''}`}
+        countTitle={
+          graphCount == null
+            ? repository.graphCountLoading
+              ? 'Counting commits in Graph'
+              : undefined
+            : `${graphCount} commits in Graph`
+        }
         dataSection="graph"
         headerRef={headerRef}
         icon={IconBranch}

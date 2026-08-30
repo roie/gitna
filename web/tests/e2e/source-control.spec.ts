@@ -327,6 +327,7 @@ test('Graph virtualizes loaded history while preserving expansion, focus, portal
     refs: index === 0 ? [{ name: 'main', kind: 'head' }] : [],
   }))
   let refreshAddsHead = false
+  let loadedCommits = 0
   await page.route('**/api/v1/graph?skip=*', async (route) => {
     const url = new URL(route.request().url())
     const skip = Number(url.searchParams.get('skip') ?? 0)
@@ -344,6 +345,8 @@ test('Graph virtualizes loaded history while preserving expansion, focus, portal
           ]
         : commits
     const pageCommits = available.slice(skip, skip + 100)
+    loadedCommits =
+      skip === 0 ? pageCommits.length : Math.max(loadedCommits, skip + pageCommits.length)
     await route.fulfill({
       contentType: 'application/json',
       body: JSON.stringify({
@@ -351,6 +354,17 @@ test('Graph virtualizes loaded history while preserving expansion, focus, portal
         generation: refreshAddsHead ? 2 : 1,
         hasMore: skip + pageCommits.length < available.length,
         tip: refreshAddsHead ? 'f'.repeat(40) : commits[0]!.oid,
+      }),
+    })
+  })
+  await page.route('**/api/v1/graph/count?*', async (route) => {
+    const url = new URL(route.request().url())
+    await route.fulfill({
+      contentType: 'application/json',
+      body: JSON.stringify({
+        generation: Number(url.searchParams.get('generation')),
+        tip: url.searchParams.get('tip'),
+        total: refreshAddsHead ? 601 : 600,
       }),
     })
   })
@@ -375,13 +389,9 @@ test('Graph virtualizes loaded history while preserving expansion, focus, portal
   await expect(virtualList).toBeVisible()
   await expect.poll(() => graph.locator('.graph-row').count()).toBeGreaterThan(0)
   expect(await graph.locator('.graph-row').count()).toBeLessThanOrEqual(30)
-  await expect(graph.locator('.graph-row').first()).toHaveAttribute('aria-setsize', '-1')
-
-  const loadedCount = async () =>
-    Number.parseInt(
-      (await graph.locator('[data-section="graph"] .section-count').textContent())!,
-      10,
-    )
+  const loadedCount = async () => loadedCommits
+  await expect(graph.locator('[data-section="graph"] .section-count')).toHaveText('600')
+  await expect(graph.locator('.graph-row').first()).toHaveAttribute('aria-setsize', '600')
   const loadPage = async () => {
     const previous = await loadedCount()
     await page.getByRole('button', { name: 'Graph actions' }).click()
