@@ -2134,6 +2134,7 @@ test('branch picker, repository filters, list view, and graph stats use direct p
   await page.goto(app.url)
   await page.locator('[data-section="repository"]').click()
   await page.locator('[data-section="graph"]').click()
+  await page.getByRole('button', { name: 'Refresh Graph' }).click()
   await expect(page.getByRole('button', { name: 'Search Repository' })).toHaveAttribute(
     'title',
     'Search Repository',
