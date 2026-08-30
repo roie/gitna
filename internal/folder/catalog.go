@@ -374,9 +374,15 @@ func samePath(left, right string) bool {
 }
 
 // PathKey returns the platform-normalized identity key used to deduplicate
-// canonical folder paths. Windows path identity is case-insensitive.
+// canonical folder paths. Existing folders on macOS use their filesystem
+// identity so aliases differing only by case deduplicate on case-insensitive
+// volumes without conflating distinct folders on case-sensitive volumes.
 func PathKey(path string) string {
-	return pathKeyForOS(path, runtime.GOOS)
+	cleaned := filepath.Clean(path)
+	if key, ok := platformPathIdentity(cleaned); ok {
+		return key
+	}
+	return pathKeyForOS(cleaned, runtime.GOOS)
 }
 
 func pathKeyForOS(path, goos string) string {

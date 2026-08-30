@@ -3,6 +3,7 @@ package folder
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 	"time"
 )
@@ -166,6 +167,42 @@ func TestPathKeyNormalizesWindowsPathCase(t *testing.T) {
 	}
 	if got := pathKeyForOS("/Users/Roie/Repo", "linux"); got == pathKeyForOS("/users/roie/repo", "linux") {
 		t.Fatalf("Linux path keys unexpectedly ignore case: %q", got)
+	}
+}
+
+func TestCatalogDeduplicatesDarwinCaseAliasOnCaseInsensitiveVolume(t *testing.T) {
+	if runtime.GOOS != "darwin" {
+		t.Skip("requires a Darwin filesystem")
+	}
+	root := t.TempDir()
+	folder := filepath.Join(root, "MixedCase")
+	alias := filepath.Join(root, "mixedcase")
+	if err := os.Mkdir(folder, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	folderInfo, err := os.Stat(folder)
+	if err != nil {
+		t.Fatal(err)
+	}
+	aliasInfo, err := os.Stat(alias)
+	if os.IsNotExist(err) {
+		t.Skip("Darwin test volume is case-sensitive")
+	}
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !os.SameFile(folderInfo, aliasInfo) {
+		t.Skip("case aliases do not identify the same folder")
+	}
+	if PathKey(folder) != PathKey(alias) {
+		t.Fatalf("Darwin case aliases have different keys: %q != %q", PathKey(folder), PathKey(alias))
+	}
+
+	catalog := Open("", 5)
+	catalog.Record(folder, true)
+	catalog.Record(alias, true)
+	if recent := catalog.Recent(); len(recent) != 1 {
+		t.Fatalf("recent case aliases = %#v", recent)
 	}
 }
 
