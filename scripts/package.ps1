@@ -16,21 +16,27 @@ Set-Location $Root
 New-Item -ItemType Directory -Force -Path $OutputDirectory | Out-Null
 $OutputDirectory = (Resolve-Path $OutputDirectory).Path
 
-pnpm --dir web install --frozen-lockfile
-if ($LASTEXITCODE -ne 0) {
-  throw "frontend dependency installation failed"
-}
-pnpm --dir web build
-if ($LASTEXITCODE -ne 0) {
-  throw "frontend build failed"
-}
-node scripts/generate-third-party-licenses.mjs
-if ($LASTEXITCODE -ne 0) {
-  throw "license generation failed"
-}
-git diff --exit-code -- THIRD_PARTY_LICENSES.txt
-if ($LASTEXITCODE -ne 0) {
-  throw "THIRD_PARTY_LICENSES.txt is stale"
+if ($env:GITNA_USE_PREBUILT_WEB -eq "1") {
+  if (!(Test-Path internal/webui/dist/index.html)) {
+    throw "prebuilt frontend is missing internal/webui/dist/index.html"
+  }
+} else {
+  pnpm --dir web install --frozen-lockfile
+  if ($LASTEXITCODE -ne 0) {
+    throw "frontend dependency installation failed"
+  }
+  pnpm --dir web build
+  if ($LASTEXITCODE -ne 0) {
+    throw "frontend build failed"
+  }
+  node scripts/generate-third-party-licenses.mjs
+  if ($LASTEXITCODE -ne 0) {
+    throw "license generation failed"
+  }
+  git diff --exit-code -- THIRD_PARTY_LICENSES.txt
+  if ($LASTEXITCODE -ne 0) {
+    throw "THIRD_PARTY_LICENSES.txt is stale"
+  }
 }
 
 $Stage = Join-Path ([System.IO.Path]::GetTempPath()) ("gitna-package-" + [guid]::NewGuid())

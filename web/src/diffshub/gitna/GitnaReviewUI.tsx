@@ -220,7 +220,7 @@ function updateViewerItems(
     )
   })
   if (next.items.length > current.items.length && sharedItemsMatch) {
-    viewer.addItems(next.items.slice(current.items.length))
+    viewer.getInstance()?.setItems(next.items)
     return
   }
   const sameItemKinds = next.items.length === current.items.length && sharedItemsMatch

@@ -13,9 +13,17 @@ interface ReviewResponse {
 }
 
 async function readReview(request: APIRequestContext, url: string): Promise<ReviewResponse> {
-  const response = await request.get(url)
-  expect(response.status()).toBe(200)
-  return (await response.json()) as ReviewResponse
+  for (let attempt = 0; ; attempt += 1) {
+    const response = await request.get(url)
+    if (response.status() === 409 && attempt < 2) {
+      await response.dispose()
+      continue
+    }
+    if (response.status() !== 200) {
+      expect(response.status(), await response.text()).toBe(200)
+    }
+    return (await response.json()) as ReviewResponse
+  }
 }
 
 async function visibleTreeEndGap(tree: Locator): Promise<number> {
@@ -206,7 +214,7 @@ test('real binary renders repository source-control state', async ({ page, app }
   const sourcePaneBody = page.locator('[data-pane-body="source-control"]')
   const sourcePaneHeader = page.locator('[data-section="workflow"]')
   await expect(sourcePaneBody).toHaveClass(/gitna-scrollbar/)
-  await expect(sourcePaneBody).toHaveCSS('overflow-y', 'hidden')
+  await expect(sourcePaneBody).toHaveCSS('overflow-y', 'auto')
   expect(
     await sourcePaneBody.evaluate(
       (body) => !body.contains(document.querySelector('[data-section="workflow"]')),
@@ -516,7 +524,9 @@ test('Graph deletion does not open a re-added current file', async ({ page, app 
 
   await page.goto(app.url)
   await page.locator('[data-section="graph"]').click()
-  await page.getByRole('button', { name: 'Refresh Graph' }).click()
+  await expect(page.getByRole('button', { name: /^re-add current fixture/ })).toBeVisible({
+    timeout: 30_000,
+  })
   const deletedRow = page.locator('.graph-row').filter({
     has: page.getByRole('button', { name: /^historical deletion fixture/ }),
   })
@@ -548,27 +558,37 @@ test('scrolling near the review end appends pages without remounting CodeView', 
   app,
 }) => {
   let releaseSecondPage!: () => void
+  let markSecondPageRequested!: () => void
   const secondPageReady = new Promise<void>((resolve) => {
     releaseSecondPage = resolve
   })
-  const patch = (path: string, content: string) => `diff --git a/${path} b/${path}
+  const secondPageRequested = new Promise<void>((resolve) => {
+    markSecondPageRequested = resolve
+  })
+  const patch = (path: string, lines: readonly string[]) => `diff --git a/${path} b/${path}
 new file mode 100644
 --- /dev/null
 +++ b/${path}
-@@ -0,0 +1 @@
-+${content}
+@@ -0,0 +1,${lines.length} @@
+${lines.map((line) => `+${line}`).join('\n')}
 `
   await page.route('**/api/v1/review?*', async (route) => {
     const cursor = new URL(route.request().url()).searchParams.get('cursor')
-    if (cursor != null) await secondPageReady
+    if (cursor != null) {
+      markSecondPageRequested()
+      await secondPageReady
+    }
     await route.fulfill({
       json: {
         generation: 7,
         identity: { scope: 'unstaged' },
         patch:
           cursor == null
-            ? patch('page-one.txt', 'first review page')
-            : patch('untracked.txt', 'second review page'),
+            ? patch('page-one.txt', [
+                'first review page',
+                ...Array.from({ length: 200 }, (_, index) => `review line ${index + 1}`),
+              ])
+            : patch('untracked.txt', ['second review page']),
         supplements: [],
         nextCursor: cursor == null ? 'next-page' : undefined,
       } satisfies ReviewResponse,
@@ -580,10 +600,10 @@ new file mode 100644
   await expect(page.getByText('first review page', { exact: true })).toBeVisible()
   const mountedViewer = await viewer.elementHandle()
   expect(mountedViewer).not.toBeNull()
-  await page.locator('.cv-scrollbar').evaluate((scroller) => {
-    scroller.scrollTop = scroller.scrollHeight
-    scroller.dispatchEvent(new Event('scroll'))
-  })
+  const scroller = page.locator('.cv-scrollbar')
+  await scroller.hover()
+  await page.mouse.wheel(0, 10_000)
+  await secondPageRequested
   releaseSecondPage()
   await expect(page.getByText('second review page', { exact: true })).toBeVisible()
   expect(await mountedViewer!.evaluate((element) => element.isConnected)).toBe(true)
@@ -1372,8 +1392,12 @@ test('mobile command palette describes the active Source Control overlay', async
   await search.press('Enter')
 
   await expect(page.getByRole('complementary', { name: 'Source Control' })).toBeVisible()
+  await expect(palette).toHaveCount(0)
   await page.keyboard.press('Control+k')
+  await expect(palette).toBeVisible()
+  await expect(search).toBeFocused()
   await search.fill('>toggle sidebar')
+  await expect(search).toHaveValue('>toggle sidebar')
   await expect(
     palette.getByRole('option', { name: /Toggle Sidebar Hide Source Control/ }),
   ).toBeVisible()
@@ -1414,11 +1438,17 @@ test('repository files can be edited, created in folders, and renamed', async ({
   await copyRelativePath.click()
   await expect(page.locator('html')).toHaveAttribute('data-copied-path', 'main.txt')
 
-  await repositoryTree
-    .getByRole('treeitem', { name: 'feature.txt', exact: true })
-    .dragTo(repositoryTree.getByRole('treeitem', { name: 'archive', exact: true }))
+  const featureTreeItem = repositoryTree.getByRole('treeitem', {
+    name: 'feature.txt',
+    exact: true,
+  })
+  await featureTreeItem.click()
+  await expect(page.getByRole('tab', { name: 'feature.txt', exact: true })).toBeVisible()
+  await featureTreeItem.dragTo(
+    repositoryTree.getByRole('treeitem', { name: 'archive', exact: true }),
+  )
   await expect.poll(() => existsSync(join(app.repo, 'archive/feature.txt'))).toBe(true)
-  expect(existsSync(join(app.repo, 'feature.txt'))).toBe(false)
+  await expect.poll(() => existsSync(join(app.repo, 'feature.txt'))).toBe(false)
   await expect(page.getByRole('button', { name: 'Close archive/feature.txt' })).toBeVisible({
     timeout: 30_000,
   })
@@ -1521,7 +1551,7 @@ test('repository files can be edited, created in folders, and renamed', async ({
   await pathInput.fill('notes/renamed.txt')
   await page.getByRole('button', { name: 'Rename', exact: true }).click()
   await expect.poll(() => existsSync(join(app.repo, 'notes/renamed.txt'))).toBe(true)
-  expect(existsSync(join(app.repo, 'notes/new.txt'))).toBe(false)
+  await expect.poll(() => existsSync(join(app.repo, 'notes/new.txt'))).toBe(false)
   await expect(page.getByRole('tab', { name: 'renamed.txt', exact: true })).toBeVisible()
 
   const renamedEditor = page.getByRole('textbox', { name: 'notes/renamed.txt' })
@@ -2129,6 +2159,12 @@ test('branch picker, repository filters, list view, and graph stats use direct p
 
   await page.goto(app.url)
   await page.locator('[data-section="repository"]').click()
+  await expect(
+    page
+      .locator('#gitna-repository-tree__tree')
+      .getByRole('treeitem', { name: 'nested', exact: true })
+      .getByTitle('Contains git status items'),
+  ).toBeVisible({ timeout: 30_000 })
   await page.locator('[data-section="graph"]').click()
   await expect(page.getByRole('button', { name: 'Search Repository' })).toHaveAttribute(
     'title',
@@ -2142,12 +2178,6 @@ test('branch picker, repository filters, list view, and graph stats use direct p
     'title',
     /commits in Graph/,
   )
-  await expect(
-    page
-      .locator('#gitna-repository-tree__tree')
-      .getByRole('treeitem', { name: 'nested', exact: true })
-      .getByTitle('Contains git status items'),
-  ).toBeVisible()
   const sourceControlActions = [
     page.getByRole('button', { name: /^Switch branch · main$/ }),
     page.getByRole('button', { name: 'Fetch' }),

@@ -32,5 +32,5 @@ export default function globalSetup(): () => void {
   execFileSync('go', ['build', '-o', binary, './cmd/gitna'], { cwd: root, stdio: 'inherit' })
 
   process.env.GITNA_E2E_BINARY = binary
-  return () => rmSync(temp, { recursive: true, force: true })
+  return () => rmSync(temp, { recursive: true, force: true, maxRetries: 20, retryDelay: 250 })
 }

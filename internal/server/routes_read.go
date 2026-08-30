@@ -355,6 +355,9 @@ func (s *Server) handleDirectoryEntries(w http.ResponseWriter, r *http.Request) 
 		generation := s.gen.Load()
 		entries, err := repo.DirectoryEntries(ctx, r.URL.Query().Get("path"), after, directoryEntryLimit)
 		if err != nil {
+			if r.Context().Err() == context.Canceled {
+				return
+			}
 			if timeoutReached(ctx, err) {
 				writeJSON(w, http.StatusGatewayTimeout, map[string]string{"error": "directory listing timed out"})
 				return

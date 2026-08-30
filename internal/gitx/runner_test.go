@@ -24,6 +24,8 @@ func TestHelperProcess(t *testing.T) {
 	case "split-output":
 		fmt.Fprint(os.Stderr, "error-out\n")
 		fmt.Fprint(os.Stdout, "stdout-out\n")
+	case "echo-env":
+		fmt.Fprint(os.Stdout, os.Getenv("GIT_OPTIONAL_LOCKS"))
 	case "echo-stdin":
 		in, err := io.ReadAll(os.Stdin)
 		if err != nil {
@@ -77,6 +79,19 @@ func TestRunPassesArgsDirectly(t *testing.T) {
 	}
 	if strings.Contains(got, "$HOME") {
 		// The marker above asserts literal pass-through; a shell would expand it.
+	}
+}
+
+func TestRunDisablesOptionalGitLocks(t *testing.T) {
+	setHelper(t, "echo-env")
+	r := helperRunner(t)
+
+	res, err := r.Run(context.Background(), t.TempDir())
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if got := strings.TrimSpace(string(res.Stdout)); got != "0" {
+		t.Fatalf("GIT_OPTIONAL_LOCKS = %q, want 0", got)
 	}
 }
 

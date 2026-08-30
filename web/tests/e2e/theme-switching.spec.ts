@@ -6,9 +6,20 @@ test('an open editable file follows a dark to light theme round trip', async ({ 
   writeFileSync(join(app.repo, 'theme.ts'), 'export const answer = 42\n')
   await page.goto(app.url)
 
-  await page.getByRole('button', { name: 'Theme settings' }).click()
-  await page.getByRole('button', { name: 'Light', exact: true }).click()
-  await page.keyboard.press('Escape')
+  const chooseTheme = async (name: 'Dark' | 'Light') => {
+    const trigger = page.getByRole('button', { name: 'Theme settings' })
+    await expect(trigger).toHaveAttribute('aria-expanded', 'false')
+    await trigger.click()
+    await expect(trigger).toHaveAttribute('aria-expanded', 'true')
+    const menu = page.getByRole('menu')
+    await expect(menu).toBeVisible()
+    await menu.getByRole('button', { name, exact: true }).click()
+    await page.keyboard.press('Escape')
+    await expect(menu).toHaveCount(0)
+    await expect(trigger).toHaveAttribute('aria-expanded', 'false')
+  }
+
+  await chooseTheme('Light')
 
   await page.locator('[data-section="repository"]').click()
   await page
@@ -22,13 +33,9 @@ test('an open editable file follows a dark to light theme round trip', async ({ 
     codeSurface.evaluate((element) => getComputedStyle(element).backgroundColor)
   const lightBackground = await background()
 
-  await page.getByRole('button', { name: 'Theme settings' }).click()
-  await page.getByRole('button', { name: 'Dark', exact: true }).click()
-  await page.keyboard.press('Escape')
+  await chooseTheme('Dark')
   await expect.poll(background).not.toBe(lightBackground)
 
-  await page.getByRole('button', { name: 'Theme settings' }).click()
-  await page.getByRole('button', { name: 'Light', exact: true }).click()
-  await page.keyboard.press('Escape')
+  await chooseTheme('Light')
   await expect.poll(background).toBe(lightBackground)
 })

@@ -19,10 +19,17 @@ cd "$root"
 mkdir -p "$output_dir"
 output_dir="$(cd "$output_dir" && pwd)"
 
-pnpm --dir web install --frozen-lockfile
-pnpm --dir web build
-node scripts/generate-third-party-licenses.mjs
-git diff --exit-code -- THIRD_PARTY_LICENSES.txt
+if [[ "${GITNA_USE_PREBUILT_WEB:-0}" == "1" ]]; then
+  [[ -f internal/webui/dist/index.html ]] || {
+    echo "prebuilt frontend is missing internal/webui/dist/index.html" >&2
+    exit 1
+  }
+else
+  pnpm --dir web install --frozen-lockfile
+  pnpm --dir web build
+  node scripts/generate-third-party-licenses.mjs
+  git diff --exit-code -- THIRD_PARTY_LICENSES.txt
+fi
 
 package_unix() {
   local goos="$1"

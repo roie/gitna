@@ -426,13 +426,21 @@ export class GitnaRepository {
     refresh = false,
   ): Promise<readonly string[] | null> {
     const key = directory.replace(/\/$/, '')
+    const existing = this.ordinaryDirectoryRequests.get(key)
     if (!refresh) {
       const loaded = this.ordinaryDirectoryChildren.get(key)
       if (loaded != null) return loaded
-      const existing = this.ordinaryDirectoryRequests.get(key)
       if (existing != null) return existing
+    } else if (existing != null) {
+      try {
+        await existing
+      } catch {
+        // A requested refresh supersedes the failed in-flight listing.
+      }
+      const refreshing = this.ordinaryDirectoryRequests.get(key)
+      if (refreshing != null) return refreshing
     }
-    return this.fetchOrdinaryDirectoryPage(key, undefined, refresh)
+    return this.fetchOrdinaryDirectoryPage(key, undefined)
   }
 
   async loadMoreOrdinaryDirectory(directory: string): Promise<readonly string[] | null> {
@@ -441,15 +449,13 @@ export class GitnaRepository {
     if (cursor == null) return this.ordinaryDirectoryChildren.get(key) ?? []
     const existing = this.ordinaryDirectoryRequests.get(key)
     if (existing != null) return existing
-    return this.fetchOrdinaryDirectoryPage(key, cursor, false)
+    return this.fetchOrdinaryDirectoryPage(key, cursor)
   }
 
   private fetchOrdinaryDirectoryPage(
     key: string,
     cursor: string | undefined,
-    refresh: boolean,
   ): Promise<readonly string[] | null> {
-    if (refresh) this.ordinaryDirectoryControllers.get(key)?.abort()
     const controller = new AbortController()
     this.ordinaryDirectoryControllers.set(key, controller)
     const operation = (async (): Promise<readonly string[] | null> => {
@@ -737,7 +743,7 @@ export class GitnaRepository {
     }
   }
 
-  async refreshGraph(): Promise<void> {
+  async refreshGraph(countRecovery = 0): Promise<void> {
     const request = ++this.graphRequest
     const countRequest = ++this.graphCountRequest
     const epoch = this.repositoryEpoch
@@ -749,7 +755,24 @@ export class GitnaRepository {
     this.graphError = null
     this.emit()
     try {
-      const page = await this.api.graph(0, undefined, controller.signal)
+      let page
+      for (let attempt = 0; ; attempt += 1) {
+        try {
+          page = await this.api.graph(0, undefined, controller.signal)
+          break
+        } catch (error) {
+          if (
+            !(error instanceof ApiError) ||
+            error.status !== 409 ||
+            attempt >= 2 ||
+            controller.signal.aborted ||
+            request !== this.graphRequest ||
+            epoch !== this.repositoryEpoch
+          ) {
+            throw error
+          }
+        }
+      }
       if (request !== this.graphRequest || epoch !== this.repositoryEpoch) return
       this.graphCommits = page.commits
       this.graphRows = computeGraph(page.commits)
@@ -774,7 +797,7 @@ export class GitnaRepository {
         this.commitDiff = null
       }
       if (page.tip !== '' && this.graphTotal == null) {
-        void this.loadGraphCount(page.tip, page.generation, countRequest, epoch)
+        void this.loadGraphCount(page.tip, page.generation, countRequest, epoch, countRecovery)
       }
       markStartup('graph-ready')
     } catch (error) {
@@ -799,6 +822,7 @@ export class GitnaRepository {
     generation: number,
     request: number,
     epoch: number,
+    recovery: number,
   ): Promise<void> {
     const cacheKey = graphCountCacheKey(tip, generation)
     const cached = this.graphCountCache.get(cacheKey)
@@ -811,6 +835,7 @@ export class GitnaRepository {
     this.graphCountController = controller
     this.graphCountLoading = true
     this.emit()
+    let refresh = false
     try {
       const count = await this.api.graphCount(tip, generation, controller.signal)
       if (
@@ -826,8 +851,17 @@ export class GitnaRepository {
       }
       this.graphCountCache.set(cacheKey, count.total)
       this.graphTotal = count.total
-    } catch {
-      // Counting is optional metadata; loaded history remains usable and truthful.
+    } catch (error) {
+      refresh =
+        error instanceof ApiError &&
+        error.status === 409 &&
+        recovery < 2 &&
+        !controller.signal.aborted &&
+        request === this.graphCountRequest &&
+        epoch === this.repositoryEpoch &&
+        tip === this.graphTip &&
+        generation === this.graphGeneration
+      // Other count failures leave loaded history usable and truthful.
     } finally {
       if (this.graphCountController === controller) {
         this.graphCountController = null
@@ -835,6 +869,7 @@ export class GitnaRepository {
         this.emit()
       }
     }
+    if (refresh) await this.refreshGraph(recovery + 1)
   }
 
   async loadMoreGraph(): Promise<void> {

@@ -37,14 +37,15 @@ type Runner interface {
 
 // ExecRunner invokes a Git executable directly with exec.CommandContext.
 // Arguments are passed verbatim; no shell is involved. The caller's
-// environment is preserved except GIT_TERMINAL_PROMPT, which is forced to 0
-// so credential prompts cannot hang the local server.
+// environment is preserved except GIT_TERMINAL_PROMPT and GIT_OPTIONAL_LOCKS,
+// which default to 0 so prompts cannot hang the server and snapshot reads do
+// not contend with mutations for optional index refresh locks.
 type ExecRunner struct {
 	// Exec is the git binary. Empty means "git" from PATH. Overridable for
 	// tests.
 	Exec string
 	// Env provides extra environment variables appended to the caller's
-	// environment (after GIT_TERMINAL_PROMPT=0). Nil means none.
+	// environment (after the runner defaults above). Nil means none.
 	Env []string
 	// StdoutLimit caps captured stdout. Zero means DefaultStdoutLimit.
 	StdoutLimit int
@@ -88,7 +89,8 @@ func (r *ExecRunner) run(ctx context.Context, repoRoot string, stdin []byte, arg
 		cmd.WaitDelay = 2 * time.Second
 	}
 	cmd.Dir = repoRoot
-	cmd.Env = envWith(os.Environ(), "GIT_TERMINAL_PROMPT=0")
+	// Snapshot reads can overlap mutations; prevent optional index refreshes from taking index.lock.
+	cmd.Env = envWith(os.Environ(), "GIT_TERMINAL_PROMPT=0", "GIT_OPTIONAL_LOCKS=0")
 	if len(r.Env) > 0 {
 		cmd.Env = envWith(cmd.Env, r.Env...)
 	}

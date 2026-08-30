@@ -5,87 +5,141 @@ on:
     tags:
       - "v*"
 
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
 permissions:
   contents: read
 
+env:
+  GOMODCACHE: ${{ github.workspace }}/go-mod-cache
+
 jobs:
-  verify:
-    runs-on: ubuntu-latest
+  preflight:
+    name: Verify release provenance
+    runs-on: ubuntu-24.04
+    permissions:
+      actions: read
+      contents: read
     steps:
-      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Verify annotated tag and successful main CI
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          [[ "$GITHUB_REF_NAME" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]
+          test "$(git cat-file -t "$GITHUB_REF_NAME")" = tag
+          commit="$(git rev-parse "$GITHUB_REF_NAME^{}")"
+          git fetch --no-tags origin main
+          git merge-base --is-ancestor "$commit" origin/main
+          run_url="$(gh api -X GET "repos/$GITHUB_REPOSITORY/actions/workflows/ci.yml/runs" \
+            -f head_sha="$commit" \
+            -f branch=main \
+            -f event=push \
+            -f status=success \
+            -f per_page=1 \
+            --jq '.workflow_runs[0].html_url // empty')"
+          if [[ -z "$run_url" ]]; then
+            echo "No successful main CI run exists for $commit" >&2
+            exit 1
+          fi
+          echo "Release commit: $commit"
+          echo "Verified CI: $run_url"
+
+  prepare:
+    name: Prepare release inputs
+    needs: preflight
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v4.4.0
+      - uses: pnpm/action-setup@ff378ebe6b225b0680b81c1ad4498ae0d1d3a5e3 # v6.0.10
         with:
           version: 11.24.0
-      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # zizmor: ignore[cache-poisoning] pinned release toolchain
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: 24
-      - uses: actions/setup-go@d35c59abb061a4a6fb18e82ac0862c26744d6ab5 # v5.5.0
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: go.mod
           cache: false
-      - name: Install frontend dependencies
-        run: pnpm --dir web install --frozen-lockfile
-      - name: Verify frontend and release sources
+      - name: Build embedded frontend and verify licenses
         run: |
-          pnpm --dir web check
-          pnpm --dir web lint
-          pnpm --dir web test
-          pnpm --dir web format:check
-          web/node_modules/.bin/tsc -p tsconfig.json
-          web/node_modules/.bin/oxfmt --config web/.oxfmtrc.json --check scripts/generate-third-party-licenses.mjs scripts/package-npm.mjs npm/gitna
-          node --test npm/gitna/test/platform.test.mjs
-      - name: Verify embedded frontend and licenses
-        run: |
+          pnpm --dir web install --frozen-lockfile
           pnpm --dir web build
           node scripts/generate-third-party-licenses.mjs
           git diff --exit-code -- THIRD_PARTY_LICENSES.txt
-      - name: Verify Go application
-        run: |
-          go vet ./...
-          go test ./...
-          go test -race ./...
+      - name: Download Go modules
+        run: go mod download
+      - name: Package npm launcher
+        run: node scripts/package-npm.mjs "${GITHUB_REF_NAME#v}" dist-npm
+      - name: Upload embedded frontend
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: embedded-web
+          path: internal/webui/dist/
+          if-no-files-found: error
+          retention-days: 1
+      - name: Upload npm launcher
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: npm-release
+          path: dist-npm/*.tgz
+          if-no-files-found: error
+          retention-days: 1
+      - name: Upload Go modules
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: go-modules
+          path: go-mod-cache/
+          if-no-files-found: error
+          retention-days: 1
 
   package-linux:
-    needs: verify
-    runs-on: ubuntu-latest
+    name: Package Linux
+    needs: prepare
+    runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v4.4.0
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
-          version: 11.24.0
-      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # zizmor: ignore[cache-poisoning] pinned release toolchain
-        with:
-          node-version: 24
-      - uses: actions/setup-go@d35c59abb061a4a6fb18e82ac0862c26744d6ab5 # v5.5.0
+          name: embedded-web
+          path: internal/webui/dist
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: go.mod
           cache: false
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: go-modules
+          path: go-mod-cache
       - name: Package Linux assets
-        run: ./scripts/package.sh "${GITHUB_REF_NAME}" dist
-      - name: Verify packaged versions
-        run: | # zizmor: ignore[adhoc-packages]
+        env:
+          GITNA_USE_PREBUILT_WEB: "1"
+        run: ./scripts/package.sh "$GITHUB_REF_NAME" dist
+      - name: Smoke test exact Linux release binary
+        run: |
           version="${GITHUB_REF_NAME#v}"
           mkdir release-smoke
           tar -xzf "dist/gitna_${version}_linux_x64.tar.gz" -C release-smoke
-          test "$(release-smoke/gitna --version)" = "$version"
-      - name: Install Chromium
-        run: pnpm --dir web exec playwright install --with-deps chromium
-      - name: Smoke test exact Linux release binary
-        env:
-          GITNA_E2E_BINARY: ${{ github.workspace }}/release-smoke/gitna
-        run: pnpm --dir web test:e2e
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+          ./scripts/smoke-release.sh "$PWD/release-smoke/gitna" "$version"
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: linux-release-assets
           path: dist/*.tar.gz
           if-no-files-found: error
+          retention-days: 1
 
   package-macos:
-    needs: verify
+    name: Package macOS (${{ matrix.asset_arch }})
+    needs: prepare
     strategy:
       fail-fast: false
       matrix:
@@ -98,122 +152,127 @@ jobs:
             asset_arch: x64
     runs-on: ${{ matrix.runner }}
     steps:
-      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v4.4.0
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
-          version: 11.24.0
-      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # zizmor: ignore[cache-poisoning] pinned release toolchain
-        with:
-          node-version: 24
-      - uses: actions/setup-go@d35c59abb061a4a6fb18e82ac0862c26744d6ab5 # v5.5.0
+          name: embedded-web
+          path: internal/webui/dist
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: go.mod
           cache: false
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: go-modules
+          path: go-mod-cache
       - name: Package macOS asset
-        run: ./scripts/package.sh "${GITHUB_REF_NAME}" dist "${{ matrix.target }}"
+        env:
+          GITNA_USE_PREBUILT_WEB: "1"
+        run: ./scripts/package.sh "$GITHUB_REF_NAME" dist "${{ matrix.target }}"
       - name: Smoke test exact macOS release binary
-        run: | # zizmor: ignore[adhoc-packages]
+        run: |
           version="${GITHUB_REF_NAME#v}"
           mkdir release-smoke
           tar -xzf "dist/gitna_${version}_darwin_${{ matrix.asset_arch }}.tar.gz" -C release-smoke
           ./scripts/smoke-release.sh "$PWD/release-smoke/gitna" "$version"
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: macos-${{ matrix.asset_arch }}-release-assets
           path: dist/*.tar.gz
           if-no-files-found: error
+          retention-days: 1
 
   package-windows:
-    needs: verify
-    runs-on: windows-latest
+    name: Package Windows
+    needs: prepare
+    runs-on: windows-2025
     steps:
-      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v4.4.0
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
-          version: 11.24.0
-      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # zizmor: ignore[cache-poisoning] pinned release toolchain
-        with:
-          node-version: 24
-      - uses: actions/setup-go@d35c59abb061a4a6fb18e82ac0862c26744d6ab5 # v5.5.0
+          name: embedded-web
+          path: internal/webui/dist
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: go.mod
           cache: false
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: go-modules
+          path: go-mod-cache
       - name: Package Windows asset
         shell: pwsh
+        env:
+          GITNA_USE_PREBUILT_WEB: "1"
         run: ./scripts/package.ps1 $env:GITHUB_REF_NAME dist
-      - name: Verify packaged versions
+      - name: Smoke test exact Windows release binary
         shell: pwsh
-        run: | # zizmor: ignore[adhoc-packages]
+        run: |
           $Version = $env:GITHUB_REF_NAME.TrimStart("v")
           Expand-Archive "dist/gitna_${Version}_windows_x64.zip" release-smoke
           if ((& ./release-smoke/gitna.exe --version) -ne $Version) {
             throw "packaged binary reported the wrong version"
           }
-      - name: Install Chromium
-        run: pnpm --dir web exec playwright install chromium
-      - name: Smoke test exact Windows release binary
-        shell: pwsh
-        run: |
-          $env:GITNA_E2E_BINARY = (Resolve-Path ./release-smoke/gitna.exe).Path
-          pnpm --dir web test:e2e
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: windows-release-assets
           path: dist/*.zip
           if-no-files-found: error
+          retention-days: 1
 
   publish:
+    name: Publish release
     needs:
+      - prepare
       - package-linux
       - package-macos
       - package-windows
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     permissions:
       contents: write
       id-token: write
     steps:
-      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
-        with:
-          fetch-depth: 0
-          persist-credentials: false
-      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           pattern: "*-release-assets"
           path: dist
           merge-multiple: true
-      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # zizmor: ignore[cache-poisoning] pinned npm publisher
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: npm-release
+          path: dist
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: 24
           registry-url: https://registry.npmjs.org
-      - name: Generate checksums
-        working-directory: dist
-        run: sha256sum gitna_* > checksums.txt
+      - name: Generate checksums and smoke test npm launcher
+        env:
+          GITNA_CACHE_DIR: ${{ runner.temp }}/gitna-npm-cache
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          (cd dist && sha256sum gitna_* > checksums.txt)
+          mkdir npm-smoke
+          npm install --prefix npm-smoke "./dist/gitna-${version}.tgz"
+          python3 -m http.server 4173 --bind 127.0.0.1 --directory dist >release-server.log 2>&1 &
+          server_pid=$!
+          trap 'kill "$server_pid" 2>/dev/null || true' EXIT
+          export GITNA_RELEASE_BASE=http://127.0.0.1:4173
+          test "$(npm-smoke/node_modules/.bin/gitna --version)" = "$version"
       - name: Publish GitHub release
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh release create "$GITHUB_REF_NAME" dist/gitna_* dist/checksums.txt --verify-tag --generate-notes --title "Gitna ${GITHUB_REF_NAME#v}"
-      - name: Package and smoke test npm launcher
-        env:
-          GITNA_CACHE_DIR: ${{ runner.temp }}/gitna-npm-cache
-        run: | # zizmor: ignore[adhoc-packages]
-          version="${GITHUB_REF_NAME#v}"
-          node scripts/package-npm.mjs "$version" dist
-          mkdir npm-smoke
-          npm install --prefix npm-smoke "./dist/gitna-${version}.tgz"
-          test "$(npm-smoke/node_modules/.bin/gitna --version)" = "$version"
+        run: |
+          if ! gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
+            gh release create "$GITHUB_REF_NAME" dist/gitna_* dist/checksums.txt \
+              --verify-tag \
+              --generate-notes \
+              --title "Gitna ${GITHUB_REF_NAME#v}"
+          fi
       - name: Publish npm package
         run: |
           version="${GITHUB_REF_NAME#v}"
           npm publish "./dist/gitna-${version}.tgz" --access public --provenance
-      - name: Hide incomplete GitHub release
-        if: failure()
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
-            gh release edit "$GITHUB_REF_NAME" --draft
-          fi

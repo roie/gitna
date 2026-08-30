@@ -102,53 +102,67 @@ async function startGitna(
   child.stderr?.setEncoding('utf8')
   child.stderr?.on('data', (chunk: string) => (stderr += chunk))
 
-  const url = await new Promise<string>((resolve, reject) => {
-    const timer = setTimeout(
-      () => reject(new Error(`gitna did not emit a capability URL: ${stderr}`)),
-      15_000,
-    )
-    const lines = createInterface({ input: child.stdout! })
-    lines.on('line', (line) => {
-      const match = line.match(/^URL\s+(http:\/\/[^\s]+)$/)
-      if (!match) return
-      clearTimeout(timer)
-      lines.close()
-      resolve(match[1])
+  try {
+    const url = await new Promise<string>((resolve, reject) => {
+      const timer = setTimeout(
+        () => reject(new Error(`gitna did not emit a capability URL: ${stderr}`)),
+        15_000,
+      )
+      const lines = createInterface({ input: child.stdout! })
+      lines.on('line', (line) => {
+        const match = line.match(/^URL\s+(http:\/\/[^\s]+)$/)
+        if (!match) return
+        clearTimeout(timer)
+        lines.close()
+        resolve(match[1])
+      })
+      child.once('error', (error) => {
+        clearTimeout(timer)
+        reject(error)
+      })
+      child.once('exit', (code) => {
+        clearTimeout(timer)
+        reject(new Error(`gitna exited before startup (${code}): ${stderr}`))
+      })
     })
-    child.once('error', (error) => {
-      clearTimeout(timer)
-      reject(error)
-    })
-    child.once('exit', (code) => {
-      clearTimeout(timer)
-      reject(new Error(`gitna exited before startup (${code}): ${stderr}`))
-    })
-  })
 
-  for (let attempt = 0; attempt < 50; attempt += 1) {
-    try {
-      const response = await fetch(url, { redirect: 'manual' })
-      if (response.status === 200) {
-        const snapshotResponse = await fetch(new URL('api/v1/snapshot', url))
-        if (snapshotResponse.ok) {
-          const snapshot = (await snapshotResponse.json()) as { root: string }
-          return { child, url, root: snapshot.root }
+    for (let attempt = 0; attempt < 50; attempt += 1) {
+      try {
+        const response = await fetch(url, { redirect: 'manual' })
+        if (response.status === 200) {
+          const snapshotResponse = await fetch(new URL('api/v1/snapshot', url))
+          if (snapshotResponse.ok) {
+            const snapshot = (await snapshotResponse.json()) as { root: string }
+            return { child, url, root: snapshot.root }
+          }
         }
+      } catch {
+        // The serving URL is printed immediately before Serve starts.
       }
-    } catch {
-      // The serving URL is printed immediately before Serve starts.
+      await new Promise((resolve) => setTimeout(resolve, 50))
     }
-    await new Promise((resolve) => setTimeout(resolve, 50))
+    throw new Error(`gitna never became reachable at ${url}`)
+  } catch (error) {
+    await stopGitna(child)
+    throw error
   }
-  child.kill('SIGTERM')
-  throw new Error(`gitna never became reachable at ${url}`)
 }
 
 async function stopGitna(child: ChildProcess): Promise<void> {
   if (child.exitCode !== null || child.signalCode !== null) return
   const exited = new Promise<void>((resolve) => child.once('exit', () => resolve()))
+  const waitForExit = (timeout: number) =>
+    new Promise<boolean>((resolve) => {
+      const timer = setTimeout(() => resolve(false), timeout)
+      void exited.then(() => {
+        clearTimeout(timer)
+        resolve(true)
+      })
+    })
+
   if (process.platform === 'win32' && child.pid) {
-    spawnSync('taskkill', ['/pid', String(child.pid), '/t', '/f'])
+    const result = spawnSync('taskkill', ['/pid', String(child.pid), '/t', '/f'])
+    if (result.status !== 0 && child.exitCode === null) child.kill()
   } else if (child.pid) {
     try {
       process.kill(-child.pid, 'SIGTERM')
@@ -156,36 +170,33 @@ async function stopGitna(child: ChildProcess): Promise<void> {
       child.kill('SIGTERM')
     }
   }
-  if (
-    await Promise.race([
-      exited.then(() => true),
-      new Promise<false>((resolve) => setTimeout(() => resolve(false), 5_000)),
-    ])
-  )
-    return
-  if (child.pid && process.platform !== 'win32') {
+  if (await waitForExit(5_000)) return
+
+  if (child.pid && process.platform === 'win32') {
+    spawnSync('taskkill', ['/pid', String(child.pid), '/t', '/f'])
+    if (child.exitCode === null) child.kill()
+  } else if (child.pid) {
     try {
       process.kill(-child.pid, 'SIGKILL')
     } catch {
       child.kill('SIGKILL')
     }
   }
-  await exited
+  if (!(await waitForExit(5_000))) {
+    throw new Error(`gitna process ${child.pid ?? 'unknown'} did not exit after forced shutdown`)
+  }
 }
 
 function removeTempFixture(temp: string): void {
   try {
     rmSync(temp, { recursive: true, force: true, maxRetries: 20, retryDelay: 250 })
   } catch (error) {
-    if (process.platform !== 'win32' || (error as NodeJS.ErrnoException).code !== 'EPERM') {
-      throw error
-    }
-    console.warn(`Could not remove Windows test fixture ${temp}: ${String(error)}`)
+    throw new Error(`Could not remove test fixture ${temp}: ${String(error)}`, { cause: error })
   }
 }
 
 export const test = base.extend<{ app: GitnaFixture }>({
-  app: async ({ browserName }, use) => {
+  app: async ({ browserName, context }, use) => {
     const binary = process.env.GITNA_E2E_BINARY
     if (!binary) throw new Error('GITNA_E2E_BINARY was not set by global setup')
     const temp = mkdtempSync(join(tmpdir(), `gitna-e2e-${browserName}-`))
@@ -203,8 +214,15 @@ export const test = base.extend<{ app: GitnaFixture }>({
         token: parsed.pathname.split('/')[2] ?? '',
       })
     } finally {
-      if (child) await stopGitna(child)
-      removeTempFixture(temp)
+      try {
+        await context.close()
+      } finally {
+        try {
+          if (child) await stopGitna(child)
+        } finally {
+          removeTempFixture(temp)
+        }
+      }
     }
   },
 })

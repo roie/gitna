@@ -1,8 +1,14 @@
 import { describe, expect, it, vi } from 'vitest'
 
 import { GitnaRepository } from '../src/diffshub/gitna/repository'
-import type { ApiClient } from '../src/lib/api'
-import type { Branch, GraphPage, RepositoryFiles, RepoSnapshot } from '../src/lib/types'
+import { ApiError, type ApiClient } from '../src/lib/api'
+import type {
+  Branch,
+  DirectoryEntries,
+  GraphPage,
+  RepositoryFiles,
+  RepoSnapshot,
+} from '../src/lib/types'
 
 function deferred<T>() {
   let resolve!: (value: T) => void
@@ -26,7 +32,7 @@ function snapshot(root: string, generation: number): RepoSnapshot {
   }
 }
 
-function graphPage(oid: string): GraphPage {
+function graphPage(oid: string, generation = 1): GraphPage {
   return {
     commits: [
       {
@@ -40,7 +46,7 @@ function graphPage(oid: string): GraphPage {
     ],
     hasMore: false,
     tip: oid,
-    generation: 1,
+    generation,
   }
 }
 
@@ -64,6 +70,66 @@ describe('GitnaRepository request sequencing', () => {
     expect(repository.graphLoading).toBe(false)
   })
 
+  it('retries a full graph refresh when the generation changes while loading', async () => {
+    const api = {
+      graph: vi
+        .fn()
+        .mockRejectedValueOnce(new ApiError(409, 'graph changed while loading'))
+        .mockResolvedValueOnce(graphPage('current')),
+      graphCount: vi.fn().mockResolvedValue({ tip: 'current', generation: 1, total: 1 }),
+    } as unknown as ApiClient
+    const repository = new GitnaRepository(api)
+
+    await repository.refreshGraph()
+
+    expect(api.graph).toHaveBeenCalledTimes(2)
+    expect(repository.graphCommits.map((commit) => commit.oid)).toEqual(['current'])
+    expect(repository.graphError).toBeNull()
+    expect(repository.graphLoading).toBe(false)
+  })
+
+  it('refreshes graph state once when an exact count observes a new generation', async () => {
+    const api = {
+      graph: vi
+        .fn()
+        .mockResolvedValueOnce(graphPage('current', 1))
+        .mockResolvedValueOnce(graphPage('current', 2)),
+      graphCount: vi
+        .fn()
+        .mockRejectedValueOnce(new ApiError(409, 'graph changed while counting'))
+        .mockResolvedValueOnce({ tip: 'current', generation: 2, total: 1 }),
+    } as unknown as ApiClient
+    const repository = new GitnaRepository(api)
+
+    await repository.refreshGraph()
+    await vi.waitFor(() => expect(repository.graphTotal).toBe(1))
+
+    expect(api.graph).toHaveBeenCalledTimes(2)
+    expect(api.graphCount).toHaveBeenCalledTimes(2)
+    expect(repository.graphGeneration).toBe(2)
+    expect(repository.graphCountLoading).toBe(false)
+  })
+
+  it('does not loop when an exact count remains invalidated', async () => {
+    const api = {
+      graph: vi
+        .fn()
+        .mockResolvedValueOnce(graphPage('current', 1))
+        .mockResolvedValueOnce(graphPage('current', 2))
+        .mockResolvedValueOnce(graphPage('current', 3)),
+      graphCount: vi.fn().mockRejectedValue(new ApiError(409, 'graph changed while counting')),
+    } as unknown as ApiClient
+    const repository = new GitnaRepository(api)
+
+    await repository.refreshGraph()
+    await vi.waitFor(() => expect(api.graphCount).toHaveBeenCalledTimes(3))
+
+    expect(api.graph).toHaveBeenCalledTimes(3)
+    expect(api.graphCount).toHaveBeenCalledTimes(3)
+    expect(repository.graphTotal).toBeNull()
+    expect(repository.graphCountLoading).toBe(false)
+  })
+
   it('keeps the newest branches when refreshes resolve out of order', async () => {
     const first = deferred<Branch[]>()
     const second = deferred<Branch[]>()
@@ -81,6 +147,39 @@ describe('GitnaRepository request sequencing', () => {
 
     expect(repository.branches.map((branch) => branch.name)).toEqual(['new'])
     expect(repository.branchesLoading).toBe(false)
+  })
+
+  it('serializes an ordinary-folder refresh behind an in-flight listing', async () => {
+    const first = deferred<DirectoryEntries>()
+    const second = deferred<DirectoryEntries>()
+    const api = {
+      directoryEntries: vi
+        .fn()
+        .mockReturnValueOnce(first.promise)
+        .mockReturnValueOnce(second.promise),
+    } as unknown as ApiClient
+    const repository = new GitnaRepository(api)
+
+    const initial = repository.loadOrdinaryDirectory('')
+    const refresh = repository.loadOrdinaryDirectory('', true)
+    expect(api.directoryEntries).toHaveBeenCalledTimes(1)
+
+    first.resolve({
+      directory: '',
+      entries: [{ kind: 'file', name: 'stale.txt', path: 'stale.txt' }],
+      generation: 1,
+      truncated: false,
+    })
+    await vi.waitFor(() => expect(api.directoryEntries).toHaveBeenCalledTimes(2))
+    second.resolve({
+      directory: '',
+      entries: [{ kind: 'file', name: 'current.txt', path: 'current.txt' }],
+      generation: 2,
+      truncated: false,
+    })
+    await Promise.all([initial, refresh])
+
+    expect(repository.repositoryPaths).toEqual(['current.txt'])
   })
 
   it('publishes paged Explorer files atomically', async () => {

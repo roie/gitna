@@ -1,8 +1,19 @@
 name: CI
 
 on:
+  push:
+    branches:
+      - main
   pull_request:
   workflow_dispatch:
+    inputs:
+      suite:
+        description: Checks to run
+        type: choice
+        options:
+          - all
+          - windows-browser
+        default: all
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
@@ -11,26 +22,24 @@ concurrency:
 permissions:
   contents: read
 
+env:
+  GOMODCACHE: ${{ github.workspace }}/go-mod-cache
+
 jobs:
-  verify:
-    strategy:
-      fail-fast: false
-      matrix:
-        os:
-          - ubuntu-latest
-          - windows-latest
-    runs-on: ${{ matrix.os }}
+  source:
+    name: Source checks
+    runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v4.4.0
+      - uses: pnpm/action-setup@ff378ebe6b225b0680b81c1ad4498ae0d1d3a5e3 # v6.0.10
         with:
           version: 11.24.0
-      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: 24
-      - uses: actions/setup-go@d35c59abb061a4a6fb18e82ac0862c26744d6ab5 # v5.5.0
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: go.mod
           cache: false
@@ -41,104 +50,143 @@ jobs:
           pnpm --dir web check
           pnpm --dir web lint
           pnpm --dir web test
-      - name: Check formatting and release scripts
-        if: runner.os == 'Linux'
-        run: |
           pnpm --dir web format:check
+      - name: Check release sources and npm launcher
+        run: |
           web/node_modules/.bin/tsc -p tsconfig.json
           web/node_modules/.bin/oxfmt --config web/.oxfmtrc.json --check scripts/generate-third-party-licenses.mjs scripts/package-npm.mjs npm/gitna
-      - name: Test npm launcher
-        run: |
           node --test npm/gitna/test/platform.test.mjs
           node scripts/package-npm.mjs 0.0.0 dist-npm
-          node -e "if (!require('node:fs').existsSync('dist-npm/gitna-0.0.0.tgz')) process.exit(1)"
+          test -f dist-npm/gitna-0.0.0.tgz
       - name: Build embedded frontend
         run: pnpm --dir web build
       - name: Verify license inventory
-        shell: bash
         run: |
           node scripts/generate-third-party-licenses.mjs
           git diff --exit-code -- THIRD_PARTY_LICENSES.txt
-      - name: Test and build Go application
+      - name: Check Go application
         run: |
           go vet ./...
-          go test ./...
+          go test -race ./...
           go build -trimpath ./cmd/gitna
-      - name: Smoke test Windows release packaging
-        if: runner.os == 'Windows'
+      - name: Upload embedded frontend
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: embedded-web
+          path: internal/webui/dist/
+          if-no-files-found: error
+          retention-days: 1
+      - name: Upload Go modules
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: go-modules
+          path: go-mod-cache/
+          if-no-files-found: error
+          retention-days: 1
+
+  native:
+    name: Native checks (${{ matrix.name }})
+    if: github.event_name != 'workflow_dispatch' || inputs.suite == 'all'
+    needs: source
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: windows-x64
+            runner: windows-2025
+            target: windows
+          - name: macos-arm64
+            runner: macos-15
+            target: darwin-arm64
+            asset_arch: arm64
+          - name: macos-x64
+            runner: macos-15-intel
+            target: darwin-x64
+            asset_arch: x64
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: embedded-web
+          path: internal/webui/dist
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+          cache: false
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: go-modules
+          path: go-mod-cache
+      - name: Test Windows application
+        if: matrix.target == 'windows'
         shell: pwsh
+        run: |
+          git config --global core.autocrlf false
+          go test -run '^$' ./...
+          go test ./cmd/gitna ./internal/browser ./internal/server ./internal/session ./internal/watch
+      - name: Package Windows asset
+        if: matrix.target == 'windows'
+        shell: pwsh
+        env:
+          GITNA_USE_PREBUILT_WEB: "1"
         run: |
           ./scripts/package.ps1 0.0.0 dist-package
           if (!(Test-Path dist-package/gitna_0.0.0_windows_x64.zip)) {
             throw "Windows release packaging smoke test failed"
           }
-      - name: Run Go race tests
-        if: runner.os == 'Linux'
-        run: go test -race ./...
-
-  macos-smoke:
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - runner: macos-15
-            target: darwin-arm64
-            asset_arch: arm64
-          - runner: macos-15-intel
-            target: darwin-x64
-            asset_arch: x64
-    runs-on: ${{ matrix.runner }}
-    steps:
-      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
-        with:
-          persist-credentials: false
-      - uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v4.4.0
-        with:
-          version: 11.24.0
-      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
-        with:
-          node-version: 24
-      - uses: actions/setup-go@d35c59abb061a4a6fb18e82ac0862c26744d6ab5 # v5.5.0
-        with:
-          go-version-file: go.mod
-          cache: false
-      - name: Test native macOS browser and folder seams
-        run: go test ./internal/browser ./internal/folder
-      - name: Test native macOS filesystem seams
+      - name: Test native macOS seams
+        if: matrix.target != 'windows'
         run: |
-          go test ./internal/watch
+          go test ./internal/browser ./internal/folder ./internal/watch
           go test ./internal/gitx -run '^(TestWorktreeFileReadWriteAndConflict|TestCreateAndRenameWorktreeEntries)$'
       - name: Package native macOS asset
+        if: matrix.target != 'windows'
+        env:
+          GITNA_USE_PREBUILT_WEB: "1"
         run: ./scripts/package.sh 0.0.0 dist-package "${{ matrix.target }}"
       - name: Smoke test native macOS asset
+        if: matrix.target != 'windows'
         run: |
           mkdir release-smoke
           tar -xzf "dist-package/gitna_0.0.0_darwin_${{ matrix.asset_arch }}.tar.gz" -C release-smoke
           ./scripts/smoke-release.sh "$PWD/release-smoke/gitna" 0.0.0
 
   browser:
+    name: Browser (${{ matrix.name }})
+    needs: source
     strategy:
       fail-fast: false
-      matrix:
-        os:
-          - ubuntu-latest
-          - windows-latest
-    runs-on: ${{ matrix.os }}
+      matrix: ${{ fromJSON((github.event_name == 'workflow_dispatch' && inputs.suite == 'windows-browser') && '{"include":[{"name":"windows","runner":"windows-2025","binary":"gitna-e2e.exe"}]}' || '{"include":[{"name":"ubuntu","runner":"ubuntu-24.04","binary":"gitna-e2e"},{"name":"windows","runner":"windows-2025","binary":"gitna-e2e.exe"}]}') }}
+    runs-on: ${{ matrix.runner }}
     steps:
-      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v4.4.0
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: embedded-web
+          path: internal/webui/dist
+      - uses: pnpm/action-setup@ff378ebe6b225b0680b81c1ad4498ae0d1d3a5e3 # v6.0.10
         with:
           version: 11.24.0
-      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: 24
-      - uses: actions/setup-go@d35c59abb061a4a6fb18e82ac0862c26744d6ab5 # v5.5.0
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: go.mod
           cache: false
-      - name: Install dependencies
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: go-modules
+          path: go-mod-cache
+      - name: Configure Windows Git
+        if: runner.os == 'Windows'
+        run: git config --global core.autocrlf false
+      - name: Install browser dependencies
         run: pnpm --dir web install --frozen-lockfile
       - name: Install Chromium dependencies
         if: runner.os == 'Linux'
@@ -146,5 +194,46 @@ jobs:
       - name: Install Chromium
         if: runner.os == 'Windows'
         run: pnpm --dir web exec playwright install chromium
+      - name: Build test binary
+        shell: bash
+        env:
+          BINARY_NAME: ${{ matrix.binary }}
+        run: go build -trimpath -o "$BINARY_NAME" ./cmd/gitna
       - name: Run browser tests
+        env:
+          GITNA_E2E_BINARY: ${{ github.workspace }}/${{ matrix.binary }}
         run: pnpm --dir web test:e2e
+      - name: Upload browser failure artifacts
+        if: failure()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: playwright-${{ matrix.name }}-${{ github.run_attempt }}
+          path: |
+            web/test-results/
+            web/playwright-report/
+          if-no-files-found: ignore
+          retention-days: 7
+
+  required:
+    name: Required CI
+    if: always()
+    needs:
+      - source
+      - native
+      - browser
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Verify required jobs
+        env:
+          SOURCE_RESULT: ${{ needs.source.result }}
+          NATIVE_RESULT: ${{ needs.native.result }}
+          BROWSER_RESULT: ${{ needs.browser.result }}
+          SUITE: ${{ inputs.suite || 'all' }}
+        run: |
+          test "$SOURCE_RESULT" = success
+          test "$BROWSER_RESULT" = success
+          if [[ "$SUITE" = all ]]; then
+            test "$NATIVE_RESULT" = success
+          else
+            test "$NATIVE_RESULT" = skipped
+          fi
