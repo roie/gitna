@@ -3174,7 +3174,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 
 ================================================================================
-lucide-react@1.34.0
+lucide-react@1.37.0
 Source: https://lucide.dev
 Declared license: ISC
 --------------------------------------------------------------------------------
