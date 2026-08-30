@@ -1579,10 +1579,10 @@ test('dirty repository tabs survive external file removal', async ({ page, app }
   await expect(editor).toHaveText('draft remains available')
 })
 
-test('source control keeps staged and unstaged files reachable', async ({ page, app }) => {
+test('source control uses free pane space before scrolling', async ({ page, app }) => {
   runGit(app.repo, 'reset', '--hard', 'HEAD')
   runGit(app.repo, 'clean', '-fd')
-  const paths = Array.from({ length: 10 }, (_, index) => `sidebar-${index + 1}.txt`)
+  const paths = Array.from({ length: 13 }, (_, index) => `sidebar-${index + 1}.txt`)
   for (const path of paths) writeFileSync(join(app.repo, path), `initial ${path}\n`)
   runGit(app.repo, 'add', '--', ...paths)
   runGit(app.repo, 'commit', '-qm', 'add sidebar fixtures')
@@ -1596,22 +1596,29 @@ test('source control keeps staged and unstaged files reachable', async ({ page, 
       .locator('xpath=ancestor::section[1]')
       .locator('.section-count')
   await expect(sectionCount('staged')).toHaveText('2')
-  await expect(sectionCount('changes')).toHaveText('8')
+  await expect(sectionCount('changes')).toHaveText('11')
 
   const workflow = page.locator('[data-pane-body="source-control"]')
   await expect(workflow).toHaveCSS('overflow-y', 'auto')
   await expect
-    .poll(() => workflow.evaluate((element) => element.scrollHeight > element.clientHeight))
+    .poll(() => workflow.evaluate((element) => element.scrollHeight <= element.clientHeight + 1))
     .toBe(true)
-  await workflow.hover()
-  await page.mouse.wheel(0, 600)
-  await expect.poll(() => workflow.evaluate((element) => element.scrollTop)).toBeGreaterThan(0)
-  await expect(page.getByText('Changes', { exact: true })).toBeInViewport()
   await expect(
     page
       .locator('#gitna-unstaged-tree__tree')
-      .getByRole('treeitem', { name: 'sidebar-10.txt', exact: true }),
-  ).toBeVisible()
+      .getByRole('treeitem', { name: 'sidebar-9.txt', exact: true }),
+  ).toBeInViewport()
+
+  await page.setViewportSize({ width: 1280, height: 420 })
+  const changesScroll = page.locator(
+    '#gitna-unstaged-tree__tree [data-file-tree-virtualized-scroll="true"]',
+  )
+  await expect
+    .poll(() => changesScroll.evaluate((element) => element.scrollHeight > element.clientHeight))
+    .toBe(true)
+  await changesScroll.hover()
+  await page.mouse.wheel(0, 600)
+  await expect.poll(() => changesScroll.evaluate((element) => element.scrollTop)).toBeGreaterThan(0)
 })
 
 test('ordinary folders open in Explorer and switch back to Git', async ({ page, app }) => {

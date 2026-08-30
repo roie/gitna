@@ -567,6 +567,14 @@ export function GitnaSourceControl() {
     measuredWorkflowHeight || 142,
     Math.max(142, (paneStackHeight * sizes[0]) / 100),
   )
+  const workflowRow =
+    !workflowOpen || workflowCompact
+      ? 'max-content'
+      : !repositoryOpen && !graphOpen
+        ? 'minmax(142px, 1fr)'
+        : useNaturalWorkflowHeight
+          ? `${naturalWorkflowHeight}px`
+          : `minmax(142px, ${sizes[0]}fr)`
   const repositoryVisibilityFiltered = !showHiddenFiles || !showIgnoredFiles
   const repositoryCount =
     repositoryFilters.size === 0 && !repositoryVisibilityFiltered
@@ -778,7 +786,7 @@ export function GitnaSourceControl() {
         className="pane-stack gitna-scrollbar grid min-h-0 flex-1 overflow-hidden max-md:block max-md:overflow-y-auto"
         style={{
           gridTemplateRows: snapshot.repository
-            ? `${workflowOpen && !workflowCompact ? (useNaturalWorkflowHeight ? `${naturalWorkflowHeight}px` : `minmax(142px, ${sizes[0]}fr)`) : 'max-content'} 0 ${repositoryOpen ? `minmax(142px, ${sizes[1]}fr)` : 'max-content'} 0 ${graphOpen ? `minmax(142px, ${sizes[2]}fr)` : 'max-content'}`
+            ? `${workflowRow} 0 ${repositoryOpen ? `minmax(142px, ${sizes[1]}fr)` : 'max-content'} 0 ${graphOpen ? `minmax(142px, ${sizes[2]}fr)` : 'max-content'}`
             : repositoryOpen
               ? 'minmax(142px, 1fr)'
               : 'max-content',
@@ -2057,6 +2065,7 @@ function TreeSection({
       className={cn(
         'section',
         !pane && 'border-t border-border/70 first:border-t-0',
+        !pane && !fill && 'shrink-0',
         fill && open && 'md:flex md:min-h-0 md:flex-1 md:flex-col md:overflow-hidden',
         pane && 'flex h-full min-h-0 flex-col overflow-hidden',
         pane && open && 'max-md:h-[50vh]',
