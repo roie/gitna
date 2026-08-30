@@ -4,6 +4,7 @@ package app
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net"
 	"net/http"
@@ -400,6 +401,18 @@ func (a *repoAdapter) ResolveConflictBoth(ctx context.Context, path string) erro
 	})
 }
 
+func shutdownServer(server *http.Server, timeout time.Duration) error {
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+	if err := server.Shutdown(ctx); err != nil {
+		if errors.Is(err, context.DeadlineExceeded) {
+			return server.Close()
+		}
+		return err
+	}
+	return nil
+}
+
 // Run starts the workbench session for path and blocks until ctx is cancelled
 // or the server fails. path must be an existing directory; Git worktrees open
 // at their repository root. The session binds to a loopback-only OS-assigned port.
@@ -477,8 +490,7 @@ func Run(ctx context.Context, path, version string) error {
 	case err := <-errCh:
 		return fmt.Errorf("app: server: %w", err)
 	case <-ctx.Done():
-		shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-		defer cancel()
-		return httpSrv.Shutdown(shutdownCtx)
+		registryErr := registry.close()
+		return errors.Join(registryErr, shutdownServer(httpSrv, 5*time.Second))
 	}
 }
