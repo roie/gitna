@@ -73,6 +73,7 @@ test('real binary renders repository source-control state', async ({ page, app }
   await expect(graph).toHaveAttribute('aria-expanded', 'false')
   await repository.click()
   await graph.click()
+  await page.getByRole('button', { name: 'Refresh Graph' }).click()
   await expect(workflow).toBeVisible()
   await expect(workflow.locator('.section-title')).toHaveText('main')
   await expect(changes).toBeVisible()
@@ -1017,6 +1018,9 @@ test('same-tab folder switching shows and restores a branded transition', async 
   await page.emulateMedia({ reducedMotion: 'reduce' })
   await page.goto(`${app.url}?trace-startup=1`)
   await expect(page).toHaveTitle(`${basename(app.repo)} - Gitna`)
+  const startupGraph = page.locator('[data-section="graph"]')
+  await startupGraph.click()
+  await page.getByRole('button', { name: 'Refresh Graph' }).click()
   await expect
     .poll(
       () => page.evaluate(() => performance.getEntriesByType('mark').map((entry) => entry.name)),
@@ -1033,6 +1037,7 @@ test('same-tab folder switching shows and restores a branded transition', async 
         'gitna:sse-ready',
       ]),
     )
+  await startupGraph.click()
   await page.getByRole('button', { name: 'Theme settings' }).click()
   await page.getByRole('button', { name: 'Dark', exact: true }).click()
   await expect(page.locator('html')).toHaveClass(/dark/)

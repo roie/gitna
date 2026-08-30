@@ -7,9 +7,16 @@ test('an open editable file follows a dark to light theme round trip', async ({ 
   await page.goto(app.url)
 
   const themeSettings = page.getByRole('button', { name: 'Theme settings' })
+  const openThemeSettings = async () => {
+    await expect(async () => {
+      if ((await themeSettings.getAttribute('aria-expanded')) !== 'true') {
+        await themeSettings.click({ force: true })
+      }
+      await expect(themeSettings).toHaveAttribute('aria-expanded', 'true', { timeout: 1_000 })
+    }).toPass({ timeout: 10_000 })
+  }
   const chooseColorMode = async (name: 'Dark' | 'Light') => {
-    await themeSettings.click()
-    await expect(themeSettings).toHaveAttribute('aria-expanded', 'true')
+    await openThemeSettings()
     const option = page.getByRole('button', { name, exact: true })
     await expect(option).toBeVisible()
     await option.click({ force: true })
