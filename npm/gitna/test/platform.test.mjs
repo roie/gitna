@@ -1,12 +1,63 @@
 import assert from 'node:assert/strict'
+import { execFileSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
-import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { createServer } from 'node:http'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { dirname, join, resolve } from 'node:path'
 import test from 'node:test'
+import { fileURLToPath } from 'node:url'
 import { cacheRootFor, ensureBinary } from '../lib/install.mjs'
 import { targetFor } from '../lib/platform.mjs'
+
+const repositoryRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..', '..')
+const apacheLicenseHash = '13d92be18d5ceac526f33cc96b6902a14d168f3e1d4b16be738f0fa70da7fe98'
+
+test('keeps Gitna and the vendored Apache license identities distinct', async () => {
+  const rootLicense = await readFile(join(repositoryRoot, 'LICENSE'), 'utf8')
+  const vendoredLicense = await readFile(join(repositoryRoot, 'LICENSES', 'Apache-2.0.txt'))
+
+  assert.match(rootLicense, /Copyright 2026 Roie Ambulo/)
+  assert.doesNotMatch(rootLicense, /Copyright 2025 Pierre Computer Company/)
+  const normalizedVendoredLicense = vendoredLicense.toString('utf8').replace(/\r\n?/g, '\n')
+  assert.equal(
+    createHash('sha256').update(normalizedVendoredLicense).digest('hex'),
+    apacheLicenseHash,
+  )
+})
+
+test('npm package includes canonical license and third-party notices', async () => {
+  const temporaryRoot = await mkdtemp(join(tmpdir(), 'gitna-package-test-'))
+  const output = join(temporaryRoot, 'output')
+  const extracted = join(temporaryRoot, 'extracted')
+  try {
+    execFileSync(
+      process.execPath,
+      [join(repositoryRoot, 'scripts', 'package-npm.mjs'), '0.0.0', output],
+      { cwd: repositoryRoot, stdio: 'pipe' },
+    )
+    await mkdir(extracted)
+    execFileSync('tar', ['-xzf', join(output, 'gitna-0.0.0.tgz'), '-C', extracted], {
+      stdio: 'pipe',
+    })
+
+    for (const path of [
+      'LICENSE',
+      'THIRD_PARTY_LICENSES.txt',
+      'THIRD_PARTY_NOTICES.md',
+      join('LICENSES', 'Apache-2.0.txt'),
+      join('LICENSES', 'MIT.txt'),
+      join('LICENSES', 'OFL-1.1.txt'),
+    ]) {
+      assert.deepEqual(
+        await readFile(join(extracted, 'package', path)),
+        await readFile(join(repositoryRoot, path)),
+      )
+    }
+  } finally {
+    await rm(temporaryRoot, { recursive: true, force: true })
+  }
+})
 
 test('selects each native GitHub Release asset', () => {
   assert.deepEqual(targetFor('1.2.3', 'darwin', 'arm64'), {
@@ -102,10 +153,35 @@ test('downloads, verifies, and caches the selected binary', async () => {
         /** @type {{ executable: string }} */ target,
       ) => {
         await writeFile(join(directory, target.executable), binary)
+        await writeFile(join(directory, 'LICENSE'), 'Gitna license\n')
+        await writeFile(join(directory, 'THIRD_PARTY_NOTICES.md'), 'Notices\n')
+        await writeFile(join(directory, 'THIRD_PARTY_LICENSES.txt'), 'Inventory\n')
+        await mkdir(join(directory, 'LICENSES'))
+        await writeFile(join(directory, 'LICENSES', 'Apache-2.0.txt'), 'Apache-2.0\n')
+        await mkdir(join(directory, 'patches'))
+        await writeFile(join(directory, 'patches', 'pierre.patch'), 'patch\n')
       },
     }
     const installed = await ensureBinary(options)
     assert.deepEqual(await readFile(installed), binary)
+    const installedDirectory = dirname(installed)
+    assert.equal(await readFile(join(installedDirectory, 'LICENSE'), 'utf8'), 'Gitna license\n')
+    assert.equal(
+      await readFile(join(installedDirectory, 'THIRD_PARTY_NOTICES.md'), 'utf8'),
+      'Notices\n',
+    )
+    assert.equal(
+      await readFile(join(installedDirectory, 'THIRD_PARTY_LICENSES.txt'), 'utf8'),
+      'Inventory\n',
+    )
+    assert.equal(
+      await readFile(join(installedDirectory, 'LICENSES', 'Apache-2.0.txt'), 'utf8'),
+      'Apache-2.0\n',
+    )
+    assert.equal(
+      await readFile(join(installedDirectory, 'patches', 'pierre.patch'), 'utf8'),
+      'patch\n',
+    )
     assert.equal(await ensureBinary(options), installed)
     assert.equal(requests, 2)
   } finally {

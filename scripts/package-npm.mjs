@@ -47,12 +47,19 @@ function buildPackage() {
   try {
     manifest = JSON.parse(readFileSync(manifestPath, 'utf8'))
   } catch (error) {
-    throw new Error(`Invalid package manifest: ${manifestPath}`, { cause: error })
+    throw new Error(`Invalid package manifest: ${manifestPath}`, {
+      cause: error,
+    })
   }
   manifest.version = version
   writeFileSync(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`)
   copyFileSync(join(root, 'LICENSE'), join(directory, 'LICENSE'))
   copyFileSync(join(root, 'README.md'), join(directory, 'README.md'))
+  copyFileSync(join(root, 'THIRD_PARTY_LICENSES.txt'), join(directory, 'THIRD_PARTY_LICENSES.txt'))
+  copyFileSync(join(root, 'THIRD_PARTY_NOTICES.md'), join(directory, 'THIRD_PARTY_NOTICES.md'))
+  cpSync(join(root, 'LICENSES'), join(directory, 'LICENSES'), {
+    recursive: true,
+  })
   chmodSync(join(directory, 'bin', 'gitna.js'), 0o755)
   runNpm(['pack', directory, '--ignore-scripts', '--pack-destination', output], {
     cwd: root,

@@ -15,7 +15,10 @@
   "files": [
     "bin",
     "lib",
-    "LICENSE"
+    "LICENSE",
+    "LICENSES",
+    "THIRD_PARTY_LICENSES.txt",
+    "THIRD_PARTY_NOTICES.md"
   ],
   "type": "module",
   "engines": {

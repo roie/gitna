@@ -1,6 +1,17 @@
 import { execFileSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
-import { access, chmod, mkdir, mkdtemp, readFile, rename, rm, writeFile } from 'node:fs/promises'
+import {
+  access,
+  chmod,
+  cp,
+  mkdir,
+  mkdtemp,
+  readFile,
+  readdir,
+  rename,
+  rm,
+  writeFile,
+} from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { dirname, join, posix, resolve, win32 } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -98,7 +109,9 @@ async function extractArchive(archive, directory, target, platform) {
         { stdio: 'pipe' },
       )
     } else {
-      execFileSync('tar', ['-xzf', archive, '-C', directory], { stdio: 'pipe' })
+      execFileSync('tar', ['-xzf', archive, '-C', directory], {
+        stdio: 'pipe',
+      })
     }
   } catch (error) {
     throw new Error(`Could not extract ${target.asset}`, { cause: error })
@@ -155,6 +168,16 @@ export async function ensureBinary(options = {}) {
     const extracted = join(extractedDirectory, target.executable)
     await access(extracted)
     if (platform !== 'win32') await chmod(extracted, 0o755)
+    const extractedEntries = await readdir(extractedDirectory, {
+      withFileTypes: true,
+    })
+    for (const entry of extractedEntries) {
+      if (entry.name === target.executable) continue
+      await cp(join(extractedDirectory, entry.name), join(destinationDirectory, entry.name), {
+        force: true,
+        recursive: entry.isDirectory(),
+      })
+    }
     try {
       await rename(extracted, destination)
     } catch (error) {
