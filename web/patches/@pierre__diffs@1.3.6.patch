@@ -52,7 +52,7 @@ index 051e7d0a211c0cdf32badbd4ff836f04df1ff511..c412b84ac1118aecf13bff32d950c32d
  	const slotSnapshot = [];
  	for (const renderedItem of renderedItems) if (hasAnnotations(renderedItem.item)) slotSnapshot.push(renderedItem);
 diff --git a/dist/components/File.js b/dist/components/File.js
-index fa9a91568ab6464890d4570465c7bb1b93828555..8c9a0a48a18e4db48d961cafe04a4120f2a1cd3a 100644
+index fa9a91568ab6464890d4570465c7bb1b93828555..56423ab27be2e8dbaf5e74cc1569d00178cab3ca 100644
 --- a/dist/components/File.js
 +++ b/dist/components/File.js
 @@ -59,6 +59,8 @@ var File = class {
@@ -64,7 +64,15 @@ index fa9a91568ab6464890d4570465c7bb1b93828555..8c9a0a48a18e4db48d961cafe04a4120
  	fileRenderer;
  	resizeManager;
  	interactionManager;
-@@ -367,6 +369,7 @@ var File = class {
+@@ -329,6 +331,7 @@ var File = class {
+ 	}
+ 	updateRenderCache(dirtyLines, themeType, options) {
+ 		this.fileRenderer.updateRenderCache(dirtyLines, themeType, options?.lineCountChangeInFlight);
++		if (this.fileContainer != null && this.appliedThemeCSS != null) this.applyThemeState(this.fileContainer, this.appliedThemeCSS.themeStyles, themeType, themeType);
+ 	}
+ 	render(props) {
+ 		if (!this.enabled) throw new Error("File.render: attempting to call render after cleaned up");
+@@ -367,6 +370,7 @@ var File = class {
  		this.applyCachedThemeState(themeType);
  		if (collapsed) {
  			this.removeRenderedCode();
@@ -72,7 +80,7 @@ index fa9a91568ab6464890d4570465c7bb1b93828555..8c9a0a48a18e4db48d961cafe04a4120
  			this.clearAuxiliaryNodes();
  			try {
  				const fileResult = this.fileRenderer.renderFile(file, EMPTY_RENDER_RANGE);
-@@ -393,6 +396,7 @@ var File = class {
+@@ -393,6 +397,7 @@ var File = class {
  				if (fileResult.headerAST != null) this.applyHeaderToDOM(fileResult.headerAST, fileContainer);
  				this.applyFullRender(fileResult, pre);
  			}
@@ -80,7 +88,7 @@ index fa9a91568ab6464890d4570465c7bb1b93828555..8c9a0a48a18e4db48d961cafe04a4120
  			this.applyBuffers(pre, nextRenderRange);
  			this.injectUnsafeCSS();
  			this.renderAnnotations();
-@@ -422,6 +426,44 @@ var File = class {
+@@ -422,6 +427,44 @@ var File = class {
  		this.mounted = true;
  		onPostRender?.(fileContainer, this, phase);
  	}
@@ -126,7 +134,7 @@ index fa9a91568ab6464890d4570465c7bb1b93828555..8c9a0a48a18e4db48d961cafe04a4120
  		this.resizeManager.cleanUp();
  		this.interactionManager.cleanUp();
 diff --git a/dist/components/FileDiff.js b/dist/components/FileDiff.js
-index 4ee3d95f21fa52834ebd4e726d88669a90722dbd..530ce89aed2e87d3e34fe7a0807a3298c72cdcdd 100644
+index 4ee3d95f21fa52834ebd4e726d88669a90722dbd..f2d332b0563cb11bf32135fdc801cd0a6e8d2db1 100644
 --- a/dist/components/FileDiff.js
 +++ b/dist/components/FileDiff.js
 @@ -68,6 +68,8 @@ var FileDiff = class {
@@ -154,7 +162,18 @@ index 4ee3d95f21fa52834ebd4e726d88669a90722dbd..530ce89aed2e87d3e34fe7a0807a3298
  			this.applyBuffers(pre, nextRenderRange);
  			this.injectUnsafeCSS();
  			this.renderAnnotations();
-@@ -778,6 +782,44 @@ var FileDiff = class {
+@@ -686,7 +690,9 @@ var FileDiff = class {
+ 	}
+ 	updateRenderCache(dirtyLines, themeType, options = {}) {
+ 		const { shouldRefreshDiffsView, lineCountChangeInFlight } = options;
+-		if (this.hunksRenderer.updateRenderCache(dirtyLines, themeType, lineCountChangeInFlight)) {
++		const regionsChanged = this.hunksRenderer.updateRenderCache(dirtyLines, themeType, lineCountChangeInFlight);
++		if (this.fileContainer != null && this.appliedThemeCSS != null) this.applyThemeState(this.fileContainer, this.appliedThemeCSS.themeStyles, themeType, themeType);
++		if (regionsChanged) {
+ 			if (this.refreshViewTimeout != null) {
+ 				clearTimeout(this.refreshViewTimeout);
+ 				this.refreshViewTimeout = void 0;
+@@ -778,6 +784,44 @@ var FileDiff = class {
  		this.rerender();
  		this.flushDeferredLineState();
  	};
