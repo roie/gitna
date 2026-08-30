@@ -53,6 +53,12 @@ export interface CompareDiffTarget {
   kind: ChangeKind
 }
 
+export interface RepositoryFileComparison {
+  leftPath: string
+  rightPath: string
+  version: number
+}
+
 const OP_LABELS: Record<string, string> = {
   stage: 'Staging',
   unstage: 'Unstaging',
@@ -173,6 +179,9 @@ export class GitnaRepository {
   selection: Selection | null = null
   repositoryFilePath: string | null = null
   repositoryOpenPaths: string[] = []
+  repositorySelectedPaths: string[] = []
+  repositoryFileComparison: RepositoryFileComparison | null = null
+  repositoryFileComparisonActive = false
   repositoryFileRevealVersion = 0
   worktreeRename: { source: string; destination: string; version: number } | null = null
 
@@ -909,6 +918,7 @@ export class GitnaRepository {
       this.selection = null
       this.repositoryFilePath = null
       this.commitDiff = null
+      this.repositoryFileComparisonActive = false
       this.emit()
       return
     }
@@ -921,6 +931,7 @@ export class GitnaRepository {
     this.repositoryFilePath = null
     this.commitDiff = null
     this.compareDiff = null
+    this.repositoryFileComparisonActive = false
     this.emit()
   }
 
@@ -940,11 +951,75 @@ export class GitnaRepository {
     this.selection = null
     this.commitDiff = null
     this.compareDiff = null
+    this.repositoryFileComparisonActive = false
     this.repositoryFilePath = path
+    this.repositorySelectedPaths = [path]
     if (!this.repositoryOpenPaths.includes(path)) {
       this.repositoryOpenPaths = [...this.repositoryOpenPaths, path]
     }
     if (reveal) this.repositoryFileRevealVersion += 1
+    this.emit()
+  }
+
+  setRepositorySelectedPaths(paths: readonly string[]): void {
+    const next = [...new Set(paths)]
+    if (sameStrings(this.repositorySelectedPaths, next)) return
+    this.repositorySelectedPaths = next
+    this.emit()
+  }
+
+  openRepositoryFileComparison(): void {
+    const [leftPath, rightPath, ...remaining] = this.repositorySelectedPaths
+    if (
+      leftPath == null ||
+      rightPath == null ||
+      remaining.length > 0 ||
+      leftPath === rightPath ||
+      leftPath.endsWith('/') ||
+      rightPath.endsWith('/') ||
+      !this.canOpenRepositoryFile(leftPath) ||
+      !this.canOpenRepositoryFile(rightPath)
+    ) {
+      return
+    }
+    this.selection = null
+    this.commitDiff = null
+    this.compare = null
+    this.compareFiles = []
+    this.compareDiff = null
+    this.repositoryFileComparison = { leftPath, rightPath, version: 0 }
+    this.repositoryFileComparisonActive = true
+    this.emit()
+  }
+
+  activateRepositoryFileComparison(): void {
+    if (this.repositoryFileComparison == null || this.repositoryFileComparisonActive) return
+    this.selection = null
+    this.commitDiff = null
+    this.compare = null
+    this.compareFiles = []
+    this.compareDiff = null
+    this.repositoryFileComparisonActive = true
+    this.emit()
+  }
+
+  swapRepositoryFileComparison(): void {
+    const comparison = this.repositoryFileComparison
+    if (comparison == null) return
+    this.repositoryFileComparison = {
+      leftPath: comparison.rightPath,
+      rightPath: comparison.leftPath,
+      version: comparison.version + 1,
+    }
+    this.repositoryFileComparisonActive = true
+    this.repositorySelectedPaths = [comparison.rightPath, comparison.leftPath]
+    this.emit()
+  }
+
+  closeRepositoryFileComparison(): void {
+    if (this.repositoryFileComparison == null) return
+    this.repositoryFileComparison = null
+    this.repositoryFileComparisonActive = false
     this.emit()
   }
 
@@ -968,6 +1043,7 @@ export class GitnaRepository {
     this.selection = null
     this.repositoryFilePath = null
     this.compareDiff = null
+    this.repositoryFileComparisonActive = false
     this.commitDiff = { oid, subject, ...file }
     this.emit()
   }
@@ -977,6 +1053,7 @@ export class GitnaRepository {
     this.selection = null
     this.repositoryFilePath = null
     this.commitDiff = null
+    this.repositoryFileComparisonActive = false
     this.compareDiff = {
       from: this.compare.from,
       to: this.compare.to,
@@ -1119,12 +1196,25 @@ export class GitnaRepository {
           : path
     const openPaths = this.repositoryOpenPaths.map(remap)
     const selectedPath = this.repositoryFilePath == null ? null : remap(this.repositoryFilePath)
+    const selectedPaths = this.repositorySelectedPaths.map(remap)
+    const comparison =
+      this.repositoryFileComparison == null
+        ? null
+        : {
+            leftPath: remap(this.repositoryFileComparison.leftPath),
+            rightPath: remap(this.repositoryFileComparison.rightPath),
+            version: this.repositoryFileComparison.version + 1,
+          }
     await this.runWorktreeOperation('rename-entry', () =>
       this.api.renameWorktreeEntry(source, destination),
     )
     this.repositoryOpenPaths = openPaths.filter((path) => this.repositoryPaths.includes(path))
     this.repositoryFilePath =
       selectedPath != null && this.repositoryPaths.includes(selectedPath) ? selectedPath : null
+    this.repositorySelectedPaths = selectedPaths.filter((path) =>
+      path.endsWith('/') ? this.repositoryPaths.includes(path) : this.canOpenRepositoryFile(path),
+    )
+    this.repositoryFileComparison = comparison
     this.worktreeRename = {
       source,
       destination,

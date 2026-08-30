@@ -15,6 +15,7 @@ import (
 type fakeWorktreeRepo struct {
 	*fakeRepo
 	file          protocol.WorktreeFile
+	comparison    protocol.FileDiff
 	err           error
 	createdPath   string
 	createdDir    bool
@@ -24,6 +25,10 @@ type fakeWorktreeRepo struct {
 
 func (f *fakeWorktreeRepo) ReadWorktreeFile(context.Context, string) (protocol.WorktreeFile, error) {
 	return f.file, f.err
+}
+
+func (f *fakeWorktreeRepo) CompareWorktreeFiles(context.Context, string, string) (protocol.FileDiff, error) {
+	return f.comparison, f.err
 }
 
 func (f *fakeWorktreeRepo) WriteWorktreeFile(_ context.Context, path, content, _ string) (protocol.WorktreeFile, error) {
@@ -76,6 +81,28 @@ func TestWorktreeFileRoutesReadAndWrite(t *testing.T) {
 	write := worktreeRequest(t, h, http.MethodPut, "/worktree/file", `{"path":"notes.txt","content":"after\n","expectedHash":"before"}`)
 	if write.Code != http.StatusOK || repo.file.Content != "after\n" {
 		t.Fatalf("write status = %d, file = %#v, body = %s", write.Code, repo.file, write.Body.String())
+	}
+}
+
+func TestWorktreeCompareRoute(t *testing.T) {
+	repo := &fakeWorktreeRepo{
+		fakeRepo: &fakeRepo{},
+		comparison: protocol.FileDiff{
+			Before: protocol.FileVersion{Path: "left.txt", Content: "left\n"},
+			After:  protocol.FileVersion{Path: "right.txt", Content: "right\n"},
+		},
+	}
+	h := newSnapshotServer(repo)
+	rec := worktreeRequest(t, h, http.MethodGet, "/worktree/compare?left=left.txt&right=right.txt", "")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, body = %s", rec.Code, rec.Body.String())
+	}
+	var comparison protocol.FileDiff
+	if err := json.Unmarshal(rec.Body.Bytes(), &comparison); err != nil {
+		t.Fatal(err)
+	}
+	if comparison.Before.Path != "left.txt" || comparison.After.Path != "right.txt" {
+		t.Fatalf("comparison = %#v", comparison)
 	}
 }
 

@@ -4,7 +4,16 @@ import { describe, expect, it, vi } from 'vitest'
 import {
   applyLazyDirectoryChildren,
   buildLazyPathReconciliationOperations,
+  resolveFileTreeContextSelection,
 } from '../src/diffshub/components/DiffsHubFileTree'
+
+describe('FileTree multi-selection context menus', () => {
+  it('preserves a right-click inside the selection and replaces it outside', () => {
+    const selected = ['left.txt', 'right.txt']
+    expect(resolveFileTreeContextSelection(selected, 'right.txt')).toBe(selected)
+    expect(resolveFileTreeContextSelection(selected, 'outside.txt')).toEqual(['outside.txt'])
+  })
+})
 
 describe('lazy FileTree child reconciliation', () => {
   it('emits deterministic minimal recursive removals and uncovered files', () => {

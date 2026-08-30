@@ -15,6 +15,7 @@ import { type FileTreeProps, useFileTree } from '@pierre/trees/react';
 import {
   type CSSProperties,
   type MouseEvent as ReactMouseEvent,
+  type ReactNode,
   type WheelEvent as ReactWheelEvent,
   memo,
   useEffect,
@@ -66,6 +67,13 @@ export function buildLazyPathReconciliationOperations(
 // density and padding stay tuned for the diffshub layout regardless of
 // which theme the user picks. `--trees-git-renamed-color-override` is kept
 // because most Shiki themes don't define a "renamed" decoration color.
+export function resolveFileTreeContextSelection(
+  selectedPaths: readonly string[],
+  contextPath: string
+): readonly string[] {
+  return selectedPaths.includes(contextPath) ? selectedPaths : [contextPath];
+}
+
 export function applyLazyDirectoryChildren(
   model: FileTreeModel,
   attempt: FileTreeChildLoadAttempt,
@@ -126,9 +134,15 @@ interface DiffsHubFileTreeProps {
   // search open/close without owning the model creation.
   onModelReady(model: FileTreeModel | null): void;
   onSelectItem(itemId: string): void;
-  renderContextMenu?: FileTreeProps['renderContextMenu'];
+  onSelectPaths?(paths: readonly string[]): void;
+  renderContextMenu?(
+    item: Parameters<NonNullable<FileTreeProps['renderContextMenu']>>[0],
+    context: Parameters<NonNullable<FileTreeProps['renderContextMenu']>>[1],
+    selectedPaths: readonly string[]
+  ): ReactNode;
   renderRowActions?: FileTreeOptions['renderRowActions'];
   selectedPath?: string | null;
+  selectedPaths?: readonly string[];
   showFolderGitStatus?: boolean;
   source: DiffsHubFileTreeSource;
 }
@@ -143,9 +157,11 @@ export const DiffsHubFileTree = memo(function DiffsHubFileTree({
   onLoadMoreDirectory,
   onModelReady,
   onSelectItem,
+  onSelectPaths,
   renderContextMenu,
   renderRowActions,
   selectedPath,
+  selectedPaths,
   showFolderGitStatus = false,
   source,
 }: DiffsHubFileTreeProps) {
@@ -153,6 +169,7 @@ export const DiffsHubFileTree = memo(function DiffsHubFileTree({
   const dragAndDropRef = useRef(dragAndDrop);
   const renderContextMenuRef = useRef(renderContextMenu);
   const selectedPathRef = useRef(selectedPath);
+  const onSelectPathsRef = useRef(onSelectPaths);
   const lazyDirectoriesRef = useRef(lazyDirectories);
   const pagedDirectoriesRef = useRef(pagedDirectories);
   const onLoadDirectoryRef = useRef(onLoadDirectory);
@@ -165,6 +182,7 @@ export const DiffsHubFileTree = memo(function DiffsHubFileTree({
   dragAndDropRef.current = dragAndDrop;
   renderContextMenuRef.current = renderContextMenu;
   selectedPathRef.current = selectedPath;
+  onSelectPathsRef.current = onSelectPaths;
   lazyDirectoriesRef.current = lazyDirectories;
   pagedDirectoriesRef.current = pagedDirectories;
   onLoadDirectoryRef.current = onLoadDirectory;
@@ -179,18 +197,22 @@ export const DiffsHubFileTree = memo(function DiffsHubFileTree({
   initialPathsRef.current ??= source.paths.slice(0, source.pathCount);
   const appliedPathsRef = useRef(new Set(initialPathsRef.current));
   const onSelectionChange = useStableCallback(
-    (selectedPaths: readonly FileTreePublicId[]) => {
+    (modelSelectedPaths: readonly FileTreePublicId[]) => {
       if (syncingSelectionRef.current || onSelectItem == null) return;
-      if (selectedPaths.length === 0 && selectedPathRef.current != null) {
+      const canonicalPaths = modelSelectedPaths.map(
+        (path) => sourceRef.current.pathToItemId.get(path) ?? path
+      );
+      onSelectPathsRef.current?.(canonicalPaths);
+      if (
+        canonicalPaths.length === 0 &&
+        onSelectPathsRef.current == null &&
+        selectedPathRef.current != null
+      ) {
         onSelectItem(selectedPathRef.current);
         return;
       }
-      if (selectedPaths.length !== 1) return;
-      const [path] = selectedPaths;
-      const itemId = sourceRef.current.pathToItemId.get(path);
-      if (itemId != null) {
-        onSelectItem(itemId);
-      }
+      if (canonicalPaths.length !== 1) return;
+      onSelectItem(canonicalPaths[0]);
     }
   );
 
@@ -209,7 +231,13 @@ export const DiffsHubFileTree = memo(function DiffsHubFileTree({
   });
 
   const handleClickCapture = useStableCallback((event: ReactMouseEvent<HTMLElement>) => {
-    if (event.button !== 0 || selectedPathRef.current == null) return;
+    if (
+      event.button !== 0 ||
+      event.ctrlKey ||
+      event.metaKey ||
+      event.shiftKey ||
+      selectedPathRef.current == null
+    ) return;
     const row = event.nativeEvent
       .composedPath()
       .find(
@@ -227,10 +255,29 @@ export const DiffsHubFileTree = memo(function DiffsHubFileTree({
       item: Parameters<NonNullable<FileTreeProps['renderContextMenu']>>[0],
       context: Parameters<NonNullable<FileTreeProps['renderContextMenu']>>[1]
     ) => {
+      let modelSelectedPaths = model.getSelectedPaths();
+      const contextSelection = resolveFileTreeContextSelection(modelSelectedPaths, item.path);
+      if (contextSelection !== modelSelectedPaths) {
+        syncingSelectionRef.current = true;
+        for (const path of modelSelectedPaths) model.getItem(path)?.deselect();
+        model.getItem(item.path)?.select();
+        syncingSelectionRef.current = false;
+        modelSelectedPaths = contextSelection;
+        onSelectPathsRef.current?.([
+          sourceRef.current.pathToItemId.get(item.path) ?? item.path,
+        ]);
+      }
       const canonicalPath = sourceRef.current.pathToItemId.get(item.path) ?? item.path;
       const canonicalItem =
         canonicalPath === item.path ? item : { ...item, path: canonicalPath };
-      return renderContextMenuRef.current?.(canonicalItem, context) ?? null;
+      const canonicalSelectedPaths = modelSelectedPaths.map(
+        (path) => sourceRef.current.pathToItemId.get(path) ?? path
+      );
+      return renderContextMenuRef.current?.(
+        canonicalItem,
+        context,
+        canonicalSelectedPaths
+      ) ?? null;
     }
   );
 
@@ -413,14 +460,21 @@ export const DiffsHubFileTree = memo(function DiffsHubFileTree({
   }, [model, onModelReady]);
 
   useEffect(() => {
-    const modelPath =
-      selectedPath == null
-        ? null
-        : (source.itemIdToPath?.get(selectedPath) ?? selectedPath);
+    const canonicalSelectedPaths =
+      selectedPaths ?? (selectedPath == null ? [] : [selectedPath]);
+    const modelPaths = canonicalSelectedPaths.map(
+      (path) => source.itemIdToPath?.get(path) ?? path
+    );
+    const modelPathSet = new Set(modelPaths);
     syncingSelectionRef.current = true;
     for (const path of model.getSelectedPaths()) {
-      if (path !== modelPath) model.getItem(path)?.deselect();
+      if (!modelPathSet.has(path)) model.getItem(path)?.deselect();
     }
+    for (const modelPath of modelPaths) model.getItem(modelPath)?.select();
+    const modelPath =
+      selectedPath == null
+        ? (modelPaths.at(-1) ?? null)
+        : (source.itemIdToPath?.get(selectedPath) ?? selectedPath);
     if (modelPath == null) {
       syncingSelectionRef.current = false;
       return;
@@ -432,10 +486,9 @@ export const DiffsHubFileTree = memo(function DiffsHubFileTree({
       const item = model.getItem(directoryPath);
       if (item?.isDirectory()) (item as FileTreeDirectoryHandle).expand();
     }
-    model.getItem(modelPath)?.select();
     syncingSelectionRef.current = false;
     queueMicrotask(() => model.scrollToPath(modelPath, { focus: false, offset: 'nearest' }));
-  }, [model, selectedPath, source]);
+  }, [model, selectedPath, selectedPaths, source]);
 
   return (
     <ThemedFileTree

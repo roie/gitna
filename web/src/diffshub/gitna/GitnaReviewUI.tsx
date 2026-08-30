@@ -31,6 +31,7 @@ import { DiffsHubSidebar } from '../components/DiffsHubSidebar'
 import { DiffsHubStatusPanel } from '../components/DiffsHubStatusPanel'
 import {
   DiffsHubViewer,
+  type GitnaComparisonActions,
   type GitnaEditorActions,
   type GitnaFileAction,
   type GitnaViewerActions,
@@ -52,13 +53,15 @@ import {
   adaptGitnaFile,
   appendGitnaReviewPage,
   createGitnaReviewAccumulator,
+  adaptWorktreeComparison,
   adaptWorktreeFile,
   diffImageAnnotations,
   type GitnaReviewAccumulator,
 } from './reviewAdapter'
-import { startupTraceEnabled, useRepository } from './repository'
+import { startupTraceEnabled, useRepository, type RepositoryFileComparison } from './repository'
 
 interface ReviewTarget {
+  comparison?: RepositoryFileComparison
   filePath?: string
   key: string
   oldPath?: string
@@ -259,6 +262,13 @@ function repositoryFileErrorMessage(error: unknown): string {
 
 function useReviewTarget(): ReviewTarget | null {
   const repository = useRepository()
+  if (repository.repositoryFileComparisonActive && repository.repositoryFileComparison != null) {
+    const comparison = repository.repositoryFileComparison
+    return {
+      comparison,
+      key: `file-compare:${comparison.leftPath}:${comparison.rightPath}:${comparison.version}`,
+    }
+  }
   if (repository.compare != null) {
     return {
       key: `compare:${repository.compare.from}:${repository.compare.to}`,
@@ -362,7 +372,9 @@ function GitnaReviewUIInner() {
   const nextFolderSwitchIDRef = useRef(0)
   const editorRepositoryRootRef = useRef<string | null>(null)
   const reviewDataRef = useRef<LoadedDiffsHubData | null>(null)
+  const renderedTargetKeyRef = useRef<string | null>(null)
   const reviewPagingRef = useRef<ReviewPagingState | null>(null)
+  const worktreeComparisonRef = useRef<{ key: string; diff: FileDiff } | null>(null)
   // CodeView owns the imperative header root, so its save callback may outlive a React render.
   const savingPathRef = useRef<string | null>(null)
   const worktreeFilesRef = useRef(worktreeFiles)
@@ -503,9 +515,15 @@ function GitnaReviewUIInner() {
     return () => window.removeEventListener('keydown', openPalette)
   }, [homeOpen])
 
+  const comparisonLeftDraft =
+    target?.comparison == null ? undefined : worktreeDrafts.get(target.comparison.leftPath)
+  const comparisonRightDraft =
+    target?.comparison == null ? undefined : worktreeDrafts.get(target.comparison.rightPath)
+
   useEffect(() => {
     if (target == null) {
       reviewDataRef.current = null
+      renderedTargetKeyRef.current = null
       setReviewData(null)
       setErrorMessage(null)
       setLoadState(repository.snapshot?.repository === false ? 'ready' : 'fetching')
@@ -516,8 +534,12 @@ function GitnaReviewUIInner() {
       reviewPagingRef.current?.targetKey === target.key ? reviewPagingRef.current.loadedPages : 1
     const reviewAbortController = new AbortController()
     reviewPagingRef.current = null
-    const refreshingVisibleReview = reviewDataRef.current != null && viewerRef.current != null
+    const refreshingVisibleReview =
+      renderedTargetKeyRef.current === target.key &&
+      reviewDataRef.current != null &&
+      viewerRef.current != null
     if (!refreshingVisibleReview) {
+      renderedTargetKeyRef.current = null
       setReviewData(null)
       setLoadState('fetching')
     }
@@ -559,6 +581,42 @@ function GitnaReviewUIInner() {
         return adaptGitnaFile(diff, repository.generation)
       }
     }
+    const loadWorktreeComparison = async (
+      comparison: RepositoryFileComparison,
+    ): Promise<LoadedDiffsHubData> => {
+      const leftIsImage = rasterImagePattern.test(comparison.leftPath)
+      const rightIsImage = rasterImagePattern.test(comparison.rightPath)
+      if (leftIsImage !== rightIsImage) {
+        throw new Error('Text files and images can’t be compared with each other.')
+      }
+      const comparisonKey = `${repository.snapshot?.root ?? ''}:${repository.generation}:${comparison.leftPath}:${comparison.rightPath}`
+      let diff =
+        worktreeComparisonRef.current?.key === comparisonKey
+          ? worktreeComparisonRef.current.diff
+          : null
+      if (diff == null) {
+        diff = await repository.api.compareWorktreeFiles(
+          comparison.leftPath,
+          comparison.rightPath,
+          reviewAbortController.signal,
+        )
+        worktreeComparisonRef.current = { key: comparisonKey, diff }
+      }
+      if (diff.tooLarge) {
+        throw new Error('One of these files is too large to compare in Gitna.')
+      }
+      if (diff.binary && (diff.before.image == null || diff.after.image == null)) {
+        throw new Error('Binary files can’t be compared in Gitna.')
+      }
+      const leftDraft = worktreeDraftsRef.current.get(comparison.leftPath)
+      const rightDraft = worktreeDraftsRef.current.get(comparison.rightPath)
+      return adaptWorktreeComparison(
+        diff,
+        repository.generation + comparison.version,
+        leftDraft == null ? undefined : { ...leftDraft, name: comparison.leftPath },
+        rightDraft == null ? undefined : { ...rightDraft, name: comparison.rightPath },
+      )
+    }
     const loadReview = async (): Promise<LoadedDiffsHubData> => {
       const request = { ...target.request!, signal: reviewAbortController.signal }
       let page = await repository.api.review(request)
@@ -585,11 +643,17 @@ function GitnaReviewUIInner() {
       }
       return result.data
     }
-    const dataPromise = target.filePath == null ? loadReview() : loadRepositoryFile(target.filePath)
+    const dataPromise =
+      target.comparison == null
+        ? target.filePath == null
+          ? loadReview()
+          : loadRepositoryFile(target.filePath)
+        : loadWorktreeComparison(target.comparison)
     dataPromise
       .then((data) => {
         if (!active) return
         if (!refreshingVisibleReview) setLoadState('parsing')
+        renderedTargetKeyRef.current = target.key
         setReviewData(data)
         setLoadState('ready')
       })
@@ -601,7 +665,7 @@ function GitnaReviewUIInner() {
               ? error.message
               : String(error)
             : repositoryFileErrorMessage(error)
-        if (reviewDataRef.current == null) {
+        if (!refreshingVisibleReview) {
           setErrorMessage(nextError)
           setLoadState('error')
         } else {
@@ -613,7 +677,15 @@ function GitnaReviewUIInner() {
       active = false
       reviewAbortController.abort()
     }
-  }, [repository.api, repository.generation, reviewAttempt, target?.key])
+  }, [
+    comparisonLeftDraft?.contents,
+    comparisonRightDraft?.contents,
+    repository.api,
+    repository.generation,
+    repository.snapshot?.root,
+    reviewAttempt,
+    target?.key,
+  ])
 
   useEffect(() => {
     if (reviewData == null) return
@@ -863,6 +935,16 @@ function GitnaReviewUIInner() {
     window.addEventListener('beforeunload', protectDrafts)
     return () => window.removeEventListener('beforeunload', protectDrafts)
   }, [dirtyPaths.size])
+  const gitnaComparisonActions: GitnaComparisonActions | undefined =
+    target?.comparison == null
+      ? undefined
+      : {
+          leftDirty: dirtyPaths.has(target.comparison.leftPath),
+          leftPath: target.comparison.leftPath,
+          rightDirty: dirtyPaths.has(target.comparison.rightPath),
+          rightPath: target.comparison.rightPath,
+          onSwap: () => repository.swapRepositoryFileComparison(),
+        }
   const openHome = useCallback(() => {
     setCommandPaletteOpen(false)
     setHomeSwitchError(null)
@@ -1380,6 +1462,7 @@ function GitnaReviewUIInner() {
                     viewerRef={viewerRef}
                     initialItems={reviewData.items}
                     gitnaActions={gitnaActions}
+                    gitnaComparisonActions={gitnaComparisonActions}
                     gitnaEditorActions={gitnaEditorActions}
                     gitnaOpenFileAction={gitnaOpenFileAction}
                     onCommentDeleted={() => {}}
@@ -1553,16 +1636,18 @@ function RepositoryFileTabs({
     path: string
   } | null>(null)
   const openPaths = repository.repositoryOpenPaths
+  const comparison = repository.repositoryFileComparison
   useEffect(() => {
-    const activeIndex = openPaths.indexOf(repository.repositoryFilePath ?? '')
-    if (activeIndex < 0) return
+    const selector = repository.repositoryFileComparisonActive
+      ? '[data-comparison-tab="true"]'
+      : `[data-tab-index="${openPaths.indexOf(repository.repositoryFilePath ?? '')}"]`
     queueMicrotask(() =>
       tablistRef.current
-        ?.querySelector<HTMLElement>(`[data-tab-index="${activeIndex}"]`)
+        ?.querySelector<HTMLElement>(selector)
         ?.scrollIntoView({ block: 'nearest', inline: 'nearest' }),
     )
-  }, [openPaths, repository.repositoryFilePath])
-  if (repository.repositoryFilePath == null || openPaths.length === 0) return null
+  }, [openPaths, repository.repositoryFileComparisonActive, repository.repositoryFilePath])
+  if (openPaths.length === 0 && comparison == null) return null
   const openContextMenu = (
     path: string,
     index: number,
@@ -1590,8 +1675,44 @@ function RepositoryFileTabs({
           if (event.currentTarget.scrollLeft !== previousScrollLeft) event.preventDefault()
         }}
       >
+        {comparison != null && (
+          <div
+            data-comparison-tab="true"
+            className={cn(
+              'group/tab flex h-7 max-w-72 shrink-0 items-center rounded-md text-xs',
+              repository.repositoryFileComparisonActive
+                ? 'bg-muted text-foreground'
+                : 'text-muted-foreground hover:bg-muted/60 hover:text-foreground',
+            )}
+          >
+            <button
+              type="button"
+              role="tab"
+              aria-selected={repository.repositoryFileComparisonActive}
+              className="flex min-w-0 flex-1 cursor-pointer items-center gap-1.5 py-1 pl-2.5 text-left"
+              title={`${comparison.leftPath} ↔ ${comparison.rightPath}`}
+              onClick={() => repository.activateRepositoryFileComparison()}
+            >
+              <IconDiffSplit className="size-4 shrink-0" />
+              <span className="truncate">
+                {comparison.leftPath.split('/').at(-1) ?? comparison.leftPath} ↔{' '}
+                {comparison.rightPath.split('/').at(-1) ?? comparison.rightPath}
+              </span>
+            </button>
+            <button
+              type="button"
+              className="mr-1 flex size-5 shrink-0 cursor-pointer items-center justify-center rounded text-muted-foreground opacity-0 hover:bg-background/70 hover:text-foreground group-focus-within/tab:opacity-100 group-hover/tab:opacity-100"
+              aria-label={`Close comparison of ${comparison.leftPath} and ${comparison.rightPath}`}
+              title="Close comparison"
+              onClick={() => repository.closeRepositoryFileComparison()}
+            >
+              <IconX className="size-3" />
+            </button>
+          </div>
+        )}
         {openPaths.map((path, index) => {
-          const active = repository.repositoryFilePath === path
+          const active =
+            !repository.repositoryFileComparisonActive && repository.repositoryFilePath === path
           const name = path.split('/').at(-1) ?? path
           const icon = repositoryTabIconResolver.resolveIcon('file-tree-icon-file', path)
           const iconHref = `#${icon.name.replace(/^#/, '')}`

@@ -63,6 +63,14 @@ export interface GitnaEditorActions {
   onSave(path: string): void;
 }
 
+export interface GitnaComparisonActions {
+  leftDirty: boolean;
+  leftPath: string;
+  rightDirty: boolean;
+  rightPath: string;
+  onSwap(): void;
+}
+
 export interface GitnaOpenFileAction {
   ariaLabel(path: string): string;
   canOpenFile(path: string): boolean;
@@ -126,6 +134,7 @@ interface DiffsHubViewerProps {
   onScroll?(): void;
   onViewerReady(): void;
   gitnaActions?: GitnaViewerActions;
+  gitnaComparisonActions?: GitnaComparisonActions;
   gitnaEditorActions?: GitnaEditorActions;
   gitnaOpenFileAction?: GitnaOpenFileAction;
 }
@@ -149,6 +158,7 @@ export const DiffsHubViewer = memo(function DiffsHubViewer({
   onScroll,
   onViewerReady,
   gitnaActions,
+  gitnaComparisonActions,
   gitnaEditorActions,
   gitnaOpenFileAction,
 }: DiffsHubViewerProps) {
@@ -491,6 +501,32 @@ export const DiffsHubViewer = memo(function DiffsHubViewer({
         return <WorktreeHeaderActions actions={gitnaEditorActions} path={item.file.name} />;
       }
       if (item.type !== 'diff') return null;
+      if (gitnaComparisonActions != null) {
+        const dirtySides = [
+          gitnaComparisonActions.leftDirty
+            ? `${gitnaComparisonActions.leftPath} (Unsaved)`
+            : null,
+          gitnaComparisonActions.rightDirty
+            ? `${gitnaComparisonActions.rightPath} (Unsaved)`
+            : null,
+        ].filter((value): value is string => value != null);
+        return (
+          <div className="flex items-center gap-2">
+            {dirtySides.length > 0 && (
+              <span className="max-w-72 truncate text-xs text-muted-foreground" title={dirtySides.join(', ')}>
+                Unsaved: {dirtySides.join(', ')}
+              </span>
+            )}
+            <FileHeaderAction
+              type="button"
+              aria-label="Swap compared files"
+              onClick={gitnaComparisonActions.onSwap}
+            >
+              Swap sides
+            </FileHeaderAction>
+          </div>
+        );
+      }
       if (gitnaActions != null) return <GitnaHeaderActions actions={gitnaActions} item={item} />;
       if (gitnaOpenFileAction == null) return null;
       const path = item.fileDiff.name;

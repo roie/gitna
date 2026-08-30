@@ -80,6 +80,9 @@ const auxApi: ApiClient = {
   async readWorktreeFile() {
     throw new Error('readWorktreeFile not used')
   },
+  async compareWorktreeFiles() {
+    throw new Error('compareWorktreeFiles not used')
+  },
   async writeWorktreeFile() {
     throw new Error('writeWorktreeFile not used')
   },
@@ -288,6 +291,41 @@ describe('createRepoState', () => {
     expect(state.folders?.recent).toHaveLength(1)
     expect(state.foldersLoading).toBe(false)
     expect(state.foldersError).toBeNull()
+  })
+
+  it('opens, swaps, and closes an ordered comparison from two selected files', () => {
+    const state = createRepoState({ api: auxApi })
+    state.snapshot = snapshot({ repository: false, root: '/tmp/folder' })
+    state.repositoryPaths = ['left.txt', 'right.txt', 'folder/']
+
+    state.setRepositorySelectedPaths(['left.txt', 'right.txt'])
+    state.openRepositoryFileComparison()
+    expect(state.repositoryFileComparison).toEqual({
+      leftPath: 'left.txt',
+      rightPath: 'right.txt',
+      version: 0,
+    })
+    expect(state.repositoryFileComparisonActive).toBe(true)
+
+    state.swapRepositoryFileComparison()
+    expect(state.repositoryFileComparison).toEqual({
+      leftPath: 'right.txt',
+      rightPath: 'left.txt',
+      version: 1,
+    })
+    expect(state.repositorySelectedPaths).toEqual(['right.txt', 'left.txt'])
+
+    state.selectRepositoryFile('left.txt')
+    expect(state.repositoryFileComparisonActive).toBe(false)
+    state.activateRepositoryFileComparison()
+    expect(state.repositoryFileComparisonActive).toBe(true)
+    state.closeRepositoryFileComparison()
+    expect(state.repositoryFileComparison).toBeNull()
+    expect(state.repositoryFileComparisonActive).toBe(false)
+
+    state.setRepositorySelectedPaths(['left.txt', 'folder/'])
+    state.openRepositoryFileComparison()
+    expect(state.repositoryFileComparison).toBeNull()
   })
 
   it('loads ordinary folder files without requesting Git resources', async () => {

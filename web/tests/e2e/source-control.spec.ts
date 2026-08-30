@@ -1644,6 +1644,42 @@ test('ordinary folders open in Explorer and switch back to Git', async ({ page, 
   await expect(page.locator('[data-section="graph"]')).toBeVisible()
 })
 
+test('compares two highlighted files from the Repository context menu', async ({ page, app }) => {
+  test.setTimeout(120_000)
+  const folder = join(dirname(app.repo), 'compare-folder')
+  mkdirSync(folder)
+  writeFileSync(join(folder, 'left.txt'), 'left baseline\n')
+  writeFileSync(join(folder, 'right.txt'), 'right baseline\n')
+
+  await page.goto(app.url)
+  const folderPath = page.getByRole('combobox', { name: 'Folder path' })
+  await folderPath.fill(folder)
+  await page.getByRole('button', { name: 'Switch folder' }).click()
+
+  const explorer = page.locator('#gitna-repository-tree__tree')
+  const left = explorer.getByRole('treeitem', { name: 'left.txt', exact: true })
+  const right = explorer.getByRole('treeitem', { name: 'right.txt', exact: true })
+  await left.click()
+  const editor = page.getByRole('textbox', { name: 'left.txt' })
+  await editor.click()
+  await page.keyboard.press('Control+a')
+  await page.keyboard.type('dirty left')
+
+  await right.click({ modifiers: ['Control'] })
+  await expect(left).toHaveAttribute('aria-selected', 'true')
+  await expect(right).toHaveAttribute('aria-selected', 'true')
+  await right.click({ button: 'right' })
+  await page.getByRole('menuitem', { name: 'Compare Selected' }).click()
+
+  await expect(page.getByRole('tab', { name: 'left.txt ↔ right.txt' })).toBeVisible()
+  await expect(page.locator('.code-view')).toContainText('dirty left')
+  await expect(page.getByText(/Unsaved: left\.txt \(Unsaved\)/)).toBeVisible()
+  await page.getByRole('button', { name: 'Swap compared files' }).click()
+  await expect(page.getByRole('tab', { name: 'right.txt ↔ left.txt' })).toBeVisible()
+  await page.getByRole('button', { name: 'Close comparison of right.txt and left.txt' }).click()
+  await expect(page.getByRole('tab', { name: /left\.txt Unsaved changes/ })).toBeVisible()
+})
+
 test('wide ordinary folders page near the Explorer end with an accessible fallback', async ({
   page,
   app,

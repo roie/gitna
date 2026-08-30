@@ -688,11 +688,18 @@ export function GitnaSourceControl() {
     ],
   )
   const renderRepositoryContextMenu = useCallback(
-    (item: ContextMenuItem, context: ContextMenuOpenContext) => (
+    (item: ContextMenuItem, context: ContextMenuOpenContext, selectedPaths: readonly string[]) => (
       <RepositoryContextMenu
         context={context}
         item={item}
         changeScopes={item.kind === 'file' ? changeScopesForPath(item.path) : []}
+        compareSelected={
+          selectedPaths.length === 2 &&
+          selectedPaths.every(
+            (path) => !path.endsWith('/') && repository.canOpenRepositoryFile(path),
+          )
+        }
+        onCompareSelected={() => repository.openRepositoryFileComparison()}
         onCopyPath={(path) => {
           void navigator.clipboard
             .writeText(path)
@@ -994,10 +1001,12 @@ export function GitnaSourceControl() {
           onLoadMoreDirectory={snapshot.repository ? undefined : loadMoreOrdinaryDirectory}
           open={repositoryOpen}
           selectedPath={repository.repositoryFilePath ?? repository.selection?.change.path}
+          selectedPaths={repository.repositorySelectedPaths}
           source={repositorySource}
           title={repositoryName(snapshot.root)}
           onOpenChange={setRepositoryOpen}
           onSelectPath={selectRepositoryPath}
+          onSelectPaths={(paths) => repository.setRepositorySelectedPaths(paths)}
         />
 
         {snapshot.repository && (
@@ -1607,8 +1616,10 @@ function FileTreeContextMenuTrigger({ context }: { context: ContextMenuOpenConte
 
 function RepositoryContextMenu({
   changeScopes,
+  compareSelected,
   context,
   item,
+  onCompareSelected,
   onCopyPath,
   onCreate,
   onOpen,
@@ -1617,8 +1628,10 @@ function RepositoryContextMenu({
   onRename,
 }: {
   changeScopes: readonly ChangeScope[]
+  compareSelected: boolean
   context: ContextMenuOpenContext
   item: ContextMenuItem
+  onCompareSelected(): void
   onCopyPath(path: string): void
   onCreate(kind: 'file' | 'folder', initialPath: string): void
   onOpen(path: string): void
@@ -1657,6 +1670,16 @@ function RepositoryContextMenu({
             >
               Open
             </DropdownMenuItem>
+            {compareSelected && (
+              <DropdownMenuItem
+                onSelect={() => {
+                  context.close({ restoreFocus: false })
+                  onCompareSelected()
+                }}
+              >
+                Compare Selected
+              </DropdownMenuItem>
+            )}
             {changeScopes.map((scope) => (
               <DropdownMenuItem
                 key={scope}
@@ -1976,13 +1999,19 @@ interface TreeSectionProps {
   onLoadMoreDirectory?(path: string): Promise<readonly string[] | null>
   onOpenChange(open: boolean): void
   onSelectPath(path: string): void
+  onSelectPaths?(paths: readonly string[]): void
   open: boolean
   pane?: boolean
   paneIcon?: ComponentType<{ className?: string }>
-  renderContextMenu?: (item: ContextMenuItem, context: ContextMenuOpenContext) => ReactNode
+  renderContextMenu?: (
+    item: ContextMenuItem,
+    context: ContextMenuOpenContext,
+    selectedPaths: readonly string[],
+  ) => ReactNode
   renderHeaderActions?: (model: FileTree | null) => ReactNode
   renderRowActions?: FileTreeOptions['renderRowActions']
   selectedPath?: string | null
+  selectedPaths?: readonly string[]
   source: DiffsHubFileTreeSource
   title: string
 }
@@ -2005,6 +2034,7 @@ function TreeSection({
   onLoadMoreDirectory,
   onOpenChange,
   onSelectPath,
+  onSelectPaths,
   open,
   pane = false,
   paneIcon,
@@ -2012,6 +2042,7 @@ function TreeSection({
   renderHeaderActions,
   renderRowActions,
   selectedPath,
+  selectedPaths,
   source,
   title,
 }: TreeSectionProps) {
@@ -2115,9 +2146,11 @@ function TreeSection({
                   onLoadMoreDirectory={onLoadMoreDirectory}
                   onModelReady={setModel}
                   onSelectItem={onSelectPath}
+                  onSelectPaths={onSelectPaths}
                   renderContextMenu={renderContextMenu}
                   renderRowActions={renderRowActions}
                   selectedPath={selectedPath}
+                  selectedPaths={selectedPaths}
                   showFolderGitStatus={pane}
                   source={source}
                 />

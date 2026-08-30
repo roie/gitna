@@ -45,6 +45,55 @@ func TestWorktreeFileReadWriteAndConflict(t *testing.T) {
 	}
 }
 
+func TestCompareWorktreeFilesReturnsTextImagesAndBoundedPlaceholders(t *testing.T) {
+	root := initTestRepo(t)
+	repo := Repository{Root: root}
+	for path, data := range map[string][]byte{
+		"left.txt":   []byte("left\n"),
+		"right.txt":  []byte("right\n"),
+		"left.png":   []byte("\x89PNG\r\n\x1a\nleft"),
+		"right.png":  []byte("\x89PNG\r\n\x1a\nright"),
+		"binary.dat": {'a', 0, 'b'},
+		"large.txt":  []byte(strings.Repeat("x", DefaultDiffBytes+1)),
+	} {
+		if err := os.WriteFile(filepath.Join(root, path), data, 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	text, err := repo.CompareWorktreeFiles(context.Background(), "left.txt", "right.txt")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if text.Before.Content != "left\n" || text.After.Content != "right\n" || text.Binary || text.TooLarge {
+		t.Fatalf("text comparison = %#v", text)
+	}
+	images, err := repo.CompareWorktreeFiles(context.Background(), "left.png", "right.png")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !images.Binary || images.Before.Image == nil || images.After.Image == nil {
+		t.Fatalf("image comparison = %#v", images)
+	}
+	binary, err := repo.CompareWorktreeFiles(context.Background(), "left.txt", "binary.dat")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !binary.Binary || binary.Before.Image != nil || binary.After.Image != nil {
+		t.Fatalf("binary comparison = %#v", binary)
+	}
+	large, err := repo.CompareWorktreeFiles(context.Background(), "left.txt", "large.txt")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !large.TooLarge {
+		t.Fatalf("large comparison = %#v", large)
+	}
+	if _, err := repo.CompareWorktreeFiles(context.Background(), "../escape", "right.txt"); !errors.Is(err, protocol.ErrInvalidPath) {
+		t.Fatalf("unsafe comparison error = %v", err)
+	}
+}
+
 func TestWorktreeFileRejectsUnsafeAndUnsupportedInputs(t *testing.T) {
 	root := initTestRepo(t)
 	repo := Repository{Root: root}

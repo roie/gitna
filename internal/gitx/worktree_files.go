@@ -41,6 +41,70 @@ func (r Repository) ReadWorktreeFile(ctx context.Context, path string) (protocol
 	return worktreeFile(path, data), nil
 }
 
+// CompareWorktreeFiles returns a bounded comparison of two regular worktree
+// files without invoking Git or external diff drivers.
+func (r Repository) CompareWorktreeFiles(ctx context.Context, leftPath, rightPath string) (protocol.FileDiff, error) {
+	if err := ctx.Err(); err != nil {
+		return protocol.FileDiff{}, err
+	}
+	left, leftTooLarge, leftPresent, err := r.readComparisonFile(leftPath)
+	if err != nil {
+		return protocol.FileDiff{}, err
+	}
+	right, rightTooLarge, rightPresent, err := r.readComparisonFile(rightPath)
+	if err != nil {
+		return protocol.FileDiff{}, err
+	}
+	if !leftPresent {
+		return protocol.FileDiff{}, fmt.Errorf("%w: %q", os.ErrNotExist, leftPath)
+	}
+	if !rightPresent {
+		return protocol.FileDiff{}, fmt.Errorf("%w: %q", os.ErrNotExist, rightPath)
+	}
+
+	result := protocol.FileDiff{
+		Before:   protocol.FileVersion{Path: leftPath, Language: languageFor(leftPath)},
+		After:    protocol.FileVersion{Path: rightPath, Language: languageFor(rightPath)},
+		TooLarge: leftTooLarge || rightTooLarge,
+	}
+	if result.TooLarge {
+		return result, nil
+	}
+	leftImage := rasterImageContent(left)
+	rightImage := rasterImageContent(right)
+	if leftImage != nil && rightImage != nil {
+		result.Binary = true
+		result.Before.Image = leftImage
+		result.After.Image = rightImage
+		return result, nil
+	}
+	if len(left) > DefaultDiffBytes || len(right) > DefaultDiffBytes {
+		result.TooLarge = true
+		return result, nil
+	}
+	if isBinary(left) || isBinary(right) {
+		result.Binary = true
+		return result, nil
+	}
+	result.Before.Content = string(left)
+	result.After.Content = string(right)
+	return result, nil
+}
+
+func (r Repository) readComparisonFile(path string) ([]byte, bool, bool, error) {
+	if err := validateWorktreePath(path); err != nil {
+		return nil, false, false, err
+	}
+	_, info, err := r.resolveWorktreeEntry(path, true)
+	if err != nil {
+		return nil, false, false, err
+	}
+	if !info.Mode().IsRegular() {
+		return nil, false, true, fmt.Errorf("%w: %q is not a regular file", protocol.ErrInvalidPath, path)
+	}
+	return r.readWorktree(path, MaxImageBytes)
+}
+
 // WriteWorktreeFile atomically replaces an existing regular text file when its
 // current content still matches expectedHash.
 func (r Repository) WriteWorktreeFile(ctx context.Context, path, content, expectedHash string) (protocol.WorktreeFile, error) {

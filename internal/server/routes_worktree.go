@@ -17,6 +17,7 @@ const worktreeRequestBodyLimit = gitx.DefaultDiffBytes*6 + 16<<10
 
 type worktreeRepository interface {
 	ReadWorktreeFile(context.Context, string) (protocol.WorktreeFile, error)
+	CompareWorktreeFiles(context.Context, string, string) (protocol.FileDiff, error)
 	WriteWorktreeFile(context.Context, string, string, string) (protocol.WorktreeFile, error)
 	CreateWorktreeEntry(context.Context, string, bool) error
 	RenameWorktreeEntry(context.Context, string, string) error
@@ -54,6 +55,26 @@ func (s *Server) handleReadWorktreeFile(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	writeJSON(w, http.StatusOK, file)
+}
+
+func (s *Server) handleCompareWorktreeFiles(w http.ResponseWriter, r *http.Request) {
+	repo, ok := s.worktreeRepository()
+	if !ok {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "worktree files unavailable"})
+		return
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), ReadTimeout)
+	defer cancel()
+	comparison, err := repo.CompareWorktreeFiles(
+		ctx,
+		r.URL.Query().Get("left"),
+		r.URL.Query().Get("right"),
+	)
+	if err != nil {
+		writeWorktreeError(w, r, s, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, comparison)
 }
 
 func (s *Server) handleWriteWorktreeFile(w http.ResponseWriter, r *http.Request) {

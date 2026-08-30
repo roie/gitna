@@ -72,6 +72,36 @@ export function adaptWorktreeFile(
   }
 }
 
+export function adaptWorktreeComparison(
+  diff: FileDiff,
+  generation: number,
+  leftDraft?: FileContents,
+  rightDraft?: FileContents,
+): LoadedDiffsHubData {
+  const before: FileContents = leftDraft ?? {
+    name: diff.before.path,
+    contents: diff.before.content,
+    lang: diff.before.language as FileContents['lang'],
+    cacheKey: `worktree-compare:${generation}:${diff.before.path}`,
+  }
+  const after: FileContents = rightDraft ?? {
+    name: diff.after.path,
+    contents: diff.after.content,
+    lang: diff.after.language as FileContents['lang'],
+    cacheKey: `worktree-compare:${generation}:${diff.after.path}`,
+  }
+  const fileDiff = parseDiffFromFile(before, after, undefined, true)
+  const accumulator = createDiffsHubDataAccumulator()
+  appendFileDiffToDiffsHubData(accumulator, fileDiff, undefined)
+  const item = accumulator.items.at(-1)
+  if (item?.type === 'diff') {
+    item.version = generation
+    const annotations = diffImageAnnotations(diff, diff.after.path)
+    if (annotations.length > 0) item.annotations = annotations
+  }
+  return snapshotDiffsHubData(accumulator)
+}
+
 export function adaptGitnaFile(diff: FileDiff, generation: number): LoadedDiffsHubData {
   const path = diff.after.path || diff.before.path
   const contents = diff.binary || diff.tooLarge ? '' : diff.after.content

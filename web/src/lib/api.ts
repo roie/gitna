@@ -132,6 +132,7 @@ export interface ApiClient {
     },
   ): Promise<FileSearchResults>
   readWorktreeFile(path: string): Promise<WorktreeFile>
+  compareWorktreeFiles(leftPath: string, rightPath: string, signal?: AbortSignal): Promise<FileDiff>
   writeWorktreeFile(path: string, content: string, expectedHash: string): Promise<WorktreeFile>
   createWorktreeEntry(path: string, directory: boolean): Promise<void>
   renameWorktreeEntry(source: string, destination: string): Promise<void>
@@ -278,6 +279,22 @@ export function createApi(): ApiClient {
         }),
       )
       return (await res.json()) as WorktreeFile
+    },
+    async compareWorktreeFiles(
+      leftPath: string,
+      rightPath: string,
+      signal?: AbortSignal,
+    ): Promise<FileDiff> {
+      const params = new URLSearchParams({ left: leftPath, right: rightPath })
+      const res = await expectOK(
+        await fetch(`api/v1/worktree/compare?${params.toString()}`, {
+          signal:
+            signal == null
+              ? AbortSignal.timeout(FETCH_TIMEOUT)
+              : AbortSignal.any([signal, AbortSignal.timeout(FETCH_TIMEOUT)]),
+        }),
+      )
+      return (await res.json()) as FileDiff
     },
     async writeWorktreeFile(
       path: string,

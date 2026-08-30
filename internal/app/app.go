@@ -103,6 +103,10 @@ func (a *repoAdapter) ReadWorktreeFile(ctx context.Context, path string) (protoc
 	return a.current().ReadWorktreeFile(ctx, path)
 }
 
+func (a *repoAdapter) CompareWorktreeFiles(ctx context.Context, leftPath, rightPath string) (protocol.FileDiff, error) {
+	return a.current().CompareWorktreeFiles(ctx, leftPath, rightPath)
+}
+
 func (a *repoAdapter) WriteWorktreeFile(ctx context.Context, path, content, expectedHash string) (protocol.WorktreeFile, error) {
 	var file protocol.WorktreeFile
 	err := a.queue.Do(ctx, func(ctx context.Context) error {
