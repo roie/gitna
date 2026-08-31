@@ -918,7 +918,11 @@ function GitnaReviewUIInner() {
               )
           },
           onOpenFile(path) {
-            repository.selectRepositoryFile(path, true)
+            void repository
+              .openRepositoryFile(path, true)
+              .catch((error: unknown) =>
+                setReviewActionError(error instanceof Error ? error.message : String(error)),
+              )
           },
           onPatch(request) {
             setReviewActionError(null)
@@ -930,16 +934,18 @@ function GitnaReviewUIInner() {
   const graphFile = repository.commitDiff
   const graphPath = graphFile?.path
   const gitnaOpenFileAction =
-    graphFile == null ||
-    graphPath == null ||
-    graphFile.kind === 'deleted' ||
-    !repository.canOpenRepositoryFile(graphPath)
+    graphFile == null || graphPath == null || graphFile.kind === 'deleted'
       ? undefined
       : {
           ariaLabel: (path: string) => `Open ${path} in Repository`,
-          canOpenFile: (path: string) =>
-            path === graphPath && repository.canOpenRepositoryFile(path),
-          onOpenFile: (path: string) => repository.selectRepositoryFile(path, true),
+          canOpenFile: (path: string) => path === graphPath && !path.endsWith('/'),
+          onOpenFile: (path: string) => {
+            void repository
+              .openRepositoryFile(path, true)
+              .catch((error: unknown) =>
+                setReviewActionError(error instanceof Error ? error.message : String(error)),
+              )
+          },
         }
 
   const dirtyPaths = useMemo(() => new Set(worktreeDrafts.keys()), [worktreeDrafts])
@@ -1512,29 +1518,19 @@ function GitnaReviewUIInner() {
         </ReviewGrid>
         <GitnaCommandPalette
           commands={paletteCommands}
-          error={
-            repository.snapshot?.repository === false
-              ? repository.ordinarySearchError
-              : repository.repositoryFilesError
-          }
-          externalFileResults={
-            repository.snapshot?.repository === false ? repository.ordinarySearchResults : undefined
-          }
+          error={repository.ordinarySearchError}
+          externalFileResults={repository.ordinarySearchResults}
           fileSearchComplete={repository.ordinarySearchComplete}
           loading={
-            repository.snapshot?.repository === false
-              ? repository.ordinarySearchLoading ||
-                (!repository.ordinarySearchComplete && repository.ordinarySearchError == null)
-              : repository.repositoryFilesLoading
+            repository.ordinarySearchLoading ||
+            (!repository.ordinarySearchComplete && repository.ordinarySearchError == null)
           }
           open={commandPaletteOpen && !homeOpen}
           openPaths={paletteFileHistory}
           paths={repository.repositoryPaths}
           onClose={() => setCommandPaletteOpen(false)}
           onError={setReviewActionError}
-          onFileQueryChange={
-            repository.snapshot?.repository === false ? searchOrdinaryPalette : undefined
-          }
+          onFileQueryChange={searchOrdinaryPalette}
           onOpenFile={(path) => {
             setHomeOpen(false)
             return repository.openRepositoryFile(path, true)

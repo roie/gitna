@@ -123,10 +123,6 @@ function sameStrings(left: readonly string[], right: readonly string[]): boolean
   return left.length === right.length && left.every((value, index) => value === right[index])
 }
 
-function sameStringSet(left: ReadonlySet<string>, right: ReadonlySet<string>): boolean {
-  return left.size === right.size && [...left].every((value) => right.has(value))
-}
-
 function graphCountCacheKey(tip: string, generation: number): string {
   return `${generation}:${tip}`
 }
@@ -190,6 +186,9 @@ export class GitnaRepository {
   repositoryFilesLoading = false
   repositoryFilesError: string | null = null
   repositoryFilesTruncated = false
+  repositoryFileTotal: number | null = null
+  repositoryFileTotalGeneration = 0
+  repositoryFileCountLoading = false
   ordinaryUnloadedDirectories = new Set<string>()
   ordinaryPagedDirectories = new Set<string>()
   ordinaryDirectoryErrors = new Map<string, string>()
@@ -261,7 +260,8 @@ export class GitnaRepository {
   private compareRequest = 0
   private conflictsRequest = 0
   private repositoryFilesGeneration = 0
-  private repositoryFilesRequest = 0
+  private repositoryFileCountRequest = 0
+  private repositoryFileCountController: AbortController | null = null
 
   constructor(api: ApiClient = createApi()) {
     this.api = api
@@ -354,68 +354,54 @@ export class GitnaRepository {
   }
 
   async refreshRepositoryFiles(): Promise<void> {
-    if (this.snapshot?.repository === false) {
-      await this.refreshOrdinaryDirectories()
+    await this.refreshOrdinaryDirectories()
+    if (this.snapshot?.repository === true) await this.refreshRepositoryFileCount()
+    else {
+      this.repositoryFileTotal = null
+      this.repositoryFileTotalGeneration = 0
+    }
+  }
+
+  async refreshRepositoryFileCount(): Promise<void> {
+    if (this.snapshot?.repository !== true) {
+      this.repositoryFileTotal = null
+      this.repositoryFileTotalGeneration = 0
       return
     }
-    const request = ++this.repositoryFilesRequest
-    this.repositoryFilesLoading = true
-    this.repositoryFilesError = null
+    const request = ++this.repositoryFileCountRequest
+    this.repositoryFileCountController?.abort()
+    const controller = new AbortController()
+    this.repositoryFileCountController = controller
+    this.repositoryFileCountLoading = true
     this.emit()
     try {
       for (let attempt = 0; attempt < 3; attempt += 1) {
-        let cursor: string | undefined
-        let pageGeneration: number | undefined
-        const paths: string[] = []
-        const seenPaths = new Set<string>()
-        const ignoredPaths = new Set<string>()
-        let restart = false
-        do {
-          const files = await this.api.repositoryFiles(cursor)
-          if (request !== this.repositoryFilesRequest) return
-          if (pageGeneration == null) pageGeneration = files.generation
-          if (files.generation !== pageGeneration) {
-            restart = true
-            break
-          }
-          for (const path of files.paths) {
-            if (seenPaths.has(path)) {
-              throw new Error(`Folder file listing returned duplicate path: ${path}`)
-            }
-            seenPaths.add(path)
-            paths.push(path)
-          }
-          for (const path of files.ignoredPaths ?? []) ignoredPaths.add(path)
-          const nextCursor = files.nextCursor
+        try {
+          const generation = this.generation
+          const count = await this.api.repositoryFileCount(generation, controller.signal)
+          if (request !== this.repositoryFileCountRequest || controller.signal.aborted) return
+          if (count.generation !== generation || count.generation < this.generation) continue
+          this.repositoryFileTotal = count.total
+          this.repositoryFileTotalGeneration = count.generation
+          return
+        } catch (error) {
           if (
-            nextCursor != null &&
-            nextCursor !== '' &&
-            (files.paths.length === 0 || nextCursor !== files.paths.at(-1) || nextCursor === cursor)
+            !(error instanceof ApiError) ||
+            error.status !== 409 ||
+            attempt === 2 ||
+            controller.signal.aborted
           ) {
-            throw new Error('Folder file listing returned a non-advancing cursor')
+            throw error
           }
-          cursor = nextCursor
-        } while (cursor != null && cursor !== '')
-
-        if (restart) continue
-        if ((pageGeneration ?? 0) < this.repositoryFilesGeneration) return
-        this.repositoryFilesGeneration = pageGeneration ?? this.repositoryFilesGeneration
-        if (!sameStrings(this.repositoryPaths, paths)) this.repositoryPaths = paths
-        if (!sameStringSet(this.repositoryIgnoredPaths, ignoredPaths)) {
-          this.repositoryIgnoredPaths = ignoredPaths
+          await this.refreshSnapshot()
+          if (request !== this.repositoryFileCountRequest || controller.signal.aborted) return
         }
-        this.repositoryFilesTruncated = false
-        markStartup('explorer-ready')
-        return
       }
-      throw new Error('Repository changed while files were loading')
-    } catch (error) {
-      if (request === this.repositoryFilesRequest) {
-        this.repositoryFilesError = errorMessage(error)
-      }
+    } catch {
+      // Keep the last exact count visible when a refresh is interrupted.
     } finally {
-      if (request === this.repositoryFilesRequest) {
-        this.repositoryFilesLoading = false
+      if (request === this.repositoryFileCountRequest) {
+        this.repositoryFileCountLoading = false
         this.emit()
       }
     }
@@ -483,6 +469,15 @@ export class GitnaRepository {
         this.repositoryFilesGeneration = page.generation
         this.ordinaryDirectoryGenerations.set(key, page.generation)
         const pagePaths = page.entries.map((entry) => entry.path)
+        if (cursor == null) {
+          for (const path of this.ordinaryDirectoryChildren.get(key) ?? []) {
+            this.repositoryIgnoredPaths.delete(path)
+          }
+        }
+        for (const entry of page.entries) {
+          if (entry.ignored === true) this.repositoryIgnoredPaths.add(entry.path)
+          else this.repositoryIgnoredPaths.delete(entry.path)
+        }
         const previous = cursor == null ? [] : (this.ordinaryDirectoryChildren.get(key) ?? [])
         const seen = new Set(previous)
         const paths = [...previous]
@@ -560,6 +555,9 @@ export class GitnaRepository {
       if (path.endsWith('/') && !loadedDirectories.has(path.slice(0, -1))) unloaded.add(path)
     }
     this.ordinaryUnloadedDirectories = unloaded
+    this.repositoryIgnoredPaths = new Set(
+      [...this.repositoryIgnoredPaths].filter((path) => allPaths.has(path)),
+    )
     this.repositoryPaths = [...allPaths].sort()
   }
 
@@ -595,50 +593,48 @@ export class GitnaRepository {
     }
   }
 
+  private async ensureDirectoryContains(parent: string, target: string): Promise<boolean> {
+    if (!this.ordinaryDirectoryChildren.has(parent)) {
+      const loaded = await this.loadOrdinaryDirectory(parent)
+      if (loaded == null) return false
+    }
+    while (!(this.ordinaryDirectoryChildren.get(parent) ?? []).includes(target)) {
+      if (!this.ordinaryDirectoryCursors.has(parent)) return false
+      const loaded = await this.loadMoreOrdinaryDirectory(parent)
+      if (loaded == null) return false
+    }
+    return true
+  }
+
   async ensureOrdinaryPathLoaded(path: string): Promise<void> {
-    if (this.snapshot?.repository !== false) return
-    if (!this.ordinaryDirectoryChildren.has('')) await this.loadOrdinaryDirectory('')
     const segments = path.split('/')
     let parent = ''
-    for (const segment of segments.slice(0, -1)) {
-      const directory = parent === '' ? segment : `${parent}/${segment}`
-      const directoryPath = `${directory}/`
-      const parentChildren = this.ordinaryDirectoryChildren.get(parent) ?? []
-      if (!parentChildren.includes(directoryPath)) {
-        this.ordinaryDirectoryChildren.set(parent, [...parentChildren, directoryPath].sort())
-        this.rebuildOrdinaryTreePaths()
+    for (const [index, segment] of segments.entries()) {
+      const child = parent === '' ? segment : `${parent}/${segment}`
+      const directory = index < segments.length - 1
+      const target = directory ? `${child}/` : child
+      if (!(await this.ensureDirectoryContains(parent, target))) {
+        throw new Error(`File is no longer available: ${path}`)
       }
-      if (!this.ordinaryDirectoryChildren.has(directory)) {
-        await this.loadOrdinaryDirectory(directory)
-      }
-      parent = directory
-    }
-    const parentChildren = this.ordinaryDirectoryChildren.get(parent) ?? []
-    if (!parentChildren.includes(path)) {
-      this.ordinaryDirectoryChildren.set(parent, [...parentChildren, path].sort())
-      this.rebuildOrdinaryTreePaths()
+      if (directory) parent = child
     }
   }
 
   async openRepositoryFile(path: string, reveal = true): Promise<void> {
     await this.ensureOrdinaryPathLoaded(path)
-    if (this.snapshot?.repository === false && !this.repositoryPaths.includes(path)) {
+    if (!this.repositoryPaths.includes(path)) {
       throw new Error(`File is no longer available: ${path}`)
     }
     this.selectRepositoryFile(path, reveal)
   }
 
   async refreshExplorer(): Promise<void> {
-    if (this.snapshot?.repository !== false) {
-      await this.refreshRepositoryFiles()
-      return
-    }
     // An explicit refresh is authoritative even for unopened directories that
     // are outside partial watch coverage. Restart the server-side Quick Open
     // index before refreshing the stale-but-visible loaded tree.
     await Promise.allSettled([
       this.api.searchFiles('', { refresh: true }),
-      this.refreshOrdinaryDirectories(),
+      this.refreshRepositoryFiles(),
     ])
   }
 
@@ -654,7 +650,6 @@ export class GitnaRepository {
     }
 
     for (const depth of [...directoriesByDepth.keys()].sort((left, right) => left - right)) {
-      if (this.snapshot?.repository !== false) return
       const directories = (directoriesByDepth.get(depth) ?? [])
         .filter((directory) => directory === '' || this.ordinaryDirectoryChildren.has(directory))
         .sort((left, right) => left.localeCompare(right))
@@ -665,7 +660,7 @@ export class GitnaRepository {
           for (;;) {
             const directory = directories[next]
             next += 1
-            if (directory == null || this.snapshot?.repository !== false) return
+            if (directory == null) return
             // A refreshed parent may have removed this loaded subtree. Do not
             // turn its now-obsolete child request into a Repository-wide error.
             if (directory !== '' && !this.ordinaryDirectoryChildren.has(directory)) continue
@@ -698,9 +693,6 @@ export class GitnaRepository {
       this.error == null &&
       this.repositoryFilesError == null
     ) {
-      this.repositoryPaths = []
-      this.repositoryIgnoredPaths = new Set()
-      this.repositoryFilesGeneration = 0
       this.repositoryFilesError =
         'Folder changed while initial data was loading. Refresh to try again.'
       this.emit()

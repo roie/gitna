@@ -648,6 +648,15 @@ test('working files and staged or unstaged diffs navigate as one file', async ({
   const changesTree = page.locator('#gitna-unstaged-tree__tree')
   const stagedTree = page.locator('#gitna-staged-tree__tree')
 
+  await changesTree
+    .getByRole('treeitem', { name: 'navigation.txt', exact: true })
+    .click({ button: 'right' })
+  await page.getByRole('menuitem', { name: 'Open in Explorer' }).click()
+  await expect(page.getByRole('textbox', { name: 'nested/navigation.txt' })).toBeVisible()
+  await expect(
+    repositoryTree.getByRole('treeitem', { name: 'navigation.txt', exact: true }),
+  ).toHaveAttribute('aria-selected', 'true')
+
   await changesTree.getByRole('treeitem', { name: 'modified.txt', exact: true }).click()
   await page.getByRole('button', { name: 'Open modified.txt in Repository' }).click()
   await expect(repositoryHeader).toHaveAttribute('aria-expanded', 'true')
@@ -695,6 +704,9 @@ test('working files and staged or unstaged diffs navigate as one file', async ({
   await expect(page.getByRole('menuitem', { name: 'View Staged Changes' })).toBeVisible()
   await page.keyboard.press('Escape')
 
+  await expect(
+    repositoryTree.getByRole('treeitem', { name: 'navigation.txt', exact: true }),
+  ).toBeVisible()
   await page.getByRole('button', { name: 'Explorer actions' }).click()
   await page.getByRole('menuitem', { name: /Show as List/ }).click()
   await repositoryTree
@@ -1250,6 +1262,11 @@ test('command palette searches complete paths and runs workbench commands', asyn
   page,
   app,
 }) => {
+  const eagerExplorerRequests: string[] = []
+  page.on('request', (request) => {
+    const url = new URL(request.url())
+    if (url.pathname.endsWith('/api/v1/files')) eagerExplorerRequests.push(request.url())
+  })
   mkdirSync(join(app.repo, 'client'), { recursive: true })
   mkdirSync(join(app.repo, 'server', 'palette-token'), { recursive: true })
   mkdirSync(join(app.repo, 'space dir'), { recursive: true })
@@ -1257,7 +1274,13 @@ test('command palette searches complete paths and runs workbench commands', asyn
   writeFileSync(join(app.repo, 'server/palette-token/index.ts'), 'server\n')
   writeFileSync(join(app.repo, 'space dir/file name.ts'), 'space\n')
 
+  const countResponse = page.waitForResponse('**/api/v1/files/count?*')
   await page.goto(app.url)
+  const exactRepositoryTotal = ((await (await countResponse).json()) as { total: number }).total
+  expect(eagerExplorerRequests).toEqual([])
+  await expect(page.locator('[data-section="repository"]')).toHaveAccessibleName(
+    `${basename(app.repo)} ${exactRepositoryTotal}`,
+  )
   const paletteTrigger = page.getByRole('button', { name: 'Open command palette' })
   await expect(paletteTrigger).toBeVisible()
   await paletteTrigger.click()

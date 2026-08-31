@@ -65,6 +65,74 @@ func TestFolderSearchIndexesAndRanksOrdinaryFiles(t *testing.T) {
 	}
 }
 
+func TestFolderSearchIndexesGitTrackedUntrackedAndIgnoredFiles(t *testing.T) {
+	root := initSessionRepository(t, t.TempDir(), "repo")
+	for path, contents := range map[string]string{
+		"tracked.txt":           "tracked",
+		"untracked.txt":         "untracked",
+		"ignored/dependency.js": "ignored",
+	} {
+		full := filepath.Join(root, filepath.FromSlash(path))
+		if err := os.MkdirAll(filepath.Dir(full), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(full, []byte(contents), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.WriteFile(filepath.Join(root, ".gitignore"), []byte("ignored/\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	command := gitx.ExecRunner{}
+	result, err := command.Run(t.Context(), root, "add", ".gitignore", "tracked.txt")
+	if err != nil || result.ExitCode != 0 {
+		t.Fatalf("git add: %v: %s", err, result.Stderr)
+	}
+
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	adapter := &repoAdapter{
+		ctx:    ctx,
+		repo:   gitx.Repository{Root: root, GitDir: filepath.Join(root, ".git")},
+		runner: &command,
+		queue:  gitx.NewMutationQueue(),
+	}
+	results := waitForFolderSearch(t, adapter, "", nil, 100)
+	paths := make([]string, len(results.Results))
+	for index, result := range results.Results {
+		paths[index] = result.Path
+	}
+	for _, path := range []string{".gitignore", "ignored/dependency.js", "tracked.txt", "untracked.txt"} {
+		if !slices.Contains(paths, path) {
+			t.Fatalf("paths = %#v, want %q", paths, path)
+		}
+	}
+	for _, path := range paths {
+		if path == ".git" || filepath.HasPrefix(path, ".git/") {
+			t.Fatalf("search indexed Git metadata path %q", path)
+		}
+	}
+}
+
+func TestFolderSearchSkipsLinkedWorktreeGitPointer(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, ".git"), []byte("gitdir: /tmp/worktree-metadata\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "visible.txt"), []byte("visible"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	adapter := &repoAdapter{
+		ctx:   t.Context(),
+		repo:  gitx.Repository{Root: root, GitDir: filepath.Join(root, ".git")},
+		queue: gitx.NewMutationQueue(),
+	}
+	results := waitForFolderSearch(t, adapter, "", nil, 100)
+	if len(results.Results) != 1 || results.Results[0].Path != "visible.txt" {
+		t.Fatalf("results = %#v, want only visible.txt", results.Results)
+	}
+}
+
 func TestFolderSearchSkipsDisappearingAndUnreadableDescendants(t *testing.T) {
 	root := t.TempDir()
 	for name, walkErr := range map[string]error{

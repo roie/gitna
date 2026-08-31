@@ -118,10 +118,16 @@ export interface RepositoryFiles {
   nextCursor?: string
 }
 
+export interface RepositoryFileCount {
+  generation: number
+  total: number
+}
+
 export interface DirectoryEntry {
   kind: 'directory' | 'file'
   name: string
   path: string
+  ignored?: boolean
 }
 
 export interface DirectoryEntries {

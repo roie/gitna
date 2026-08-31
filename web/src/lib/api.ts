@@ -9,6 +9,7 @@ import type {
   GraphCount,
   GraphPage,
   OpenFolderResult,
+  RepositoryFileCount,
   RepositoryFiles,
   RepoSnapshot,
   ReviewResponse,
@@ -122,6 +123,7 @@ export interface ApiClient {
   snapshot(): Promise<RepoSnapshot>
   folders(): Promise<FolderCatalog>
   repositoryFiles(cursor?: string): Promise<RepositoryFiles>
+  repositoryFileCount(generation: number, signal?: AbortSignal): Promise<RepositoryFileCount>
   directoryEntries(path: string, cursor?: string, signal?: AbortSignal): Promise<DirectoryEntries>
   searchFiles(
     query: string,
@@ -233,6 +235,21 @@ export function createApi(): ApiClient {
         await fetch(`api/v1/files${query}`, { signal: AbortSignal.timeout(FETCH_TIMEOUT) }),
       )
       return (await res.json()) as RepositoryFiles
+    },
+    async repositoryFileCount(
+      generation: number,
+      signal?: AbortSignal,
+    ): Promise<RepositoryFileCount> {
+      const query = new URLSearchParams({ generation: `${generation}` })
+      const res = await expectOK(
+        await fetch(`api/v1/files/count?${query.toString()}`, {
+          signal:
+            signal == null
+              ? AbortSignal.timeout(FETCH_TIMEOUT)
+              : AbortSignal.any([signal, AbortSignal.timeout(FETCH_TIMEOUT)]),
+        }),
+      )
+      return (await res.json()) as RepositoryFileCount
     },
     async directoryEntries(
       path: string,

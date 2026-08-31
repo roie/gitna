@@ -576,10 +576,22 @@ export function GitnaSourceControl() {
           ? `${naturalWorkflowHeight}px`
           : `minmax(142px, ${sizes[0]}fr)`
   const repositoryVisibilityFiltered = !showHiddenFiles || !showIgnoredFiles
+  const repositoryExactTotal =
+    repository.repositoryFileTotalGeneration === repository.generation
+      ? repository.repositoryFileTotal
+      : null
+  const repositoryRowsIncomplete =
+    repository.repositoryFilesLoading ||
+    repository.ordinaryUnloadedDirectories.size > 0 ||
+    repository.ordinaryPagedDirectories.size > 0
+  const repositoryCountPending = repositoryExactTotal == null && repositoryRowsIncomplete
+  const repositoryDenominator = repositoryExactTotal ?? repository.repositoryPaths.length
   const repositoryCount =
-    repositoryFilters.size === 0 && !repositoryVisibilityFiltered
-      ? `${repository.repositoryPaths.length}${repository.repositoryFilesLoading || repository.ordinaryUnloadedDirectories.size > 0 || repository.ordinaryPagedDirectories.size > 0 ? '+' : ''}`
-      : `${filteredRepositoryPaths.length} / ${repository.repositoryPaths.length}${repository.repositoryFilesLoading || repository.ordinaryUnloadedDirectories.size > 0 || repository.ordinaryPagedDirectories.size > 0 ? '+' : ''}`
+    repositoryFilters.size === 0 && !repositoryVisibilityFiltered && repositoryExactTotal != null
+      ? `${repositoryExactTotal}`
+      : repositoryFilters.size === 0 && !repositoryVisibilityFiltered
+        ? `${repository.repositoryPaths.length}${repositoryCountPending ? '+' : ''}`
+        : `${filteredRepositoryPaths.length}${repositoryRowsIncomplete ? '+' : ''} / ${repositoryDenominator}${repositoryCountPending ? '+' : ''}`
   const pagedOrdinaryDirectory = repository.ordinaryPagedDirectories.values().next().value
   const stagedSource = useMemo(() => createTreeSource(staged), [staged])
   const unstagedSource = useMemo(() => createTreeSource(unstaged), [unstaged])
@@ -1002,11 +1014,15 @@ export function GitnaSourceControl() {
           )}
           icon={<IconFileTree className="size-3" />}
           paneIcon={IconFileTree}
-          lazyDirectories={snapshot.repository ? undefined : repository.ordinaryUnloadedDirectories}
-          pagedDirectories={snapshot.repository ? undefined : repository.ordinaryPagedDirectories}
+          lazyDirectories={
+            repositoryView === 'tree' ? repository.ordinaryUnloadedDirectories : undefined
+          }
+          pagedDirectories={
+            repositoryView === 'tree' ? repository.ordinaryPagedDirectories : undefined
+          }
           modelId="gitna-repository-tree"
-          onLoadDirectory={snapshot.repository ? undefined : loadOrdinaryDirectory}
-          onLoadMoreDirectory={snapshot.repository ? undefined : loadMoreOrdinaryDirectory}
+          onLoadDirectory={repositoryView === 'tree' ? loadOrdinaryDirectory : undefined}
+          onLoadMoreDirectory={repositoryView === 'tree' ? loadMoreOrdinaryDirectory : undefined}
           open={repositoryOpen}
           selectedPath={repository.repositoryFilePath ?? repository.selection?.change.path}
           selectedPaths={repository.repositorySelectedPaths}
@@ -2258,11 +2274,11 @@ function ChangeSection({
           canOpen={repository.canOpenRepositoryFile(path)}
           context={context}
           path={path}
-          onOpen={(nextPath) => repository.selectRepositoryFile(nextPath, true)}
+          onOpen={(nextPath) => void onRun(() => repository.openRepositoryFile(nextPath, true))}
         />
       )
     },
-    [repository],
+    [onRun, repository],
   )
   const renderRowActions = useCallback<NonNullable<FileTreeOptions['renderRowActions']>>(
     ({ item, row }) => {

@@ -19,6 +19,16 @@ import (
 // the Explorer can control its visibility independently. after is the last
 // slash-separated path from the previous page.
 func (r Repository) RepositoryFiles(ctx context.Context, runner Runner, after string, limit int) (protocol.RepositoryFiles, error) {
+	return r.repositoryFiles(ctx, runner, after, limit, os.Lstat)
+}
+
+func (r Repository) repositoryFiles(
+	ctx context.Context,
+	runner Runner,
+	after string,
+	limit int,
+	lstat func(string) (os.FileInfo, error),
+) (protocol.RepositoryFiles, error) {
 	result := protocol.RepositoryFiles{Paths: make([]string, 0), IgnoredPaths: make([]string, 0)}
 	if limit <= 0 {
 		return result, nil
@@ -52,11 +62,15 @@ func (r Repository) RepositoryFiles(ctx context.Context, runner Runner, after st
 		if path <= after {
 			continue
 		}
-		if _, err := os.Lstat(filepath.Join(r.Root, filepath.FromSlash(path))); err != nil {
-			if os.IsNotExist(err) {
-				continue
+		// Git already reports ignored entries from the live worktree. Avoid a
+		// filesystem lookup for every dependency file in large ignored trees.
+		if _, isIgnored := ignoredSet[path]; !isIgnored {
+			if _, err := lstat(filepath.Join(r.Root, filepath.FromSlash(path))); err != nil {
+				if os.IsNotExist(err) {
+					continue
+				}
+				return protocol.RepositoryFiles{}, err
 			}
-			return protocol.RepositoryFiles{}, err
 		}
 		if len(result.Paths) == limit {
 			result.Truncated = true
@@ -69,6 +83,40 @@ func (r Repository) RepositoryFiles(ctx context.Context, runner Runner, after st
 		}
 	}
 	return result, nil
+}
+
+// RepositoryFileCount returns the exact number of current worktree files
+// without serializing the complete Explorer manifest.
+func (r Repository) RepositoryFileCount(ctx context.Context, runner Runner) (int, error) {
+	if !r.IsGit() {
+		return 0, fmt.Errorf("gitx: repository file count requires a Git repository")
+	}
+	visible, err := r.listRepositoryFiles(ctx, runner, "--cached", "--others", "--exclude-standard", "--deduplicate")
+	if err != nil {
+		return 0, err
+	}
+	ignored, err := r.listRepositoryFiles(ctx, runner, "--others", "--ignored", "--exclude-standard", "--deduplicate")
+	if err != nil {
+		return 0, err
+	}
+
+	paths := make(map[string]struct{}, len(visible)+len(ignored))
+	for _, path := range visible {
+		if err := ctx.Err(); err != nil {
+			return 0, err
+		}
+		if _, err := os.Lstat(filepath.Join(r.Root, filepath.FromSlash(path))); err != nil {
+			if os.IsNotExist(err) {
+				continue
+			}
+			return 0, err
+		}
+		paths[path] = struct{}{}
+	}
+	for _, path := range ignored {
+		paths[path] = struct{}{}
+	}
+	return len(paths), nil
 }
 
 type folderFileCandidate struct {

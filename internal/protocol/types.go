@@ -64,6 +64,11 @@ type RepositoryFiles struct {
 	NextCursor   string   `json:"nextCursor,omitempty"`
 }
 
+type RepositoryFileCount struct {
+	Generation uint64 `json:"generation"`
+	Total      int    `json:"total"`
+}
+
 type DirectoryEntryKind string
 
 const (
@@ -72,7 +77,7 @@ const (
 )
 
 // DirectoryEntries is one bounded, deterministic page of immediate children
-// for the ordinary-folder Explorer.
+// for the Repository Explorer.
 type WatchCoverage string
 
 const (
@@ -90,9 +95,10 @@ type DirectoryEntries struct {
 }
 
 type DirectoryEntry struct {
-	Name string             `json:"name"`
-	Path string             `json:"path"`
-	Kind DirectoryEntryKind `json:"kind"`
+	Name    string             `json:"name"`
+	Path    string             `json:"path"`
+	Kind    DirectoryEntryKind `json:"kind"`
+	Ignored bool               `json:"ignored,omitempty"`
 }
 
 // FileSearchResults is a bounded server-ranked Quick Open response. Complete

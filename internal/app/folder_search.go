@@ -111,9 +111,6 @@ func (a *repoAdapter) releaseFileSearchReader() {
 
 func (a *repoAdapter) startFileSearchIndex() {
 	repo := a.current()
-	if repo.IsGit() {
-		return
-	}
 	rootKey := folder.PathKey(repo.Root)
 	a.search.mu.Lock()
 	if a.search.rootKey == rootKey && (a.search.building || a.search.complete) {
@@ -191,8 +188,11 @@ func (a *repoAdapter) startFileSearchIndex() {
 			if path == repo.Root {
 				return nil
 			}
-			if entry.Name() == ".git" && entry.IsDir() {
-				return filepath.SkipDir
+			if entry.Name() == ".git" {
+				if entry.IsDir() {
+					return filepath.SkipDir
+				}
+				return nil
 			}
 			if entry.IsDir() {
 				return nil

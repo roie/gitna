@@ -71,6 +71,9 @@ const auxApi: ApiClient = {
   async repositoryFiles() {
     return { generation: 1, paths: [], truncated: false }
   },
+  async repositoryFileCount(generation) {
+    return { generation, total: 0 }
+  },
   async directoryEntries(path) {
     return { generation: 1, directory: path, entries: [], truncated: false }
   },
@@ -458,6 +461,80 @@ describe('createRepoState', () => {
     expect(directories).toEqual(['', 'nested'])
   })
 
+  it('pages lazy directories to verify a deep file and preserve ignored metadata', async () => {
+    const calls: Array<[string, string | undefined]> = []
+    const state = createRepoState({
+      api: {
+        ...auxApi,
+        async directoryEntries(directory, cursor) {
+          calls.push([directory, cursor])
+          if (directory === '') {
+            return {
+              generation: 1,
+              directory,
+              entries: [{ name: 'wide', path: 'wide/', kind: 'directory' as const }],
+              truncated: false,
+            }
+          }
+          if (cursor == null) {
+            return {
+              generation: 1,
+              directory,
+              entries: [{ name: 'first.txt', path: 'wide/first.txt', kind: 'file' as const }],
+              truncated: true,
+              nextCursor: 'page-2',
+            }
+          }
+          return {
+            generation: 1,
+            directory,
+            entries: [
+              {
+                name: 'target.txt',
+                path: 'wide/target.txt',
+                kind: 'file' as const,
+                ignored: true,
+              },
+            ],
+            truncated: false,
+          }
+        },
+      },
+    })
+    state.snapshot = snapshot({ repository: true })
+    state.generation = 1
+
+    await state.openRepositoryFile('wide/target.txt')
+
+    expect(calls).toEqual([
+      ['', undefined],
+      ['wide', undefined],
+      ['wide', 'page-2'],
+    ])
+    expect(state.repositoryFilePath).toBe('wide/target.txt')
+    expect(state.repositoryIgnoredPaths).toContain('wide/target.txt')
+  })
+
+  it('rejects stale deep-open results without creating phantom tree rows', async () => {
+    const state = createRepoState({
+      api: {
+        ...auxApi,
+        async directoryEntries(directory) {
+          return { generation: 1, directory, entries: [], truncated: false }
+        },
+      },
+    })
+    state.snapshot = snapshot({ repository: true })
+    state.generation = 1
+
+    await expect(state.openRepositoryFile('missing/deep.txt')).rejects.toThrow(
+      'File is no longer available: missing/deep.txt',
+    )
+
+    expect(state.repositoryPaths).toEqual([])
+    expect(state.repositoryFilePath).toBeNull()
+  })
+
   it('bounds loaded-directory refreshes and restarts ordinary Quick Open indexing', async () => {
     let refreshing = false
     let inFlight = 0
@@ -574,97 +651,59 @@ describe('createRepoState', () => {
     expect(searchFiles).toHaveBeenCalledWith('', { refresh: true })
   })
 
-  it('loads every bounded Repository Explorer page independently from Git changes', async () => {
-    const cursors: Array<string | undefined> = []
+  it('loads Git Repository Explorer directories lazily with ignored metadata', async () => {
+    const calls: Array<[string, string | undefined]> = []
+    const repositoryFiles = vi.fn()
     const state = createRepoState({
       api: {
         ...auxApi,
-        async repositoryFiles(cursor) {
-          cursors.push(cursor)
-          return cursor == null
+        repositoryFiles,
+        async directoryEntries(directory, cursor) {
+          calls.push([directory, cursor])
+          return directory === ''
             ? {
+                directory,
                 generation: 3,
-                paths: ['.env', 'src/main.ts'],
-                truncated: true,
-                nextCursor: 'src/main.ts',
+                entries: [
+                  { kind: 'file' as const, name: '.env', path: '.env' },
+                  {
+                    kind: 'directory' as const,
+                    name: 'node_modules',
+                    path: 'node_modules/',
+                    ignored: true,
+                  },
+                  { kind: 'directory' as const, name: 'src', path: 'src/' },
+                ],
+                truncated: false,
               }
             : {
+                directory,
                 generation: 3,
-                paths: ['vendor/generated.js'],
+                entries: [{ kind: 'file' as const, name: 'main.ts', path: 'src/main.ts' }],
                 truncated: false,
               }
         },
       },
     })
+    state.snapshot = snapshot({ repository: true })
 
     await state.refreshRepositoryFiles()
 
-    expect(cursors).toEqual([undefined, 'src/main.ts'])
-    expect(state.repositoryPaths).toEqual(['.env', 'src/main.ts', 'vendor/generated.js'])
-    expect(state.repositoryFilesTruncated).toBe(false)
+    expect(calls).toEqual([['', undefined]])
+    expect(repositoryFiles).not.toHaveBeenCalled()
+    expect(state.repositoryPaths).toEqual(['.env', 'node_modules/', 'src/'])
+    expect(state.repositoryIgnoredPaths).toEqual(new Set(['node_modules/']))
+    expect(state.ordinaryUnloadedDirectories).toEqual(new Set(['node_modules/', 'src/']))
+
+    await state.loadOrdinaryDirectory('src')
+
+    expect(calls).toEqual([
+      ['', undefined],
+      ['src', undefined],
+    ])
+    expect(state.repositoryPaths).toContain('src/main.ts')
     expect(state.repositoryFilesLoading).toBe(false)
     expect(state.repositoryFilesError).toBeNull()
-  })
-
-  it('reports duplicate Explorer paths without publishing them to Pierre', async () => {
-    const state = createRepoState({
-      api: {
-        ...auxApi,
-        async repositoryFiles(cursor) {
-          return cursor == null
-            ? {
-                generation: 3,
-                paths: ['existing.txt', 'src/main.ts'],
-                truncated: true,
-                nextCursor: 'src/main.ts',
-              }
-            : {
-                generation: 3,
-                paths: ['src/main.ts', 'vendor/generated.js'],
-                truncated: false,
-              }
-        },
-      },
-    })
-    state.repositoryPaths = ['previous.txt']
-
-    await state.refreshRepositoryFiles()
-
-    expect(state.repositoryPaths).toEqual(['previous.txt'])
-    expect(state.repositoryFilesError).toBe(
-      'Folder file listing returned duplicate path: src/main.ts',
-    )
-    expect(state.repositoryFilesLoading).toBe(false)
-  })
-
-  it('rejects a non-advancing Explorer cursor without publishing paths', async () => {
-    const state = createRepoState({
-      api: {
-        ...auxApi,
-        async repositoryFiles(cursor) {
-          return cursor == null
-            ? {
-                generation: 3,
-                paths: ['existing.txt'],
-                truncated: true,
-                nextCursor: 'existing.txt',
-              }
-            : {
-                generation: 3,
-                paths: ['new.txt'],
-                truncated: true,
-                nextCursor: cursor,
-              }
-        },
-      },
-    })
-    state.repositoryPaths = ['previous.txt']
-
-    await state.refreshRepositoryFiles()
-
-    expect(state.repositoryPaths).toEqual(['previous.txt'])
-    expect(state.repositoryFilesError).toBe('Folder file listing returned a non-advancing cursor')
-    expect(state.repositoryFilesLoading).toBe(false)
   })
 
   it('resolves a folder route without mutating the current repository state', async () => {

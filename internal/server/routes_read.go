@@ -32,6 +32,8 @@ func (s *Server) apiRoutes() http.Handler {
 			s.handleRemoveRecentFolder(w, r)
 		case r.Method == http.MethodGet && p == "/files":
 			s.handleRepositoryFiles(w, r)
+		case r.Method == http.MethodGet && p == "/files/count":
+			s.handleRepositoryFileCount(w, r)
 		case r.Method == http.MethodGet && p == "/directory":
 			s.handleDirectoryEntries(w, r)
 		case r.Method == http.MethodGet && p == "/files/search":
@@ -288,6 +290,53 @@ func (s *Server) handleSnapshot(w http.ResponseWriter, r *http.Request) {
 		"error": "repository changed while snapshot was loading",
 		"code":  "snapshot-invalidated",
 	})
+}
+
+type repositoryFileCounter interface {
+	RepositoryFileCount(context.Context) (int, error)
+}
+
+func (s *Server) handleRepositoryFileCount(w http.ResponseWriter, r *http.Request) {
+	repo, ok := s.repo.(repositoryFileCounter)
+	if !ok {
+		writeJSON(w, http.StatusNotImplemented, map[string]string{"error": "repository file count unavailable"})
+		return
+	}
+	generation := s.gen.Load()
+	if raw := r.URL.Query().Get("generation"); raw != "" {
+		requested, err := strconv.ParseUint(raw, 10, 64)
+		if err != nil {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid repository file count generation"})
+			return
+		}
+		generation = requested
+	}
+	if generation != s.gen.Load() {
+		writeJSON(w, http.StatusConflict, map[string]string{
+			"error": "repository changed before files could be counted",
+			"code":  "files-invalidated",
+		})
+		return
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), ReadTimeout)
+	defer cancel()
+	total, err := repo.RepositoryFileCount(ctx)
+	if err != nil {
+		if timeoutReached(ctx, err) {
+			writeJSON(w, http.StatusGatewayTimeout, map[string]string{"error": "repository file count timed out"})
+			return
+		}
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return
+	}
+	if generation != s.gen.Load() {
+		writeJSON(w, http.StatusConflict, map[string]string{
+			"error": "repository changed while files were being counted",
+			"code":  "files-invalidated",
+		})
+		return
+	}
+	writeJSON(w, http.StatusOK, protocol.RepositoryFileCount{Generation: generation, Total: total})
 }
 
 // handleRepositoryFiles returns the bounded filesystem Explorer model with the

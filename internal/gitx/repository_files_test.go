@@ -57,6 +57,87 @@ func TestRepositoryFilesListsTrackedUntrackedAndIgnoredWorktreeFiles(t *testing.
 	}
 }
 
+func TestRepositoryFileCountIncludesCurrentTrackedUntrackedAndIgnoredFiles(t *testing.T) {
+	root := initTestRepo(t)
+	if err := os.WriteFile(filepath.Join(root, ".gitignore"), []byte("ignored/\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	for path, contents := range map[string]string{
+		"tracked.txt":          "tracked",
+		"untracked.txt":        "untracked",
+		"ignored/generated.js": "ignored",
+		"deleted.txt":          "deleted",
+	} {
+		full := filepath.Join(root, filepath.FromSlash(path))
+		if err := os.MkdirAll(filepath.Dir(full), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(full, []byte(contents), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	runGit(t, root, "add", ".gitignore", "tracked.txt", "deleted.txt")
+	runGit(t, root, "commit", "-qm", "add count fixture")
+	if err := os.Remove(filepath.Join(root, "deleted.txt")); err != nil {
+		t.Fatal(err)
+	}
+
+	total, err := (Repository{Root: root, GitDir: filepath.Join(root, ".git")}).RepositoryFileCount(t.Context(), &ExecRunner{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if total != 4 {
+		t.Fatalf("total = %d, want 4", total)
+	}
+}
+
+func TestRepositoryFilesDoesNotStatIgnoredManifestEntries(t *testing.T) {
+	root := initTestRepo(t)
+	if err := os.WriteFile(filepath.Join(root, ".gitignore"), []byte("ignored/\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "tracked.txt"), []byte("tracked"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Mkdir(filepath.Join(root, "ignored"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{"one.js", "two.js"} {
+		if err := os.WriteFile(filepath.Join(root, "ignored", name), []byte(name), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	runGit(t, root, "add", ".gitignore", "tracked.txt")
+	runGit(t, root, "commit", "-qm", "add manifest fixture")
+
+	statted := make([]string, 0)
+	files, err := (Repository{Root: root, GitDir: filepath.Join(root, ".git")}).repositoryFiles(
+		t.Context(),
+		&ExecRunner{},
+		"",
+		100,
+		func(path string) (os.FileInfo, error) {
+			relative, err := filepath.Rel(root, path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			statted = append(statted, filepath.ToSlash(relative))
+			return os.Lstat(path)
+		},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, path := range []string{"ignored/one.js", "ignored/two.js"} {
+		if slices.Contains(statted, path) {
+			t.Fatalf("ignored manifest entry %q was statted", path)
+		}
+		if !slices.Contains(files.IgnoredPaths, path) {
+			t.Fatalf("ignored paths = %#v, want %q", files.IgnoredPaths, path)
+		}
+	}
+}
+
 func TestRepositoryFilesReportsTruncation(t *testing.T) {
 	root := initTestRepo(t)
 	for _, name := range []string{"a.txt", "b.txt", "c.txt"} {

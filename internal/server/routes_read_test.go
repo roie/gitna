@@ -23,6 +23,7 @@ type fakeRepo struct {
 	review          protocol.ReviewResponse
 	reviewNextAfter string
 	files           protocol.RepositoryFiles
+	fileTotal       int
 	directory       protocol.DirectoryEntries
 	search          protocol.FileSearchResults
 	searchRecent    []string
@@ -91,6 +92,13 @@ func (f *fakeRepo) RepositoryFiles(context.Context, string, int) (protocol.Repos
 		return protocol.RepositoryFiles{}, f.err
 	}
 	return f.files, nil
+}
+
+func (f *fakeRepo) RepositoryFileCount(context.Context) (int, error) {
+	if f.err != nil {
+		return 0, f.err
+	}
+	return f.fileTotal, nil
 }
 
 func (f *fakeRepo) DirectoryEntries(context.Context, string, string, int) (protocol.DirectoryEntries, error) {
@@ -608,6 +616,24 @@ func TestRepositoryFilesRouteReturnsExplorerPaths(t *testing.T) {
 	}
 	if len(got.IgnoredPaths) != 1 || got.IgnoredPaths[0] != "ignored/generated.js" {
 		t.Fatalf("ignored paths = %#v", got.IgnoredPaths)
+	}
+}
+
+func TestRepositoryFileCountRouteReturnsExactTotal(t *testing.T) {
+	h := newSnapshotServer(&fakeRepo{fileTotal: 35_234})
+	req := httptest.NewRequest(http.MethodGet, "/g/"+testToken+"/api/v1/files/count", nil)
+	req.Host = testHost
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200 (%s)", rec.Code, rec.Body)
+	}
+	var got protocol.RepositoryFileCount
+	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
+		t.Fatal(err)
+	}
+	if got.Generation == 0 || got.Total != 35_234 {
+		t.Fatalf("count = %+v", got)
 	}
 }
 

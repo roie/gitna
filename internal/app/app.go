@@ -72,12 +72,29 @@ func (a *repoAdapter) RepositoryFiles(ctx context.Context, after string, limit i
 	return a.current().RepositoryFiles(ctx, a.runner, after, limit)
 }
 
+func (a *repoAdapter) RepositoryFileCount(ctx context.Context) (int, error) {
+	return a.current().RepositoryFileCount(ctx, a.runner)
+}
+
 func (a *repoAdapter) DirectoryEntries(ctx context.Context, directory, after string, limit int) (protocol.DirectoryEntries, error) {
 	repo := a.current()
 	var entries protocol.DirectoryEntries
 	var err error
 	if repo.IsGit() {
 		entries, err = repo.DirectoryEntries(ctx, directory, after, limit)
+		if err == nil {
+			paths := make([]string, len(entries.Entries))
+			for index, entry := range entries.Entries {
+				paths[index] = entry.Path
+			}
+			var ignored map[string]struct{}
+			ignored, err = repo.IgnoredPaths(ctx, a.runner, paths)
+			if err == nil {
+				for index := range entries.Entries {
+					_, entries.Entries[index].Ignored = ignored[entries.Entries[index].Path]
+				}
+			}
+		}
 	} else {
 		entries, err = a.directories.page(ctx, repo, directory, after, limit)
 	}
