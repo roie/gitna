@@ -1293,7 +1293,10 @@ test('command palette searches complete paths and runs workbench commands', asyn
   writeFileSync(join(app.repo, 'server/palette-token/index.ts'), 'server\n')
   writeFileSync(join(app.repo, 'space dir/file name.ts'), 'space\n')
 
-  const countResponse = page.waitForResponse('**/api/v1/files/count?*')
+  const countResponse = page.waitForResponse((response) => {
+    const url = new URL(response.url())
+    return url.pathname.endsWith('/api/v1/files/count') && response.status() === 200
+  })
   await page.goto(app.url)
   const exactRepositoryTotal = ((await (await countResponse).json()) as { total: number }).total
   expect(eagerExplorerRequests).toEqual([])
