@@ -2211,10 +2211,6 @@ test('branch picker, repository filters, list view, and graph stats use direct p
       .getByTitle('Contains git status items'),
   ).toBeVisible({ timeout: 30_000 })
   await page.locator('[data-section="graph"]').click()
-  await expect(page.getByRole('button', { name: 'Search Repository' })).toHaveAttribute(
-    'title',
-    'Search Repository',
-  )
   await expect(page.locator('[data-section="repository"] .section-count')).toHaveAttribute(
     'title',
     /files in Repository/,

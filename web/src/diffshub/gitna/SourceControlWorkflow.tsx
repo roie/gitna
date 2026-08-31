@@ -232,13 +232,9 @@ function createRepositoryTreeSource(
   paths: readonly string[],
   changes: readonly TreeFile[],
 ): DiffsHubFileTreeSource {
-  const statusesByPath = new Map(changes.map((change) => [change.path, gitStatus(change.kind)]))
   const identity = new Map(paths.filter((path) => !path.endsWith('/')).map((path) => [path, path]))
   return {
-    gitStatus: paths.flatMap((path) => {
-      const status = statusesByPath.get(path)
-      return status == null ? [] : [{ path, status }]
-    }),
+    gitStatus: changes.map((change) => ({ path: change.path, status: gitStatus(change.kind) })),
     pathCount: paths.length,
     paths,
     pathToItemId: identity,

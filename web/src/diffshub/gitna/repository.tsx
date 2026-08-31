@@ -1236,12 +1236,12 @@ export class GitnaRepository {
     await this.runWorktreeOperation('rename-entry', () =>
       this.api.renameWorktreeEntry(source, destination),
     )
-    this.repositoryOpenPaths = openPaths.filter((path) => this.repositoryPaths.includes(path))
-    this.repositoryFilePath =
-      selectedPath != null && this.repositoryPaths.includes(selectedPath) ? selectedPath : null
-    this.repositorySelectedPaths = selectedPaths.filter((path) =>
-      path.endsWith('/') ? this.repositoryPaths.includes(path) : this.canOpenRepositoryFile(path),
-    )
+    // A lazy Explorer may not have loaded the destination directory yet. The
+    // successful mutation is authoritative, so keep remapped tabs and selection
+    // instead of treating absence from the mounted rows as deletion.
+    this.repositoryOpenPaths = openPaths
+    this.repositoryFilePath = selectedPath
+    this.repositorySelectedPaths = selectedPaths
     this.repositoryFileComparison = comparison
     this.worktreeRename = {
       source,

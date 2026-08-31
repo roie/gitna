@@ -62,6 +62,17 @@ export function buildLazyPathReconciliationOperations(
   return operations;
 }
 
+export function filterAlreadyAppliedLazyOperations(
+  operations: readonly FileTreeBatchOperation[],
+  hasPath: (path: string) => boolean
+): FileTreeBatchOperation[] {
+  return operations.filter((operation) => {
+    if (operation.type === 'remove') return hasPath(operation.path);
+    if (operation.type === 'add') return !hasPath(operation.path);
+    return true;
+  });
+}
+
 // Layout-only overrides. Colors flow through from the resolved Shiki theme
 // (via themeToTreeStyles) so the sidebar matches the diff theme, but the
 // density and padding stay tuned for the diffshub layout regardless of
@@ -353,8 +364,12 @@ export const DiffsHubFileTree = memo(function DiffsHubFileTree({
   useEffect(() => {
     if (lazyDirectories == null) return;
     const nextPaths = new Set(source.paths.slice(0, source.pathCount));
-    const operations = buildLazyPathReconciliationOperations(appliedPathsRef.current, nextPaths);
+    const operations = filterAlreadyAppliedLazyOperations(
+      buildLazyPathReconciliationOperations(appliedPathsRef.current, nextPaths),
+      (path) => model.getItem(path) != null
+    );
     if (operations.length > 0) model.batch(operations);
+    model.setGitStatus(source.gitStatus);
     appliedPathsRef.current = nextPaths;
     for (const path of lazyDirectories) {
       if (model.getItem(path)?.isDirectory() && model.getDirectoryLoadState(path) === 'loaded') {

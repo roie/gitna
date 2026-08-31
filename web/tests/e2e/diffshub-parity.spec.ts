@@ -9,7 +9,7 @@ function git(repo: string, ...args: string[]): string {
   return result.stdout.trim()
 }
 
-test('DiffsHub controls, Pierre repository search, and theme persist', async ({ page, app }) => {
+test('DiffsHub controls, complete file search, and theme persist', async ({ page, app }) => {
   await page.goto(app.url)
   await expect(page.locator('diffs-container').first()).toBeVisible({ timeout: 30_000 })
 
@@ -29,41 +29,27 @@ test('DiffsHub controls, Pierre repository search, and theme persist', async ({ 
   await page.keyboard.press('Escape')
 
   const repositoryTree = page.locator('#gitna-repository-tree__tree')
-  const repositorySection = page
-    .locator('section.section')
-    .filter({ has: page.locator('[data-section="repository"]') })
-  await repositorySection.getByRole('button', { name: /^Search / }).click()
-  const search = repositoryTree.getByRole('textbox', { name: 'Search…' })
+  await page.getByRole('button', { name: 'Open command palette' }).click()
+  const palette = page.getByRole('dialog', { name: 'Command palette' })
+  const search = palette.getByRole('combobox', { name: 'Search files and commands' })
   await search.fill('two-hunk')
-  await expect(
-    repositoryTree.getByRole('treeitem', { name: 'two-hunk.txt', exact: true }),
-  ).toBeVisible()
-  await expect(
-    repositoryTree.getByRole('treeitem', { name: 'modified.txt', exact: true }),
-  ).toHaveCount(0)
+  await expect(palette.getByRole('option', { name: /two-hunk\.txt/ })).toBeVisible()
+  await expect(palette.getByRole('option', { name: /modified\.txt/ })).toHaveCount(0)
+  await page.keyboard.press('Escape')
   await expect
     .poll(() =>
       repositoryTree.evaluate((tree) => {
         const rows = tree.querySelectorAll<HTMLElement>('[role="treeitem"]')
         const last = rows.item(rows.length - 1)
         const scroll = tree.querySelector<HTMLElement>('[data-file-tree-virtualized-scroll="true"]')
-        const searchContainer = tree.querySelector<HTMLElement>(
-          '[data-file-tree-search-container="true"]',
-        )
         return {
           hasVisibleRow: last != null,
           scrollOverflow:
             scroll == null ? Number.POSITIVE_INFINITY : scroll.scrollHeight - scroll.clientHeight,
-          searchOpen: searchContainer?.dataset.open,
         }
       }),
     )
-    .toEqual({ hasVisibleRow: true, scrollOverflow: 0, searchOpen: 'true' })
-  if (process.env.GITNA_CAPTURE_GRAPH) {
-    await page.screenshot({ path: '/tmp/gitna-tree-search.png', fullPage: true })
-  }
-  await search.fill('')
-  await repositorySection.getByRole('button', { name: /^Hide .* search$/ }).click()
+    .toEqual({ hasVisibleRow: true, scrollOverflow: 0 })
 
   await expect(
     repositoryTree.getByRole('treeitem', { name: 'untracked.txt', exact: true }),

@@ -4,6 +4,7 @@ import { describe, expect, it, vi } from 'vitest'
 import {
   applyLazyDirectoryChildren,
   buildLazyPathReconciliationOperations,
+  filterAlreadyAppliedLazyOperations,
   resolveFileTreeContextSelection,
 } from '../src/diffshub/components/DiffsHubFileTree'
 
@@ -33,6 +34,24 @@ describe('lazy FileTree child reconciliation', () => {
       { type: 'remove', path: 'z.txt', recursive: false },
       { type: 'add', path: 'new-a.txt' },
       { type: 'add', path: 'new-z.txt' },
+    ])
+  })
+
+  it('ignores operations already applied by Pierre drag and drop', () => {
+    const existing = new Set(['kept.txt', 'already-added.txt'])
+    expect(
+      filterAlreadyAppliedLazyOperations(
+        [
+          { type: 'remove', path: 'already-moved.txt', recursive: false },
+          { type: 'remove', path: 'kept.txt', recursive: false },
+          { type: 'add', path: 'already-added.txt' },
+          { type: 'add', path: 'new.txt' },
+        ],
+        (path) => existing.has(path),
+      ),
+    ).toEqual([
+      { type: 'remove', path: 'kept.txt', recursive: false },
+      { type: 'add', path: 'new.txt' },
     ])
   })
 
