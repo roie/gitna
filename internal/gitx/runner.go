@@ -1,10 +1,12 @@
 package gitx
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"strings"
@@ -64,6 +66,87 @@ func (r *ExecRunner) Run(ctx context.Context, repoRoot string, args ...string) (
 // input from standard input (for example git apply or git commit -F -).
 func (r *ExecRunner) RunInput(ctx context.Context, repoRoot string, stdin []byte, args ...string) (Result, error) {
 	return r.run(ctx, repoRoot, stdin, args...)
+}
+
+// RunNUL streams NUL-delimited stdout records without retaining the complete
+// command output in memory. The visitor must not retain the supplied slice.
+func (r *ExecRunner) RunNUL(
+	ctx context.Context,
+	repoRoot string,
+	visit func([]byte) error,
+	args ...string,
+) (Result, error) {
+	exe := r.Exec
+	if exe == "" {
+		exe = "git"
+	}
+	stderrLimit := r.StderrLimit
+	if stderrLimit <= 0 {
+		stderrLimit = DefaultStderrLimit
+	}
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, exe, args...)
+	cmd.WaitDelay = r.WaitDelay
+	if cmd.WaitDelay <= 0 {
+		cmd.WaitDelay = 2 * time.Second
+	}
+	cmd.Dir = repoRoot
+	cmd.Env = envWith(os.Environ(), "GIT_TERMINAL_PROMPT=0", "GIT_OPTIONAL_LOCKS=0")
+	if len(r.Env) > 0 {
+		cmd.Env = envWith(cmd.Env, r.Env...)
+	}
+	stdout, err := cmd.StdoutPipe()
+	if err != nil {
+		return Result{}, fmt.Errorf("gitx: open git stdout: %w", err)
+	}
+	stderr := &cappedBuffer{limit: stderrLimit, onOverflow: cancel}
+	cmd.Stderr = stderr
+	if err := cmd.Start(); err != nil {
+		return Result{}, fmt.Errorf("gitx: start git: %w", err)
+	}
+	reader := bufio.NewReader(stdout)
+	var visitErr error
+	for {
+		record, readErr := reader.ReadBytes(0)
+		if len(record) > 0 {
+			if record[len(record)-1] == 0 {
+				record = record[:len(record)-1]
+			}
+			if len(record) > 0 {
+				if visitErr = visit(record); visitErr != nil {
+					cancel()
+					break
+				}
+			}
+		}
+		if readErr != nil {
+			if !errors.Is(readErr, io.EOF) {
+				visitErr = fmt.Errorf("gitx: read git stdout: %w", readErr)
+			}
+			break
+		}
+	}
+	waitErr := cmd.Wait()
+	if visitErr != nil {
+		return Result{}, visitErr
+	}
+	if stderr.overflowed {
+		return Result{ExitCode: -1}, ErrOutputLimit
+	}
+	if ctxErr := ctx.Err(); ctxErr != nil {
+		return Result{}, ctxErr
+	}
+	result := Result{Stderr: stderr.Bytes(), ExitCode: 0}
+	if waitErr != nil {
+		var exitErr *exec.ExitError
+		if errors.As(waitErr, &exitErr) {
+			result.ExitCode = exitErr.ExitCode()
+			return result, nil
+		}
+		return Result{}, fmt.Errorf("gitx: wait for git: %w", waitErr)
+	}
+	return result, nil
 }
 
 func (r *ExecRunner) run(ctx context.Context, repoRoot string, stdin []byte, args ...string) (Result, error) {

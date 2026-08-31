@@ -85,11 +85,18 @@ func (r Repository) repositoryFiles(
 	return result, nil
 }
 
+type nulRecordRunner interface {
+	RunNUL(context.Context, string, func([]byte) error, ...string) (Result, error)
+}
+
 // RepositoryFileCount returns the exact number of current worktree files
 // without serializing the complete Explorer manifest.
 func (r Repository) RepositoryFileCount(ctx context.Context, runner Runner) (int, error) {
 	if !r.IsGit() {
 		return 0, fmt.Errorf("gitx: repository file count requires a Git repository")
+	}
+	if streamer, ok := runner.(nulRecordRunner); ok {
+		return r.streamRepositoryFileCount(ctx, streamer)
 	}
 	visible, err := r.listRepositoryFiles(ctx, runner, "--cached", "--others", "--exclude-standard", "--deduplicate")
 	if err != nil {
@@ -117,6 +124,38 @@ func (r Repository) RepositoryFileCount(ctx context.Context, runner Runner) (int
 		paths[path] = struct{}{}
 	}
 	return len(paths), nil
+}
+
+func (r Repository) streamRepositoryFileCount(ctx context.Context, runner nulRecordRunner) (int, error) {
+	total := 0
+	visible, err := runner.RunNUL(ctx, r.Root, func(record []byte) error {
+		path := string(record)
+		if _, err := os.Lstat(filepath.Join(r.Root, filepath.FromSlash(path))); err != nil {
+			if os.IsNotExist(err) {
+				return nil
+			}
+			return err
+		}
+		total++
+		return nil
+	}, "ls-files", "-z", "--cached", "--others", "--exclude-standard", "--deduplicate")
+	if err != nil {
+		return 0, err
+	}
+	if visible.ExitCode != 0 {
+		return 0, fmt.Errorf("gitx: count repository files: %s", strings.TrimSpace(string(visible.Stderr)))
+	}
+	ignored, err := runner.RunNUL(ctx, r.Root, func([]byte) error {
+		total++
+		return nil
+	}, "ls-files", "-z", "--others", "--ignored", "--exclude-standard", "--deduplicate")
+	if err != nil {
+		return 0, err
+	}
+	if ignored.ExitCode != 0 {
+		return 0, fmt.Errorf("gitx: count ignored repository files: %s", strings.TrimSpace(string(ignored.Stderr)))
+	}
+	return total, nil
 }
 
 type folderFileCandidate struct {

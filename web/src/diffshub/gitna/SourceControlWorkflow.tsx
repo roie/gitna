@@ -585,10 +585,18 @@ export function GitnaSourceControl() {
     repository.ordinaryUnloadedDirectories.size > 0 ||
     repository.ordinaryPagedDirectories.size > 0
   const repositoryCountPending = repositoryExactTotal == null && repositoryRowsIncomplete
-  const repositoryDenominator = repositoryExactTotal ?? repository.repositoryPaths.length
+  const repositoryExactDisplay =
+    repositoryExactTotal == null
+      ? null
+      : repositoryExactTotal > 999_999
+        ? '999999+'
+        : `${repositoryExactTotal}`
+  const repositoryDenominator = repositoryExactDisplay ?? repository.repositoryPaths.length
+  const repositoryCountTitle =
+    repositoryExactTotal == null ? undefined : `${repositoryExactTotal} files in Repository`
   const repositoryCount =
-    repositoryFilters.size === 0 && !repositoryVisibilityFiltered && repositoryExactTotal != null
-      ? `${repositoryExactTotal}`
+    repositoryFilters.size === 0 && !repositoryVisibilityFiltered && repositoryExactDisplay != null
+      ? repositoryExactDisplay
       : repositoryFilters.size === 0 && !repositoryVisibilityFiltered
         ? `${repository.repositoryPaths.length}${repositoryCountPending ? '+' : ''}`
         : `${filteredRepositoryPaths.length}${repositoryRowsIncomplete ? '+' : ''} / ${repositoryDenominator}${repositoryCountPending ? '+' : ''}`
@@ -935,6 +943,7 @@ export function GitnaSourceControl() {
         <TreeSection
           pane
           count={repositoryCount}
+          countTitle={repositoryCountTitle}
           headerClassName={snapshot.repository ? undefined : 'border-t-0'}
           dragAndDrop={repositoryDragAndDrop}
           dataSection="repository"
@@ -2007,6 +2016,7 @@ function RepositoryHeaderActions({
 
 interface TreeSectionProps {
   count?: ReactNode
+  countTitle?: string
   dataSection: string
   dragAndDrop?: FileTreeDragAndDropConfig
   emptyMessage: string
@@ -2042,6 +2052,7 @@ interface TreeSectionProps {
 
 function TreeSection({
   count,
+  countTitle,
   dataSection,
   dragAndDrop,
   emptyMessage,
@@ -2105,7 +2116,10 @@ function TreeSection({
             </>
           }
           count={count ?? source.pathCount}
-          countTitle={`${count ?? source.pathCount} files in ${dataSection === 'repository' ? 'Repository' : title}`}
+          countTitle={
+            countTitle ??
+            `${count ?? source.pathCount} files in ${dataSection === 'repository' ? 'Repository' : title}`
+          }
           dataSection={dataSection}
           headerRef={headerRef}
           icon={paneIcon ?? IconFileTree}

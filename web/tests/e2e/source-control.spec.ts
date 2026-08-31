@@ -1258,6 +1258,25 @@ test('header folder switcher keeps keyboard navigation visible', async ({ page, 
   )
 })
 
+test('repository count caps its badge while preserving the exact hover total', async ({
+  page,
+  app,
+}) => {
+  await page.route('**/api/v1/files/count?*', async (route) => {
+    const generation = Number(new URL(route.request().url()).searchParams.get('generation'))
+    await route.fulfill({ json: { generation, total: 1_234_567 } })
+  })
+
+  await page.goto(app.url)
+
+  const repositoryHeader = page.locator('[data-section="repository"]')
+  await expect(repositoryHeader).toHaveAccessibleName(`${basename(app.repo)} 999999+`)
+  await expect(repositoryHeader.locator('.section-count')).toHaveAttribute(
+    'title',
+    '1234567 files in Repository',
+  )
+})
+
 test('command palette searches complete paths and runs workbench commands', async ({
   page,
   app,
