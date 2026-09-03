@@ -160,8 +160,8 @@ func TestWatcherReportsOrdinaryFolderChangesWithoutGit(t *testing.T) {
 	drain(t, events, 100*time.Millisecond)
 
 	writeFile(t, root, "nested/file.txt", "content\n")
-	if event := nextEvent(t, events); event != InvalidateSnapshot {
-		t.Fatalf("event = %q, want %q", event, InvalidateSnapshot)
+	if event := nextEvent(t, events); event != InvalidateFiles {
+		t.Fatalf("event = %q, want %q", event, InvalidateFiles)
 	}
 	expectNoEvent(t, events, 200*time.Millisecond)
 }
@@ -190,7 +190,7 @@ func TestRootOnlyWatcherObservesLoadedDirectoriesWithinBudget(t *testing.T) {
 		t.Fatal(err)
 	}
 	writeFile(t, root, "deep/child/after.txt", "after\n")
-	if got := nextEvent(t, w.Events()); got != InvalidateSnapshot {
+	if got := nextEvent(t, w.Events()); got != InvalidateFiles {
 		t.Fatalf("event = %q", got)
 	}
 	if got := len(w.fsw.WatchList()); got > 2 {
@@ -211,9 +211,51 @@ func TestWatcherReportsWorktreeChanges(t *testing.T) {
 	drain(t, events, 100*time.Millisecond)
 
 	writeFile(t, root, "new file.txt", "untracked\n")
-	if got := nextEvent(t, events); got != InvalidateSnapshot {
-		t.Fatalf("untracked file: got %q, want %q", got, InvalidateSnapshot)
+	if got := nextEvent(t, events); got != InvalidateFiles {
+		t.Fatalf("untracked file: got %q, want %q", got, InvalidateFiles)
 	}
+	drain(t, events, 100*time.Millisecond)
+
+	if err := os.Rename(filepath.Join(root, "new file.txt"), filepath.Join(root, "renamed.txt")); err != nil {
+		t.Fatal(err)
+	}
+	if got := nextEvent(t, events); got != InvalidateFiles {
+		t.Fatalf("renamed file: got %q, want %q", got, InvalidateFiles)
+	}
+	drain(t, events, 100*time.Millisecond)
+
+	if err := os.Remove(filepath.Join(root, "renamed.txt")); err != nil {
+		t.Fatal(err)
+	}
+	if got := nextEvent(t, events); got != InvalidateFiles {
+		t.Fatalf("removed file: got %q, want %q", got, InvalidateFiles)
+	}
+}
+
+func TestWatcherTreatsAtomicReplacementAsContentChange(t *testing.T) {
+	root := trackedRepo(t)
+	w := startWatcher(t, root, Options{Debounce: 50 * time.Millisecond, FallbackInterval: -1})
+	events := w.Events()
+	drain(t, events, 100*time.Millisecond)
+
+	temporary := filepath.Join(root, ".tracked.txt.save")
+	if err := os.WriteFile(temporary, []byte("replacement\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	target := filepath.Join(root, "tracked.txt")
+	if err := os.Rename(temporary, target); err != nil {
+		// Windows does not replace an existing destination with os.Rename.
+		if removeErr := os.Remove(target); removeErr != nil {
+			t.Fatal(removeErr)
+		}
+		if renameErr := os.Rename(temporary, target); renameErr != nil {
+			t.Fatal(renameErr)
+		}
+	}
+	if got := nextEvent(t, events); got != InvalidateSnapshot {
+		t.Fatalf("atomic replacement: got %q, want %q", got, InvalidateSnapshot)
+	}
+	expectNoEvent(t, events, 150*time.Millisecond)
 }
 
 func TestWatcherReportsIndexAndCommitChanges(t *testing.T) {
@@ -277,8 +319,8 @@ func TestWatcherReportsChangesInNewDirectories(t *testing.T) {
 	waitForWatch(t, w, deep)
 	writeFile(t, root, filepath.Join("nested", "deep", "file.txt"), "x\n")
 
-	if got := nextEvent(t, events); got != InvalidateSnapshot {
-		t.Fatalf("file in new directory: got %q, want %q", got, InvalidateSnapshot)
+	if got := nextEvent(t, events); got != InvalidateFiles {
+		t.Fatalf("file in new directory: got %q, want %q", got, InvalidateFiles)
 	}
 }
 
@@ -313,6 +355,24 @@ func TestWatcherDebouncesBursts(t *testing.T) {
 	case <-time.After(200 * time.Millisecond):
 	}
 	expectNoEvent(t, events, 200*time.Millisecond)
+}
+
+func TestInvalidationQueuePreservesStructuralImpactWhenSaturated(t *testing.T) {
+	w := &Repository{events: make(chan InvalidationKind, 32)}
+	for range cap(w.events) {
+		w.events <- InvalidateSnapshot
+	}
+
+	w.emit(InvalidateFiles)
+	w.emit(InvalidateGraph)
+
+	seen := map[InvalidationKind]bool{}
+	for len(w.events) > 0 {
+		seen[<-w.events] = true
+	}
+	if !seen[InvalidateFiles] || !seen[InvalidateGraph] || seen[InvalidateSnapshot] {
+		t.Fatalf("compacted invalidations = %v", seen)
+	}
 }
 
 func TestWatcherSilentWhenNothingChanges(t *testing.T) {
@@ -354,8 +414,8 @@ func TestFallbackEmitsWhenFingerprintChanges(t *testing.T) {
 		},
 	})
 	events := w.Events()
-	if got := nextEvent(t, events); got != InvalidateSnapshot {
-		t.Fatalf("fallback: got %q, want %q", got, InvalidateSnapshot)
+	if got := nextEvent(t, events); got != InvalidateFiles {
+		t.Fatalf("fallback: got %q, want %q", got, InvalidateFiles)
 	}
 }
 

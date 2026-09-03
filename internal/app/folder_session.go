@@ -231,10 +231,11 @@ func (s *folderSession) startWatcher(repo gitx.Repository) {
 		}
 		// Reconcile once installation completes to cover changes made during
 		// the initial recursive walk.
-		for _, event := range []watch.InvalidationKind{watch.InvalidateSnapshot, watch.InvalidateGraph} {
+		for _, event := range []watch.InvalidationKind{watch.InvalidateFiles, watch.InvalidateGraph} {
 			select {
 			case s.events <- event:
-			default:
+			case <-s.ctx.Done():
+				return
 			}
 		}
 	}()
@@ -294,7 +295,8 @@ func (s *folderSession) forward(watcher watch.Watcher) {
 			s.adapter.invalidateFileSearch()
 			select {
 			case s.events <- event:
-			default:
+			case <-s.ctx.Done():
+				return
 			}
 		}
 	}()

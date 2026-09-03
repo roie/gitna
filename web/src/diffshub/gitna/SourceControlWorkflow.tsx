@@ -572,30 +572,63 @@ export function GitnaSourceControl() {
           ? `${naturalWorkflowHeight}px`
           : `minmax(142px, ${sizes[0]}fr)`
   const repositoryVisibilityFiltered = !showHiddenFiles || !showIgnoredFiles
+  const repositorySettledTotal = repository.repositoryFileTotal
   const repositoryExactTotal =
     repository.repositoryFileTotalGeneration === repository.generation
-      ? repository.repositoryFileTotal
+      ? repositorySettledTotal
       : null
+  const repositoryCountOutdated = repositorySettledTotal != null && repositoryExactTotal == null
   const repositoryRowsIncomplete =
     repository.repositoryFilesLoading ||
     repository.ordinaryUnloadedDirectories.size > 0 ||
     repository.ordinaryPagedDirectories.size > 0
-  const repositoryCountPending = repositoryExactTotal == null && repositoryRowsIncomplete
-  const repositoryExactDisplay =
-    repositoryExactTotal == null
+  const repositoryCountPending = repositorySettledTotal == null && repositoryRowsIncomplete
+  const repositorySettledDisplay =
+    repositorySettledTotal == null
       ? null
-      : repositoryExactTotal > 999_999
+      : repositorySettledTotal > 999_999
         ? '999999+'
-        : `${repositoryExactTotal}`
-  const repositoryDenominator = repositoryExactDisplay ?? repository.repositoryPaths.length
+        : `${repositorySettledTotal}`
+  const repositoryDenominator = repositorySettledDisplay ?? repository.repositoryPaths.length
   const repositoryCountTitle =
-    repositoryExactTotal == null ? undefined : `${repositoryExactTotal} files in Repository`
-  const repositoryCount =
-    repositoryFilters.size === 0 && !repositoryVisibilityFiltered && repositoryExactDisplay != null
-      ? repositoryExactDisplay
+    repositorySettledTotal == null
+      ? undefined
+      : repositoryCountOutdated
+        ? repository.repositoryFileCountLoading
+          ? `Last known: ${repositorySettledTotal} files in Repository. Refreshing exact count.`
+          : `Last known: ${repositorySettledTotal} files in Repository. Exact count unavailable.`
+        : `${repositorySettledTotal} files in Repository`
+  const repositoryCountText =
+    repositoryFilters.size === 0 &&
+    !repositoryVisibilityFiltered &&
+    repositorySettledDisplay != null
+      ? repositorySettledDisplay
       : repositoryFilters.size === 0 && !repositoryVisibilityFiltered
         ? `${repository.repositoryPaths.length}${repositoryCountPending ? '+' : ''}`
         : `${filteredRepositoryPaths.length}${repositoryRowsIncomplete ? '+' : ''} / ${repositoryDenominator}${repositoryCountPending ? '+' : ''}`
+  const repositoryCount = (
+    <span
+      className="inline-flex items-center gap-1"
+      aria-label={
+        repositoryCountOutdated
+          ? `${repositoryCountText}, based on the last known exact total; ${repository.repositoryFileCountLoading ? 'refreshing' : 'exact count unavailable'}`
+          : undefined
+      }
+    >
+      <span>{repositoryCountText}</span>
+      <IconRefresh
+        aria-hidden="true"
+        className={cn(
+          'size-2.5 shrink-0',
+          repositoryCountOutdated
+            ? repository.repositoryFileCountLoading
+              ? 'opacity-60'
+              : 'opacity-35'
+            : 'invisible',
+        )}
+      />
+    </span>
+  )
   const pagedOrdinaryDirectory = repository.ordinaryPagedDirectories.values().next().value
   const stagedSource = useMemo(() => createTreeSource(staged), [staged])
   const unstagedSource = useMemo(() => createTreeSource(unstaged), [unstaged])
@@ -946,10 +979,8 @@ export function GitnaSourceControl() {
           emptyMessage={snapshot.repository ? 'No repository files' : 'No folder files'}
           footer={
             <>
-              {repository.repositoryFilesLoading && (
-                <p className="px-8 py-2 text-xs text-muted-foreground">
-                  {repository.repositoryPaths.length === 0 ? 'Loading files…' : 'Refreshing files…'}
-                </p>
+              {repository.repositoryFilesLoading && repository.repositoryPaths.length === 0 && (
+                <p className="px-8 py-2 text-xs text-muted-foreground">Loading files…</p>
               )}
               {repository.repositoryFilesError != null && (
                 <p className="px-8 py-2 text-xs text-red-500" role="alert">

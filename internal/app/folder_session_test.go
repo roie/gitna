@@ -101,6 +101,47 @@ func TestFolderSessionCancelsSupersededWatcherBeforeStartingReplacement(t *testi
 	}
 }
 
+func TestFolderSessionSetupReconcilesFileMembership(t *testing.T) {
+	root := t.TempDir()
+	runner := &gitx.ExecRunner{}
+	repo, err := gitx.OpenFolder(t.Context(), runner, root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	started := make(chan struct{})
+	release := make(chan struct{})
+	factory := func(context.Context, gitx.Repository, gitx.Runner, watch.Options) (watch.Watcher, error) {
+		close(started)
+		<-release
+		return &testWatcher{events: make(chan watch.InvalidationKind)}, nil
+	}
+	session, err := newFolderSession(
+		t.Context(), runner, repo, folder.Open(filepath.Join(t.TempDir(), "folders.json"), 5), factory,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer session.close()
+	select {
+	case <-started:
+	case <-time.After(time.Second):
+		t.Fatal("watcher setup did not start")
+	}
+	if err := os.WriteFile(filepath.Join(root, "created-during-setup.txt"), []byte("created\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	close(release)
+
+	select {
+	case got := <-session.events:
+		if got != watch.InvalidateFiles {
+			t.Fatalf("setup reconciliation = %q, want %q", got, watch.InvalidateFiles)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for setup reconciliation")
+	}
+}
+
 type observingTestWatcher struct {
 	*testWatcher
 	mu          sync.Mutex

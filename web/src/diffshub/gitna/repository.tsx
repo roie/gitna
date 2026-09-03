@@ -59,6 +59,17 @@ export interface RepositoryFileComparison {
   version: number
 }
 
+type FileMembershipRefresh = 'unknown' | 'unchanged' | 'changed'
+
+function strongerFileMembershipRefresh(
+  current: FileMembershipRefresh,
+  next: FileMembershipRefresh,
+): FileMembershipRefresh {
+  if (current === 'changed' || next === 'changed') return 'changed'
+  if (current === 'unchanged' || next === 'unchanged') return 'unchanged'
+  return 'unknown'
+}
+
 const OP_LABELS: Record<string, string> = {
   stage: 'Staging',
   unstage: 'Unstaging',
@@ -246,6 +257,7 @@ export class GitnaRepository {
   private eventSource: EventSource | null = null
   private refreshPromise: Promise<void> | null = null
   private refreshAgain = false
+  private pendingFileMembershipRefresh: FileMembershipRefresh = 'unknown'
   private refreshTimer: ReturnType<typeof setTimeout> | null = null
   private repositoryEpoch = 0
   private folderRequest = 0
@@ -287,13 +299,19 @@ export class GitnaRepository {
     for (const listener of this.listeners) listener()
   }
 
-  async refreshSnapshot(): Promise<void> {
+  async refreshSnapshot(fileMembership: FileMembershipRefresh = 'unknown'): Promise<void> {
     this.refreshAgain = true
+    this.pendingFileMembershipRefresh = strongerFileMembershipRefresh(
+      this.pendingFileMembershipRefresh,
+      fileMembership,
+    )
     if (this.refreshPromise != null) return this.refreshPromise
 
     this.refreshPromise = (async () => {
       while (this.refreshAgain) {
         this.refreshAgain = false
+        const requestedFileMembershipRefresh = this.pendingFileMembershipRefresh
+        this.pendingFileMembershipRefresh = 'unknown'
         this.loading = true
         this.error = null
         this.emit()
@@ -301,8 +319,20 @@ export class GitnaRepository {
         try {
           const snapshot = await this.api.snapshot()
           if (epoch !== this.repositoryEpoch || snapshot.generation <= this.generation) continue
+          const previousGeneration = this.generation
           this.generation = snapshot.generation
           this.snapshot = snapshot
+          const effectiveFileMembershipRefresh = strongerFileMembershipRefresh(
+            requestedFileMembershipRefresh,
+            this.pendingFileMembershipRefresh,
+          )
+          this.pendingFileMembershipRefresh = 'unknown'
+          if (
+            effectiveFileMembershipRefresh === 'unchanged' &&
+            this.repositoryFileTotalGeneration === previousGeneration
+          ) {
+            this.repositoryFileTotalGeneration = snapshot.generation
+          }
           this.selection = reconcileSelection(this.selection, snapshot.staged, snapshot.unstaged)
           this.conflictsRequest += 1
           this.conflicts =
@@ -714,15 +744,28 @@ export class GitnaRepository {
     if (this.eventSource != null) return () => {}
     const source = new EventSource('api/v1/events')
     this.eventSource = source
-    const scheduleSnapshot = () => {
+    let refreshFiles = false
+    const scheduleSnapshot = (includeFiles = false) => {
+      refreshFiles ||= includeFiles
       if (this.refreshTimer != null) return
       this.refreshTimer = setTimeout(() => {
         this.refreshTimer = null
-        void Promise.all([this.refreshSnapshot(), this.refreshRepositoryFiles()])
+        const shouldRefreshFiles = refreshFiles
+        refreshFiles = false
+        void Promise.all([
+          this.refreshSnapshot(shouldRefreshFiles ? 'changed' : 'unchanged'),
+          ...(shouldRefreshFiles ? [this.refreshRepositoryFiles()] : []),
+        ])
       }, 150)
     }
-    source.addEventListener('open', () => markStartup('sse-ready'))
-    source.addEventListener('snapshot-invalidated', scheduleSnapshot)
+    let hasConnected = false
+    source.addEventListener('open', () => {
+      markStartup('sse-ready')
+      if (hasConnected) scheduleSnapshot(true)
+      hasConnected = true
+    })
+    source.addEventListener('snapshot-invalidated', () => scheduleSnapshot())
+    source.addEventListener('files-invalidated', () => scheduleSnapshot(true))
     source.addEventListener('graph-invalidated', () => {
       scheduleSnapshot()
       if (this.snapshot?.repository) void this.refreshGraph()

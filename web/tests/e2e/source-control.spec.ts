@@ -1277,6 +1277,56 @@ test('repository count caps its badge while preserving the exact hover total', a
   )
 })
 
+test('repository count stays stable during a background refresh', async ({ page, app }) => {
+  let countRequests = 0
+  let releaseRefresh!: () => void
+  const refreshGate = new Promise<void>((resolve) => {
+    releaseRefresh = resolve
+  })
+  await page.route('**/api/v1/files/count?*', async (route) => {
+    countRequests += 1
+    if (countRequests > 1) await refreshGate
+    const generation = Number(new URL(route.request().url()).searchParams.get('generation'))
+    await route.fulfill({ json: { generation, total: 59 } })
+  })
+
+  await page.goto(app.url)
+  const repositoryHeader = page.locator('[data-section="repository"]')
+  const repositoryCount = repositoryHeader.locator('.section-count')
+  await expect(repositoryCount).toHaveText('59')
+  await expect(repositoryCount).toHaveAttribute('title', '59 files in Repository')
+  const initialGeneration = await page.evaluate(async () => {
+    const response = await fetch('api/v1/snapshot')
+    return ((await response.json()) as { generation: number }).generation
+  })
+
+  writeFileSync(join(app.repo, 'main.txt'), 'external refresh\n')
+  await expect
+    .poll(async () =>
+      page.evaluate(async () => {
+        const response = await fetch('api/v1/snapshot')
+        return ((await response.json()) as { generation: number }).generation
+      }),
+    )
+    .toBeGreaterThan(initialGeneration)
+  await expect(page.getByText('external refresh', { exact: true })).toBeVisible()
+  expect(countRequests).toBe(1)
+  await expect(repositoryCount).toHaveText('59')
+  await expect(repositoryCount).toHaveAttribute('title', '59 files in Repository')
+
+  writeFileSync(join(app.repo, 'created.txt'), 'created\n')
+  await expect.poll(() => countRequests).toBeGreaterThan(1)
+  await expect(repositoryCount).toHaveText('59')
+  await expect(repositoryCount).toHaveAttribute(
+    'title',
+    'Last known: 59 files in Repository. Refreshing exact count.',
+  )
+  await expect(page.getByText('Refreshing files…', { exact: true })).toHaveCount(0)
+
+  releaseRefresh()
+  await expect(repositoryCount).toHaveAttribute('title', '59 files in Repository')
+})
+
 test('command palette searches complete paths and runs workbench commands', async ({
   page,
   app,

@@ -28,6 +28,9 @@ const (
 
 	// InvalidateSnapshot means the source-control snapshot may have changed.
 	InvalidateSnapshot InvalidationKind = "snapshot-invalidated"
+	// InvalidateFiles means worktree path membership changed. Consumers must
+	// refresh both the source-control snapshot and file-tree structure.
+	InvalidateFiles InvalidationKind = "files-invalidated"
 	// InvalidateGraph means branch topology may have changed (consumed by the
 	// future graph view).
 	InvalidateGraph InvalidationKind = "graph-invalidated"
@@ -94,15 +97,16 @@ type Repository struct {
 	fsw  *fsnotify.Watcher
 	opts Options
 
-	mu            sync.Mutex
-	closed        bool
-	events        chan InvalidationKind
-	closedCh      chan struct{}
-	once          sync.Once
-	observed      map[string]struct{}
-	observedOrder []string
-	budgetWatches int
-	coverage      Coverage
+	mu                  sync.Mutex
+	closed              bool
+	events              chan InvalidationKind
+	closedCh            chan struct{}
+	once                sync.Once
+	observed            map[string]struct{}
+	observedOrder       []string
+	directorySignatures map[string][sha256.Size]byte
+	budgetWatches       int
+	coverage            Coverage
 }
 
 // New creates a watcher for git and starts its background loops. ctx and Close
@@ -113,13 +117,14 @@ func New(ctx context.Context, git gitx.Repository, runner gitx.Runner, opts Opti
 		return nil, fmt.Errorf("watch: create watcher: %w", err)
 	}
 	w := &Repository{
-		git:      git,
-		fsw:      fsw,
-		opts:     opts,
-		events:   make(chan InvalidationKind, 32),
-		closedCh: make(chan struct{}),
-		observed: make(map[string]struct{}),
-		coverage: CoverageComplete,
+		git:                 git,
+		fsw:                 fsw,
+		opts:                opts,
+		events:              make(chan InvalidationKind, 32),
+		closedCh:            make(chan struct{}),
+		observed:            make(map[string]struct{}),
+		directorySignatures: make(map[string][sha256.Size]byte),
+		coverage:            CoverageComplete,
 	}
 	stats := SetupStats{}
 	started := time.Now()
@@ -212,6 +217,7 @@ func (w *Repository) observeDirectoryLocked(full string, stats *SetupStats) erro
 		oldest := w.observedOrder[1]
 		w.observedOrder = append(w.observedOrder[:1], w.observedOrder[2:]...)
 		delete(w.observed, oldest)
+		delete(w.directorySignatures, oldest)
 		_ = w.fsw.Remove(oldest)
 		if w.budgetWatches > 0 {
 			releaseOrdinaryWatchBudget(1)
@@ -238,6 +244,7 @@ func (w *Repository) observeDirectoryLocked(full string, stats *SetupStats) erro
 	}
 	w.observed[full] = struct{}{}
 	w.observedOrder = append(w.observedOrder, full)
+	w.rememberDirectoryLocked(full)
 	if stats != nil {
 		stats.Directories++
 		stats.Watches++
@@ -279,8 +286,9 @@ func (w *Repository) Close() error {
 	return err
 }
 
-// emit forwards an invalidation without blocking. Under load events are
-// dropped; the debounce and fingerprint fallback make this safe.
+// emit forwards an invalidation without blocking. If the bounded queue fills,
+// it is compacted by semantic impact: file invalidation subsumes snapshot
+// invalidation, while graph invalidation remains independent.
 func (w *Repository) emit(k InvalidationKind) {
 	w.mu.Lock()
 	defer w.mu.Unlock()
@@ -289,7 +297,26 @@ func (w *Repository) emit(k InvalidationKind) {
 	}
 	select {
 	case w.events <- k:
+		return
 	default:
+	}
+
+	pending := map[InvalidationKind]bool{k: true}
+	for {
+		select {
+		case queued := <-w.events:
+			pending[queued] = true
+		default:
+			if pending[InvalidateFiles] {
+				delete(pending, InvalidateSnapshot)
+			}
+			for _, kind := range []InvalidationKind{InvalidateFiles, InvalidateSnapshot, InvalidateGraph} {
+				if pending[kind] {
+					w.events <- kind
+				}
+			}
+			return
+		}
 	}
 }
 
@@ -319,6 +346,7 @@ func (w *Repository) addWorktreeWatches(ctx context.Context, stats *SetupStats) 
 			}
 		} else {
 			stats.Watches++
+			w.rememberDirectoryLocked(p)
 		}
 		return nil
 	})
@@ -387,17 +415,23 @@ func (w *Repository) loop(ctx context.Context) {
 	const maxWait = 2 * time.Second
 
 	var (
-		pending    map[InvalidationKind]bool
-		quietTimer *time.Timer
-		quietC     <-chan time.Time
-		maxTimer   *time.Timer
-		maxC       <-chan time.Time
+		pending        map[InvalidationKind]bool
+		structuralDirs map[string]struct{}
+		quietTimer     *time.Timer
+		quietC         <-chan time.Time
+		maxTimer       *time.Timer
+		maxC           <-chan time.Time
 	)
 
 	flush := func() {
 		if len(pending) == 0 {
 			return
 		}
+		if len(structuralDirs) > 0 && w.worktreeStructureChanged(structuralDirs) {
+			pending[InvalidateFiles] = true
+			delete(pending, InvalidateSnapshot)
+		}
+		structuralDirs = nil
 		if quietTimer != nil {
 			quietTimer.Stop()
 		}
@@ -440,8 +474,16 @@ func (w *Repository) loop(ctx context.Context) {
 				flush()
 				return
 			}
-			for _, k := range w.classify(ev) {
+			kinds := w.classify(ev)
+			for _, k := range kinds {
 				mark(k)
+			}
+			if len(kinds) > 0 && w.isInsideWorktree(ev.Name) && !w.isGitDirPath(ev.Name) &&
+				ev.Op&(fsnotify.Create|fsnotify.Remove|fsnotify.Rename) != 0 {
+				if structuralDirs == nil {
+					structuralDirs = make(map[string]struct{})
+				}
+				structuralDirs[filepath.Dir(filepath.Clean(ev.Name))] = struct{}{}
 			}
 			if ev.Op&fsnotify.Create != 0 {
 				if info, err := os.Stat(ev.Name); err == nil && info.IsDir() && w.shouldWatchDir(ev.Name) {
@@ -462,8 +504,14 @@ func (w *Repository) loop(ctx context.Context) {
 						if !w.shouldWatchDir(path) {
 							return filepath.SkipDir
 						}
-						if err := w.fsw.Add(path); err != nil && w.opts.OnError != nil {
-							w.opts.OnError(err)
+						if err := w.fsw.Add(path); err != nil {
+							if w.opts.OnError != nil {
+								w.opts.OnError(err)
+							}
+						} else {
+							w.mu.Lock()
+							w.rememberDirectoryLocked(path)
+							w.mu.Unlock()
 						}
 						return nil
 					})
@@ -475,7 +523,7 @@ func (w *Repository) loop(ctx context.Context) {
 				return
 			}
 			if errors.Is(err, fsnotify.ErrEventOverflow) {
-				mark(InvalidateSnapshot)
+				mark(InvalidateFiles)
 				continue
 			}
 			if w.opts.OnError != nil {
@@ -514,6 +562,53 @@ func (w *Repository) classify(ev fsnotify.Event) []InvalidationKind {
 		return []InvalidationKind{InvalidateSnapshot}
 	}
 	return nil
+}
+
+func (w *Repository) rememberDirectoryLocked(path string) {
+	signature, err := directorySignature(path)
+	if err != nil {
+		delete(w.directorySignatures, filepath.Clean(path))
+		return
+	}
+	w.directorySignatures[filepath.Clean(path)] = signature
+}
+
+func (w *Repository) worktreeStructureChanged(directories map[string]struct{}) bool {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	changed := false
+	for directory := range directories {
+		directory = filepath.Clean(directory)
+		current, err := directorySignature(directory)
+		previous, known := w.directorySignatures[directory]
+		if err != nil {
+			delete(w.directorySignatures, directory)
+			changed = true
+			continue
+		}
+		if !known || previous != current {
+			changed = true
+		}
+		w.directorySignatures[directory] = current
+	}
+	return changed
+}
+
+func directorySignature(path string) ([sha256.Size]byte, error) {
+	entries, err := os.ReadDir(path)
+	if err != nil {
+		return [sha256.Size]byte{}, err
+	}
+	hash := sha256.New()
+	for _, entry := range entries {
+		_, _ = hash.Write([]byte(entry.Name()))
+		_, _ = hash.Write([]byte{0})
+		_, _ = hash.Write([]byte(entry.Type().String()))
+		_, _ = hash.Write([]byte{0})
+	}
+	var signature [sha256.Size]byte
+	copy(signature[:], hash.Sum(nil))
+	return signature, nil
 }
 
 func (w *Repository) isGitDirPath(p string) bool {
@@ -574,7 +669,9 @@ func (w *Repository) fallback(ctx context.Context, runner gitx.Runner) {
 			}
 			if current != last {
 				last = current
-				w.emit(InvalidateSnapshot)
+				// The fallback cannot recover the missed filesystem operation, so
+				// conservatively refresh both snapshot and file membership.
+				w.emit(InvalidateFiles)
 			}
 		}
 	}

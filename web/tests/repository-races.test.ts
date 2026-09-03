@@ -142,6 +142,93 @@ describe('GitnaRepository request sequencing', () => {
     expect(repository.repositoryFileCountLoading).toBe(false)
   })
 
+  it('carries an exact Repository count across a content-only Snapshot generation', async () => {
+    const api = {
+      snapshot: vi.fn().mockResolvedValue(snapshot('/repo', 2)),
+    } as unknown as ApiClient
+    const repository = new GitnaRepository(api)
+    repository.snapshot = snapshot('/repo', 1)
+    repository.generation = 1
+    repository.repositoryFileTotal = 12
+    repository.repositoryFileTotalGeneration = 1
+
+    await repository.refreshSnapshot('unchanged')
+
+    expect(repository.generation).toBe(2)
+    expect(repository.repositoryFileTotal).toBe(12)
+    expect(repository.repositoryFileTotalGeneration).toBe(2)
+  })
+
+  it('carries the count when a content invalidation joins an in-flight Snapshot refresh', async () => {
+    const inFlightSnapshot = deferred<RepoSnapshot>()
+    const api = {
+      snapshot: vi
+        .fn()
+        .mockReturnValueOnce(inFlightSnapshot.promise)
+        .mockResolvedValueOnce(snapshot('/repo', 2)),
+    } as unknown as ApiClient
+    const repository = new GitnaRepository(api)
+    repository.snapshot = snapshot('/repo', 1)
+    repository.generation = 1
+    repository.repositoryFileTotal = 12
+    repository.repositoryFileTotalGeneration = 1
+
+    const initialRefresh = repository.refreshSnapshot()
+    const contentRefresh = repository.refreshSnapshot('unchanged')
+    inFlightSnapshot.resolve(snapshot('/repo', 2))
+    await Promise.all([initialRefresh, contentRefresh])
+
+    expect(repository.repositoryFileTotalGeneration).toBe(2)
+  })
+
+  it.each([
+    ['content then structure', 'unchanged', 'changed'],
+    ['structure then content', 'changed', 'unchanged'],
+  ] as const)('lets structural refresh dominate %s', async (_, firstPolicy, secondPolicy) => {
+    const inFlightSnapshot = deferred<RepoSnapshot>()
+    const api = {
+      snapshot: vi
+        .fn()
+        .mockReturnValueOnce(inFlightSnapshot.promise)
+        .mockResolvedValueOnce(snapshot('/repo', 2)),
+    } as unknown as ApiClient
+    const repository = new GitnaRepository(api)
+    repository.snapshot = snapshot('/repo', 1)
+    repository.generation = 1
+    repository.repositoryFileTotal = 12
+    repository.repositoryFileTotalGeneration = 1
+
+    const firstRefresh = repository.refreshSnapshot(firstPolicy)
+    const secondRefresh = repository.refreshSnapshot(secondPolicy)
+    inFlightSnapshot.resolve(snapshot('/repo', 2))
+    await Promise.all([firstRefresh, secondRefresh])
+
+    expect(repository.repositoryFileTotalGeneration).toBe(1)
+  })
+
+  it.each([
+    ['no-op', () => Promise.resolve(snapshot('/repo', 2))],
+    ['failure', () => Promise.reject(new Error('snapshot failed'))],
+  ])('clears count-preservation intent after a %s Snapshot refresh', async (_, firstResult) => {
+    const api = {
+      snapshot: vi
+        .fn()
+        .mockImplementationOnce(firstResult)
+        .mockResolvedValueOnce(snapshot('/repo', 3)),
+    } as unknown as ApiClient
+    const repository = new GitnaRepository(api)
+    repository.snapshot = snapshot('/repo', 2)
+    repository.generation = 2
+    repository.repositoryFileTotal = 12
+    repository.repositoryFileTotalGeneration = 2
+
+    await repository.refreshSnapshot('unchanged')
+    await repository.refreshSnapshot()
+
+    expect(repository.generation).toBe(3)
+    expect(repository.repositoryFileTotalGeneration).toBe(2)
+  })
+
   it('refreshes Snapshot before retrying an invalidated Repository file count', async () => {
     const refreshedSnapshot = deferred<RepoSnapshot>()
     const api = {
@@ -313,6 +400,50 @@ describe('GitnaRepository request sequencing', () => {
     expect(api.snapshot).toHaveBeenCalledTimes(2)
     expect(repository.generation).toBe(2)
     expect(repository.repositoryPaths).toEqual(['current.txt'])
+  })
+
+  it('reconciles file membership after the event stream reconnects', async () => {
+    class TestEventSource {
+      static current: TestEventSource | null = null
+      private readonly listeners = new Map<string, Array<() => void>>()
+
+      constructor() {
+        TestEventSource.current = this
+      }
+
+      addEventListener(type: string, listener: () => void) {
+        const listeners = this.listeners.get(type) ?? []
+        listeners.push(listener)
+        this.listeners.set(type, listeners)
+      }
+
+      dispatch(type: string) {
+        for (const listener of this.listeners.get(type) ?? []) listener()
+      }
+
+      close() {}
+    }
+
+    vi.useFakeTimers()
+    vi.stubGlobal('EventSource', TestEventSource)
+    const repository = new GitnaRepository({} as ApiClient)
+    const snapshotRefresh = vi.spyOn(repository, 'refreshSnapshot').mockResolvedValue()
+    const filesRefresh = vi.spyOn(repository, 'refreshRepositoryFiles').mockResolvedValue()
+    const disconnect = repository.connectEvents()
+
+    TestEventSource.current?.dispatch('open')
+    await vi.advanceTimersByTimeAsync(150)
+    expect(snapshotRefresh).not.toHaveBeenCalled()
+    expect(filesRefresh).not.toHaveBeenCalled()
+
+    TestEventSource.current?.dispatch('open')
+    await vi.advanceTimersByTimeAsync(150)
+    expect(snapshotRefresh).toHaveBeenCalledWith('changed')
+    expect(filesRefresh).toHaveBeenCalledTimes(1)
+
+    disconnect()
+    vi.useRealTimers()
+    vi.unstubAllGlobals()
   })
 
   it('forwards folder-switch cancellation without mutating busy state', async () => {

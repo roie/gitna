@@ -11,7 +11,7 @@ import (
 
 const (
 	// eventsBufferSize bounds per-subscriber buffering. When a subscriber is
-	// slower than the watcher, events are dropped rather than blocking it.
+	// slower than the watcher, queued events are compacted by invalidation kind.
 	eventsBufferSize = 16
 	// heartbeatInterval is how often idle SSE connections receive a comment so
 	// intermediaries do not time them out.
@@ -19,8 +19,8 @@ const (
 )
 
 // eventsHub fans invalidation kinds from a single source out to every
-// connected subscriber. Slow or disconnected clients never block the source:
-// per-subscriber buffers drop events under pressure.
+// connected subscriber. Slow clients never block the source; full subscriber
+// buffers are compacted without losing file or graph invalidation semantics.
 type eventsHub struct {
 	src                  <-chan watch.InvalidationKind
 	onEvent              func(watch.InvalidationKind)
@@ -72,12 +72,39 @@ func (h *eventsHub) dispatch() {
 		}
 		h.mu.Lock()
 		for ch := range h.subs {
-			select {
-			case ch <- k:
-			default:
-			}
+			enqueueSubscriberInvalidation(ch, k)
 		}
 		h.mu.Unlock()
+	}
+}
+
+func enqueueSubscriberInvalidation(ch chan watch.InvalidationKind, k watch.InvalidationKind) {
+	select {
+	case ch <- k:
+		return
+	default:
+	}
+
+	pending := map[watch.InvalidationKind]bool{k: true}
+	for {
+		select {
+		case queued := <-ch:
+			pending[queued] = true
+		default:
+			if pending[watch.InvalidateFiles] {
+				delete(pending, watch.InvalidateSnapshot)
+			}
+			for _, kind := range []watch.InvalidationKind{
+				watch.InvalidateFiles,
+				watch.InvalidateSnapshot,
+				watch.InvalidateGraph,
+			} {
+				if pending[kind] {
+					ch <- kind
+				}
+			}
+			return
+		}
 	}
 }
 

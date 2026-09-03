@@ -95,6 +95,24 @@ func TestEventsHubReportsSubscriberLifecycleOnce(t *testing.T) {
 	}
 }
 
+func TestSubscriberQueuePreservesStructuralImpactWhenSaturated(t *testing.T) {
+	ch := make(chan watch.InvalidationKind, eventsBufferSize)
+	for range cap(ch) {
+		ch <- watch.InvalidateSnapshot
+	}
+
+	enqueueSubscriberInvalidation(ch, watch.InvalidateFiles)
+	enqueueSubscriberInvalidation(ch, watch.InvalidateGraph)
+
+	seen := map[watch.InvalidationKind]bool{}
+	for len(ch) > 0 {
+		seen[<-ch] = true
+	}
+	if !seen[watch.InvalidateFiles] || !seen[watch.InvalidateGraph] || seen[watch.InvalidateSnapshot] {
+		t.Fatalf("compacted invalidations = %v", seen)
+	}
+}
+
 func TestEventsStreamsInvalidationKinds(t *testing.T) {
 	src := make(chan watch.InvalidationKind, 4)
 	ts := startEventsServer(t, src)
