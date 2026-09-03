@@ -67,6 +67,10 @@ func (w *workbenchRepo) Branches(ctx context.Context) ([]protocol.Branch, error)
 	return w.repo.ListBranches(ctx, w.runner)
 }
 
+func (w *workbenchRepo) Remotes(ctx context.Context) ([]string, error) {
+	return w.repo.ListRemotes(ctx, w.runner)
+}
+
 func (w *workbenchRepo) CreateBranch(ctx context.Context, name, start string) error {
 	return w.queue.Do(ctx, func(ctx context.Context) error { return w.repo.CreateBranch(ctx, w.runner, name, start) })
 }

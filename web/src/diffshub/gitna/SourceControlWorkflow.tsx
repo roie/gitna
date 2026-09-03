@@ -940,7 +940,7 @@ export function GitnaSourceControl() {
                         id="gitna-amend"
                         aria-label="Amend"
                         checked={amend}
-                        disabled={repository.busy || staged.length === 0}
+                        disabled={repository.busy || snapshot.headOid == null}
                         onCheckedChange={setAmend}
                       />
                       Amend
@@ -950,7 +950,9 @@ export function GitnaSourceControl() {
                       variant="default"
                       size="sm"
                       disabled={
-                        repository.busy || commitMessage.trim().length === 0 || staged.length === 0
+                        repository.busy ||
+                        commitMessage.trim().length === 0 ||
+                        (staged.length === 0 && (!amend || snapshot.headOid == null))
                       }
                     >
                       Commit
@@ -1191,7 +1193,7 @@ function SourceControlHeaderActions({
   const [publishBranch, setPublishBranch] = useState<string | null>(null)
   const fetching = repository.activeOp === 'Fetching'
   const fetchRefreshVisible = useDelayedRefreshIndicator(fetching)
-  const [publishRemote, setPublishRemote] = useState('origin')
+  const [publishRemote, setPublishRemote] = useState('')
   const normalizedBranchQuery = branchQuery.trim().toLocaleLowerCase()
   const localBranches = repository.branches.filter(
     (branch) => !branch.remote && branch.name.toLocaleLowerCase().includes(normalizedBranchQuery),
@@ -1199,15 +1201,12 @@ function SourceControlHeaderActions({
   const remoteBranches = repository.branches.filter(
     (branch) => branch.remote && branch.name.toLocaleLowerCase().includes(normalizedBranchQuery),
   )
-  const remotes = useMemo(() => {
-    const values = new Set<string>()
-    for (const branch of repository.branches) {
-      if (!branch.remote) continue
-      const slash = branch.name.indexOf('/')
-      if (slash > 0) values.add(branch.name.slice(0, slash))
-    }
-    return [...values].sort((left, right) => left.localeCompare(right))
-  }, [repository.branches])
+  const remotes = repository.remotes
+
+  useEffect(() => {
+    if (remotes.includes(publishRemote)) return
+    setPublishRemote(remotes[0] ?? '')
+  }, [publishRemote, remotes])
 
   const run = useCallback(
     async (action: () => Promise<void>) => {
@@ -1531,17 +1530,20 @@ function SourceControlHeaderActions({
             </span>
             <select
               aria-label="Publish remote"
-              className="cursor-pointer rounded border border-border bg-background px-1 py-1 outline-none focus:border-[var(--diffshub-primary-fg)]"
+              className="cursor-pointer rounded border border-border bg-background px-1 py-1 outline-none focus:border-[var(--diffshub-primary-fg)] disabled:cursor-not-allowed disabled:opacity-60"
+              disabled={remotes.length === 0}
               value={publishRemote}
               onChange={(event) => setPublishRemote(event.currentTarget.value)}
             >
-              {(remotes.length > 0 ? remotes : ['origin']).map((remote) => (
+              {remotes.length === 0 && <option value="">No remotes configured</option>}
+              {remotes.map((remote) => (
                 <option key={remote}>{remote}</option>
               ))}
             </select>
             <Button
               variant="outline"
               size="xs"
+              disabled={publishRemote === ''}
               onClick={() =>
                 void run(async () => {
                   await repository.operation({
@@ -3346,7 +3348,12 @@ function OperationModal({ kind, onClose, onConfirm, onError }: OperationModalPro
   const [tagName, setTagName] = useState('')
   const [tagMessage, setTagMessage] = useState('')
   const [tagTarget, setTagTarget] = useState('HEAD')
-  const [remote, setRemote] = useState('origin')
+  const [remote, setRemote] = useState('')
+
+  useEffect(() => {
+    if (repository.remotes.includes(remote)) return
+    setRemote(repository.remotes[0] ?? '')
+  }, [remote, repository.remotes])
 
   useEffect(() => {
     if (kind === 'stash') void repository.refreshStashes()
@@ -3568,12 +3575,19 @@ function OperationModal({ kind, onClose, onConfirm, onError }: OperationModalPro
       </form>
       <label htmlFor="gitna-tag-remote" className="mb-3 grid gap-1 text-xs">
         Push to
-        <Input
+        <select
           id="gitna-tag-remote"
           aria-label="Push to"
+          className="h-9 rounded-md border border-border bg-background px-2 text-sm disabled:cursor-not-allowed disabled:opacity-60"
+          disabled={repository.remotes.length === 0}
           value={remote}
           onChange={(event) => setRemote(event.currentTarget.value)}
-        />
+        >
+          {repository.remotes.length === 0 && <option value="">No remotes configured</option>}
+          {repository.remotes.map((name) => (
+            <option key={name}>{name}</option>
+          ))}
+        </select>
       </label>
       <div className="grid gap-1">
         {repository.tags.map((tag) => (
@@ -3588,6 +3602,7 @@ function OperationModal({ kind, onClose, onConfirm, onError }: OperationModalPro
             <Button
               variant="ghost"
               size="xs"
+              disabled={remote === ''}
               onClick={() =>
                 void run(() => repository.operation({ op: 'push-tag', remote, name: tag.name }))
               }

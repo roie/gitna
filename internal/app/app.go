@@ -179,6 +179,10 @@ func (a *repoAdapter) Branches(ctx context.Context) ([]protocol.Branch, error) {
 	return a.current().ListBranches(ctx, a.runner)
 }
 
+func (a *repoAdapter) Remotes(ctx context.Context) ([]string, error) {
+	return a.current().ListRemotes(ctx, a.runner)
+}
+
 func (a *repoAdapter) StagePaths(ctx context.Context, paths []string) error {
 	return a.queue.Do(ctx, func(ctx context.Context) error {
 		return a.current().Stage(ctx, a.runner, paths)

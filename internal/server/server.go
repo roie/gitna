@@ -27,6 +27,7 @@ type Repo interface {
 	HistoryCount(ctx context.Context, tip string) (int, error)
 	FilesChanged(ctx context.Context, oid string) (protocol.CommitFiles, error)
 	Branches(ctx context.Context) ([]protocol.Branch, error)
+	Remotes(ctx context.Context) ([]string, error)
 	StagePaths(ctx context.Context, paths []string) error
 	UnstagePaths(ctx context.Context, paths []string) error
 	DiscardTracked(ctx context.Context, paths []string) error

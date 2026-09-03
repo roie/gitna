@@ -35,6 +35,7 @@ type fakeRepo struct {
 	graphFiles     []protocol.CommitFile
 	graphStats     protocol.CommitStats
 	branches       []protocol.Branch
+	remotes        []string
 	stashes        []protocol.StashEntry
 	tags           []protocol.Tag
 	compareFiles   []protocol.CommitFile
@@ -173,6 +174,13 @@ func (f *fakeRepo) Branches(context.Context) ([]protocol.Branch, error) {
 		return nil, f.err
 	}
 	return f.branches, nil
+}
+
+func (f *fakeRepo) Remotes(context.Context) ([]string, error) {
+	if f.err != nil {
+		return nil, f.err
+	}
+	return f.remotes, nil
 }
 
 func (f *fakeRepo) CreateBranch(_ context.Context, name, _ string) error {
@@ -1083,6 +1091,25 @@ func TestBranchesRouteReturnsList(t *testing.T) {
 	}
 	if got[1].Name != "origin/main" || !got[1].Remote {
 		t.Fatalf("branches[1] = %+v", got[1])
+	}
+}
+
+func TestRemotesRouteReturnsConfiguredNames(t *testing.T) {
+	h := newSnapshotServer(&fakeRepo{remotes: []string{"upstream"}})
+	req := httptest.NewRequest(http.MethodGet, "/g/"+testToken+"/api/v1/remotes", nil)
+	req.Host = testHost
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, body = %s", rec.Code, rec.Body.String())
+	}
+	var got []string
+	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0] != "upstream" {
+		t.Fatalf("remotes = %v, want [upstream]", got)
 	}
 }
 

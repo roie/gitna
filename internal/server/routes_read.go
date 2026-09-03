@@ -58,6 +58,8 @@ func (s *Server) apiRoutes() http.Handler {
 			s.handleGraphCount(w, r)
 		case r.Method == http.MethodGet && p == "/branches":
 			s.handleBranches(w, r)
+		case r.Method == http.MethodGet && p == "/remotes":
+			s.handleRemotes(w, r)
 		case r.Method == http.MethodGet && p == "/stashes":
 			s.handleStashes(w, r)
 		case r.Method == http.MethodGet && p == "/tags":
@@ -638,6 +640,25 @@ func (s *Server) handleBranches(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, branches)
+}
+
+func (s *Server) handleRemotes(w http.ResponseWriter, r *http.Request) {
+	if s.repo == nil {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "repository unavailable"})
+		return
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), ReadTimeout)
+	defer cancel()
+	remotes, err := s.repo.Remotes(ctx)
+	if err != nil {
+		if timeoutReached(ctx, err) {
+			writeJSON(w, http.StatusGatewayTimeout, map[string]string{"error": "remotes timed out"})
+			return
+		}
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return
+	}
+	writeJSON(w, http.StatusOK, remotes)
 }
 
 func isCommitSubroute(requestPath, action string) bool {

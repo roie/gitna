@@ -258,6 +258,7 @@ describe('GitnaRepository request sequencing', () => {
     const second = deferred<Branch[]>()
     const api = {
       branches: vi.fn().mockReturnValueOnce(first.promise).mockReturnValueOnce(second.promise),
+      remotes: vi.fn().mockResolvedValue([]),
     } as unknown as ApiClient
     const repository = new GitnaRepository(api)
 
@@ -314,6 +315,7 @@ describe('GitnaRepository request sequencing', () => {
       directoryEntries: vi.fn().mockReturnValue(files.promise),
       graph: vi.fn().mockResolvedValue({ commits: [], hasMore: false }),
       branches: vi.fn().mockResolvedValue([]),
+      remotes: vi.fn().mockResolvedValue([]),
       stashes: vi.fn().mockResolvedValue([]),
       tags: vi.fn().mockResolvedValue([]),
     } as unknown as ApiClient
@@ -355,6 +357,7 @@ describe('GitnaRepository request sequencing', () => {
         }),
       graph: vi.fn().mockResolvedValue({ commits: [], hasMore: false }),
       branches: vi.fn().mockResolvedValue([]),
+      remotes: vi.fn().mockResolvedValue([]),
       stashes: vi.fn().mockResolvedValue([]),
       tags: vi.fn().mockResolvedValue([]),
     } as unknown as ApiClient
@@ -382,6 +385,7 @@ describe('GitnaRepository request sequencing', () => {
       directoryEntries: vi.fn().mockReturnValue(currentFiles.promise),
       graph: vi.fn().mockResolvedValue({ commits: [], hasMore: false }),
       branches: vi.fn().mockResolvedValue([]),
+      remotes: vi.fn().mockResolvedValue([]),
       stashes: vi.fn().mockResolvedValue([]),
       tags: vi.fn().mockResolvedValue([]),
     } as unknown as ApiClient

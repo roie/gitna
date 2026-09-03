@@ -146,6 +146,7 @@ export interface ApiClient {
   graphCount(tip: string, generation: number, signal?: AbortSignal): Promise<GraphCount>
   commitFiles(oid: string): Promise<CommitFiles>
   branches(): Promise<Branch[]>
+  remotes(): Promise<string[]>
   stashes(): Promise<StashEntry[]>
   tags(): Promise<Tag[]>
   compare(from: string, to: string): Promise<CommitFiles>
@@ -433,6 +434,12 @@ export function createApi(): ApiClient {
         await fetch('api/v1/branches', { signal: AbortSignal.timeout(FETCH_TIMEOUT) }),
       )
       return (await res.json()) as Branch[]
+    },
+    async remotes(): Promise<string[]> {
+      const res = await expectOK(
+        await fetch('api/v1/remotes', { signal: AbortSignal.timeout(FETCH_TIMEOUT) }),
+      )
+      return (await res.json()) as string[]
     },
     async stashes(): Promise<StashEntry[]> {
       const res = await expectOK(

@@ -282,6 +282,9 @@ func (s *slowRepo) FilesChanged(ctx context.Context, _ string) (protocol.CommitF
 func (s *slowRepo) Branches(ctx context.Context) ([]protocol.Branch, error) {
 	return nil, s.block(ctx)
 }
+func (s *slowRepo) Remotes(ctx context.Context) ([]string, error) {
+	return nil, s.block(ctx)
+}
 func (s *slowRepo) StagePaths(ctx context.Context, _ []string) error {
 	return s.block(ctx)
 }

@@ -233,6 +233,7 @@ export class GitnaRepository {
   commitDiff: CommitDiffTarget | null = null
 
   branches: Branch[] = []
+  remotes: string[] = []
   branchesLoading = false
   branchesError: string | null = null
   stashes: StashEntry[] = []
@@ -1140,9 +1141,10 @@ export class GitnaRepository {
     this.branchesError = null
     this.emit()
     try {
-      const branches = await this.api.branches()
+      const [branches, remotes] = await Promise.all([this.api.branches(), this.api.remotes()])
       if (request === this.branchesRequest && epoch === this.repositoryEpoch) {
         this.branches = branches
+        this.remotes = remotes
       }
     } catch (error) {
       if (request === this.branchesRequest && epoch === this.repositoryEpoch) {
@@ -1231,11 +1233,12 @@ export class GitnaRepository {
       this.mutationError = errorMessage(error)
       throw error
     } finally {
+      const refreshes = [this.refreshSnapshot(), this.refreshRepositoryFiles()]
+      if (this.commitDiff != null) refreshes.push(this.refreshGraph())
+      await Promise.allSettled(refreshes)
       this.busy = false
       this.activeOp = null
       this.emit()
-      if (this.commitDiff != null) await this.refreshGraph()
-      await Promise.allSettled([this.refreshSnapshot(), this.refreshRepositoryFiles()])
     }
   }
 
@@ -1493,14 +1496,14 @@ export class GitnaRepository {
       this.mutationError = errorMessage(error)
       throw error
     } finally {
-      this.busy = false
-      this.activeOp = null
-      this.emit()
-      await Promise.all([
+      await Promise.allSettled([
         this.refreshSnapshot(),
         this.refreshRepositoryFiles(),
         this.refreshGraph(),
       ])
+      this.busy = false
+      this.activeOp = null
+      this.emit()
     }
   }
 

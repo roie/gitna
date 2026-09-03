@@ -51,6 +51,24 @@ async function switchFolderWithKeyboard(
   await folderPath.press('Enter')
 }
 
+test('clean repository supports a message-only amend', async ({ page, app }) => {
+  runGit(app.repo, 'reset', '--hard', 'HEAD')
+  runGit(app.repo, 'clean', '-fd')
+  const beforeCount = runGit(app.repo, 'rev-list', '--count', 'HEAD')
+
+  await page.goto(app.url)
+  const amend = page.getByRole('switch', { name: 'Amend' })
+  await expect(amend).toBeEnabled()
+  await amend.click()
+  await page.getByPlaceholder('Commit message').fill('amended message only')
+  const commit = page.getByRole('button', { name: 'Commit', exact: true })
+  await expect(commit).toBeEnabled()
+  await commit.click()
+
+  await expect.poll(() => runGit(app.repo, 'log', '-1', '--format=%s')).toBe('amended message only')
+  expect(runGit(app.repo, 'rev-list', '--count', 'HEAD')).toBe(beforeCount)
+})
+
 test('real binary renders repository source-control state', async ({ page, app }) => {
   const pageErrors: string[] = []
   page.on('pageerror', (error) => pageErrors.push(error.message))
@@ -984,7 +1002,7 @@ test('folder path switches the live session and remains fully editable', async (
   await expect(openFolder).not.toBeVisible()
   await expect(page.locator('[data-section="workflow"]')).toContainText('trunk')
   await expect(page.locator('[data-section="workflow"] .section-count')).toHaveCount(0)
-  await expect(page.getByRole('switch', { name: 'Amend' })).toBeDisabled()
+  await expect(page.getByRole('switch', { name: 'Amend' })).toBeEnabled()
   await expect(
     page.getByRole('region', { name: 'Source Control workflow' }).getByText('Working tree clean'),
   ).toHaveCount(0)

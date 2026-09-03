@@ -119,6 +119,9 @@ const auxApi: ApiClient = {
   async branches() {
     return []
   },
+  async remotes() {
+    return []
+  },
   async stashes() {
     return []
   },
@@ -911,6 +914,32 @@ describe('createRepoState', () => {
     expect(state.busy).toBe(false)
   })
 
+  it('keeps a mutation busy until authoritative reconciliation completes', async () => {
+    let release = () => {}
+    const gate = new Promise<void>((resolve) => {
+      release = resolve
+    })
+    const state = createRepoState({
+      api: {
+        ...auxApi,
+        async snapshot() {
+          await gate
+          return snapshot({ generation: 2 })
+        },
+        async mutate() {},
+      },
+    })
+
+    const pending = state.mutate({ op: 'stage', paths: ['x.txt'] })
+    await Promise.resolve()
+    expect(state.busy).toBe(true)
+    expect(state.activeOp).toBe('stage')
+    release()
+    await pending
+    expect(state.busy).toBe(false)
+    expect(state.activeOp).toBeNull()
+  })
+
   it('surfaces a failed mutation and rethrows', async () => {
     const state = createRepoState({
       api: {
@@ -987,6 +1016,8 @@ describe('createRepoState', () => {
     })()
     await Promise.resolve()
     expect(settled).toBe(false)
+    expect(state.busy).toBe(true)
+    expect(state.activeOp).toBe('commit')
     release()
     await pending
     expect(state.generation).toBe(2)
@@ -1426,32 +1457,34 @@ describe('branch and sync operations', () => {
     expect(state.busy).toBe(false)
   })
 
-  it('refreshes branches with the branch list', async () => {
-    const api: ApiClient = {
-      ...auxApi,
-      async snapshot() {
-        return snapshot({ generation: 2 })
+  it('refreshes configured remotes independently of branch refs', async () => {
+    const state = createRepoState({
+      api: {
+        ...auxApi,
+        async branches() {
+          return [{ name: 'main', oid: 'x', current: true, remote: false, ahead: 2, behind: 0 }]
+        },
+        async remotes() {
+          return ['upstream']
+        },
       },
-      async diff() {
-        throw new Error('not used')
+    })
+
+    await state.refreshBranches()
+    expect(state.branches[0]?.name).toBe('main')
+    expect(state.branches[0]?.ahead).toBe(2)
+    expect(state.remotes).toEqual(['upstream'])
+  })
+
+  it('records branch listing failures', async () => {
+    const state = createRepoState({
+      api: {
+        ...auxApi,
+        async branches() {
+          throw new Error('branch listing failed')
+        },
       },
-      async mutate() {
-        throw new Error('not used')
-      },
-      async commit() {
-        throw new Error('not used')
-      },
-      async graph() {
-        return { commits: [], hasMore: false, tip: 'abc123', generation: 1 }
-      },
-      async commitFiles() {
-        return { files: [] }
-      },
-      async branches() {
-        throw new Error('branch listing failed')
-      },
-    }
-    const state = createRepoState({ api })
+    })
 
     await state.refreshBranches()
     expect(state.branchesError).toMatch(/branch listing failed/)
