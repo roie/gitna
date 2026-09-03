@@ -70,12 +70,13 @@ function checksumFor(checksums, asset) {
 /**
  * @param {typeof globalThis.fetch} fetchImpl
  * @param {string} url
+ * @param {number} timeout
  */
-async function download(fetchImpl, url) {
+async function download(fetchImpl, url, timeout) {
   let lastError
   for (let attempt = 0; attempt < 3; attempt += 1) {
     try {
-      const response = await fetchImpl(url)
+      const response = await fetchImpl(url, { signal: AbortSignal.timeout(timeout) })
       if (!response.ok) throw new Error(`Download failed (${response.status}): ${url}`)
       return Buffer.from(await response.arrayBuffer())
     } catch (error) {
@@ -127,6 +128,7 @@ async function extractArchive(archive, directory, target, platform) {
  * @property {string} [releaseBase]
  * @property {typeof globalThis.fetch} [fetchImpl]
  * @property {typeof extractArchive} [extractImpl]
+ * @property {number} [downloadTimeout]
  */
 
 /** @param {InstallOptions} [options] */
@@ -149,10 +151,16 @@ export async function ensureBinary(options = {}) {
     `https://github.com/roie/gitna/releases/download/v${version}`
   const fetchImpl = options.fetchImpl ?? globalThis.fetch
   if (typeof fetchImpl !== 'function') throw new Error('Gitna requires Node.js with fetch support')
+  const downloadTimeout = options.downloadTimeout ?? 30_000
+  if (!Number.isFinite(downloadTimeout) || downloadTimeout <= 0) {
+    throw new Error('Download timeout must be a positive number')
+  }
 
-  const checksums = (await download(fetchImpl, `${releaseBase}/checksums.txt`)).toString('utf8')
+  const checksums = (
+    await download(fetchImpl, `${releaseBase}/checksums.txt`, downloadTimeout)
+  ).toString('utf8')
   const expected = checksumFor(checksums, target.asset)
-  const archive = await download(fetchImpl, `${releaseBase}/${target.asset}`)
+  const archive = await download(fetchImpl, `${releaseBase}/${target.asset}`, downloadTimeout)
   const actual = createHash('sha256').update(archive).digest('hex')
   if (actual !== expected) throw new Error(`Checksum verification failed for ${target.asset}`)
 
@@ -183,7 +191,13 @@ export async function ensureBinary(options = {}) {
     } catch (error) {
       const code = error && typeof error === 'object' && 'code' in error ? error.code : undefined
       if (code !== 'EEXIST' && code !== 'EACCES') throw error
-      await access(destination)
+      const [winner, candidate] = await Promise.all([readFile(destination), readFile(extracted)])
+      if (
+        createHash('sha256').update(winner).digest('hex') !==
+        createHash('sha256').update(candidate).digest('hex')
+      ) {
+        throw new Error('Concurrent Gitna installation produced an unexpected binary', { cause: error })
+      }
     }
   } finally {
     await rm(temporaryRoot, { recursive: true, force: true })

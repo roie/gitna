@@ -190,6 +190,34 @@ test('downloads, verifies, and caches the selected binary', async () => {
   }
 })
 
+test('aborts and retries stalled downloads with a per-attempt deadline', async () => {
+  const cacheDir = await mkdtemp(join(tmpdir(), 'gitna-launcher-test-'))
+  let attempts = 0
+  const fetchImpl = (_url, options) => {
+    attempts += 1
+    return new Promise((_resolve, reject) => {
+      options.signal.addEventListener('abort', () => reject(options.signal.reason), { once: true })
+    })
+  }
+  try {
+    await assert.rejects(
+      ensureBinary({
+        version: '1.2.3',
+        platform: 'linux',
+        arch: 'x64',
+        cacheDir,
+        releaseBase: 'https://example.invalid',
+        fetchImpl,
+        downloadTimeout: 5,
+      }),
+      /timeout|aborted/i,
+    )
+    assert.equal(attempts, 3)
+  } finally {
+    await rm(cacheDir, { recursive: true, force: true })
+  }
+})
+
 test('rejects a binary whose checksum does not match', async () => {
   const cacheDir = await mkdtemp(join(tmpdir(), 'gitna-launcher-test-'))
   const server = createServer((request, response) => {
