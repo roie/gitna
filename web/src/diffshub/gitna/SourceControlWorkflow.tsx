@@ -434,6 +434,23 @@ function useNaturalTreeHeight(model: FileTree | null, enabled = true): number {
   return height
 }
 
+const REFRESH_INDICATOR_DELAY_MS = 1_000
+
+function useDelayedRefreshIndicator(refreshing: boolean): boolean {
+  const [visible, setVisible] = useState(false)
+
+  useEffect(() => {
+    if (!refreshing) {
+      setVisible(false)
+      return
+    }
+    const timer = window.setTimeout(() => setVisible(true), REFRESH_INDICATOR_DELAY_MS)
+    return () => window.clearTimeout(timer)
+  }, [refreshing])
+
+  return visible
+}
+
 function useObservedHeight(ref: React.RefObject<HTMLElement | null>): number {
   const [height, setHeight] = useState(0)
   useEffect(() => {
@@ -518,6 +535,10 @@ export function GitnaSourceControl() {
   const changedPathCount = new Set(
     [...staged, ...unstaged, ...(snapshot?.conflicts ?? [])].map((change) => change.path),
   ).size
+  const workflowRefreshVisible = useDelayedRefreshIndicator(repository.loading)
+  const repositoryRefreshing =
+    repository.repositoryFilesLoading || repository.repositoryFileCountLoading
+  const repositoryRefreshVisible = useDelayedRefreshIndicator(repositoryRefreshing)
   const headTitle =
     snapshot?.headBranch ??
     (snapshot?.headOid == null ? 'Detached HEAD' : `Detached at ${snapshot.headOid.slice(0, 8)}`)
@@ -583,52 +604,68 @@ export function GitnaSourceControl() {
     repository.ordinaryUnloadedDirectories.size > 0 ||
     repository.ordinaryPagedDirectories.size > 0
   const repositoryCountPending = repositorySettledTotal == null && repositoryRowsIncomplete
-  const repositorySettledDisplay =
-    repositorySettledTotal == null
-      ? null
-      : repositorySettledTotal > 999_999
-        ? '999999+'
-        : `${repositorySettledTotal}`
+  let repositorySettledDisplay: string | null = null
+  if (repositorySettledTotal != null) {
+    repositorySettledDisplay =
+      repositorySettledTotal > 999_999 ? '999999+' : `${repositorySettledTotal}`
+  }
   const repositoryDenominator = repositorySettledDisplay ?? repository.repositoryPaths.length
-  const repositoryCountTitle =
-    repositorySettledTotal == null
-      ? undefined
-      : repositoryCountOutdated
-        ? repository.repositoryFileCountLoading
-          ? `Last known: ${repositorySettledTotal} files in Repository. Refreshing exact count.`
-          : `Last known: ${repositorySettledTotal} files in Repository. Exact count unavailable.`
-        : `${repositorySettledTotal} files in Repository`
-  const repositoryCountText =
+  let repositoryCountTitle: string | undefined
+  if (repositorySettledTotal != null) {
+    repositoryCountTitle = `${repositorySettledTotal} files in Repository`
+    if (repositoryCountOutdated) {
+      repositoryCountTitle = repository.repositoryFileCountLoading
+        ? `Last known: ${repositorySettledTotal} files in Repository. Refreshing exact count.`
+        : `Last known: ${repositorySettledTotal} files in Repository. Exact count unavailable.`
+    }
+  }
+  let repositoryCountText: string
+  if (
     repositoryFilters.size === 0 &&
     !repositoryVisibilityFiltered &&
     repositorySettledDisplay != null
-      ? repositorySettledDisplay
-      : repositoryFilters.size === 0 && !repositoryVisibilityFiltered
-        ? `${repository.repositoryPaths.length}${repositoryCountPending ? '+' : ''}`
-        : `${filteredRepositoryPaths.length}${repositoryRowsIncomplete ? '+' : ''} / ${repositoryDenominator}${repositoryCountPending ? '+' : ''}`
-  const repositoryCount = (
-    <span
-      className="inline-flex items-center gap-1"
-      aria-label={
-        repositoryCountOutdated
-          ? `${repositoryCountText}, based on the last known exact total; ${repository.repositoryFileCountLoading ? 'refreshing' : 'exact count unavailable'}`
-          : undefined
-      }
-    >
-      <span>{repositoryCountText}</span>
-      <IconRefresh
-        aria-hidden="true"
-        className={cn(
-          'size-2.5 shrink-0',
-          repositoryCountOutdated
-            ? repository.repositoryFileCountLoading
-              ? 'opacity-60'
-              : 'opacity-35'
-            : 'invisible',
-        )}
-      />
-    </span>
-  )
+  ) {
+    repositoryCountText = repositorySettledDisplay
+  } else if (repositoryFilters.size === 0 && !repositoryVisibilityFiltered) {
+    repositoryCountText = `${repository.repositoryPaths.length}${repositoryCountPending ? '+' : ''}`
+  } else {
+    repositoryCountText = `${filteredRepositoryPaths.length}${repositoryRowsIncomplete ? '+' : ''} / ${repositoryDenominator}${repositoryCountPending ? '+' : ''}`
+  }
+  let repositoryCountLabel: string | undefined
+  if (repositoryCountOutdated) {
+    const state = repository.repositoryFileCountLoading ? 'refreshing' : 'exact count unavailable'
+    repositoryCountLabel = `${repositoryCountText}, based on the last known exact total; ${state}`
+  }
+  const repositoryCount = <span aria-label={repositoryCountLabel}>{repositoryCountText}</span>
+  const workflowChangedDescription =
+    changedPathCount > 0
+      ? `${changedPathCount} changed ${changedPathCount === 1 ? 'file' : 'files'}`
+      : null
+  let workflowCountLabel: string | undefined
+  let workflowCountTitle: string | undefined
+  if (workflowRefreshVisible) {
+    workflowCountLabel = workflowChangedDescription
+      ? `${workflowChangedDescription}, refreshing Source Control`
+      : 'Refreshing Source Control'
+    workflowCountTitle = workflowChangedDescription
+      ? `Refreshing Source Control; ${workflowChangedDescription} shown`
+      : 'Refreshing Source Control'
+  } else if (workflowChangedDescription) {
+    workflowCountTitle = workflowChangedDescription
+  }
+  const workflowCount =
+    changedPathCount > 0 || workflowRefreshVisible ? (
+      <span className="inline-flex items-center gap-1" aria-label={workflowCountLabel}>
+        {changedPathCount > 0 && <span>{changedPathCount}</span>}
+        <IconRefresh
+          aria-hidden="true"
+          className={cn(
+            'size-2.5 shrink-0 motion-reduce:animate-none',
+            workflowRefreshVisible ? 'animate-spin opacity-60' : 'invisible',
+          )}
+        />
+      </span>
+    ) : null
   const pagedOrdinaryDirectory = repository.ordinaryPagedDirectories.values().next().value
   const stagedSource = useMemo(() => createTreeSource(staged), [staged])
   const unstagedSource = useMemo(() => createTreeSource(unstaged), [unstaged])
@@ -859,12 +896,8 @@ export function GitnaSourceControl() {
               }
               dataSection="workflow"
               icon={IconSymbolDiffstatFill}
-              count={changedPathCount > 0 ? changedPathCount : null}
-              countTitle={
-                changedPathCount > 0
-                  ? `${changedPathCount} changed ${changedPathCount === 1 ? 'file' : 'files'}`
-                  : undefined
-              }
+              count={workflowCount}
+              countTitle={workflowCountTitle}
               open={workflowOpen}
               title={headTitle}
               onOpenChange={setWorkflowOpen}
@@ -1017,7 +1050,8 @@ export function GitnaSourceControl() {
             <RepositoryHeaderActions
               availableStatuses={availableRepositoryStatuses}
               repositoryMode={snapshot.repository}
-              loading={repository.repositoryFilesLoading}
+              loading={repositoryRefreshing}
+              refreshing={repositoryRefreshVisible}
               model={model}
               paths={repositoryView === 'tree' ? filteredRepositoryPaths : []}
               selectedStatuses={repositoryFilters}
@@ -1155,6 +1189,8 @@ function SourceControlHeaderActions({
   const [branchMenuOpen, setBranchMenuOpen] = useState(false)
   const [moreOpen, setMoreOpen] = useState(false)
   const [publishBranch, setPublishBranch] = useState<string | null>(null)
+  const fetching = repository.activeOp === 'Fetching'
+  const fetchRefreshVisible = useDelayedRefreshIndicator(fetching)
   const [publishRemote, setPublishRemote] = useState('origin')
   const normalizedBranchQuery = branchQuery.trim().toLocaleLowerCase()
   const localBranches = repository.branches.filter(
@@ -1386,12 +1422,17 @@ function SourceControlHeaderActions({
         variant="ghost"
         size="icon-only"
         disabled={repository.busy}
-        aria-label="Fetch"
-        title="Fetch"
+        aria-label={fetching ? 'Fetching' : 'Fetch'}
+        title={fetching ? 'Fetching' : 'Fetch'}
         className={CHROME_ICON_BUTTON_CLASS}
         onClick={() => void run(() => repository.operation({ op: 'fetch' }))}
       >
-        <IconRefresh className="size-4 md:size-3" />
+        <IconRefresh
+          className={cn(
+            'size-4 motion-reduce:animate-none md:size-3',
+            fetchRefreshVisible && 'animate-spin',
+          )}
+        />
       </Button>
       {unpublished && (
         <Button
@@ -1850,6 +1891,7 @@ function RepositoryHeaderActions({
   availableStatuses,
   repositoryMode,
   loading,
+  refreshing,
   model,
   onClearFilters,
   onCreate,
@@ -1869,6 +1911,7 @@ function RepositoryHeaderActions({
   availableStatuses: ReadonlySet<GitStatus>
   repositoryMode: boolean
   loading: boolean
+  refreshing: boolean
   model: FileTree | null
   onClearFilters(): void
   onCreate(kind: 'file' | 'folder', initialPath: string): void
@@ -1961,12 +2004,17 @@ function RepositoryHeaderActions({
         variant="ghost"
         size="icon-only"
         className={CHROME_ICON_BUTTON_CLASS}
-        aria-label="Refresh Explorer"
-        title="Refresh Explorer"
+        aria-label={loading ? 'Refreshing Explorer' : 'Refresh Explorer'}
+        title={loading ? 'Refreshing Explorer' : 'Refresh Explorer'}
         disabled={loading}
         onClick={onRefresh}
       >
-        <IconRefresh className="size-4 md:size-3" />
+        <IconRefresh
+          className={cn(
+            'size-4 motion-reduce:animate-none md:size-3',
+            refreshing && 'animate-spin',
+          )}
+        />
       </Button>
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
@@ -2553,6 +2601,8 @@ function GraphSection({
   })
   const virtualItems = virtualizer.getVirtualItems()
   const graphCount = repository.graphTotal == null ? null : `${repository.graphTotal}`
+  const graphRefreshing = repository.graphLoading || repository.graphCountLoading
+  const graphRefreshVisible = useDelayedRefreshIndicator(graphRefreshing)
   const graphSetSize =
     repository.graphTotal ?? (repository.graphHasMore ? -1 : repository.graphRows.length)
   const armContinuation = useCallback(() => {
@@ -2695,13 +2745,18 @@ function GraphSection({
               type="button"
               variant="ghost"
               size="icon-only"
-              aria-label="Refresh Graph"
-              title="Refresh Graph"
+              aria-label={graphRefreshing ? 'Refreshing Graph' : 'Refresh Graph'}
+              title={graphRefreshing ? 'Refreshing Graph' : 'Refresh Graph'}
               className={CHROME_ICON_BUTTON_CLASS}
-              disabled={repository.graphLoading}
+              disabled={graphRefreshing}
               onClick={() => void repository.refreshGraph()}
             >
-              <IconRefresh className="size-4 md:size-3" />
+              <IconRefresh
+                className={cn(
+                  'size-4 motion-reduce:animate-none md:size-3',
+                  graphRefreshVisible && 'animate-spin',
+                )}
+              />
             </Button>
             <DropdownMenu>
               <DropdownMenuTrigger asChild>

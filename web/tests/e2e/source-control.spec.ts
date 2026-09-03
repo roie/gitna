@@ -1322,9 +1322,15 @@ test('repository count stays stable during a background refresh', async ({ page,
     'Last known: 59 files in Repository. Refreshing exact count.',
   )
   await expect(page.getByText('Refreshing files…', { exact: true })).toHaveCount(0)
+  const explorerRefresh = page.getByRole('button', { name: 'Refreshing Explorer' })
+  await expect(explorerRefresh.locator('svg')).toHaveClass(/animate-spin/)
+  await expect(explorerRefresh.locator('svg')).toHaveClass(/motion-reduce:animate-none/)
 
   releaseRefresh()
   await expect(repositoryCount).toHaveAttribute('title', '59 files in Repository')
+  await expect(
+    page.getByRole('button', { name: 'Refresh Explorer' }).locator('svg'),
+  ).not.toHaveClass(/animate-spin/)
 })
 
 test('command palette searches complete paths and runs workbench commands', async ({
