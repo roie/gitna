@@ -25,7 +25,7 @@ func (r Repository) CommitDetails(ctx context.Context, runner Runner, oid string
 }
 
 func (r Repository) commitStats(ctx context.Context, runner Runner, oid string) (protocol.CommitStats, error) {
-	if err := validateRef(oid); err != nil {
+	if err := r.validateCommitRevision(ctx, runner, oid); err != nil {
 		return protocol.CommitStats{}, err
 	}
 	parents, err := r.commitParents(ctx, runner, oid)

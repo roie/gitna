@@ -12,6 +12,11 @@ import (
 	"github.com/roie/gitna/internal/protocol"
 )
 
+func (r Repository) hasConflicts(ctx context.Context, runner Runner) (bool, error) {
+	conflicts, err := r.ListConflicts(ctx, runner)
+	return len(conflicts) > 0, err
+}
+
 // ListConflicts reads unmerged entries from the index. Each path yields one
 // ConflictEntry with base (stage 1), ours (stage 2), and theirs (stage 3) OIDs
 // when present. Missing stages mean that side has no blob (e.g. an added file).

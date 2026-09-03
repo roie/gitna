@@ -16,6 +16,15 @@ var ErrNoUpstream = errors.New("gitx: current branch has no upstream branch")
 // non-fast-forward update. The client should fetch or pull before retrying.
 var ErrPushRejected = errors.New("gitx: push rejected by remote")
 
+func pushWasRejected(stdout []byte) bool {
+	for _, line := range strings.Split(string(stdout), "\n") {
+		if strings.HasPrefix(line, "!\t") {
+			return true
+		}
+	}
+	return false
+}
+
 // opError turns a failed git invocation into an error carrying git's output.
 func opError(action string, res Result) error {
 	msg := strings.TrimSpace(string(res.Stderr))
@@ -60,17 +69,16 @@ func (r Repository) Pull(ctx context.Context, runner Runner) error {
 // configuration. When the branch has no upstream, ErrNoUpstream is returned so
 // the caller can offer to create one.
 func (r Repository) Push(ctx context.Context, runner Runner) error {
-	res, err := runner.Run(ctx, r.Root, "push")
+	res, err := runner.Run(ctx, r.Root, "push", "--porcelain")
 	if err != nil {
 		return err
 	}
 	if res.ExitCode != 0 {
-		switch {
-		case strings.Contains(string(res.Stderr), "has no upstream branch"):
+		upstream, upstreamErr := runner.Run(ctx, r.Root, "rev-parse", "--verify", "--quiet", "@{upstream}")
+		if upstreamErr == nil && upstream.ExitCode != 0 {
 			return ErrNoUpstream
-		case strings.Contains(string(res.Stderr), "[rejected]"):
-			// The rejection table marks refused updates with `! [rejected]`,
-			// regardless of git's wording ("non-fast-forward", "fetch first", …).
+		}
+		if pushWasRejected(res.Stdout) {
 			return ErrPushRejected
 		}
 		return opError("push", res)
@@ -81,10 +89,13 @@ func (r Repository) Push(ctx context.Context, runner Runner) error {
 // PushSetUpstream uploads branch to remote and records it as the branch's
 // upstream so later plain pushes succeed.
 func (r Repository) PushSetUpstream(ctx context.Context, runner Runner, remote, branch string) error {
-	if err := validateRef(remote); err != nil {
+	if err := r.validateRemote(ctx, runner, remote); err != nil {
 		return err
 	}
-	if err := validateRef(branch); err != nil {
+	if err := r.validateBranchName(ctx, runner, branch); err != nil {
+		return err
+	}
+	if err := r.requireRef(ctx, runner, "refs/heads/"+branch); err != nil {
 		return err
 	}
 	res, err := runner.Run(ctx, r.Root, "push", "--set-upstream", remote, branch)

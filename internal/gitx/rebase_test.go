@@ -92,9 +92,9 @@ func TestRebaseAbort(t *testing.T) {
 	}
 }
 
-func TestRebaseContinueAfterResolve(t *testing.T) {
+func TestRebaseContinueAfterResolveSuppressesFailingEditor(t *testing.T) {
 	root := initTestRepo(t)
-	runner := &ExecRunner{}
+	runner := &ExecRunner{Env: []string{"GIT_EDITOR=false"}}
 	repo, _ := Discover(context.Background(), runner, root)
 
 	writeFile(t, filepath.Join(root, "a.txt"), "base\n")

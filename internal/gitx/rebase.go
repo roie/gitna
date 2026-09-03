@@ -3,14 +3,13 @@ package gitx
 import (
 	"context"
 	"fmt"
-	"strings"
 )
 
 // Rebase starts rebasing the current branch onto upstream. On success the
 // rebase is clean. Conflicts leave the repository in a rebase-in-progress
 // state so the client can resolve and continue.
 func (r Repository) Rebase(ctx context.Context, runner Runner, upstream string) error {
-	if err := validateRef(upstream); err != nil {
+	if err := r.validateCommitRevision(ctx, runner, upstream); err != nil {
 		return err
 	}
 	if op := DetectOperation(r); op != "none" {
@@ -21,8 +20,7 @@ func (r Repository) Rebase(ctx context.Context, runner Runner, upstream string) 
 		return err
 	}
 	if res.ExitCode != 0 {
-		combined := string(res.Stdout) + "\n" + string(res.Stderr)
-		if strings.Contains(combined, "CONFLICT") {
+		if conflicted, conflictErr := r.hasConflicts(ctx, runner); conflictErr == nil && conflicted {
 			return ErrConflict
 		}
 		return opError("rebase", res)
@@ -47,13 +45,21 @@ func (r Repository) RebaseContinue(ctx context.Context, runner Runner) error {
 	if op := DetectOperation(r); op != "rebase" {
 		return fmt.Errorf("gitx: no rebase in progress (operation=%s)", op)
 	}
-	res, err := runner.Run(ctx, r.Root, "rebase", "--continue")
+	// A conflict continuation may create a commit and invoke the ordinary
+	// commit-message editor. Preserve all runner settings while forcing a
+	// non-interactive editor that accepts Git's prepared message.
+	var run Runner = runner
+	if er, ok := runner.(*ExecRunner); ok {
+		clone := *er
+		clone.Env = append(append([]string{}, er.Env...), "GIT_EDITOR=true")
+		run = &clone
+	}
+	res, err := run.Run(ctx, r.Root, "rebase", "--continue")
 	if err != nil {
 		return err
 	}
 	if res.ExitCode != 0 {
-		combined := string(res.Stdout) + "\n" + string(res.Stderr)
-		if strings.Contains(combined, "CONFLICT") {
+		if conflicted, conflictErr := r.hasConflicts(ctx, runner); conflictErr == nil && conflicted {
 			return ErrConflict
 		}
 		return opError("rebase --continue", res)

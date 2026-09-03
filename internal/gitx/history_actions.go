@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"strings"
 )
 
 // ErrConflict is returned when a history mutation (cherry-pick, revert, or
@@ -50,7 +49,7 @@ func (r Repository) RevertAbort(ctx context.Context, runner Runner) error {
 }
 
 func (r Repository) replayCommit(ctx context.Context, runner Runner, action, oid string) error {
-	if err := validateRef(oid); err != nil {
+	if err := r.validateCommitRevision(ctx, runner, oid); err != nil {
 		return err
 	}
 	res, err := runner.Run(ctx, r.Root, action, "--no-edit", oid)
@@ -58,10 +57,7 @@ func (r Repository) replayCommit(ctx context.Context, runner Runner, action, oid
 		return err
 	}
 	if res.ExitCode != 0 {
-		// The CONFLICT marker is written to stdout while the sequencer error
-		// and hints go to stderr; check both to classify the failure.
-		combined := string(res.Stdout) + "\n" + string(res.Stderr)
-		if strings.Contains(combined, "CONFLICT") {
+		if conflicted, conflictErr := r.hasConflicts(ctx, runner); conflictErr == nil && conflicted {
 			return ErrConflict
 		}
 		return opError(action, res)
@@ -77,17 +73,16 @@ func (r Repository) replayContinue(ctx context.Context, runner Runner, action st
 	// launch an interactive editor from the browser-owned process.
 	var run Runner = runner
 	if er, ok := runner.(*ExecRunner); ok {
-		sequencer := &ExecRunner{Exec: er.Exec, StdoutLimit: er.StdoutLimit, StderrLimit: er.StderrLimit}
-		sequencer.Env = append(append([]string{}, er.Env...), "GIT_EDITOR=true")
-		run = sequencer
+		clone := *er
+		clone.Env = append(append([]string{}, er.Env...), "GIT_EDITOR=true")
+		run = &clone
 	}
 	res, err := run.Run(ctx, r.Root, action, "--continue")
 	if err != nil {
 		return err
 	}
 	if res.ExitCode != 0 {
-		combined := string(res.Stdout) + "\n" + string(res.Stderr)
-		if strings.Contains(combined, "CONFLICT") || strings.Contains(combined, "unmerged") {
+		if conflicted, conflictErr := r.hasConflicts(ctx, runner); conflictErr == nil && conflicted {
 			return ErrConflict
 		}
 		return opError(action+" --continue", res)
@@ -125,7 +120,7 @@ func (r Repository) Reset(ctx context.Context, runner Runner, target, mode strin
 	default:
 		return fmt.Errorf("%w %q", ErrInvalidResetMode, mode)
 	}
-	if err := validateRef(target); err != nil {
+	if err := r.validateCommitRevision(ctx, runner, target); err != nil {
 		return err
 	}
 	res, err := runner.Run(ctx, r.Root, "reset", "--"+mode, target)

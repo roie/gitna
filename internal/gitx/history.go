@@ -33,7 +33,7 @@ func (r Repository) History(ctx context.Context, runner Runner, skip, limit int)
 // --max-count bounds the page so the runner's output cap is a backstop rather
 // than the primary protection.
 func (r Repository) HistoryAt(ctx context.Context, runner Runner, tip string, skip, limit int) ([]protocol.GraphCommit, error) {
-	if err := validateRef(tip); err != nil {
+	if err := r.validateCommitRevision(ctx, runner, tip); err != nil {
 		return nil, err
 	}
 	if limit <= 0 {
@@ -45,7 +45,11 @@ func (r Repository) HistoryAt(ctx context.Context, runner Runner, tip string, sk
 	if skip < 0 {
 		return nil, fmt.Errorf("gitx: history skip %d must not be negative", skip)
 	}
-	args := []string{"log", "--topo-order", "--decorate=full", "--pretty=format:" + logFormat}
+	args := []string{
+		"log", "--topo-order", "--decorate=full",
+		"--decorate-refs-exclude=refs/remotes/*/HEAD",
+		"--pretty=format:" + logFormat,
+	}
 	if skip > 0 {
 		args = append(args, "--skip", strconv.Itoa(skip))
 	}
@@ -64,7 +68,7 @@ func (r Repository) HistoryAt(ctx context.Context, runner Runner, tip string, sk
 // HistoryCount returns the exact number of commits reachable from tip. In a
 // shallow clone this is the exact locally reachable history up to its boundary.
 func (r Repository) HistoryCount(ctx context.Context, runner Runner, tip string) (int, error) {
-	if err := validateRef(tip); err != nil {
+	if err := r.validateCommitRevision(ctx, runner, tip); err != nil {
 		return 0, err
 	}
 	res, err := runner.Run(ctx, r.Root, "rev-list", "--count", tip)
@@ -157,7 +161,7 @@ func refName(s string) string {
 // tree; a merge commit is compared against its first parent, matching what the
 // browser shows as the merge's change set.
 func (r Repository) ChangedFiles(ctx context.Context, runner Runner, oid string) ([]protocol.CommitFile, error) {
-	if err := validateRef(oid); err != nil {
+	if err := r.validateCommitRevision(ctx, runner, oid); err != nil {
 		return nil, err
 	}
 	parents, err := r.commitParents(ctx, runner, oid)
@@ -183,10 +187,10 @@ func (r Repository) ChangedFiles(ctx context.Context, runner Runner, oid string)
 // CompareFiles returns the name-status change set between two refs in the same
 // shape as ChangedFiles, so the compare view can reuse the diff pipeline.
 func (r Repository) CompareFiles(ctx context.Context, runner Runner, from, to string) ([]protocol.CommitFile, error) {
-	if err := validateRef(from); err != nil {
+	if err := r.validateCommitRevision(ctx, runner, from); err != nil {
 		return nil, err
 	}
-	if err := validateRef(to); err != nil {
+	if err := r.validateCommitRevision(ctx, runner, to); err != nil {
 		return nil, err
 	}
 	res, err := runner.Run(ctx, r.Root, "diff-tree", "--no-commit-id", "--name-status", "-r", "-z", "--find-renames", from, to)

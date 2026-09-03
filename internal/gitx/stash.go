@@ -117,24 +117,25 @@ func (r Repository) StashDrop(ctx context.Context, runner Runner, ref string) er
 }
 
 func (r Repository) stashOperate(ctx context.Context, runner Runner, action, verb, ref string) error {
-	if ref == "" {
-		return fmt.Errorf("%w: empty stash ref", protocol.ErrInvalidRef)
+	if err := validateRevision(ref); err != nil {
+		return err
+	}
+	verified, err := runner.Run(ctx, r.Root, "rev-parse", "--verify", "--quiet", ref+"^{commit}")
+	if err != nil {
+		return err
+	}
+	if verified.ExitCode != 0 {
+		return ErrNoStash
 	}
 	res, err := runner.Run(ctx, r.Root, "stash", verb, ref)
 	if err != nil {
 		return err
 	}
 	if res.ExitCode != 0 {
-		combined := string(res.Stdout) + "\n" + string(res.Stderr)
-		switch {
-		case strings.Contains(combined, "no stash found"),
-			strings.Contains(combined, "is not a valid reference"):
-			return ErrNoStash
-		case strings.Contains(combined, "CONFLICT"):
+		if conflicted, conflictErr := r.hasConflicts(ctx, runner); conflictErr == nil && conflicted {
 			return ErrStashConflict
-		default:
-			return opError(action, res)
 		}
+		return opError(action, res)
 	}
 	return nil
 }

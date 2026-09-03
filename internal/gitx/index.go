@@ -162,16 +162,41 @@ func (r Repository) ApplyPatch(ctx context.Context, runner Runner, patch []byte,
 		args = append(args, "--reverse")
 	}
 	args = append(args, "-")
+	checkArgs := append([]string{}, args...)
+	checkArgs = append(checkArgs[:len(checkArgs)-1], "--check", "-")
+	checked, err := runner.RunInput(ctx, r.Root, patch, checkArgs...)
+	if err != nil {
+		return err
+	}
+	if checked.ExitCode != 0 {
+		// `git apply --check` uses the same nonzero exit status for a stale patch
+		// and for repository/index failures. Probe the index through a documented
+		// porcelain command so infrastructure errors are not mislabeled as stale.
+		health, healthErr := runner.Run(ctx, r.Root, "status", "--porcelain=v1", "-z", "--untracked-files=no")
+		if healthErr != nil {
+			return healthErr
+		}
+		if health.ExitCode != 0 {
+			return opError("check index", health)
+		}
+		return ErrPatchDoesNotApply
+	}
 	res, err := runner.RunInput(ctx, r.Root, patch, args...)
 	if err != nil {
 		return err
 	}
 	if res.ExitCode != 0 {
-		stderr := strings.TrimSpace(string(res.Stderr))
-		if strings.Contains(stderr, "does not apply") {
+		// The index may have changed between the applicability check and the
+		// mutation. Confirm that race without parsing localized diagnostics; if
+		// the patch is still applicable, preserve the actual operational error.
+		rechecked, recheckErr := runner.RunInput(ctx, r.Root, patch, checkArgs...)
+		if recheckErr != nil {
+			return recheckErr
+		}
+		if rechecked.ExitCode != 0 {
 			return ErrPatchDoesNotApply
 		}
-		return fmt.Errorf("gitx: apply: %s", stderr)
+		return opError("apply", res)
 	}
 	return nil
 }

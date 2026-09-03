@@ -57,6 +57,37 @@ func TestListBranchesLocalAndRemote(t *testing.T) {
 	}
 }
 
+func TestListRemotesIncludesConfiguredUnfetchedRemote(t *testing.T) {
+	root := initTestRepo(t)
+	runGit(t, root, "remote", "add", "upstream", filepath.Join(t.TempDir(), "remote.git"))
+	repo := Repository{Root: root, GitDir: filepath.Join(root, ".git")}
+
+	remotes, err := repo.ListRemotes(context.Background(), &ExecRunner{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(remotes) != 1 || remotes[0] != "upstream" {
+		t.Fatalf("remotes = %v, want [upstream]", remotes)
+	}
+}
+
+func TestListBranchesOmitsRemoteHeadSymref(t *testing.T) {
+	root, _ := initRemoteRepo(t)
+	runGit(t, root, "push", "-u", "origin", "main")
+	runGit(t, root, "remote", "set-head", "origin", "main")
+	repo := Repository{Root: root, GitDir: filepath.Join(root, ".git")}
+
+	branches, err := repo.ListBranches(context.Background(), &ExecRunner{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, branch := range branches {
+		if branch.Name == "origin/HEAD" {
+			t.Fatalf("symbolic remote HEAD included: %+v", branches)
+		}
+	}
+}
+
 func TestListBranchesAheadBehind(t *testing.T) {
 	root, bare := initRemoteRepo(t)
 	writeFile(t, filepath.Join(root, "a.txt"), "one\n")
@@ -213,6 +244,28 @@ func TestCreateBranch(t *testing.T) {
 	// topic2 was created at main, which is the same commit as HEAD initially.
 	if a, b := runGit(t, root, "rev-parse", "topic2"), runGit(t, root, "rev-parse", "main"); a != b {
 		t.Fatalf("topic2 = %s, main = %s, want equal", a, b)
+	}
+}
+
+func TestLiteralBranchNamesAcceptAtAndUnicode(t *testing.T) {
+	root := initTestRepo(t)
+	repo := Repository{Root: root, GitDir: filepath.Join(root, ".git")}
+	runner := &ExecRunner{}
+	for _, name := range []string{"release@next", "功能/分支"} {
+		if err := repo.CreateBranch(context.Background(), runner, name, "HEAD~0"); err != nil {
+			t.Fatalf("CreateBranch(%q): %v", name, err)
+		}
+		runGit(t, root, "switch", "main")
+	}
+}
+
+func TestCreateBranchRejectsRevisionSyntaxAsLiteralName(t *testing.T) {
+	root := initTestRepo(t)
+	repo := Repository{Root: root, GitDir: filepath.Join(root, ".git")}
+	for _, name := range []string{"topic~1", "topic^", "topic@{1}", "@{-1}"} {
+		if err := repo.CreateBranch(context.Background(), &ExecRunner{}, name, ""); !errors.Is(err, protocol.ErrInvalidRef) {
+			t.Fatalf("CreateBranch(%q) = %v, want ErrInvalidRef", name, err)
+		}
 	}
 }
 

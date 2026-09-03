@@ -19,7 +19,7 @@ var ErrBranchNotMerged = errors.New("gitx: branch is not fully merged")
 // branchListFormat emits one record per ref with NUL-separated fields and a
 // newline terminator. HEAD is a literal asterisk for the checked-out branch;
 // upstream:track is empty when the branch has no upstream or is in sync.
-const branchListFormat = "%(refname)%00%(objectname)%00%(HEAD)%00%(upstream)%00%(upstream:track)"
+const branchListFormat = "%(refname)%00%(objectname)%00%(HEAD)%00%(upstream)%00%(upstream:track)%00%(symref)"
 
 // ListBranches returns the local and remote branches known to the repository,
 // each with its upstream relationship. The output of git for-each-ref is parsed
@@ -37,6 +37,23 @@ func (r Repository) ListBranches(ctx context.Context, runner Runner) ([]protocol
 	return ParseForEachRef(res.Stdout)
 }
 
+// ListRemotes returns configured remotes independently of fetched tracking
+// refs. A newly configured remote is visible before its first fetch.
+func (r Repository) ListRemotes(ctx context.Context, runner Runner) ([]string, error) {
+	res, err := runner.Run(ctx, r.Root, "remote")
+	if err != nil {
+		return nil, err
+	}
+	if res.ExitCode != 0 {
+		return nil, opError("remote", res)
+	}
+	lines := strings.Split(strings.TrimSpace(string(res.Stdout)), "\n")
+	if len(lines) == 1 && lines[0] == "" {
+		return []string{}, nil
+	}
+	return lines, nil
+}
+
 // ParseForEachRef parses the NUL-separated records emitted by
 // `git for-each-ref --format="refname\0objectname\0HEAD\0upstream\0track"`.
 // Empty trailing fields are omitted by git, so each record has four or five
@@ -50,6 +67,11 @@ func ParseForEachRef(raw []byte) ([]protocol.Branch, error) {
 		fields := bytes.Split(rec, []byte{0})
 		if len(fields) < 4 {
 			return nil, fmt.Errorf("gitx: malformed for-each-ref record %q", rec)
+		}
+		// refs/remotes/<name>/HEAD is a symbolic alias for the remote's
+		// default branch, not an independently checkoutable branch.
+		if len(fields) > 5 && len(fields[5]) > 0 {
+			continue
 		}
 		name, remote, err := splitRef(string(fields[0]))
 		if err != nil {
@@ -125,7 +147,10 @@ func parseTrack(s string) (ahead, behind int, err error) {
 // SwitchBranch moves the worktree to the given branch. Uncommitted changes are
 // carried along by git switch unless they conflict with the target.
 func (r Repository) SwitchBranch(ctx context.Context, runner Runner, name string) error {
-	if err := validateRef(name); err != nil {
+	if err := r.validateBranchName(ctx, runner, name); err != nil {
+		return err
+	}
+	if err := r.requireRef(ctx, runner, "refs/heads/"+name); err != nil {
 		return err
 	}
 	res, err := runner.Run(ctx, r.Root, "switch", name)
@@ -141,12 +166,12 @@ func (r Repository) SwitchBranch(ctx context.Context, runner Runner, name string
 // CreateBranch creates a new branch at start (HEAD when empty) and switches to
 // it. The name must be a valid ref name and start a valid ref or oid.
 func (r Repository) CreateBranch(ctx context.Context, runner Runner, name, start string) error {
-	if err := validateRef(name); err != nil {
+	if err := r.validateBranchName(ctx, runner, name); err != nil {
 		return err
 	}
 	args := []string{"switch", "-c", name}
 	if start != "" {
-		if err := validateRef(start); err != nil {
+		if err := r.validateCommitRevision(ctx, runner, start); err != nil {
 			return err
 		}
 		args = append(args, start)
@@ -161,26 +186,66 @@ func (r Repository) CreateBranch(ctx context.Context, runner Runner, name, start
 	return nil
 }
 
+func (r Repository) branchFullyMerged(ctx context.Context, runner Runner, name string) (bool, error) {
+	fullName := "refs/heads/" + name
+	upstream, err := runner.Run(ctx, r.Root, "for-each-ref", "--format=%(upstream)", fullName)
+	if err != nil {
+		return false, err
+	}
+	if upstream.ExitCode != 0 {
+		return false, opError("read branch upstream", upstream)
+	}
+	target := strings.TrimSpace(string(upstream.Stdout))
+	if target == "" {
+		target = "HEAD"
+	} else if exists, existsErr := r.refExists(ctx, runner, target); existsErr != nil {
+		return false, existsErr
+	} else if !exists {
+		target = "HEAD"
+	}
+
+	merged, err := runner.Run(ctx, r.Root, "merge-base", "--is-ancestor", fullName, target)
+	if err != nil {
+		return false, err
+	}
+	switch merged.ExitCode {
+	case 0:
+		return true, nil
+	case 1:
+		return false, nil
+	default:
+		return false, opError("check merged branch", merged)
+	}
+}
+
 // DeleteBranch deletes the branch name. Without force, git branch -d refuses a
 // branch that is not fully merged and ErrBranchNotMerged is returned so the
 // caller can ask for explicit confirmation. Force maps to git branch -D and
 // must only be requested by the user after that confirmation.
 func (r Repository) DeleteBranch(ctx context.Context, runner Runner, name string, force bool) error {
-	if err := validateRef(name); err != nil {
+	if err := r.validateBranchName(ctx, runner, name); err != nil {
+		return err
+	}
+	if err := r.requireRef(ctx, runner, "refs/heads/"+name); err != nil {
 		return err
 	}
 	flag := "-d"
 	if force {
 		flag = "-D"
+	} else {
+		merged, err := r.branchFullyMerged(ctx, runner, name)
+		if err != nil {
+			return err
+		}
+		if !merged {
+			return ErrBranchNotMerged
+		}
 	}
 	res, err := runner.Run(ctx, r.Root, "branch", flag, name)
 	if err != nil {
 		return err
 	}
 	if res.ExitCode != 0 {
-		if strings.Contains(string(res.Stderr), "not fully merged") {
-			return ErrBranchNotMerged
-		}
 		return opError("delete branch", res)
 	}
 	return nil

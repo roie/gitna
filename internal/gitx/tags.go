@@ -5,7 +5,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"strings"
 
 	"github.com/roie/gitna/internal/protocol"
 )
@@ -63,13 +62,20 @@ func parseTagList(raw []byte) ([]protocol.Tag, error) {
 // produces an annotated tag; otherwise the tag is lightweight. Tags are never
 // pushed implicitly with a normal commit.
 func (r Repository) CreateTag(ctx context.Context, runner Runner, name, target, message string) error {
-	if err := validateRef(name); err != nil {
+	if err := r.validateTagName(ctx, runner, name); err != nil {
 		return err
 	}
 	if target != "" {
-		if err := validateRef(target); err != nil {
+		if err := r.validateCommitRevision(ctx, runner, target); err != nil {
 			return err
 		}
+	}
+	exists, err := r.refExists(ctx, runner, "refs/tags/"+name)
+	if err != nil {
+		return err
+	}
+	if exists {
+		return ErrTagExists
 	}
 	args := []string{"tag"}
 	if message != "" {
@@ -85,9 +91,6 @@ func (r Repository) CreateTag(ctx context.Context, runner Runner, name, target, 
 		return err
 	}
 	if res.ExitCode != 0 {
-		if strings.Contains(string(res.Stderr), "already exists") {
-			return ErrTagExists
-		}
 		return opError("create tag", res)
 	}
 	return nil
@@ -95,17 +98,21 @@ func (r Repository) CreateTag(ctx context.Context, runner Runner, name, target, 
 
 // DeleteTag removes a local tag.
 func (r Repository) DeleteTag(ctx context.Context, runner Runner, name string) error {
-	if err := validateRef(name); err != nil {
+	if err := r.validateTagName(ctx, runner, name); err != nil {
 		return err
+	}
+	exists, err := r.refExists(ctx, runner, "refs/tags/"+name)
+	if err != nil {
+		return err
+	}
+	if !exists {
+		return ErrNoTag
 	}
 	res, err := runner.Run(ctx, r.Root, "tag", "-d", name)
 	if err != nil {
 		return err
 	}
 	if res.ExitCode != 0 {
-		if strings.Contains(string(res.Stderr), "not found") {
-			return ErrNoTag
-		}
 		return opError("delete tag", res)
 	}
 	return nil
@@ -114,18 +121,21 @@ func (r Repository) DeleteTag(ctx context.Context, runner Runner, name string) e
 // PushTag uploads the named tag to the remote, pushed explicitly by the user.
 // The ref is spelled refs/tags/ so a branch of the same name is never selected.
 func (r Repository) PushTag(ctx context.Context, runner Runner, remote, name string) error {
-	if err := validateRef(remote); err != nil {
+	if err := r.validateRemote(ctx, runner, remote); err != nil {
 		return err
 	}
-	if err := validateRef(name); err != nil {
+	if err := r.validateTagName(ctx, runner, name); err != nil {
 		return err
 	}
-	res, err := runner.Run(ctx, r.Root, "push", remote, "refs/tags/"+name)
+	if err := r.requireRef(ctx, runner, "refs/tags/"+name); err != nil {
+		return ErrNoTag
+	}
+	res, err := runner.Run(ctx, r.Root, "push", "--porcelain", remote, "refs/tags/"+name)
 	if err != nil {
 		return err
 	}
 	if res.ExitCode != 0 {
-		if strings.Contains(string(res.Stderr), "[rejected]") {
+		if pushWasRejected(res.Stdout) {
 			return ErrPushRejected
 		}
 		return opError("push tag", res)

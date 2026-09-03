@@ -26,6 +26,10 @@ func TestHelperProcess(t *testing.T) {
 		fmt.Fprint(os.Stdout, "stdout-out\n")
 	case "echo-env":
 		fmt.Fprint(os.Stdout, os.Getenv("GIT_OPTIONAL_LOCKS"))
+	case "echo-routing-env":
+		for _, key := range repositoryRoutingEnv {
+			fmt.Printf("%s=%s\x00", key, os.Getenv(key))
+		}
 	case "echo-stdin":
 		in, err := io.ReadAll(os.Stdin)
 		if err != nil {
@@ -92,6 +96,69 @@ func TestRunDisablesOptionalGitLocks(t *testing.T) {
 	}
 	if got := strings.TrimSpace(string(res.Stdout)); got != "0" {
 		t.Fatalf("GIT_OPTIONAL_LOCKS = %q, want 0", got)
+	}
+}
+
+func TestRunScrubsInheritedRepositoryRoutingEnvironment(t *testing.T) {
+	setHelper(t, "echo-routing-env")
+	for _, key := range repositoryRoutingEnv {
+		t.Setenv(key, "poisoned")
+	}
+	r := helperRunner(t)
+
+	res, err := r.Run(context.Background(), t.TempDir())
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	for _, key := range repositoryRoutingEnv {
+		if strings.Contains(string(res.Stdout), key+"=poisoned") {
+			t.Fatalf("Run preserved inherited %s: %q", key, res.Stdout)
+		}
+	}
+}
+
+func TestFilterKeyScrubsRoutingVariablesCaseInsensitively(t *testing.T) {
+	env := []string{"PATH=/bin", "git_dir=poisoned", "Git_Work_Tree=poisoned"}
+	env = filterKey(env, "GIT_DIR")
+	env = filterKey(env, "GIT_WORK_TREE")
+	if got := strings.Join(env, "\n"); got != "PATH=/bin" {
+		t.Fatalf("filtered environment = %q, want PATH only", got)
+	}
+
+	overridden := envWith([]string{"git_index_file=poisoned"}, "GIT_INDEX_FILE=intentional")
+	if len(overridden) != 1 || overridden[0] != "GIT_INDEX_FILE=intentional" {
+		t.Fatalf("explicit override = %q, want one intentional value", overridden)
+	}
+}
+
+func TestRunNULScrubsInheritedRoutingEnvironmentAndAllowsExplicitOverride(t *testing.T) {
+	setHelper(t, "echo-routing-env")
+	for _, key := range repositoryRoutingEnv {
+		t.Setenv(key, "poisoned")
+	}
+	r := helperRunner(t)
+	r.Env = []string{"GIT_INDEX_FILE=intentional"}
+
+	got := make(map[string]string)
+	_, err := r.RunNUL(context.Background(), t.TempDir(), func(record []byte) error {
+		key, value, ok := strings.Cut(string(record), "=")
+		if !ok {
+			t.Fatalf("record = %q, want key=value", record)
+		}
+		got[key] = value
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("RunNUL: %v", err)
+	}
+	for _, key := range repositoryRoutingEnv {
+		want := ""
+		if key == "GIT_INDEX_FILE" {
+			want = "intentional"
+		}
+		if got[key] != want {
+			t.Fatalf("%s = %q, want %q", key, got[key], want)
+		}
 	}
 }
 

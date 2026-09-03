@@ -83,7 +83,7 @@ func (r Repository) diff(ctx context.Context, runner Runner, scope protocol.Diff
 			return protocol.FileDiff{}, err
 		}
 	case protocol.DiffCommit:
-		if err := validateRef(opts.Commit); err != nil {
+		if err := r.validateCommitRevision(ctx, runner, opts.Commit); err != nil {
 			return protocol.FileDiff{}, err
 		}
 		beforeRaw, beforePresent, err = r.readBlob(ctx, runner, opts.Commit+"^:"+fromPath)
@@ -95,10 +95,10 @@ func (r Repository) diff(ctx context.Context, runner Runner, scope protocol.Diff
 			return protocol.FileDiff{}, err
 		}
 	case protocol.DiffCompare:
-		if err := validateRef(opts.CompareFrom); err != nil {
+		if err := r.validateCommitRevision(ctx, runner, opts.CompareFrom); err != nil {
 			return protocol.FileDiff{}, err
 		}
-		if err := validateRef(opts.CompareTo); err != nil {
+		if err := r.validateCommitRevision(ctx, runner, opts.CompareTo); err != nil {
 			return protocol.FileDiff{}, err
 		}
 		beforeRaw, beforePresent, err = r.readBlob(ctx, runner, opts.CompareFrom+":"+fromPath)
@@ -288,27 +288,6 @@ func validatePath(p string) error {
 	for _, part := range strings.Split(p, "/") {
 		if part == "" || part == "." || part == ".." {
 			return fmt.Errorf("%w: non-canonical path %q", protocol.ErrInvalidPath, p)
-		}
-	}
-	return nil
-}
-
-// validateRef restricts ref/OID input to a conservative character set. The
-// value is always placed in an argument position (never through a shell), but
-// the API layer still refuses anything that could be interpreted as an option.
-func validateRef(s string) error {
-	if s == "" || len(s) > 256 {
-		return fmt.Errorf("%w: empty or too long", protocol.ErrInvalidRef)
-	}
-	if s[0] == '-' || strings.Contains(s, "..") {
-		return fmt.Errorf("%w: leading dash or double dot", protocol.ErrInvalidRef)
-	}
-	for _, r := range s {
-		switch {
-		case r >= 'a' && r <= 'z', r >= 'A' && r <= 'Z', r >= '0' && r <= '9',
-			r == '.', r == '_', r == '/', r == '-', r == '~', r == '^':
-		default:
-			return fmt.Errorf("%w: disallowed character %q", protocol.ErrInvalidRef, r)
 		}
 	}
 	return nil

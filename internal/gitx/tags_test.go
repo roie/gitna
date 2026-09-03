@@ -78,6 +78,16 @@ func TestCreateListDeleteTag(t *testing.T) {
 	}
 }
 
+func TestTagLiteralNamesAcceptAtAndUnicode(t *testing.T) {
+	root := initTestRepo(t)
+	repo := Repository{Root: root, GitDir: filepath.Join(root, ".git")}
+	for _, name := range []string{"release@next", "版本-一"} {
+		if err := repo.CreateTag(context.Background(), &ExecRunner{}, name, "HEAD~0", ""); err != nil {
+			t.Fatalf("CreateTag(%q): %v", name, err)
+		}
+	}
+}
+
 func TestTagInputValidation(t *testing.T) {
 	root := initTestRepo(t)
 	repo := Repository{Root: root, GitDir: filepath.Join(root, ".git")}
@@ -89,8 +99,8 @@ func TestTagInputValidation(t *testing.T) {
 	if err := repo.CreateTag(context.Background(), runner, "v1", "-x", ""); !errors.Is(err, protocol.ErrInvalidRef) {
 		t.Fatalf("CreateTag(bad target) = %v, want ErrInvalidRef", err)
 	}
-	if err := repo.PushTag(context.Background(), runner, "origin", "v1"); errors.Is(err, protocol.ErrInvalidRef) {
-		t.Fatalf("PushTag(valid refs) should fail at the git level, got validation error %v", err)
+	if err := repo.PushTag(context.Background(), runner, "origin", "v1"); !errors.Is(err, protocol.ErrInvalidRef) {
+		t.Fatalf("PushTag(unconfigured remote) = %v, want ErrInvalidRef", err)
 	}
 }
 

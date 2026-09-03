@@ -141,6 +141,16 @@ func TestPushSetUpstreamThenPush(t *testing.T) {
 	}
 }
 
+func TestPushRejectedPorcelainDoesNotDependOnLocalizedSummary(t *testing.T) {
+	stdout := []byte("To example.invalid/repo\n!\trefs/heads/main:refs/heads/main\t[texte traduit]\nDone\n")
+	if !pushWasRejected(stdout) {
+		t.Fatal("pushWasRejected = false, want true for porcelain rejection flag")
+	}
+	if pushWasRejected([]byte("=\trefs/heads/main:refs/heads/main\t[up to date]\n")) {
+		t.Fatal("pushWasRejected = true for successful porcelain status")
+	}
+}
+
 func TestPushRejectedNonFastForward(t *testing.T) {
 	root, bare := initRemoteRepo(t)
 	writeFile(t, filepath.Join(root, "a.txt"), "base\n")

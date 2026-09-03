@@ -411,6 +411,55 @@ func TestApplyPatchRejectsEmpty(t *testing.T) {
 	}
 }
 
+type patchInitialFailureRunner struct{}
+
+func (*patchInitialFailureRunner) Run(context.Context, string, ...string) (Result, error) {
+	return Result{ExitCode: 128, Stderr: []byte("index unavailable")}, nil
+}
+
+func (*patchInitialFailureRunner) RunInput(context.Context, string, []byte, ...string) (Result, error) {
+	return Result{ExitCode: 1, Stderr: []byte("localized apply failure")}, nil
+}
+
+func TestApplyPatchPreservesInitialIndexFailure(t *testing.T) {
+	err := (Repository{Root: t.TempDir()}).ApplyPatch(
+		context.Background(),
+		&patchInitialFailureRunner{},
+		[]byte("patch"),
+		false,
+	)
+	if err == nil || errors.Is(err, ErrPatchDoesNotApply) || !strings.Contains(err.Error(), "index unavailable") {
+		t.Fatalf("ApplyPatch error = %v, want index health error", err)
+	}
+}
+
+type patchFailureRunner struct {
+	inputCalls int
+}
+
+func (r *patchFailureRunner) Run(context.Context, string, ...string) (Result, error) {
+	return Result{}, nil
+}
+
+func (r *patchFailureRunner) RunInput(context.Context, string, []byte, ...string) (Result, error) {
+	r.inputCalls++
+	if r.inputCalls == 2 {
+		return Result{ExitCode: 1, Stderr: []byte("permission denied")}, nil
+	}
+	return Result{}, nil
+}
+
+func TestApplyPatchPreservesOperationalFailureAfterSuccessfulRecheck(t *testing.T) {
+	runner := &patchFailureRunner{}
+	err := (Repository{Root: t.TempDir()}).ApplyPatch(context.Background(), runner, []byte("patch"), false)
+	if err == nil || errors.Is(err, ErrPatchDoesNotApply) || !strings.Contains(err.Error(), "permission denied") {
+		t.Fatalf("ApplyPatch error = %v, want operational permission error", err)
+	}
+	if runner.inputCalls != 3 {
+		t.Fatalf("RunInput calls = %d, want check, apply, recheck", runner.inputCalls)
+	}
+}
+
 type patchBoundaryRunner struct {
 	inputCalls int
 }
@@ -431,16 +480,16 @@ func TestApplyPatchSizeBoundary(t *testing.T) {
 	if err := repo.ApplyPatch(context.Background(), runner, make([]byte, maxPatchBytes), false); err != nil {
 		t.Fatalf("exact-limit ApplyPatch error = %v, want nil", err)
 	}
-	if runner.inputCalls != 1 {
-		t.Fatalf("exact-limit RunInput calls = %d, want 1", runner.inputCalls)
+	if runner.inputCalls != 2 {
+		t.Fatalf("exact-limit RunInput calls = %d, want check plus apply", runner.inputCalls)
 	}
 
 	err := repo.ApplyPatch(context.Background(), runner, make([]byte, maxPatchBytes+1), false)
 	if !errors.Is(err, ErrPatchTooLarge) {
 		t.Fatalf("over-limit ApplyPatch error = %v, want ErrPatchTooLarge", err)
 	}
-	if runner.inputCalls != 1 {
-		t.Fatalf("over-limit RunInput calls = %d, want unchanged 1", runner.inputCalls)
+	if runner.inputCalls != 2 {
+		t.Fatalf("over-limit RunInput calls = %d, want unchanged 2", runner.inputCalls)
 	}
 }
 
