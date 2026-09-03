@@ -325,6 +325,8 @@ func (w *Repository) emit(k InvalidationKind) {
 // directories are added from the event loop.
 func (w *Repository) addWorktreeWatches(ctx context.Context, stats *SetupStats) error {
 	if w.opts.RootOnly {
+		w.mu.Lock()
+		defer w.mu.Unlock()
 		w.coverage = CoveragePartial
 		return w.observeDirectoryLocked(w.git.Root, stats)
 	}
@@ -346,18 +348,28 @@ func (w *Repository) addWorktreeWatches(ctx context.Context, stats *SetupStats) 
 			}
 		} else {
 			stats.Watches++
+			w.mu.Lock()
 			w.rememberDirectoryLocked(p)
+			w.mu.Unlock()
 		}
 		return nil
 	})
 	return err
 }
 
-// addGitWatches observes the Git metadata that affects status: the metadata
-// directory itself (index, HEAD, packed-refs, config) and the refs tree
-// (branch updates).
+// addGitWatches observes per-worktree metadata (HEAD and index) plus shared
+// metadata (loose refs and packed-refs). In a linked worktree these live under
+// different directories.
 func (w *Repository) addGitWatches(ctx context.Context, stats *SetupStats) error {
+	watched := make(map[string]struct{})
+	for _, path := range w.fsw.WatchList() {
+		watched[filepath.Clean(path)] = struct{}{}
+	}
 	add := func(path string) {
+		path = filepath.Clean(path)
+		if _, exists := watched[path]; exists {
+			return
+		}
 		stats.Directories++
 		if err := w.fsw.Add(path); err != nil {
 			stats.AddErrors++
@@ -365,11 +377,14 @@ func (w *Repository) addGitWatches(ctx context.Context, stats *SetupStats) error
 				w.opts.OnError(err)
 			}
 		} else {
+			watched[path] = struct{}{}
 			stats.Watches++
 		}
 	}
 	add(w.git.GitDir)
-	refs := filepath.Join(w.git.GitDir, "refs")
+	common := w.git.GitCommonDir()
+	add(common)
+	refs := filepath.Join(common, "refs")
 	return filepath.WalkDir(refs, func(p string, d fs.DirEntry, err error) error {
 		if ctxErr := ctx.Err(); ctxErr != nil {
 			return ctxErr
@@ -389,15 +404,15 @@ func (w *Repository) addGitWatches(ctx context.Context, stats *SetupStats) error
 }
 
 // shouldWatchDir decides whether a newly created directory gets a watch. Git
-// internals are ignored except the refs tree, which holds branch updates.
+// internals are ignored except the shared refs tree.
 func (w *Repository) shouldWatchDir(p string) bool {
 	if filepath.Base(p) == ".git" {
 		return false
 	}
-	if !w.isGitDirPath(p) {
+	if !w.isGitMetadataPath(p) {
 		return true
 	}
-	rel, err := filepath.Rel(w.git.GitDir, p)
+	rel, err := filepath.Rel(w.git.GitCommonDir(), p)
 	if err != nil {
 		return false
 	}
@@ -523,7 +538,14 @@ func (w *Repository) loop(ctx context.Context) {
 				return
 			}
 			if errors.Is(err, fsnotify.ErrEventOverflow) {
+				// Overflow means events were lost. Reinstall any directory watches
+				// whose creation may have been missed and conservatively reconcile
+				// both independent state domains.
+				stats := SetupStats{}
+				_ = w.addWorktreeWatches(ctx, &stats)
+				_ = w.addGitWatches(ctx, &stats)
 				mark(InvalidateFiles)
+				mark(InvalidateGraph)
 				continue
 			}
 			if w.opts.OnError != nil {
@@ -545,14 +567,24 @@ func (w *Repository) classify(ev fsnotify.Event) []InvalidationKind {
 	}
 	if w.isGitDirPath(name) {
 		rel, err := filepath.Rel(w.git.GitDir, name)
+		if err == nil {
+			rel = filepath.ToSlash(rel)
+			switch rel {
+			case "index":
+				return []InvalidationKind{InvalidateSnapshot}
+			case "HEAD":
+				return []InvalidationKind{InvalidateSnapshot, InvalidateGraph}
+			}
+		}
+	}
+	if w.isGitCommonDirPath(name) {
+		rel, err := filepath.Rel(w.git.GitCommonDir(), name)
 		if err != nil {
 			return nil
 		}
 		rel = filepath.ToSlash(rel)
 		switch {
-		case rel == "index", rel == "HEAD", rel == "packed-refs":
-			return []InvalidationKind{InvalidateSnapshot}
-		case rel == "refs" || strings.HasPrefix(rel, "refs/"):
+		case rel == "packed-refs", rel == "refs" || strings.HasPrefix(rel, "refs/"):
 			return []InvalidationKind{InvalidateSnapshot, InvalidateGraph}
 		default:
 			return nil
@@ -611,12 +643,22 @@ func directorySignature(path string) ([sha256.Size]byte, error) {
 	return signature, nil
 }
 
+func pathWithin(root, path string) bool {
+	root = filepath.Clean(root)
+	path = filepath.Clean(path)
+	return path == root || strings.HasPrefix(path, root+string(filepath.Separator))
+}
+
 func (w *Repository) isGitDirPath(p string) bool {
-	if !w.git.IsGit() {
-		return false
-	}
-	git := filepath.Clean(w.git.GitDir)
-	return p == git || strings.HasPrefix(p, git+string(filepath.Separator))
+	return w.git.IsGit() && pathWithin(w.git.GitDir, p)
+}
+
+func (w *Repository) isGitCommonDirPath(p string) bool {
+	return w.git.IsGit() && pathWithin(w.git.GitCommonDir(), p)
+}
+
+func (w *Repository) isGitMetadataPath(p string) bool {
+	return w.isGitDirPath(p) || w.isGitCommonDirPath(p)
 }
 
 func (w *Repository) isInsideWorktree(p string) bool {
@@ -630,10 +672,9 @@ func (w *Repository) isInsideWorktree(p string) bool {
 	return true
 }
 
-// fallback periodically compares a cheap repository fingerprint so state is
-// eventually invalidated even when watcher events are lost. The fingerprint is
-// porcelain status output, so a quiet repository does not trigger spurious
-// invalidations.
+// fallback periodically compares logical repository state so it can recover
+// when filesystem notifications are missed. Worktree and ref state remain
+// separate to avoid recounting Explorer for a ref-only change.
 func (w *Repository) fallback(ctx context.Context, runner gitx.Runner) {
 	interval := w.opts.FallbackInterval
 	if interval == 0 {
@@ -642,16 +683,33 @@ func (w *Repository) fallback(ctx context.Context, runner gitx.Runner) {
 	if interval < 0 {
 		return
 	}
-	fp := w.opts.Fingerprint
-	if fp == nil {
-		fp = func(ctx context.Context) (string, error) {
-			return fingerprint(ctx, runner, w.git.Root)
-		}
-	}
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
 
-	var last string
+	if w.opts.Fingerprint != nil {
+		last, initialErr := w.opts.Fingerprint(ctx)
+		haveLast := initialErr == nil
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-w.closedCh:
+				return
+			case <-ticker.C:
+				current, err := w.opts.Fingerprint(ctx)
+				if err != nil {
+					continue
+				}
+				if haveLast && current != last {
+					w.emit(InvalidateFiles)
+				}
+				last, haveLast = current, true
+			}
+		}
+	}
+
+	last, initialErr := repositoryFingerprint(ctx, runner, w.git.Root)
+	haveLast := initialErr == nil
 	for {
 		select {
 		case <-ctx.Done():
@@ -659,26 +717,57 @@ func (w *Repository) fallback(ctx context.Context, runner gitx.Runner) {
 		case <-w.closedCh:
 			return
 		case <-ticker.C:
-			current, err := fp(ctx)
+			current, err := repositoryFingerprint(ctx, runner, w.git.Root)
 			if err != nil {
 				continue
 			}
-			if last == "" {
-				last = current
-				continue
-			}
-			if current != last {
-				last = current
-				// The fallback cannot recover the missed filesystem operation, so
-				// conservatively refresh both snapshot and file membership.
+			if haveLast && current.worktree != last.worktree {
 				w.emit(InvalidateFiles)
 			}
+			if haveLast && current.graph != last.graph {
+				w.emit(InvalidateSnapshot)
+				w.emit(InvalidateGraph)
+			}
+			last, haveLast = current, true
 		}
 	}
 }
 
+type repositoryStateFingerprint struct {
+	worktree string
+	graph    string
+}
+
+func repositoryFingerprint(ctx context.Context, runner gitx.Runner, root string) (repositoryStateFingerprint, error) {
+	worktree, err := fingerprint(ctx, runner, root)
+	if err != nil {
+		return repositoryStateFingerprint{}, err
+	}
+
+	hash := sha256.New()
+	for _, command := range [][]string{
+		{"symbolic-ref", "--quiet", "HEAD"},
+		{"rev-parse", "--verify", "HEAD"},
+		{"for-each-ref", "--sort=refname", "--format=%(refname)%00%(objectname)%00%(symref)"},
+	} {
+		res, runErr := runner.Run(ctx, root, command...)
+		if runErr != nil {
+			return repositoryStateFingerprint{}, runErr
+		}
+		// symbolic-ref and rev-parse legitimately fail for detached and unborn
+		// HEAD states; their exit status is part of the fingerprint.
+		if res.ExitCode != 0 && command[0] == "for-each-ref" {
+			return repositoryStateFingerprint{}, fmt.Errorf("watch: fingerprint refs failed: %s", strings.TrimSpace(string(res.Stderr)))
+		}
+		_, _ = fmt.Fprintf(hash, "%s\x00%d\x00", command[0], res.ExitCode)
+		_, _ = hash.Write(res.Stdout)
+		_, _ = hash.Write([]byte{0})
+	}
+	return repositoryStateFingerprint{worktree: worktree, graph: fmt.Sprintf("%x", hash.Sum(nil))}, nil
+}
+
 func fingerprint(ctx context.Context, runner gitx.Runner, root string) (string, error) {
-	res, err := runner.Run(ctx, root, "status", "--porcelain", "-z")
+	res, err := runner.Run(ctx, root, "status", "--porcelain=v2", "-z")
 	if err != nil {
 		return "", err
 	}

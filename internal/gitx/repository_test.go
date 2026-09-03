@@ -61,6 +61,27 @@ func TestDiscoverFromRepoRoot(t *testing.T) {
 	if repo.GitDir != filepath.Join(root, ".git") {
 		t.Fatalf("GitDir = %q, want %q", repo.GitDir, filepath.Join(root, ".git"))
 	}
+	if repo.CommonDir != repo.GitDir {
+		t.Fatalf("CommonDir = %q, want %q", repo.CommonDir, repo.GitDir)
+	}
+}
+
+func TestDiscoverLinkedWorktreeRetainsCommonGitDirectory(t *testing.T) {
+	root := initTestRepo(t)
+	linked := filepath.Join(t.TempDir(), "linked")
+	runGit(t, root, "branch", "linked")
+	runGit(t, root, "worktree", "add", "-q", linked, "linked")
+
+	repo, err := Discover(context.Background(), &ExecRunner{}, linked)
+	if err != nil {
+		t.Fatalf("Discover: %v", err)
+	}
+	if repo.GitDir == repo.CommonDir {
+		t.Fatalf("linked GitDir and CommonDir are equal: %q", repo.GitDir)
+	}
+	if repo.CommonDir != filepath.Join(root, ".git") {
+		t.Fatalf("CommonDir = %q, want %q", repo.CommonDir, filepath.Join(root, ".git"))
+	}
 }
 
 func TestDiscoverFromNestedDir(t *testing.T) {

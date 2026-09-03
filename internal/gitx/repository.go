@@ -12,8 +12,9 @@ import (
 
 // Repository describes a discovered Git worktree.
 type Repository struct {
-	Root   string
-	GitDir string
+	Root      string
+	GitDir    string
+	CommonDir string
 }
 
 var ErrNotRepository = errors.New("not inside a git repository")
@@ -37,6 +38,15 @@ func traceOpenFolder(ctx context.Context, phase string, started time.Time) {
 }
 
 func (r Repository) IsGit() bool { return r.GitDir != "" }
+
+// GitCommonDir returns metadata shared by linked worktrees. Hand-constructed
+// repositories that predate CommonDir fall back to GitDir.
+func (r Repository) GitCommonDir() string {
+	if r.CommonDir != "" {
+		return r.CommonDir
+	}
+	return r.GitDir
+}
 
 // OpenFolder resolves start to a Git worktree root when one contains it,
 // otherwise to the canonical ordinary directory itself.
@@ -90,7 +100,7 @@ func hasGitMarker(start string) bool {
 // is returned when start is not inside a Git repository.
 func Discover(ctx context.Context, r Runner, start string) (Repository, error) {
 	res, err := r.Run(ctx, start,
-		"rev-parse", "--show-toplevel", "--absolute-git-dir",
+		"rev-parse", "--path-format=absolute", "--show-toplevel", "--absolute-git-dir", "--git-common-dir",
 	)
 	if err != nil {
 		return Repository{}, err
@@ -104,13 +114,14 @@ func Discover(ctx context.Context, r Runner, start string) (Repository, error) {
 	}
 
 	lines := strings.Split(strings.TrimRight(string(res.Stdout), "\n"), "\n")
-	if len(lines) < 2 {
+	if len(lines) < 3 {
 		return Repository{}, fmt.Errorf("gitx: unexpected rev-parse output %q", string(res.Stdout))
 	}
 
 	repo := Repository{
-		Root:   filepath.Clean(lines[0]),
-		GitDir: filepath.Clean(lines[1]),
+		Root:      filepath.Clean(lines[0]),
+		GitDir:    filepath.Clean(lines[1]),
+		CommonDir: filepath.Clean(lines[2]),
 	}
 	if repo.Root == "" {
 		return Repository{}, fmt.Errorf("gitx: rev-parse returned empty root for %q", start)

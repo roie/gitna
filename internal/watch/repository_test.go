@@ -301,6 +301,85 @@ func TestWatcherReportsRefChanges(t *testing.T) {
 	}
 }
 
+func TestWatcherReportsHeadAndPackedRefChanges(t *testing.T) {
+	root := initRepo(t)
+	runGit(t, root, "branch", "feature")
+	w := startWatcher(t, root, Options{Debounce: 30 * time.Millisecond, FallbackInterval: -1})
+	events := w.Events()
+	drain(t, events, 100*time.Millisecond)
+
+	runGit(t, root, "switch", "feature")
+	seen := map[InvalidationKind]bool{}
+	seen[nextEvent(t, events)] = true
+	seen[nextEvent(t, events)] = true
+	if !seen[InvalidateSnapshot] || !seen[InvalidateGraph] {
+		t.Fatalf("clean switch invalidations = %v", seen)
+	}
+	drain(t, events, 150*time.Millisecond)
+
+	runGit(t, root, "pack-refs", "--all", "--prune")
+	seen = map[InvalidationKind]bool{}
+	seen[nextEvent(t, events)] = true
+	seen[nextEvent(t, events)] = true
+	if !seen[InvalidateSnapshot] || !seen[InvalidateGraph] {
+		t.Fatalf("packed refs invalidations = %v", seen)
+	}
+}
+
+func TestWatcherReportsSharedRefChangesFromLinkedWorktree(t *testing.T) {
+	root := initRepo(t)
+	linked := filepath.Join(t.TempDir(), "linked")
+	runGit(t, root, "branch", "linked")
+	runGit(t, root, "worktree", "add", "-q", linked, "linked")
+	w := startWatcher(t, linked, Options{Debounce: 30 * time.Millisecond, FallbackInterval: -1})
+	events := w.Events()
+	drain(t, events, 100*time.Millisecond)
+
+	runGit(t, root, "branch", "shared-update")
+	seen := map[InvalidationKind]bool{}
+	seen[nextEvent(t, events)] = true
+	seen[nextEvent(t, events)] = true
+	if !seen[InvalidateSnapshot] || !seen[InvalidateGraph] {
+		t.Fatalf("linked shared ref invalidations = %v", seen)
+	}
+}
+
+func TestRepositoryFingerprintSeparatesWorktreeAndGraphState(t *testing.T) {
+	root := trackedRepo(t)
+	runner := &gitx.ExecRunner{}
+	before, err := repositoryFingerprint(context.Background(), runner, root)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	runGit(t, root, "branch", "same-tip")
+	afterRef, err := repositoryFingerprint(context.Background(), runner, root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if afterRef.worktree != before.worktree || afterRef.graph == before.graph {
+		t.Fatalf("ref-only fingerprints before=%+v after=%+v", before, afterRef)
+	}
+
+	runGit(t, root, "switch", "same-tip")
+	afterSwitch, err := repositoryFingerprint(context.Background(), runner, root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if afterSwitch.worktree != before.worktree || afterSwitch.graph == afterRef.graph {
+		t.Fatalf("clean-switch fingerprints ref=%+v switch=%+v", afterRef, afterSwitch)
+	}
+
+	runGit(t, root, "switch", "--detach", "HEAD")
+	afterDetach, err := repositoryFingerprint(context.Background(), runner, root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if afterDetach.graph == afterSwitch.graph {
+		t.Fatal("graph fingerprint unchanged after detached HEAD transition")
+	}
+}
+
 func TestWatcherReportsChangesInNewDirectories(t *testing.T) {
 	root := initRepo(t)
 	w := startWatcher(t, root, Options{Debounce: 30 * time.Millisecond, FallbackInterval: -1})
