@@ -205,6 +205,7 @@ export class GitnaRepository {
   ordinaryDirectoryErrors = new Map<string, string>()
   ordinaryWatchCoverage: 'complete' | 'partial' = 'complete'
   ordinarySearchResults: FileSearchResult[] = []
+  ordinarySearchResultQuery: string | null = null
   ordinarySearchComplete = false
   ordinarySearchLoading = false
   ordinarySearchError: string | null = null
@@ -599,6 +600,7 @@ export class GitnaRepository {
     this.ordinarySearchController = controller
     this.ordinarySearchLoading = true
     this.ordinarySearchError = null
+    this.ordinarySearchResultQuery = null
     this.emit()
     try {
       const response = await this.api.searchFiles(query, {
@@ -608,10 +610,12 @@ export class GitnaRepository {
       if (request !== this.ordinarySearchRequest) return
       if (response.generation < this.generation) {
         this.ordinarySearchResults = []
+        this.ordinarySearchResultQuery = query
         this.ordinarySearchComplete = false
         return
       }
       this.ordinarySearchResults = response.results
+      this.ordinarySearchResultQuery = query
       this.ordinarySearchComplete = response.complete
     } catch (error) {
       if (controller.signal.aborted || request !== this.ordinarySearchRequest) return

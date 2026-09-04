@@ -3,7 +3,7 @@ import { createFileTreeIconResolver, getBuiltInSpriteSheet } from '@pierre/trees
 import { type ReactNode, useEffect, useId, useMemo, useRef, useState } from 'react'
 
 import { cn } from '../lib/cn'
-import { rankPaletteFiles, paletteTextMatches } from './commandPalette'
+import { paletteTextMatches } from './commandPalette'
 
 const paletteFileIconResolver = createFileTreeIconResolver('complete')
 const paletteFileIconSprite = getBuiltInSpriteSheet('complete')
@@ -80,17 +80,16 @@ export interface GitnaPaletteFileResult {
 
 interface GitnaCommandPaletteProps {
   commands: readonly GitnaPaletteCommand[]
-  externalFileResults?: readonly GitnaPaletteFileResult[]
-  fileSearchComplete?: boolean
+  externalFileResults: readonly GitnaPaletteFileResult[]
+  fileSearchComplete: boolean
+  fileResultQuery: string | null
   error: string | null
   loading: boolean
   onClose(): void
   onError(error: string): void
-  onFileQueryChange?(query: string): void
+  onFileQueryChange(query: string): void
   onOpenFile(path: string): void
   open: boolean
-  openPaths: readonly string[]
-  paths: readonly string[]
 }
 
 type PaletteResult =
@@ -108,19 +107,19 @@ export function GitnaCommandPalette({
   commands,
   error,
   externalFileResults,
-  fileSearchComplete = true,
+  fileSearchComplete,
+  fileResultQuery,
   loading,
   onClose,
   onError,
   onFileQueryChange,
   onOpenFile,
   open,
-  openPaths,
-  paths,
 }: GitnaCommandPaletteProps) {
   const dialogRef = useRef<HTMLDialogElement>(null)
   const inputRef = useRef<HTMLInputElement>(null)
   const listRef = useRef<HTMLDivElement>(null)
+  const lastRequestedFileQueryRef = useRef<string | null>(null)
   const [query, setQuery] = useState('')
   const [activeIndex, setActiveIndex] = useState(0)
   const listboxId = useId()
@@ -139,8 +138,8 @@ export function GitnaCommandPalette({
         .slice(0, 100)
         .map((command) => ({ id: `command:${command.id}`, kind: 'command', command }))
     }
-    const files = externalFileResults ?? rankPaletteFiles(paths, query, openPaths)
-    return files.map((file) => ({
+    if (fileResultQuery !== query) return []
+    return externalFileResults.map((file) => ({
       id: `file:${file.path}`,
       kind: 'file',
       duplicateName: file.duplicateName,
@@ -148,13 +147,14 @@ export function GitnaCommandPalette({
       parent: file.parent,
       path: file.path,
     }))
-  }, [commandMode, commandQuery, commands, externalFileResults, openPaths, paths, query])
+  }, [commandMode, commandQuery, commands, externalFileResults, fileResultQuery, query])
 
   useEffect(() => {
     const dialog = dialogRef.current
     if (!open || dialog == null) return
     setQuery('')
     setActiveIndex(0)
+    lastRequestedFileQueryRef.current = null
     if (!dialog.open) dialog.showModal()
     queueMicrotask(() => inputRef.current?.focus())
     return () => {
@@ -167,10 +167,26 @@ export function GitnaCommandPalette({
   }, [results.length])
 
   useEffect(() => {
-    if (!open || commandMode || onFileQueryChange == null) return
-    const timer = window.setTimeout(() => onFileQueryChange(query), fileSearchComplete ? 120 : 250)
+    if (!open || commandMode) return
+    const repeatedQuery = lastRequestedFileQueryRef.current === query
+    if (repeatedQuery && (fileSearchComplete || loading)) return
+    const timer = window.setTimeout(
+      () => {
+        lastRequestedFileQueryRef.current = query
+        onFileQueryChange(query)
+      },
+      repeatedQuery ? 500 : 35,
+    )
     return () => window.clearTimeout(timer)
-  }, [commandMode, externalFileResults, fileSearchComplete, onFileQueryChange, open, query])
+  }, [
+    commandMode,
+    externalFileResults,
+    fileSearchComplete,
+    loading,
+    onFileQueryChange,
+    open,
+    query,
+  ])
 
   useEffect(() => {
     listRef.current
@@ -294,14 +310,14 @@ export function GitnaCommandPalette({
               <span className="block truncate text-sm font-medium">
                 {result.kind === 'file' ? result.name : result.command.label}
               </span>
-              {(result.kind === 'file'
-                ? result.parent !== ''
-                : result.command.description != null) && (
+              {(result.kind === 'file' || result.command.description != null) && (
                 <span className="mt-0.5 block truncate text-xs text-muted-foreground">
                   {result.kind === 'file'
-                    ? result.duplicateName
-                      ? result.parent
-                      : result.path
+                    ? result.parent === ''
+                      ? 'Repository root'
+                      : result.duplicateName
+                        ? result.parent
+                        : result.path
                     : result.command.description}
                 </span>
               )}

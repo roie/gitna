@@ -2,7 +2,6 @@ package app
 
 import (
 	"bufio"
-	"container/heap"
 	"context"
 	"encoding/json"
 	"errors"
@@ -10,19 +9,13 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
-	"sort"
 	"strings"
 	"sync"
 
+	"github.com/roie/gitna/internal/filesearch"
 	"github.com/roie/gitna/internal/folder"
 	"github.com/roie/gitna/internal/protocol"
 )
-
-type indexedFolderFile struct {
-	path   string
-	name   string
-	parent string
-}
 
 type folderSearchIndex struct {
 	mu            sync.RWMutex
@@ -35,6 +28,8 @@ type folderSearchIndex struct {
 	cancel        context.CancelFunc
 	readers       int
 	retiredPaths  []string
+	catalog       filesearch.Snapshot
+	memoryLimit   int64
 }
 
 // retirePathLocked defers removal while any index reader may still have the
@@ -68,6 +63,116 @@ func folderSearchWalkError(root, path string, walkErr error) error {
 	return nil
 }
 
+func walkFolderSearchPaths(
+	ctx context.Context,
+	root string,
+	visit func(string) error,
+	publishRoot func() error,
+) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	entries, err := os.ReadDir(root)
+	if err != nil {
+		return err
+	}
+	projectRoots := make([]string, 0, len(entries))
+	dependencyRoots := make([]string, 0, 1)
+	emit := func(path string) error {
+		relative, err := filepath.Rel(root, path)
+		if err != nil {
+			return nil
+		}
+		return visit(filepath.ToSlash(relative))
+	}
+	for _, entry := range entries {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		if entry.Name() == ".git" {
+			continue
+		}
+		entryPath := filepath.Join(root, entry.Name())
+		info, err := entry.Info()
+		if err != nil {
+			continue
+		}
+		if !info.IsDir() {
+			if err := emit(entryPath); err != nil {
+				return err
+			}
+			continue
+		}
+		if strings.EqualFold(entry.Name(), "node_modules") {
+			dependencyRoots = append(dependencyRoots, entryPath)
+		} else {
+			projectRoots = append(projectRoots, entryPath)
+		}
+	}
+	if err := publishRoot(); err != nil {
+		return err
+	}
+
+	for _, projectRoot := range projectRoots {
+		err := filepath.WalkDir(projectRoot, func(path string, entry fs.DirEntry, walkErr error) error {
+			if err := ctx.Err(); err != nil {
+				return err
+			}
+			if err := folderSearchWalkError(root, path, walkErr); err != nil {
+				return err
+			}
+			if walkErr != nil {
+				return nil
+			}
+			if path == projectRoot {
+				return nil
+			}
+			if entry.IsDir() {
+				if entry.Name() == ".git" {
+					return filepath.SkipDir
+				}
+				if strings.EqualFold(entry.Name(), "node_modules") {
+					dependencyRoots = append(dependencyRoots, path)
+					return filepath.SkipDir
+				}
+				return nil
+			}
+			return emit(path)
+		})
+		if err != nil {
+			return err
+		}
+	}
+
+	for _, dependencyRoot := range dependencyRoots {
+		err := filepath.WalkDir(dependencyRoot, func(path string, entry fs.DirEntry, walkErr error) error {
+			if err := ctx.Err(); err != nil {
+				return err
+			}
+			if err := folderSearchWalkError(root, path, walkErr); err != nil {
+				return err
+			}
+			if walkErr != nil || path == dependencyRoot {
+				return nil
+			}
+			if entry.Name() == ".git" {
+				if entry.IsDir() {
+					return filepath.SkipDir
+				}
+				return nil
+			}
+			if entry.IsDir() {
+				return nil
+			}
+			return emit(path)
+		})
+		if err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 func (a *repoAdapter) invalidateFileSearch() {
 	a.directories.invalidate()
 	a.search.mu.Lock()
@@ -87,6 +192,7 @@ func (a *repoAdapter) invalidateFileSearch() {
 	a.search.building = false
 	a.search.err = nil
 	a.search.cancel = nil
+	a.search.catalog = filesearch.Snapshot{}
 	a.search.mu.Unlock()
 	if removeNow {
 		_ = os.Remove(indexPath)
@@ -129,6 +235,7 @@ func (a *repoAdapter) startFileSearchIndex() {
 		a.search.building = false
 		a.search.err = err
 		a.search.cancel = nil
+		a.search.catalog = filesearch.Snapshot{}
 		a.search.mu.Unlock()
 		if removePath != "" {
 			_ = os.Remove(removePath)
@@ -149,6 +256,8 @@ func (a *repoAdapter) startFileSearchIndex() {
 	a.search.building = true
 	a.search.err = nil
 	a.search.cancel = cancel
+	a.search.catalog = filesearch.Snapshot{}
+	memoryLimit := a.search.memoryLimit
 	a.search.mu.Unlock()
 	if removePath != "" {
 		_ = os.Remove(removePath)
@@ -158,6 +267,7 @@ func (a *repoAdapter) startFileSearchIndex() {
 		defer cancel()
 		writer := bufio.NewWriterSize(file, 256*1024)
 		encoder := json.NewEncoder(writer)
+		catalog := filesearch.NewBuilder(memoryLimit)
 		pending := 0
 		publish := func() error {
 			if err := writer.Flush(); err != nil {
@@ -167,48 +277,31 @@ func (a *repoAdapter) startFileSearchIndex() {
 			if err != nil {
 				return err
 			}
+			snapshot := catalog.Snapshot(false)
 			a.search.mu.Lock()
 			if a.search.rootKey == rootKey && a.search.path == indexPath && buildCtx.Err() == nil {
 				a.search.publishedSize = offset
+				a.search.catalog = snapshot
 			}
 			a.search.mu.Unlock()
 			pending = 0
 			return nil
 		}
-		err := filepath.WalkDir(repo.Root, func(path string, entry fs.DirEntry, walkErr error) error {
-			if err := buildCtx.Err(); err != nil {
+		err := walkFolderSearchPaths(buildCtx, repo.Root, func(relativePath string) error {
+			if err := encoder.Encode(relativePath); err != nil {
 				return err
 			}
-			if err := folderSearchWalkError(repo.Root, path, walkErr); err != nil {
-				return err
-			}
-			if walkErr != nil {
-				return nil
-			}
-			if path == repo.Root {
-				return nil
-			}
-			if entry.Name() == ".git" {
-				if entry.IsDir() {
-					return filepath.SkipDir
-				}
-				return nil
-			}
-			if entry.IsDir() {
-				return nil
-			}
-			relative, err := filepath.Rel(repo.Root, path)
-			if err != nil {
-				return nil
-			}
-			if err := encoder.Encode(filepath.ToSlash(relative)); err != nil {
-				return err
-			}
+			catalog.Add(relativePath)
 			pending++
 			if pending >= 4096 {
 				return publish()
 			}
 			return nil
+		}, func() error {
+			if pending == 0 {
+				return nil
+			}
+			return publish()
 		})
 		if err == nil && buildCtx.Err() == nil && pending > 0 {
 			err = publish()
@@ -225,6 +318,7 @@ func (a *repoAdapter) startFileSearchIndex() {
 			a.search.cancel = nil
 			if err == nil && buildCtx.Err() == nil {
 				a.search.complete = true
+				a.search.catalog = catalog.Snapshot(true)
 			} else {
 				a.search.err = err
 			}
@@ -239,6 +333,43 @@ func (a *repoAdapter) startFileSearchIndex() {
 	}()
 }
 
+func validRecentSearchPaths(rootPath string, recentPaths []string, limit int) []string {
+	if limit <= 0 || len(recentPaths) == 0 {
+		return nil
+	}
+	root, err := os.OpenRoot(rootPath)
+	if err != nil {
+		return nil
+	}
+	defer root.Close()
+
+	valid := make([]string, 0, min(limit, len(recentPaths)))
+	seen := make(map[string]struct{}, cap(valid))
+	for index, checked := len(recentPaths)-1, 0; index >= 0 && checked < limit; index, checked = index-1, checked+1 {
+		normalized, ok := filesearch.NormalizeRecentPath(recentPaths[index])
+		if !ok {
+			continue
+		}
+		if _, exists := seen[normalized]; exists {
+			continue
+		}
+		localPath, err := filepath.Localize(normalized)
+		if err != nil {
+			continue
+		}
+		info, err := root.Stat(localPath)
+		if err != nil || info.IsDir() {
+			continue
+		}
+		seen[normalized] = struct{}{}
+		valid = append(valid, normalized)
+	}
+	for left, right := 0, len(valid)-1; left < right; left, right = left+1, right-1 {
+		valid[left], valid[right] = valid[right], valid[left]
+	}
+	return valid
+}
+
 func (a *repoAdapter) searchFiles(
 	ctx context.Context,
 	query string,
@@ -248,8 +379,8 @@ func (a *repoAdapter) searchFiles(
 	if limit <= 0 {
 		return protocol.FileSearchResults{Results: make([]protocol.FileSearchResult, 0)}, nil
 	}
+	repo := a.current()
 	a.startFileSearchIndex()
-	normalizedQuery := strings.ToLower(strings.TrimSpace(query))
 	a.search.mu.Lock()
 	if a.search.err != nil {
 		err := a.search.err
@@ -259,62 +390,43 @@ func (a *repoAdapter) searchFiles(
 	indexPath := a.search.path
 	publishedSize := a.search.publishedSize
 	complete := a.search.complete
+	catalog := a.search.catalog
 	a.search.readers++
 	a.search.mu.Unlock()
 	defer a.releaseFileSearchReader()
+	emptyQuery := strings.TrimSpace(query) == ""
+	if emptyQuery {
+		recentPaths = validRecentSearchPaths(repo.Root, recentPaths, limit)
+	}
+	if emptyQuery || (catalog.Len() > 0 && !catalog.Overflow()) {
+		matches, err := catalog.Search(ctx, query, recentPaths, limit)
+		if err != nil {
+			return protocol.FileSearchResults{}, err
+		}
+		results := make([]protocol.FileSearchResult, len(matches))
+		for index, match := range matches {
+			results[index] = protocol.FileSearchResult{
+				Path: match.Path, Name: match.Name, Parent: match.Parent,
+				DuplicateName: match.DuplicateName,
+			}
+		}
+		return protocol.FileSearchResults{Results: results, Complete: complete}, nil
+	}
 	if indexPath == "" || publishedSize == 0 {
 		return protocol.FileSearchResults{Results: make([]protocol.FileSearchResult, 0), Complete: complete}, nil
 	}
-	recency := make(map[string]int, len(recentPaths))
-	for index, path := range recentPaths {
-		recency[path] = index + 1
-	}
-	matches := make(folderSearchHeap, 0, limit)
-	heap.Init(&matches)
-	err := scanFolderSearchIndex(ctx, indexPath, publishedSize, func(filePath string) {
-		name := filepath.Base(filepath.FromSlash(filePath))
-		score, ok := folderPathScore(strings.ToLower(filePath), strings.ToLower(name), normalizedQuery)
-		if !ok {
-			return
-		}
-		parent := strings.TrimSuffix(filePath, "/"+name)
-		candidate := scoredFolderFile{
-			entry: indexedFolderFile{path: filePath, name: name, parent: parent},
-			score: score - min(recency[filePath], 10),
-		}
-		if matches.Len() < limit {
-			heap.Push(&matches, candidate)
-		} else if candidate.betterThan(matches[0]) {
-			matches[0] = candidate
-			heap.Fix(&matches, 0)
-		}
+	matches, err := filesearch.RankPaths(ctx, query, recentPaths, limit, func(visit func(string) error) error {
+		return scanFolderSearchIndex(ctx, indexPath, publishedSize, visit)
 	})
 	if err != nil {
 		return protocol.FileSearchResults{}, err
 	}
-	ordered := make([]scoredFolderFile, len(matches))
-	copy(ordered, matches)
-	sort.Slice(ordered, func(left, right int) bool { return ordered[left].betterThan(ordered[right]) })
-	candidateNames := make(map[string]int, len(ordered))
-	for _, match := range ordered {
-		candidateNames[strings.ToLower(match.entry.name)] = 0
-	}
-	if len(candidateNames) > 0 {
-		if err := scanFolderSearchIndex(ctx, indexPath, publishedSize, func(filePath string) {
-			name := strings.ToLower(filepath.Base(filepath.FromSlash(filePath)))
-			if _, ok := candidateNames[name]; ok {
-				candidateNames[name]++
-			}
-		}); err != nil {
-			return protocol.FileSearchResults{}, err
+	results := make([]protocol.FileSearchResult, len(matches))
+	for index, match := range matches {
+		results[index] = protocol.FileSearchResult{
+			Path: match.Path, Name: match.Name, Parent: match.Parent,
+			DuplicateName: match.DuplicateName,
 		}
-	}
-	results := make([]protocol.FileSearchResult, 0, len(ordered))
-	for _, match := range ordered {
-		results = append(results, protocol.FileSearchResult{
-			Path: match.entry.path, Name: match.entry.name, Parent: match.entry.parent,
-			DuplicateName: candidateNames[strings.ToLower(match.entry.name)] > 1,
-		})
 	}
 	return protocol.FileSearchResults{Results: results, Complete: complete}, nil
 }
@@ -323,7 +435,7 @@ func scanFolderSearchIndex(
 	ctx context.Context,
 	indexPath string,
 	publishedSize int64,
-	visit func(string),
+	visit func(string) error,
 ) error {
 	file, err := os.Open(indexPath)
 	if err != nil {
@@ -344,96 +456,8 @@ func scanFolderSearchIndex(
 			}
 			return err
 		}
-		visit(filePath)
-	}
-}
-
-type scoredFolderFile struct {
-	entry indexedFolderFile
-	score int
-}
-
-func (file scoredFolderFile) betterThan(other scoredFolderFile) bool {
-	return file.score < other.score || (file.score == other.score && file.entry.path < other.entry.path)
-}
-
-type folderSearchHeap []scoredFolderFile
-
-func (values folderSearchHeap) Len() int { return len(values) }
-func (values folderSearchHeap) Less(left, right int) bool {
-	return values[right].betterThan(values[left])
-}
-func (values folderSearchHeap) Swap(left, right int) {
-	values[left], values[right] = values[right], values[left]
-}
-func (values *folderSearchHeap) Push(value any) { *values = append(*values, value.(scoredFolderFile)) }
-func (values *folderSearchHeap) Pop() any {
-	items := *values
-	last := len(items) - 1
-	value := items[last]
-	*values = items[:last]
-	return value
-}
-
-func folderPathScore(path, name, query string) (int, bool) {
-	if query == "" {
-		return 400, true
-	}
-	terms := strings.Fields(query)
-	if len(terms) > 1 {
-		total := 90
-		for _, term := range terms {
-			score, ok := folderPathScore(path, name, term)
-			if !ok {
-				return 0, false
-			}
-			total += score
+		if err := visit(filePath); err != nil {
+			return err
 		}
-		return total, true
 	}
-	if name == query {
-		return 0, true
-	}
-	if path == query {
-		return 1, true
-	}
-	if strings.HasPrefix(name, query) {
-		return 20 + len(name) - len(query), true
-	}
-	if strings.HasPrefix(path, query) {
-		return 40 + len(path) - len(query), true
-	}
-	if index := strings.Index(name, query); index >= 0 {
-		return 60 + index, true
-	}
-	if index := strings.Index(path, query); index >= 0 {
-		return 80 + index, true
-	}
-	score, ok := folderFuzzyScore(path, query)
-	if !ok {
-		return 0, false
-	}
-	return 120 + score, true
-}
-
-func folderFuzzyScore(value, query string) (int, bool) {
-	position, gap, run, bestRun := -1, 0, 0, 0
-	for _, character := range query {
-		nextRelative := strings.IndexRune(value[position+1:], character)
-		if nextRelative < 0 {
-			return 0, false
-		}
-		next := position + 1 + nextRelative
-		if next == position+1 {
-			run++
-		} else {
-			gap += next - position - 1
-			run = 1
-		}
-		if run > bestRun {
-			bestRun = run
-		}
-		position = next
-	}
-	return gap + position - bestRun*2, true
 }

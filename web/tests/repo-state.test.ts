@@ -459,9 +459,57 @@ describe('createRepoState', () => {
     await state.ensureOrdinaryPathLoaded('nested/result.txt')
 
     expect(state.ordinarySearchComplete).toBe(true)
+    expect(state.ordinarySearchResultQuery).toBe('result')
     expect(state.ordinarySearchResults[0]?.path).toBe('nested/result.txt')
     expect(state.repositoryPaths).toContain('nested/result.txt')
     expect(directories).toEqual(['', 'nested'])
+  })
+
+  it('disassociates stale file results while a new query is pending', async () => {
+    let resolveSearch!: (value: {
+      generation: number
+      complete: boolean
+      results: Array<{
+        path: string
+        name: string
+        parent: string
+        duplicateName: boolean
+      }>
+    }) => void
+    const searchFiles = vi.fn(
+      () =>
+        new Promise<{
+          generation: number
+          complete: boolean
+          results: Array<{
+            path: string
+            name: string
+            parent: string
+            duplicateName: boolean
+          }>
+        }>((resolve) => {
+          resolveSearch = resolve
+        }),
+    )
+    const state = createRepoState({ api: { ...auxApi, searchFiles } })
+    state.generation = 1
+    state.ordinarySearchResults = [
+      { path: 'old.txt', name: 'old.txt', parent: '', duplicateName: false },
+    ]
+    state.ordinarySearchResultQuery = 'old'
+
+    const pending = state.searchOrdinaryFiles('new')
+    expect(state.ordinarySearchLoading).toBe(true)
+    expect(state.ordinarySearchResultQuery).toBeNull()
+
+    resolveSearch({
+      generation: 1,
+      complete: true,
+      results: [{ path: 'new.txt', name: 'new.txt', parent: '', duplicateName: false }],
+    })
+    await pending
+    expect(state.ordinarySearchResultQuery).toBe('new')
+    expect(state.ordinarySearchResults[0]?.path).toBe('new.txt')
   })
 
   it('pages lazy directories to verify a deep file and preserve ignored metadata', async () => {

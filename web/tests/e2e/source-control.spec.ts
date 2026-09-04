@@ -1363,9 +1363,20 @@ test('command palette searches complete paths and runs workbench commands', asyn
   mkdirSync(join(app.repo, 'client'), { recursive: true })
   mkdirSync(join(app.repo, 'server', 'palette-token'), { recursive: true })
   mkdirSync(join(app.repo, 'space dir'), { recursive: true })
+  mkdirSync(join(app.repo, 'node_modules', 'dependency'), { recursive: true })
   writeFileSync(join(app.repo, 'client/index.ts'), 'client\n')
   writeFileSync(join(app.repo, 'server/palette-token/index.ts'), 'server\n')
   writeFileSync(join(app.repo, 'space dir/file name.ts'), 'space\n')
+  writeFileSync(join(app.repo, 'package.json'), '{}\n')
+  writeFileSync(join(app.repo, 'node_modules/dependency/package.json'), '{}\n')
+
+  const searchRequests = new Map<string, number>()
+  page.on('request', (request) => {
+    const url = new URL(request.url())
+    if (!url.pathname.endsWith('/api/v1/files/search')) return
+    const query = url.searchParams.get('q') ?? ''
+    searchRequests.set(query, (searchRequests.get(query) ?? 0) + 1)
+  })
 
   const countResponse = page.waitForResponse((response) => {
     const url = new URL(response.url())
@@ -1401,6 +1412,28 @@ test('command palette searches complete paths and runs workbench commands', asyn
   const activeDescendant = await search.getAttribute('aria-activedescendant')
   expect(activeDescendant).not.toMatch(/\s/)
   await expect(spacedFile).toHaveAttribute('id', activeDescendant!)
+  const settledFileNameRequests = searchRequests.get('file name') ?? 0
+  await page.waitForTimeout(700)
+  expect(searchRequests.get('file name') ?? 0).toBe(settledFileNameRequests)
+
+  let releasePackageSearch!: () => void
+  const packageSearchGate = new Promise<void>((resolve) => {
+    releasePackageSearch = resolve
+  })
+  await page.route('**/api/v1/files/search?*', async (route) => {
+    const url = new URL(route.request().url())
+    if (url.searchParams.get('q') === 'package.json') await packageSearchGate
+    await route.continue()
+  })
+  await search.fill('package.json')
+  await expect(spacedFile).toHaveCount(0)
+  await expect.poll(() => searchRequests.get('package.json') ?? 0).toBe(1)
+  await page.waitForTimeout(600)
+  expect(searchRequests.get('package.json') ?? 0).toBe(1)
+  releasePackageSearch()
+  await expect(palette.getByRole('option').first()).toHaveAccessibleName(
+    /package\.json Repository root/,
+  )
 
   await search.fill('palette-token index')
   const serverFile = palette.getByRole('option', {

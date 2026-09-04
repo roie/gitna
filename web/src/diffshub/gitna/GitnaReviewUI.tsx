@@ -1521,13 +1521,12 @@ function GitnaReviewUIInner() {
           error={repository.ordinarySearchError}
           externalFileResults={repository.ordinarySearchResults}
           fileSearchComplete={repository.ordinarySearchComplete}
+          fileResultQuery={repository.ordinarySearchResultQuery}
           loading={
             repository.ordinarySearchLoading ||
             (!repository.ordinarySearchComplete && repository.ordinarySearchError == null)
           }
           open={commandPaletteOpen && !homeOpen}
-          openPaths={paletteFileHistory}
-          paths={repository.repositoryPaths}
           onClose={() => setCommandPaletteOpen(false)}
           onError={setReviewActionError}
           onFileQueryChange={searchOrdinaryPalette}
