@@ -192,6 +192,46 @@ test('tree navigation and Pierre header hunk actions preserve the other hunk', a
   expect(browserErrors).toEqual([])
 })
 
+test('committing the last changes shows the clean state without a loading flash', async ({
+  page,
+  app,
+}) => {
+  git(app.repo, 'add', '-A')
+  await page.goto(app.url)
+  await page
+    .locator('#gitna-staged-tree__tree')
+    .getByRole('treeitem', { name: 'modified.txt', exact: true })
+    .click()
+  await expect(page.locator('.code-view')).toBeVisible()
+
+  let releaseReview!: () => void
+  const reviewGate = new Promise<void>((resolve) => {
+    releaseReview = resolve
+  })
+  let reviewRequested!: () => void
+  const pendingReview = new Promise<void>((resolve) => {
+    reviewRequested = resolve
+  })
+  await page.route('**/api/v1/review?*', async (route) => {
+    if (new URL(route.request().url()).searchParams.get('scope') === 'unstaged') {
+      reviewRequested()
+      await reviewGate
+    }
+    await route.continue()
+  })
+  try {
+    await page.getByPlaceholder('Commit message').fill('Complete the review')
+    await page.getByRole('button', { name: 'Commit', exact: true }).click()
+    await pendingReview
+    await expect(page.getByText('Working tree clean', { exact: true })).toBeVisible({
+      timeout: 1_000,
+    })
+    await expect(page.getByRole('heading', { name: 'Fetching diff', exact: true })).toHaveCount(0)
+  } finally {
+    releaseReview()
+  }
+})
+
 test('commit text survives hook failure and clears after authoritative success', async ({
   page,
   app,

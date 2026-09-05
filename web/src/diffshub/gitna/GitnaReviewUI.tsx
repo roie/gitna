@@ -324,6 +324,9 @@ export function GitnaReviewUI() {
 function GitnaReviewUIInner() {
   const repository = useRepository()
   const target = useReviewTarget()
+  const scopeKnownEmpty =
+    (target?.request?.scope === 'staged' && repository.snapshot?.staged.length === 0) ||
+    (target?.request?.scope === 'unstaged' && repository.snapshot?.unstaged.length === 0)
   const workerReady = useIsWorkerPoolReadyOrDisabled()
   const [diffStyle, setDiffStyle] = useState<'split' | 'unified'>('split')
   const [collapseMode, setCollapseMode] = useState<'expanded' | 'collapsed'>('expanded')
@@ -1469,7 +1472,8 @@ function GitnaReviewUIInner() {
               <div className="min-h-0 flex-1">
                 {repository.snapshot?.repository === false && target == null ? (
                   <FolderEmptyState />
-                ) : loadState === 'ready' && reviewData != null && reviewData.items.length === 0 ? (
+                ) : scopeKnownEmpty ||
+                  (loadState === 'ready' && reviewData != null && reviewData.items.length === 0) ? (
                   <GitnaEmptyState scope={target?.request?.scope} />
                 ) : viewerAvailable && reviewData != null ? (
                   <DiffsHubViewer
