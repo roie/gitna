@@ -210,6 +210,8 @@ test('commit text survives hook failure and clears after authoritative success',
   await expect(composer).toHaveValue('milestone commit')
 
   rmSync(hook)
+  // The error is visible before post-operation refreshes release the composer.
+  await expect(composer).toBeEnabled()
   await page.keyboard.press('Control+Shift+C')
   await expect(composer).toBeFocused()
   await page.keyboard.press('Control+Enter')

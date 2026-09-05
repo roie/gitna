@@ -1426,6 +1426,11 @@ test('command palette searches complete paths and runs workbench commands', asyn
     'none',
   )
   await expect(spacedFile.locator('[data-palette-match]').first()).toHaveClass(/text-blue-600/)
+  // A matching result may arrive before the progressive index has finished.
+  await expect(palette.getByRole('listbox', { name: 'Files' })).toHaveAttribute(
+    'aria-busy',
+    'false',
+  )
   const settledFileNameRequests = searchRequests.get('file name') ?? 0
   await page.waitForTimeout(700)
   expect(searchRequests.get('file name') ?? 0).toBe(settledFileNameRequests)
