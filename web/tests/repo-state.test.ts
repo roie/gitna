@@ -650,6 +650,40 @@ describe('createRepoState', () => {
     expect(state.repositoryPaths).toEqual(stalePaths)
   })
 
+  it.each([false, true])(
+    'waits for search invalidation before listing directories (failure: %s)',
+    async (failSearch) => {
+      let finishSearch!: () => void
+      let searchFinished = false
+      const searchGate = new Promise<void>((resolve) => {
+        finishSearch = resolve
+      })
+      const directoryEntries = vi.fn(async (path: string) => {
+        expect(searchFinished).toBe(true)
+        return { generation: 1, directory: path, entries: [], truncated: false }
+      })
+      const state = createRepoState({
+        api: {
+          ...auxApi,
+          directoryEntries,
+          async searchFiles() {
+            await searchGate
+            searchFinished = true
+            if (failSearch) throw new Error('search reset failed')
+            return { generation: 1, results: [], complete: false }
+          },
+        },
+      })
+
+      const refresh = state.refreshExplorer()
+      expect(directoryEntries).not.toHaveBeenCalled()
+      finishSearch()
+      await refresh
+      expect(directoryEntries).toHaveBeenCalledTimes(1)
+      expect(state.repositoryFilesError).toBeNull()
+    },
+  )
+
   it('refreshes loaded ordinary directories parent-first after external deletion', async () => {
     let deleted = false
     let refreshing = false

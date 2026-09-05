@@ -690,10 +690,10 @@ export class GitnaRepository {
     // An explicit refresh is authoritative even for unopened directories that
     // are outside partial watch coverage. Restart the server-side Quick Open
     // index before refreshing the stale-but-visible loaded tree.
-    await Promise.allSettled([
-      this.api.searchFiles('', { refresh: true }),
-      this.refreshRepositoryFiles(),
-    ])
+    // Resetting search also invalidates the directory index. Let that finish
+    // before listing directories, otherwise the reset can cancel our own refresh.
+    await Promise.allSettled([this.api.searchFiles('', { refresh: true })])
+    await this.refreshRepositoryFiles()
   }
 
   private async refreshOrdinaryDirectories(): Promise<void> {
