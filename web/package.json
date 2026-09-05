@@ -28,7 +28,7 @@
     "@tanstack/react-virtual": "3.14.10",
     "class-variance-authority": "0.7.1",
     "clsx": "2.1.1",
-    "lucide-react": "1.37.0",
+    "lucide-react": "1.40.0",
     "react": "19.2.8",
     "react-dom": "19.2.8",
     "tailwind-merge": "3.6.0",
@@ -37,17 +37,17 @@
   "devDependencies": {
     "@playwright/test": "^1.62.1",
     "@tailwindcss/postcss": "4.3.3",
-    "@types/node": "^26.4.0",
+    "@types/node": "^26.4.1",
     "@types/react": "19.2.18",
-    "@types/react-dom": "19.2.5",
+    "@types/react-dom": "19.2.7",
     "@vitejs/plugin-react": "6.1.1",
-    "oxfmt": "^0.65.0",
-    "oxlint": "^1.80.0",
-    "postcss": "8.5.26",
+    "oxfmt": "^0.66.0",
+    "oxlint": "^1.81.0",
+    "postcss": "8.5.28",
     "postcss-import": "17.0.0",
     "tailwindcss": "4.3.3",
     "typescript": "~7.0.2",
     "vite": "^8.2.2",
-    "vitest": "^4.1.11"
+    "vitest": "^5.0.0"
   }
 }
