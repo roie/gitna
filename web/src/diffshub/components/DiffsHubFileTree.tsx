@@ -126,6 +126,18 @@ export function applyLazyDirectoryChildren(
   return true;
 }
 
+// Supersede stale unloaded/error state through Pierre's child-load lifecycle.
+// The caller supplies only directories authoritatively known to be empty.
+export function settleKnownEmptyDirectory(model: FileTreeModel, path: string): boolean {
+  const item = model.getItem(path);
+  if (item == null || !item.isDirectory() || model.getDirectoryLoadState(path) === 'loaded') {
+    return false;
+  }
+  const attempt = model.beginChildLoad(path);
+  if (!model.applyChildPatch(attempt, { operations: [] })) return false;
+  return model.completeChildLoad(attempt);
+}
+
 const DENSITY_OVERRIDE_STYLES = {
   '--trees-density-override': 0.8,
   '--trees-padding-inline-override': 8,
@@ -137,6 +149,7 @@ interface DiffsHubFileTreeProps {
   dragAndDrop?: FileTreeDragAndDropConfig;
   modelId?: string;
   lazyDirectories?: ReadonlySet<string>;
+  knownEmptyDirectories?: ReadonlySet<string>;
   pagedDirectories?: ReadonlySet<string>;
   onLoadDirectory?(path: string): Promise<readonly string[] | null>;
   onLoadMoreDirectory?(path: string): Promise<readonly string[] | null>;
@@ -163,6 +176,7 @@ export const DiffsHubFileTree = memo(function DiffsHubFileTree({
   dragAndDrop,
   modelId = 'gh-code-view-tree',
   lazyDirectories,
+  knownEmptyDirectories,
   pagedDirectories,
   onLoadDirectory,
   onLoadMoreDirectory,
@@ -334,12 +348,12 @@ export const DiffsHubFileTree = memo(function DiffsHubFileTree({
     ) => renderRowActions?.(context) ?? null
   );
 
+  let fileTreeOptions: Omit<FileTreeOptions, 'paths' | 'preparedInput'> = BASE_FILE_TREE_OPTIONS;
+  if (lazyDirectories != null) fileTreeOptions = LAZY_REPOSITORY_FILE_TREE_OPTIONS;
+  else if (showFolderGitStatus) fileTreeOptions = REPOSITORY_FILE_TREE_OPTIONS;
+
   const { model } = useFileTree({
-    ...(lazyDirectories == null
-      ? showFolderGitStatus
-        ? REPOSITORY_FILE_TREE_OPTIONS
-        : BASE_FILE_TREE_OPTIONS
-      : LAZY_REPOSITORY_FILE_TREE_OPTIONS),
+    ...fileTreeOptions,
     id: modelId,
     gitStatus: source.gitStatus,
     dragAndDrop:
@@ -371,12 +385,13 @@ export const DiffsHubFileTree = memo(function DiffsHubFileTree({
     if (operations.length > 0) model.batch(operations);
     model.setGitStatus(source.gitStatus);
     appliedPathsRef.current = nextPaths;
+    for (const path of knownEmptyDirectories ?? []) settleKnownEmptyDirectory(model, path);
     for (const path of lazyDirectories) {
       if (model.getItem(path)?.isDirectory() && model.getDirectoryLoadState(path) === 'loaded') {
         model.markDirectoryUnloaded(path);
       }
     }
-  }, [lazyDirectories, model, source]);
+  }, [knownEmptyDirectories, lazyDirectories, model, source]);
 
   useEffect(() => {
     if (lazyDirectories == null || onLoadDirectory == null) return;

@@ -127,6 +127,7 @@ export interface DirectoryEntry {
   kind: 'directory' | 'file'
   name: string
   path: string
+  hasChildren?: boolean
   ignored?: boolean
 }
 
@@ -141,6 +142,7 @@ export interface DirectoryEntries {
 
 export interface FileSearchResult {
   duplicateName: boolean
+  matchIndices?: number[]
   name: string
   parent: string
   path: string

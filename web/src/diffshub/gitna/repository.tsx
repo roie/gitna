@@ -201,11 +201,13 @@ export class GitnaRepository {
   repositoryFileTotalGeneration = 0
   repositoryFileCountLoading = false
   ordinaryUnloadedDirectories = new Set<string>()
+  ordinaryKnownEmptyDirectories = new Set<string>()
   ordinaryPagedDirectories = new Set<string>()
   ordinaryDirectoryErrors = new Map<string, string>()
   ordinaryWatchCoverage: 'complete' | 'partial' = 'complete'
   ordinarySearchResults: FileSearchResult[] = []
   ordinarySearchResultQuery: string | null = null
+  ordinarySearchResultIncludeIgnored = false
   ordinarySearchComplete = false
   ordinarySearchLoading = false
   ordinarySearchError: string | null = null
@@ -504,11 +506,17 @@ export class GitnaRepository {
         if (cursor == null) {
           for (const path of this.ordinaryDirectoryChildren.get(key) ?? []) {
             this.repositoryIgnoredPaths.delete(path)
+            this.ordinaryKnownEmptyDirectories.delete(path)
           }
         }
         for (const entry of page.entries) {
           if (entry.ignored === true) this.repositoryIgnoredPaths.add(entry.path)
           else this.repositoryIgnoredPaths.delete(entry.path)
+          if (entry.kind === 'directory' && entry.hasChildren === false) {
+            this.ordinaryKnownEmptyDirectories.add(entry.path)
+          } else {
+            this.ordinaryKnownEmptyDirectories.delete(entry.path)
+          }
         }
         const previous = cursor == null ? [] : (this.ordinaryDirectoryChildren.get(key) ?? [])
         const seen = new Set(previous)
@@ -584,26 +592,39 @@ export class GitnaRepository {
     }
     const unloaded = new Set<string>()
     for (const path of allPaths) {
-      if (path.endsWith('/') && !loadedDirectories.has(path.slice(0, -1))) unloaded.add(path)
+      if (
+        path.endsWith('/') &&
+        !loadedDirectories.has(path.slice(0, -1)) &&
+        !this.ordinaryKnownEmptyDirectories.has(path)
+      ) {
+        unloaded.add(path)
+      }
     }
     this.ordinaryUnloadedDirectories = unloaded
+    this.ordinaryKnownEmptyDirectories = new Set(
+      [...this.ordinaryKnownEmptyDirectories].filter((path) => allPaths.has(path)),
+    )
     this.repositoryIgnoredPaths = new Set(
       [...this.repositoryIgnoredPaths].filter((path) => allPaths.has(path)),
     )
     this.repositoryPaths = [...allPaths].sort()
   }
 
-  async searchOrdinaryFiles(query: string, recentPaths: readonly string[] = []): Promise<void> {
+  async searchOrdinaryFiles(
+    query: string,
+    recentPaths: readonly string[] = [],
+    includeIgnored = false,
+  ): Promise<void> {
     const request = ++this.ordinarySearchRequest
     this.ordinarySearchController?.abort()
     const controller = new AbortController()
     this.ordinarySearchController = controller
     this.ordinarySearchLoading = true
     this.ordinarySearchError = null
-    this.ordinarySearchResultQuery = null
     this.emit()
     try {
       const response = await this.api.searchFiles(query, {
+        includeIgnored,
         recentPaths,
         signal: controller.signal,
       })
@@ -611,11 +632,13 @@ export class GitnaRepository {
       if (response.generation < this.generation) {
         this.ordinarySearchResults = []
         this.ordinarySearchResultQuery = query
+        this.ordinarySearchResultIncludeIgnored = includeIgnored
         this.ordinarySearchComplete = false
         return
       }
       this.ordinarySearchResults = response.results
       this.ordinarySearchResultQuery = query
+      this.ordinarySearchResultIncludeIgnored = includeIgnored
       this.ordinarySearchComplete = response.complete
     } catch (error) {
       if (controller.signal.aborted || request !== this.ordinarySearchRequest) return

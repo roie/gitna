@@ -7,6 +7,7 @@ import (
 	"runtime"
 	"sort"
 	"strings"
+	"unicode/utf8"
 	"unsafe"
 )
 
@@ -37,6 +38,7 @@ type record struct {
 	foldName   uint32
 	depth      uint16
 	dependency bool
+	ignored    bool
 }
 
 type segment struct {
@@ -124,10 +126,11 @@ func NewBuilder(limit int64) *Builder {
 // Add appends one slash-normalized relative file path. It returns false after
 // the memory limit is reached; callers must continue writing their disk
 // fallback even when the hot catalog stops accepting records.
-func (b *Builder) Add(path string) bool {
+func (b *Builder) Add(path string, ignored bool) bool {
 	if b.overflow || b.sealed {
 		return false
 	}
+	isIgnored := ignored
 	folded := strings.ToLower(path)
 	nameStart := strings.LastIndexByte(folded, '/') + 1
 	foldedName := folded[nameStart:]
@@ -154,14 +157,14 @@ func (b *Builder) Add(path string) bool {
 		nameOffset: uint32(pathOffset + nameOffset), nameLength: uint32(len(path) - nameOffset),
 		foldOffset: uint32(foldOffset), foldLength: uint32(len(folded)),
 		foldName: uint32(foldOffset + foldName), depth: uint16(min(strings.Count(path, "/"), 65535)),
-		dependency: dependencyPath(folded),
+		dependency: dependencyPath(folded), ignored: isIgnored,
 	})
 	if !knownName {
 		foldedName = strings.Clone(foldedName)
 		b.duplicateMemory += nameMemory
 	}
 	b.duplicates[foldedName]++
-	b.addDefault(path, nameOffset, uint16(min(strings.Count(path, "/"), 65535)), dependencyPath(folded))
+	b.addDefault(path, nameOffset, uint16(min(strings.Count(path, "/"), 65535)), dependencyPath(folded), isIgnored)
 	if len(b.records) >= b.segmentSize {
 		b.freeze()
 	}
@@ -172,13 +175,13 @@ func candidateMemory(value candidate) int64 {
 	return int64(unsafe.Sizeof(value)) + int64(len(value.result.Path))
 }
 
-func (b *Builder) addDefault(filePath string, nameOffset int, depth uint16, dependency bool) {
+func (b *Builder) addDefault(filePath string, nameOffset int, depth uint16, dependency, ignored bool) {
 	name := filePath[nameOffset:]
 	entry := candidate{
 		result: Result{
 			Path: filePath, Name: name,
 			Parent:     strings.TrimSuffix(filePath[:nameOffset], "/"),
-			Dependency: dependency,
+			Dependency: dependency, Ignored: ignored,
 		},
 		tier: 3, quality: int(depth),
 	}
@@ -266,8 +269,10 @@ type Result struct {
 	Path          string
 	Name          string
 	Parent        string
+	MatchIndices  []int
 	DuplicateName bool
 	Dependency    bool
+	Ignored       bool
 }
 
 type queryPlan struct {
@@ -309,13 +314,14 @@ func (h *candidateHeap) Pop() any {
 }
 
 // Search ranks a bounded result set without allocating per catalog entry.
-func (s Snapshot) Search(ctx context.Context, query string, recentPaths []string, limit int) ([]Result, error) {
+func (s Snapshot) Search(ctx context.Context, query string, recentPaths []string, limit int, includeIgnored bool) ([]Result, error) {
 	if limit <= 0 {
 		return []Result{}, nil
 	}
+	allowIgnored := includeIgnored
 	plan := newQueryPlan(query)
 	if plan.value == "" {
-		return s.emptyResults(recentPaths, limit), nil
+		return s.emptyResults(recentPaths, limit, allowIgnored), nil
 	}
 	if len(s.segments) == 0 {
 		return []Result{}, nil
@@ -336,6 +342,9 @@ func (s Snapshot) Search(ctx context.Context, query string, recentPaths []string
 				}
 			}
 			seen++
+			if record.ignored && !allowIgnored {
+				continue
+			}
 			path := segment.folded[record.foldOffset : record.foldOffset+record.foldLength]
 			name := segment.folded[record.foldName : record.foldOffset+record.foldLength]
 			tier, quality, ok := scorePath(path, name, int(record.depth), record.dependency, plan)
@@ -347,7 +356,7 @@ func (s Snapshot) Search(ctx context.Context, query string, recentPaths []string
 			originalName := segment.paths[record.nameOffset : record.nameOffset+record.nameLength]
 			parent := strings.TrimSuffix(originalPath[:len(originalPath)-len(originalName)], "/")
 			entry := candidate{result: Result{
-				Path: originalPath, Name: originalName, Parent: parent, Dependency: record.dependency,
+				Path: originalPath, Name: originalName, Parent: parent, Dependency: record.dependency, Ignored: record.ignored,
 			}, tier: tier, quality: quality}
 			addCandidate(&matches, entry, limit)
 		}
@@ -369,6 +378,7 @@ func (s Snapshot) Search(ctx context.Context, query string, recentPaths []string
 	for index := range matches {
 		results[index] = matches[index].result
 	}
+	addResultMatchIndices(results, plan)
 	return results, nil
 }
 
@@ -407,7 +417,7 @@ func normalizeRecentPath(value string) (string, bool) {
 	return NormalizeRecentPath(value)
 }
 
-func (s Snapshot) emptyResults(recentPaths []string, limit int) []Result {
+func (s Snapshot) emptyResults(recentPaths []string, limit int, includeIgnored bool) []Result {
 	results := make([]Result, 0, min(limit, len(recentPaths)+len(s.defaults)))
 	seen := make(map[string]struct{}, cap(results))
 	appendPath := func(filePath string) {
@@ -438,6 +448,9 @@ func (s Snapshot) emptyResults(recentPaths []string, limit int) []Result {
 		if len(results) >= limit {
 			break
 		}
+		if fallback.Ignored && !includeIgnored {
+			continue
+		}
 		appendPath(fallback.Path)
 	}
 	return results
@@ -446,7 +459,7 @@ func (s Snapshot) emptyResults(recentPaths []string, limit int) []Result {
 // PathScanner enumerates slash-canonical relative paths. It may be invoked
 // twice so disk-backed callers can compute duplicate-name metadata without
 // retaining an unbounded map. Scanners must stop and return a visitor error.
-type PathScanner func(visit func(string) error) error
+type PathScanner func(visit func(string, bool) error) error
 
 // RankPaths applies the same authoritative query plan and scorer used by
 // Snapshot.Search to a bounded-memory external path stream.
@@ -456,11 +469,15 @@ func RankPaths(
 	recentPaths []string,
 	limit int,
 	scan PathScanner,
+	includeIgnored bool,
 ) ([]Result, error) {
 	if limit <= 0 {
 		return []Result{}, nil
 	}
 	plan := newQueryPlan(query)
+	if plan.value == "" {
+		return rankDefaultPaths(ctx, recentPaths, limit, scan, includeIgnored)
+	}
 	recency := make(map[string]int, len(recentPaths))
 	for index, recent := range recentPaths {
 		if normalized, ok := normalizeRecentPath(recent); ok {
@@ -469,13 +486,16 @@ func RankPaths(
 	}
 	matches := make(candidateHeap, 0, limit)
 	seen := 0
-	if err := scan(func(filePath string) error {
+	if err := scan(func(filePath string, ignored bool) error {
 		if seen%256 == 0 {
 			if err := ctx.Err(); err != nil {
 				return err
 			}
 		}
 		seen++
+		if ignored && !includeIgnored {
+			return nil
+		}
 		folded := strings.ToLower(filePath)
 		nameOffset := strings.LastIndexByte(filePath, '/') + 1
 		foldName := strings.LastIndexByte(folded, '/') + 1
@@ -489,7 +509,7 @@ func RankPaths(
 		addCandidate(&matches, candidate{result: Result{
 			Path: filePath, Name: filePath[nameOffset:],
 			Parent:     strings.TrimSuffix(filePath[:nameOffset], "/"),
-			Dependency: dependencyPath(folded),
+			Dependency: dependencyPath(folded), Ignored: ignored,
 		}, tier: tier, quality: quality}, limit)
 		return nil
 	}); err != nil {
@@ -499,13 +519,176 @@ func RankPaths(
 		return nil, err
 	}
 	sort.Slice(matches, func(left, right int) bool { return matches[left].betterThan(matches[right]) })
-	candidateNames := make(map[string]uint32, len(matches))
-	for _, match := range matches {
-		candidateNames[strings.ToLower(match.result.Name)] = 0
+	results := make([]Result, len(matches))
+	for index := range matches {
+		results[index] = matches[index].result
 	}
+	if err := markDuplicateNames(ctx, results, scan, includeIgnored); err != nil {
+		return nil, err
+	}
+	addResultMatchIndices(results, plan)
+	return results, nil
+}
+
+func rankDefaultPaths(
+	ctx context.Context,
+	recentPaths []string,
+	limit int,
+	scan PathScanner,
+	includeIgnored bool,
+) ([]Result, error) {
+	recentOrder := make([]string, 0, len(recentPaths))
+	recentSet := make(map[string]struct{}, len(recentPaths))
+	for index := len(recentPaths) - 1; index >= 0; index-- {
+		if normalized, ok := normalizeRecentPath(recentPaths[index]); ok {
+			if _, exists := recentSet[normalized]; !exists {
+				recentSet[normalized] = struct{}{}
+				recentOrder = append(recentOrder, normalized)
+			}
+		}
+	}
+	foundRecent := make(map[string]Result, len(recentOrder))
+	defaults := make(candidateHeap, 0, limit)
+	seen := 0
+	if err := scan(func(filePath string, ignored bool) error {
+		if seen%256 == 0 {
+			if err := ctx.Err(); err != nil {
+				return err
+			}
+		}
+		seen++
+		if ignored && !includeIgnored {
+			return nil
+		}
+		folded := strings.ToLower(filePath)
+		nameOffset := strings.LastIndexByte(filePath, '/') + 1
+		result := Result{
+			Path: filePath, Name: filePath[nameOffset:],
+			Parent:     strings.TrimSuffix(filePath[:nameOffset], "/"),
+			Dependency: dependencyPath(folded), Ignored: ignored,
+		}
+		if _, recent := recentSet[filePath]; recent {
+			foundRecent[filePath] = result
+			return nil
+		}
+		tier, quality, _ := scorePath(
+			folded, folded[strings.LastIndexByte(folded, '/')+1:], strings.Count(filePath, "/"), result.Dependency, queryPlan{},
+		)
+		addCandidate(&defaults, candidate{result: result, tier: tier, quality: quality}, limit)
+		return nil
+	}); err != nil {
+		return nil, err
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	sort.Slice(defaults, func(left, right int) bool { return defaults[left].betterThan(defaults[right]) })
+	results := make([]Result, 0, limit)
+	for _, recent := range recentOrder {
+		if result, exists := foundRecent[recent]; exists {
+			results = append(results, result)
+			if len(results) == limit {
+				break
+			}
+		}
+	}
+	for _, fallback := range defaults {
+		if len(results) == limit {
+			break
+		}
+		results = append(results, fallback.result)
+	}
+	if err := markDuplicateNames(ctx, results, scan, includeIgnored); err != nil {
+		return nil, err
+	}
+	return results, nil
+}
+
+func addResultMatchIndices(results []Result, plan queryPlan) {
+	if plan.value == "" {
+		return
+	}
+	for index := range results {
+		results[index].MatchIndices = pathMatchRuneIndices(results[index].Path, results[index].Name, plan)
+	}
+}
+
+func pathMatchRuneIndices(filePath, name string, plan queryPlan) []int {
+	foldedPath := strings.ToLower(filePath)
+	foldedName := strings.ToLower(name)
+	if foldedPath == plan.value || foldedName == plan.value {
+		return singleTermMatchRuneIndices(foldedPath, foldedName, plan.value)
+	}
+	terms := plan.terms
+	if len(terms) <= 1 {
+		terms = []string{plan.value}
+	}
+	matched := make(map[int]struct{}, len(plan.value))
+	for _, term := range terms {
+		for _, index := range singleTermMatchRuneIndices(foldedPath, foldedName, term) {
+			matched[index] = struct{}{}
+		}
+	}
+	indices := make([]int, 0, len(matched))
+	for index := range matched {
+		indices = append(indices, index)
+	}
+	sort.Ints(indices)
+	return indices
+}
+
+func singleTermMatchRuneIndices(filePath, name, query string) []int {
+	nameStart := len(filePath) - len(name)
+	if strings.HasPrefix(name, query) {
+		return byteRangeRuneIndices(filePath, nameStart, nameStart+len(query))
+	}
+	if strings.HasPrefix(filePath, query) {
+		return byteRangeRuneIndices(filePath, 0, len(query))
+	}
+	if index := strings.Index(name, query); index >= 0 {
+		return byteRangeRuneIndices(filePath, nameStart+index, nameStart+index+len(query))
+	}
+	if index := strings.Index(filePath, query); index >= 0 {
+		return byteRangeRuneIndices(filePath, index, index+len(query))
+	}
+	if len(query) < len(name) {
+		if _, indices, ok := fuzzyMatch(name, query, true); ok {
+			nameRuneStart := utf8.RuneCountInString(filePath[:nameStart])
+			for index := range indices {
+				indices[index] += nameRuneStart
+			}
+			return indices
+		}
+	}
+	if _, indices, ok := fuzzyMatch(filePath, query, true); ok {
+		return indices
+	}
+	return nil
+}
+
+func byteRangeRuneIndices(value string, start, end int) []int {
+	indices := make([]int, 0, utf8.RuneCountInString(value[start:end]))
+	runeIndex := 0
+	for byteIndex := range value {
+		if byteIndex >= end {
+			break
+		}
+		if byteIndex >= start {
+			indices = append(indices, runeIndex)
+		}
+		runeIndex++
+	}
+	return indices
+}
+
+func markDuplicateNames(ctx context.Context, results []Result, scan PathScanner, _ bool) error {
+	candidateNames := make(map[string]uint32, len(results))
+	for _, result := range results {
+		candidateNames[strings.ToLower(result.Name)] = 0
+	}
+	seen := 0
 	if len(candidateNames) > 0 {
-		seen = 0
-		if err := scan(func(filePath string) error {
+		if err := scan(func(filePath string, _ bool) error {
 			if seen%256 == 0 {
 				if err := ctx.Err(); err != nil {
 					return err
@@ -519,15 +702,13 @@ func RankPaths(
 			}
 			return nil
 		}); err != nil {
-			return nil, err
+			return err
 		}
 	}
-	results := make([]Result, len(matches))
-	for index := range matches {
-		matches[index].result.DuplicateName = candidateNames[strings.ToLower(matches[index].result.Name)] > 1
-		results[index] = matches[index].result
+	for index := range results {
+		results[index].DuplicateName = candidateNames[strings.ToLower(results[index].Name)] > 1
 	}
-	return results, nil
+	return nil
 }
 
 // Tiny local heap helpers avoid exposing heap implementation details.
@@ -612,6 +793,11 @@ func singleTermQuality(path, name, query string) (int, bool) {
 	if index := strings.Index(path, query); index >= 0 {
 		return 80 + index, true
 	}
+	if len(query) < len(name) {
+		if score, ok := fuzzyScore(name, query); ok {
+			return 100 + score, true
+		}
+	}
 	score, ok := fuzzyScore(path, query)
 	if !ok {
 		return 0, false
@@ -620,23 +806,58 @@ func singleTermQuality(path, name, query string) (int, bool) {
 }
 
 func fuzzyScore(value, query string) (int, bool) {
-	position, gap, run, bestRun := -1, 0, 0, 0
-	for _, character := range query {
-		nextRelative := strings.IndexRune(value[position+1:], character)
-		if nextRelative < 0 {
-			return 0, false
+	score, _, ok := fuzzyMatch(value, query, false)
+	return score, ok
+}
+
+func fuzzyMatch(value, query string, collectIndices bool) (int, []int, bool) {
+	position, nextStart, gap, run, bestRun := -1, 0, 0, 0, 0
+	var indices []int
+	if collectIndices {
+		indices = make([]int, 0, utf8.RuneCountInString(query))
+	}
+	for _, queryRune := range query {
+		nextRelative := -1
+		if queryRune == utf8.RuneError {
+			nextRelative = indexValidReplacementRune(value[nextStart:])
+		} else {
+			nextRelative = strings.IndexRune(value[nextStart:], queryRune)
 		}
-		next := position + 1 + nextRelative
-		if next == position+1 {
+		if nextRelative < 0 {
+			return 0, nil, false
+		}
+		next := nextStart + nextRelative
+		if next == nextStart {
 			run++
 		} else {
-			gap += next - position - 1
+			gap += next - nextStart
 			run = 1
 		}
 		if run > bestRun {
 			bestRun = run
 		}
 		position = next
+		nextStart = next + utf8.RuneLen(queryRune)
+		if collectIndices {
+			indices = append(indices, utf8.RuneCountInString(value[:next]))
+		}
 	}
-	return gap + position - bestRun*2, true
+	return gap + position - bestRun*2, indices, true
+}
+
+func indexValidReplacementRune(value string) int {
+	searchStart := 0
+	for searchStart < len(value) {
+		index := strings.IndexRune(value[searchStart:], utf8.RuneError)
+		if index < 0 {
+			return -1
+		}
+		index += searchStart
+		_, size := utf8.DecodeRuneInString(value[index:])
+		if size > 1 {
+			return index
+		}
+		searchStart = index + 1
+	}
+	return -1
 }

@@ -95,10 +95,11 @@ type DirectoryEntries struct {
 }
 
 type DirectoryEntry struct {
-	Name    string             `json:"name"`
-	Path    string             `json:"path"`
-	Kind    DirectoryEntryKind `json:"kind"`
-	Ignored bool               `json:"ignored,omitempty"`
+	Name        string             `json:"name"`
+	Path        string             `json:"path"`
+	Kind        DirectoryEntryKind `json:"kind"`
+	HasChildren *bool              `json:"hasChildren,omitempty"`
+	Ignored     bool               `json:"ignored,omitempty"`
 }
 
 // FileSearchResults is a bounded server-ranked Quick Open response. Complete
@@ -113,6 +114,7 @@ type FileSearchResult struct {
 	Path          string `json:"path"`
 	Name          string `json:"name"`
 	Parent        string `json:"parent"`
+	MatchIndices  []int  `json:"matchIndices,omitempty"`
 	DuplicateName bool   `json:"duplicateName"`
 }
 

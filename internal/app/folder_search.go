@@ -17,6 +17,17 @@ import (
 	"github.com/roie/gitna/internal/protocol"
 )
 
+const ignoredDiskSearchPrefix = "\x00"
+
+// diskSearchValue reserves a NUL prefix for ignored metadata. NUL cannot occur
+// in a filesystem path, and the JSON string encoding preserves every valid path.
+func diskSearchValue(path string, ignored bool) string {
+	if ignored {
+		return ignoredDiskSearchPrefix + path
+	}
+	return path
+}
+
 type folderSearchIndex struct {
 	mu            sync.RWMutex
 	rootKey       string
@@ -144,6 +155,11 @@ func walkFolderSearchPaths(
 		}
 	}
 
+	// Make ordinary project files searchable before potentially large dependency trees.
+	if err := publishRoot(); err != nil {
+		return err
+	}
+
 	for _, dependencyRoot := range dependencyRoots {
 		err := filepath.WalkDir(dependencyRoot, func(path string, entry fs.DirEntry, walkErr error) error {
 			if err := ctx.Err(); err != nil {
@@ -268,8 +284,26 @@ func (a *repoAdapter) startFileSearchIndex() {
 		writer := bufio.NewWriterSize(file, 256*1024)
 		encoder := json.NewEncoder(writer)
 		catalog := filesearch.NewBuilder(memoryLimit)
-		pending := 0
+		pending := make([]string, 0, 32*1024)
 		publish := func() error {
+			if len(pending) > 0 {
+				ignored := map[string]struct{}{}
+				var err error
+				if repo.IsGit() && a.runner != nil {
+					ignored, err = repo.IgnoredPaths(buildCtx, a.runner, pending)
+					if err != nil {
+						return err
+					}
+				}
+				for _, relativePath := range pending {
+					_, isIgnored := ignored[relativePath]
+					if err := encoder.Encode(diskSearchValue(relativePath, isIgnored)); err != nil {
+						return err
+					}
+					catalog.Add(relativePath, isIgnored)
+				}
+				pending = pending[:0]
+			}
 			if err := writer.Flush(); err != nil {
 				return err
 			}
@@ -284,26 +318,21 @@ func (a *repoAdapter) startFileSearchIndex() {
 				a.search.catalog = snapshot
 			}
 			a.search.mu.Unlock()
-			pending = 0
 			return nil
 		}
 		err := walkFolderSearchPaths(buildCtx, repo.Root, func(relativePath string) error {
-			if err := encoder.Encode(relativePath); err != nil {
-				return err
-			}
-			catalog.Add(relativePath)
-			pending++
-			if pending >= 4096 {
+			pending = append(pending, relativePath)
+			if len(pending) >= cap(pending) {
 				return publish()
 			}
 			return nil
 		}, func() error {
-			if pending == 0 {
+			if len(pending) == 0 {
 				return nil
 			}
 			return publish()
 		})
-		if err == nil && buildCtx.Err() == nil && pending > 0 {
+		if err == nil && buildCtx.Err() == nil && len(pending) > 0 {
 			err = publish()
 		}
 		closeErr := file.Close()
@@ -374,6 +403,7 @@ func (a *repoAdapter) searchFiles(
 	ctx context.Context,
 	query string,
 	recentPaths []string,
+	includeIgnored bool,
 	limit int,
 ) (protocol.FileSearchResults, error) {
 	if limit <= 0 {
@@ -397,9 +427,22 @@ func (a *repoAdapter) searchFiles(
 	emptyQuery := strings.TrimSpace(query) == ""
 	if emptyQuery {
 		recentPaths = validRecentSearchPaths(repo.Root, recentPaths, limit)
+		if !includeIgnored && repo.IsGit() && a.runner != nil && len(recentPaths) > 0 {
+			ignored, err := repo.IgnoredPaths(ctx, a.runner, recentPaths)
+			if err != nil {
+				return protocol.FileSearchResults{}, err
+			}
+			filtered := recentPaths[:0]
+			for _, path := range recentPaths {
+				if _, isIgnored := ignored[path]; !isIgnored {
+					filtered = append(filtered, path)
+				}
+			}
+			recentPaths = filtered
+		}
 	}
-	if emptyQuery || (catalog.Len() > 0 && !catalog.Overflow()) {
-		matches, err := catalog.Search(ctx, query, recentPaths, limit)
+	if (emptyQuery && !catalog.Overflow()) || (catalog.Len() > 0 && !catalog.Overflow()) {
+		matches, err := catalog.Search(ctx, query, recentPaths, limit, includeIgnored)
 		if err != nil {
 			return protocol.FileSearchResults{}, err
 		}
@@ -407,7 +450,7 @@ func (a *repoAdapter) searchFiles(
 		for index, match := range matches {
 			results[index] = protocol.FileSearchResult{
 				Path: match.Path, Name: match.Name, Parent: match.Parent,
-				DuplicateName: match.DuplicateName,
+				MatchIndices: match.MatchIndices, DuplicateName: match.DuplicateName,
 			}
 		}
 		return protocol.FileSearchResults{Results: results, Complete: complete}, nil
@@ -415,9 +458,9 @@ func (a *repoAdapter) searchFiles(
 	if indexPath == "" || publishedSize == 0 {
 		return protocol.FileSearchResults{Results: make([]protocol.FileSearchResult, 0), Complete: complete}, nil
 	}
-	matches, err := filesearch.RankPaths(ctx, query, recentPaths, limit, func(visit func(string) error) error {
+	matches, err := filesearch.RankPaths(ctx, query, recentPaths, limit, func(visit func(string, bool) error) error {
 		return scanFolderSearchIndex(ctx, indexPath, publishedSize, visit)
-	})
+	}, includeIgnored)
 	if err != nil {
 		return protocol.FileSearchResults{}, err
 	}
@@ -425,7 +468,7 @@ func (a *repoAdapter) searchFiles(
 	for index, match := range matches {
 		results[index] = protocol.FileSearchResult{
 			Path: match.Path, Name: match.Name, Parent: match.Parent,
-			DuplicateName: match.DuplicateName,
+			MatchIndices: match.MatchIndices, DuplicateName: match.DuplicateName,
 		}
 	}
 	return protocol.FileSearchResults{Results: results, Complete: complete}, nil
@@ -435,7 +478,7 @@ func scanFolderSearchIndex(
 	ctx context.Context,
 	indexPath string,
 	publishedSize int64,
-	visit func(string) error,
+	visit func(string, bool) error,
 ) error {
 	file, err := os.Open(indexPath)
 	if err != nil {
@@ -456,7 +499,11 @@ func scanFolderSearchIndex(
 			}
 			return err
 		}
-		if err := visit(filePath); err != nil {
+		ignored := strings.HasPrefix(filePath, ignoredDiskSearchPrefix)
+		if ignored {
+			filePath = strings.TrimPrefix(filePath, ignoredDiskSearchPrefix)
+		}
+		if err := visit(filePath, ignored); err != nil {
 			return err
 		}
 	}

@@ -1204,7 +1204,8 @@ function GitnaReviewUIInner() {
   )
 
   const searchOrdinaryPalette = useCallback(
-    (query: string) => void repository.searchOrdinaryFiles(query, paletteFileHistory),
+    (query: string, includeIgnored: boolean) =>
+      void repository.searchOrdinaryFiles(query, paletteFileHistory, includeIgnored),
     [paletteFileHistory, repository],
   )
 
@@ -1521,11 +1522,11 @@ function GitnaReviewUIInner() {
           error={repository.ordinarySearchError}
           externalFileResults={repository.ordinarySearchResults}
           fileSearchComplete={repository.ordinarySearchComplete}
+          fileResultIncludeIgnored={repository.ordinarySearchResultIncludeIgnored}
           fileResultQuery={repository.ordinarySearchResultQuery}
-          loading={
-            repository.ordinarySearchLoading ||
-            (!repository.ordinarySearchComplete && repository.ordinarySearchError == null)
-          }
+          folderLabel={folderDisplayName(repository.snapshot?.root ?? '') || 'Folder'}
+          searching={repository.ordinarySearchLoading}
+          supportsIgnoredFiles={repository.snapshot?.repository ?? false}
           open={commandPaletteOpen && !homeOpen}
           onClose={() => setCommandPaletteOpen(false)}
           onError={setReviewActionError}

@@ -358,10 +358,14 @@ describe('createRepoState', () => {
           return {
             generation: 1,
             directory: path,
-            entries: [
-              { name: 'notes.txt', path: 'notes.txt', kind: 'file' },
-              { name: 'src', path: 'src/', kind: 'directory' },
-            ],
+            entries:
+              path === ''
+                ? [
+                    { name: 'empty', path: 'empty/', kind: 'directory', hasChildren: false },
+                    { name: 'notes.txt', path: 'notes.txt', kind: 'file' },
+                    { name: 'src', path: 'src/', kind: 'directory', hasChildren: true },
+                  ]
+                : [],
             truncated: false,
           }
         },
@@ -371,10 +375,10 @@ describe('createRepoState', () => {
     await state.refreshCurrentFolder()
 
     expect(state.snapshot?.repository).toBe(false)
-    expect(state.repositoryPaths).toEqual(['notes.txt', 'src/'])
+    expect(state.repositoryPaths).toEqual(['empty/', 'notes.txt', 'src/'])
     expect(state.ordinaryUnloadedDirectories).toEqual(new Set(['src/']))
     await state.loadOrdinaryDirectory('src')
-    expect(state.repositoryPaths).toEqual(['notes.txt', 'src/'])
+    expect(state.repositoryPaths).toEqual(['empty/', 'notes.txt', 'src/'])
     expect(state.ordinaryUnloadedDirectories.size).toBe(0)
     expect(graph).not.toHaveBeenCalled()
     expect(branches).not.toHaveBeenCalled()
@@ -498,9 +502,15 @@ describe('createRepoState', () => {
     ]
     state.ordinarySearchResultQuery = 'old'
 
-    const pending = state.searchOrdinaryFiles('new')
+    const pending = state.searchOrdinaryFiles('new', ['old.txt'], true)
     expect(state.ordinarySearchLoading).toBe(true)
-    expect(state.ordinarySearchResultQuery).toBeNull()
+    expect(state.ordinarySearchResultQuery).toBe('old')
+    expect(state.ordinarySearchResults[0]?.path).toBe('old.txt')
+    expect(searchFiles).toHaveBeenCalledWith('new', {
+      includeIgnored: true,
+      recentPaths: ['old.txt'],
+      signal: expect.any(AbortSignal),
+    })
 
     resolveSearch({
       generation: 1,
@@ -509,6 +519,7 @@ describe('createRepoState', () => {
     })
     await pending
     expect(state.ordinarySearchResultQuery).toBe('new')
+    expect(state.ordinarySearchResultIncludeIgnored).toBe(true)
     expect(state.ordinarySearchResults[0]?.path).toBe('new.txt')
   })
 

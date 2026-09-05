@@ -109,12 +109,13 @@ func (a *repoAdapter) SearchFiles(
 	query string,
 	recentPaths []string,
 	refresh bool,
+	includeIgnored bool,
 	limit int,
 ) (protocol.FileSearchResults, error) {
 	if refresh {
 		a.invalidateFileSearch()
 	}
-	return a.searchFiles(ctx, query, recentPaths, limit)
+	return a.searchFiles(ctx, query, recentPaths, includeIgnored, limit)
 }
 
 func (a *repoAdapter) ReadWorktreeFile(ctx context.Context, path string) (protocol.WorktreeFile, error) {

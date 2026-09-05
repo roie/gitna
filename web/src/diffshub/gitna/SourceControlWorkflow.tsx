@@ -1089,6 +1089,9 @@ export function GitnaSourceControl() {
           lazyDirectories={
             repositoryView === 'tree' ? repository.ordinaryUnloadedDirectories : undefined
           }
+          knownEmptyDirectories={
+            repositoryView === 'tree' ? repository.ordinaryKnownEmptyDirectories : undefined
+          }
           pagedDirectories={
             repositoryView === 'tree' ? repository.ordinaryPagedDirectories : undefined
           }
@@ -2105,6 +2108,7 @@ interface TreeSectionProps {
   icon: ReactNode
   modelId: string
   lazyDirectories?: ReadonlySet<string>
+  knownEmptyDirectories?: ReadonlySet<string>
   pagedDirectories?: ReadonlySet<string>
   onLoadDirectory?(path: string): Promise<readonly string[] | null>
   onLoadMoreDirectory?(path: string): Promise<readonly string[] | null>
@@ -2140,6 +2144,7 @@ function TreeSection({
   headerRef,
   icon,
   lazyDirectories,
+  knownEmptyDirectories,
   pagedDirectories,
   modelId,
   onLoadDirectory,
@@ -2256,6 +2261,7 @@ function TreeSection({
                   )}
                   dragAndDrop={dragAndDrop}
                   lazyDirectories={lazyDirectories}
+                  knownEmptyDirectories={knownEmptyDirectories}
                   pagedDirectories={pagedDirectories}
                   modelId={modelId}
                   onLoadDirectory={onLoadDirectory}

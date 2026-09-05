@@ -17,17 +17,18 @@ import (
 )
 
 type fakeRepo struct {
-	snap            protocol.RepoSnapshot
-	err             error
-	diff            protocol.FileDiff
-	review          protocol.ReviewResponse
-	reviewNextAfter string
-	files           protocol.RepositoryFiles
-	fileTotal       int
-	directory       protocol.DirectoryEntries
-	search          protocol.FileSearchResults
-	searchRecent    []string
-	searchRefresh   bool
+	snap                 protocol.RepoSnapshot
+	err                  error
+	diff                 protocol.FileDiff
+	review               protocol.ReviewResponse
+	reviewNextAfter      string
+	files                protocol.RepositoryFiles
+	fileTotal            int
+	directory            protocol.DirectoryEntries
+	search               protocol.FileSearchResults
+	searchRecent         []string
+	searchRefresh        bool
+	searchIncludeIgnored bool
 
 	graphCommits   []protocol.GraphCommit
 	graphTotal     int
@@ -109,12 +110,13 @@ func (f *fakeRepo) DirectoryEntries(context.Context, string, string, int) (proto
 	return f.directory, nil
 }
 
-func (f *fakeRepo) SearchFiles(_ context.Context, _ string, recent []string, refresh bool, _ int) (protocol.FileSearchResults, error) {
+func (f *fakeRepo) SearchFiles(_ context.Context, _ string, recent []string, refresh, includeIgnored bool, _ int) (protocol.FileSearchResults, error) {
 	if f.err != nil {
 		return protocol.FileSearchResults{}, f.err
 	}
 	f.searchRecent = append([]string(nil), recent...)
 	f.searchRefresh = refresh
+	f.searchIncludeIgnored = includeIgnored
 	return f.search, nil
 }
 
@@ -550,7 +552,7 @@ func TestFileSearchRouteReturnsBoundedResults(t *testing.T) {
 		Results:  []protocol.FileSearchResult{{Path: "src/main.go", Name: "main.go", Parent: "src"}},
 	}}
 	h := newSnapshotServer(repo)
-	req := httptest.NewRequest(http.MethodGet, "/g/"+testToken+"/api/v1/files/search?q=main&recent=docs%2Fmain.go&recent=src%2Fmain.go&refresh=1", nil)
+	req := httptest.NewRequest(http.MethodGet, "/g/"+testToken+"/api/v1/files/search?q=main&recent=docs%2Fmain.go&recent=src%2Fmain.go&refresh=1&includeIgnored=1", nil)
 	req.Host = testHost
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, req)
@@ -564,8 +566,8 @@ func TestFileSearchRouteReturnsBoundedResults(t *testing.T) {
 	if !got.Complete || len(got.Results) != 1 || got.Results[0].Path != "src/main.go" {
 		t.Fatalf("results = %#v", got)
 	}
-	if !repo.searchRefresh || !reflect.DeepEqual(repo.searchRecent, []string{"docs/main.go", "src/main.go"}) {
-		t.Fatalf("refresh=%t recent=%#v", repo.searchRefresh, repo.searchRecent)
+	if !repo.searchRefresh || !repo.searchIncludeIgnored || !reflect.DeepEqual(repo.searchRecent, []string{"docs/main.go", "src/main.go"}) {
+		t.Fatalf("refresh=%t includeIgnored=%t recent=%#v", repo.searchRefresh, repo.searchIncludeIgnored, repo.searchRecent)
 	}
 }
 

@@ -1,9 +1,10 @@
 import { IconSearch } from '@pierre/icons'
 import { createFileTreeIconResolver, getBuiltInSpriteSheet } from '@pierre/trees'
-import { type ReactNode, useEffect, useId, useMemo, useRef, useState } from 'react'
+import { FileX, LoaderCircle } from 'lucide-react'
+import { Fragment, type ReactNode, useEffect, useId, useMemo, useRef, useState } from 'react'
 
 import { cn } from '../lib/cn'
-import { paletteTextMatches } from './commandPalette'
+import { splitPaletteFileMatchIndices, paletteTextMatches } from './commandPalette'
 
 const paletteFileIconResolver = createFileTreeIconResolver('complete')
 const paletteFileIconSprite = getBuiltInSpriteSheet('complete')
@@ -62,6 +63,76 @@ function PaletteFileIcon({ path }: { path: string }) {
   )
 }
 
+function HighlightedText({
+  text,
+  matchIndices,
+}: {
+  text: string
+  matchIndices: ReadonlySet<number>
+}) {
+  const characters = Array.from(text)
+  const runs: { highlighted: boolean; start: number; text: string }[] = []
+  for (const [index, character] of characters.entries()) {
+    const highlighted = matchIndices.has(index)
+    const previous = runs.at(-1)
+    if (previous?.highlighted === highlighted) {
+      previous.text += character
+    } else {
+      runs.push({ highlighted, start: index, text: character })
+    }
+  }
+  return runs.map((run) =>
+    run.highlighted ? (
+      <span key={run.start} data-palette-match className="text-blue-600 dark:text-blue-400">
+        {run.text}
+      </span>
+    ) : (
+      <Fragment key={run.start}>{run.text}</Fragment>
+    ),
+  )
+}
+
+function MiddleTruncatedHighlightedText({
+  text,
+  matchIndices,
+}: {
+  text: string
+  matchIndices: ReadonlySet<number>
+}) {
+  const characters = Array.from(text)
+  if (characters.length <= 24) {
+    return (
+      <span className="min-w-0 truncate">
+        <HighlightedText text={text} matchIndices={matchIndices} />
+      </span>
+    )
+  }
+  const suffixLength = Math.min(12, Math.max(1, Math.floor(characters.length / 2)))
+  const split = characters.length - suffixLength
+  const prefixMatches = new Set([...matchIndices].filter((index) => index < split))
+  const suffixMatches = new Set(
+    [...matchIndices].filter((index) => index >= split).map((index) => index - split),
+  )
+  return (
+    <>
+      <span
+        data-palette-file-name-prefix
+        className="min-w-0 overflow-hidden text-ellipsis whitespace-nowrap"
+      >
+        <HighlightedText text={characters.slice(0, split).join('')} matchIndices={prefixMatches} />
+      </span>
+      <span
+        data-palette-file-name-suffix
+        className="max-w-1/2 shrink-0 overflow-hidden whitespace-nowrap text-right [direction:rtl]"
+      >
+        <bdi dir="ltr">
+          <HighlightedText text={characters.slice(split).join('')} matchIndices={suffixMatches} />
+        </bdi>
+      </span>
+    </>
+  )
+}
+
 export interface GitnaPaletteCommand {
   description?: string
   icon: ReactNode
@@ -72,7 +143,7 @@ export interface GitnaPaletteCommand {
 }
 
 export interface GitnaPaletteFileResult {
-  duplicateName: boolean
+  matchIndices?: readonly number[]
   name: string
   parent: string
   path: string
@@ -82,12 +153,15 @@ interface GitnaCommandPaletteProps {
   commands: readonly GitnaPaletteCommand[]
   externalFileResults: readonly GitnaPaletteFileResult[]
   fileSearchComplete: boolean
+  fileResultIncludeIgnored: boolean
   fileResultQuery: string | null
+  folderLabel: string
   error: string | null
-  loading: boolean
+  searching: boolean
+  supportsIgnoredFiles: boolean
   onClose(): void
   onError(error: string): void
-  onFileQueryChange(query: string): void
+  onFileQueryChange(query: string, includeIgnored: boolean): void
   onOpenFile(path: string): void
   open: boolean
 }
@@ -97,19 +171,67 @@ type PaletteResult =
   | {
       id: string
       kind: 'file'
-      duplicateName: boolean
+      matchIndices: readonly number[]
       name: string
       parent: string
       path: string
+      stale: boolean
     }
+
+type PaletteFileResult = Extract<PaletteResult, { kind: 'file' }>
+
+function paletteFileParentLabel(parent: string, folderLabel: string): string {
+  if (parent !== '') return `${parent}/`
+  return folderLabel.endsWith('/') ? folderLabel : `${folderLabel}/`
+}
+
+function PaletteFileLabel({
+  result,
+  folderLabel,
+}: {
+  result: PaletteFileResult
+  folderLabel: string
+}) {
+  const displayParent = paletteFileParentLabel(result.parent, folderLabel)
+  const matches = splitPaletteFileMatchIndices(
+    result.path,
+    result.name,
+    result.parent,
+    result.matchIndices,
+  )
+  return (
+    <span
+      data-palette-file-label
+      className="flex min-w-0 flex-1 items-baseline gap-1.5 whitespace-nowrap"
+    >
+      <span
+        data-palette-file-name
+        className="flex max-w-[55%] min-w-0 shrink-0 overflow-hidden text-sm"
+      >
+        <MiddleTruncatedHighlightedText text={result.name} matchIndices={matches.name} />
+      </span>
+      <span
+        data-palette-file-parent
+        className="min-w-0 flex-1 truncate text-left text-xs text-muted-foreground [direction:rtl]"
+      >
+        <bdi dir="ltr">
+          <HighlightedText text={displayParent} matchIndices={matches.parent} />
+        </bdi>
+      </span>
+    </span>
+  )
+}
 
 export function GitnaCommandPalette({
   commands,
   error,
   externalFileResults,
   fileSearchComplete,
+  fileResultIncludeIgnored,
   fileResultQuery,
-  loading,
+  folderLabel,
+  searching,
+  supportsIgnoredFiles,
   onClose,
   onError,
   onFileQueryChange,
@@ -121,11 +243,15 @@ export function GitnaCommandPalette({
   const listRef = useRef<HTMLDivElement>(null)
   const lastRequestedFileQueryRef = useRef<string | null>(null)
   const [query, setQuery] = useState('')
+  const [includeIgnored, setIncludeIgnored] = useState(true)
   const [activeIndex, setActiveIndex] = useState(0)
   const listboxId = useId()
   const commandMode = query.trimStart().startsWith('>')
   const commandQuery = commandMode ? query.trimStart().slice(1).trim() : ''
+  const fileRequestKey = `${includeIgnored ? '1' : '0'}\u0000${query}`
 
+  const fileResultsCurrent =
+    fileResultQuery === query && fileResultIncludeIgnored === includeIgnored
   const results = useMemo<PaletteResult[]>(() => {
     if (commandMode) {
       return commands
@@ -138,21 +264,22 @@ export function GitnaCommandPalette({
         .slice(0, 100)
         .map((command) => ({ id: `command:${command.id}`, kind: 'command', command }))
     }
-    if (fileResultQuery !== query) return []
     return externalFileResults.map((file) => ({
       id: `file:${file.path}`,
       kind: 'file',
-      duplicateName: file.duplicateName,
+      matchIndices: file.matchIndices ?? [],
       name: file.name,
       parent: file.parent,
       path: file.path,
+      stale: !fileResultsCurrent,
     }))
-  }, [commandMode, commandQuery, commands, externalFileResults, fileResultQuery, query])
+  }, [commandMode, commandQuery, commands, externalFileResults, fileResultsCurrent])
 
   useEffect(() => {
     const dialog = dialogRef.current
     if (!open || dialog == null) return
     setQuery('')
+    setIncludeIgnored(true)
     setActiveIndex(0)
     lastRequestedFileQueryRef.current = null
     if (!dialog.open) dialog.showModal()
@@ -168,24 +295,28 @@ export function GitnaCommandPalette({
 
   useEffect(() => {
     if (!open || commandMode) return
-    const repeatedQuery = lastRequestedFileQueryRef.current === query
-    if (repeatedQuery && (fileSearchComplete || loading)) return
+    const repeatedQuery = lastRequestedFileQueryRef.current === fileRequestKey
+    if (repeatedQuery && ((fileResultsCurrent && fileSearchComplete) || searching || error != null))
+      return
     const timer = window.setTimeout(
       () => {
-        lastRequestedFileQueryRef.current = query
-        onFileQueryChange(query)
+        lastRequestedFileQueryRef.current = fileRequestKey
+        onFileQueryChange(query, includeIgnored)
       },
-      repeatedQuery ? 500 : 35,
+      repeatedQuery ? 500 : 100,
     )
     return () => window.clearTimeout(timer)
   }, [
     commandMode,
-    externalFileResults,
+    error,
+    fileRequestKey,
+    fileResultsCurrent,
     fileSearchComplete,
-    loading,
+    includeIgnored,
     onFileQueryChange,
     open,
     query,
+    searching,
   ])
 
   useEffect(() => {
@@ -195,7 +326,7 @@ export function GitnaCommandPalette({
   }, [activeIndex])
 
   const execute = (result: PaletteResult | undefined) => {
-    if (result == null) return
+    if (result == null || (result.kind === 'file' && result.stale)) return
     onClose()
     try {
       const operation = result.kind === 'file' ? onOpenFile(result.path) : result.command.run()
@@ -208,6 +339,12 @@ export function GitnaCommandPalette({
   }
 
   if (!open) return null
+
+  const fileSearchErrorCurrent =
+    !commandMode && error != null && lastRequestedFileQueryRef.current === fileRequestKey
+  const fileSearchBusy =
+    !commandMode &&
+    (searching || (!fileSearchErrorCurrent && (!fileResultsCurrent || !fileSearchComplete)))
 
   return (
     <dialog
@@ -268,9 +405,33 @@ export function GitnaCommandPalette({
             }
           }}
         />
-        <kbd className="hidden rounded border border-border px-1.5 py-0.5 text-[10px] text-muted-foreground sm:block">
-          Esc
-        </kbd>
+        {fileSearchBusy && (
+          <span className="flex shrink-0 items-center text-muted-foreground" role="status">
+            <LoaderCircle
+              aria-hidden="true"
+              className="size-3.5 animate-spin motion-reduce:animate-none"
+            />
+            <span className="sr-only">{searching ? 'Searching files' : 'Scanning folder'}</span>
+          </span>
+        )}
+        {!commandMode && supportsIgnoredFiles && (
+          <button
+            type="button"
+            aria-label={includeIgnored ? 'Exclude Ignored Files' : 'Include Ignored Files'}
+            aria-pressed={includeIgnored}
+            title={includeIgnored ? 'Exclude Ignored Files' : 'Include Ignored Files'}
+            className={cn(
+              'flex size-7 shrink-0 cursor-pointer items-center justify-center rounded text-muted-foreground outline-none hover:bg-muted hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring',
+              includeIgnored && 'bg-muted text-foreground',
+            )}
+            onClick={() => {
+              setIncludeIgnored((current) => !current)
+              setActiveIndex(0)
+            }}
+          >
+            <FileX aria-hidden="true" className="size-4" />
+          </button>
+        )}
       </div>
 
       <div
@@ -278,6 +439,7 @@ export function GitnaCommandPalette({
         id={listboxId}
         role="listbox"
         aria-label={commandMode ? 'Commands' : 'Files'}
+        aria-busy={fileSearchBusy}
         className="gitna-scrollbar max-h-[min(560px,calc(84dvh-58px))] overflow-y-auto overscroll-contain p-1.5"
       >
         {results.map((result, index) => (
@@ -287,13 +449,25 @@ export function GitnaCommandPalette({
             type="button"
             role="option"
             aria-selected={index === activeIndex}
+            aria-disabled={result.kind === 'file' && result.stale ? true : undefined}
+            aria-label={
+              result.kind === 'file'
+                ? `${result.name} ${paletteFileParentLabel(result.parent, folderLabel)}`
+                : undefined
+            }
             data-palette-index={index}
+            tabIndex={-1}
             className={cn(
-              'flex min-h-12 w-full cursor-pointer items-center gap-3 rounded-md px-3 py-2 text-left outline-none hover:bg-muted focus-visible:ring-2 focus-visible:ring-ring',
+              'flex min-h-10 w-full cursor-pointer items-center gap-3 rounded-md px-3 py-1.5 text-left outline-none hover:bg-muted focus-visible:ring-2 focus-visible:ring-ring',
               index === activeIndex && 'bg-muted',
+              result.kind === 'file' &&
+                result.stale &&
+                'cursor-default opacity-55 hover:bg-transparent',
             )}
             onClick={() => execute(result)}
-            onPointerMove={() => setActiveIndex(index)}
+            onPointerMove={() => {
+              if (result.kind !== 'file' || !result.stale) setActiveIndex(index)
+            }}
           >
             {result.kind === 'file' ? (
               <PaletteFileIcon path={result.path} />
@@ -306,46 +480,34 @@ export function GitnaCommandPalette({
                 {result.command.icon}
               </span>
             )}
-            <span className="min-w-0 flex-1">
-              <span className="block truncate text-sm font-medium">
-                {result.kind === 'file' ? result.name : result.command.label}
+            {result.kind === 'file' ? (
+              <PaletteFileLabel result={result} folderLabel={folderLabel} />
+            ) : (
+              <span className="min-w-0 flex-1">
+                <span className="block truncate text-sm font-medium">{result.command.label}</span>
+                {result.command.description != null && (
+                  <span className="mt-0.5 block truncate text-xs text-muted-foreground">
+                    {result.command.description}
+                  </span>
+                )}
               </span>
-              {(result.kind === 'file' || result.command.description != null) && (
-                <span className="mt-0.5 block truncate text-xs text-muted-foreground">
-                  {result.kind === 'file'
-                    ? result.parent === ''
-                      ? 'Repository root'
-                      : result.duplicateName
-                        ? result.parent
-                        : result.path
-                    : result.command.description}
-                </span>
-              )}
-            </span>
+            )}
           </button>
         ))}
 
-        {results.length === 0 && !commandMode && loading && (
-          <p className="px-3 py-8 text-center text-sm text-muted-foreground" role="status">
-            Loading files…
-          </p>
-        )}
-        {results.length === 0 && !commandMode && !loading && error != null && (
-          <div className="px-3 py-8 text-center" role="alert">
+        {fileSearchErrorCurrent && !searching && (
+          <div className="px-3 py-4 text-center" role="alert">
             <p className="text-sm font-medium">Could not search files</p>
             <p className="mt-1 text-xs text-muted-foreground">{error}</p>
           </div>
         )}
-        {results.length === 0 && (commandMode || (!loading && error == null)) && (
-          <p className="px-3 py-8 text-center text-sm text-muted-foreground" role="status">
-            {commandMode ? 'No commands match.' : 'No files match.'}
-          </p>
-        )}
-        {results.length > 0 && !commandMode && loading && (
-          <p className="px-3 py-2 text-xs text-muted-foreground" role="status">
-            Refreshing file list…
-          </p>
-        )}
+        {results.length === 0 &&
+          (commandMode ||
+            (fileResultsCurrent && fileSearchComplete && !searching && error == null)) && (
+            <p className="px-3 py-8 text-center text-sm text-muted-foreground" role="status">
+              {commandMode ? 'No commands match.' : 'No files match.'}
+            </p>
+          )}
       </div>
     </dialog>
   )

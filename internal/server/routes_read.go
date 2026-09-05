@@ -437,7 +437,7 @@ func (s *Server) handleDirectoryEntries(w http.ResponseWriter, r *http.Request) 
 }
 
 type fileSearchRepo interface {
-	SearchFiles(context.Context, string, []string, bool, int) (protocol.FileSearchResults, error)
+	SearchFiles(context.Context, string, []string, bool, bool, int) (protocol.FileSearchResults, error)
 }
 
 const fileSearchResultLimit = 100
@@ -467,11 +467,12 @@ func (s *Server) handleFileSearch(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	refresh := r.URL.Query().Get("refresh") == "1"
+	includeIgnored := r.URL.Query().Get("includeIgnored") == "1"
 	ctx, cancel := context.WithTimeout(r.Context(), ReadTimeout)
 	defer cancel()
 	for range 3 {
 		generation := s.gen.Load()
-		results, err := repo.SearchFiles(ctx, query, recentPaths, refresh, fileSearchResultLimit)
+		results, err := repo.SearchFiles(ctx, query, recentPaths, refresh, includeIgnored, fileSearchResultLimit)
 		if err != nil {
 			if timeoutReached(ctx, err) {
 				writeJSON(w, http.StatusGatewayTimeout, map[string]string{"error": "file search timed out"})

@@ -8,6 +8,34 @@ import (
 	"github.com/roie/gitna/internal/gitx"
 )
 
+func TestOrdinaryDirectoryEntriesIncludeChildMetadata(t *testing.T) {
+	root := t.TempDir()
+	for _, directory := range []string{"empty", "nonempty"} {
+		if err := os.Mkdir(filepath.Join(root, directory), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.WriteFile(filepath.Join(root, "nonempty", "child.txt"), []byte("child"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	adapter := &repoAdapter{repo: gitx.Repository{Root: root}, queue: gitx.NewMutationQueue()}
+	t.Cleanup(adapter.directories.invalidate)
+
+	entries, err := adapter.DirectoryEntries(t.Context(), "", "", 100)
+	if err != nil {
+		t.Fatal(err)
+	}
+	hasChildren := make(map[string]bool, len(entries.Entries))
+	for _, entry := range entries.Entries {
+		if entry.HasChildren != nil {
+			hasChildren[entry.Path] = *entry.HasChildren
+		}
+	}
+	if hasChildren["empty/"] || !hasChildren["nonempty/"] {
+		t.Fatalf("entries = %#v, want ordinary-folder child metadata", entries.Entries)
+	}
+}
+
 func TestRepositoryDirectoryEntriesIncludeGitIgnoredMetadata(t *testing.T) {
 	root := initSessionRepository(t, t.TempDir(), "repo")
 	if err := os.WriteFile(filepath.Join(root, ".gitignore"), []byte("ignored/\n"), 0o644); err != nil {
@@ -17,6 +45,9 @@ func TestRepositoryDirectoryEntriesIncludeGitIgnoredMetadata(t *testing.T) {
 		t.Fatal(err)
 	}
 	if err := os.Mkdir(filepath.Join(root, "ignored"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Mkdir(filepath.Join(root, "empty"), 0o755); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(filepath.Join(root, "ignored", "dependency.js"), []byte("ignored"), 0o644); err != nil {
@@ -38,14 +69,21 @@ func TestRepositoryDirectoryEntriesIncludeGitIgnoredMetadata(t *testing.T) {
 		t.Fatal(err)
 	}
 	ignoredByPath := make(map[string]bool, len(rootEntries.Entries))
+	hasChildrenByPath := make(map[string]bool, len(rootEntries.Entries))
 	for _, entry := range rootEntries.Entries {
 		ignoredByPath[entry.Path] = entry.Ignored
+		if entry.HasChildren != nil {
+			hasChildrenByPath[entry.Path] = *entry.HasChildren
+		}
 	}
 	if !ignoredByPath["ignored/"] {
 		t.Fatalf("root entries = %#v, want ignored directory metadata", rootEntries.Entries)
 	}
 	if ignoredByPath["tracked.txt"] {
 		t.Fatalf("root entries = %#v, tracked file marked ignored", rootEntries.Entries)
+	}
+	if !hasChildrenByPath["ignored/"] || hasChildrenByPath["empty/"] {
+		t.Fatalf("root entries = %#v, want authoritative directory child metadata", rootEntries.Entries)
 	}
 
 	nestedEntries, err := adapter.DirectoryEntries(t.Context(), "ignored", "", 100)

@@ -120,6 +120,9 @@ func (cache *folderDirectoryIndexCache) page(
 	entry.readers++
 	cache.mu.Unlock()
 	result, err := readDirectoryIndexPage(entry, after, limit)
+	if err == nil {
+		err = repo.PopulateDirectoryEntryChildren(ctx, result.Entries)
+	}
 	cache.mu.Lock()
 	entry.readers--
 	if entry.invalidated && entry.readers == 0 {

@@ -10,9 +10,9 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"reflect"
 	"runtime"
 	"slices"
-	"strings"
 	"testing"
 	"time"
 	"unsafe"
@@ -32,7 +32,7 @@ func waitForFolderSearch(
 ) protocol.FileSearchResults {
 	t.Helper()
 	for deadline := time.Now().Add(5 * time.Second); time.Now().Before(deadline); {
-		results, err := adapter.SearchFiles(t.Context(), query, recent, false, limit)
+		results, err := adapter.SearchFiles(t.Context(), query, recent, false, true, limit)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -124,30 +124,30 @@ func TestFolderSearchPublishesProjectFilesBeforeDeferredDependencies(t *testing.
 
 	builder := filesearch.NewBuilder(450 << 10)
 	visited := make([]string, 0, 4_103)
-	var firstPublication filesearch.Snapshot
-	var beforeDependencies filesearch.Snapshot
+	publications := make([]filesearch.Snapshot, 0, 2)
 	err := walkFolderSearchPaths(t.Context(), root, func(filePath string) error {
-		if beforeDependencies.Len() == 0 && strings.Contains(strings.ToLower(filePath), "node_modules/") {
-			beforeDependencies = builder.Snapshot(false)
-		}
 		visited = append(visited, filePath)
-		builder.Add(filePath)
+		builder.Add(filePath, false)
 		return nil
 	}, func() error {
-		firstPublication = builder.Snapshot(false)
+		publications = append(publications, builder.Snapshot(false))
 		return nil
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
+	if len(publications) != 2 {
+		t.Fatalf("publications = %d, want root and project boundaries", len(publications))
+	}
+	firstPublication := publications[0]
 	if firstPublication.Complete() || firstPublication.Len() != 1 {
 		t.Fatalf("first publication = %d/%v, want one incomplete root file", firstPublication.Len(), firstPublication.Complete())
 	}
-	rootResults, err := firstPublication.Search(t.Context(), "package.json", nil, 100)
+	rootResults, err := firstPublication.Search(t.Context(), "package.json", nil, 100, false)
 	if err != nil || len(rootResults) != 1 || rootResults[0].Path != "package.json" {
 		t.Fatalf("first results = %#v, error = %v", rootResults, err)
 	}
-	projectResults, err := beforeDependencies.Search(t.Context(), "owned.go", nil, 100)
+	projectResults, err := publications[1].Search(t.Context(), "owned.go", nil, 100, false)
 	if err != nil || len(projectResults) != 1 || projectResults[0].Path != "src/owned.go" {
 		t.Fatalf("project-before-dependencies results = %#v, error = %v", projectResults, err)
 	}
@@ -158,7 +158,7 @@ func TestFolderSearchPublishesProjectFilesBeforeDeferredDependencies(t *testing.
 	if !complete.Overflow() {
 		t.Fatal("dependency traversal did not overflow the forced compact cap")
 	}
-	projectResults, err = complete.Search(t.Context(), "owned.go", nil, 100)
+	projectResults, err = complete.Search(t.Context(), "owned.go", nil, 100, false)
 	if err != nil || len(projectResults) != 1 {
 		t.Fatalf("project file was displaced by dependencies: %#v, error = %v", projectResults, err)
 	}
@@ -184,14 +184,15 @@ func TestFolderSearchDiskFallbackMatchesCompactRanking(t *testing.T) {
 	compact := &repoAdapter{ctx: t.Context(), repo: gitx.Repository{Root: root}, queue: gitx.NewMutationQueue()}
 	fallback := &repoAdapter{ctx: t.Context(), repo: gitx.Repository{Root: root}, queue: gitx.NewMutationQueue()}
 	fallback.search.memoryLimit = 1
-	queries := []string{"package", "node_modules/react/package"}
+	queries := []string{"", "package", "node_modules/react/package"}
 	if runtime.GOOS == "windows" {
 		queries = append(queries, "node_modules\\react\\package")
 	}
+	recent := []string{"package.json", "node_modules/react/package.json"}
 	for _, query := range queries {
-		want := waitForFolderSearch(t, compact, query, []string{"node_modules/react/package.json"}, 100)
-		got := waitForFolderSearch(t, fallback, query, []string{"node_modules/react/package.json"}, 100)
-		if !slices.Equal(got.Results, want.Results) {
+		want := waitForFolderSearch(t, compact, query, recent, 100)
+		got := waitForFolderSearch(t, fallback, query, recent, 100)
+		if !reflect.DeepEqual(got.Results, want.Results) {
 			t.Fatalf("query %q fallback = %#v, compact = %#v", query, got.Results, want.Results)
 		}
 	}
@@ -292,6 +293,20 @@ func TestFolderSearchIndexesGitTrackedUntrackedAndIgnoredFiles(t *testing.T) {
 			t.Fatalf("search indexed Git metadata path %q", path)
 		}
 	}
+	excluded, err := adapter.SearchFiles(t.Context(), "dependency", nil, false, false, 100)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(excluded.Results) != 0 {
+		t.Fatalf("ignored results = %#v, want none by default", excluded.Results)
+	}
+	included, err := adapter.SearchFiles(t.Context(), "dependency", nil, false, true, 100)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(included.Results) != 1 || included.Results[0].Path != "ignored/dependency.js" {
+		t.Fatalf("included results = %#v", included.Results)
+	}
 }
 
 func TestFolderSearchSkipsLinkedWorktreeGitPointer(t *testing.T) {
@@ -360,7 +375,7 @@ func TestScanFolderSearchIndexStopsOnVisitorError(t *testing.T) {
 	}
 	encoder := json.NewEncoder(file)
 	for index := range 100 {
-		if err := encoder.Encode(fmt.Sprintf("file-%03d.txt", index)); err != nil {
+		if err := encoder.Encode(diskSearchValue(fmt.Sprintf("file-%03d.txt", index), false)); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -374,7 +389,7 @@ func TestScanFolderSearchIndexStopsOnVisitorError(t *testing.T) {
 
 	visitorErr := errors.New("stop visiting")
 	visited := 0
-	err = scanFolderSearchIndex(t.Context(), file.Name(), size, func(string) error {
+	err = scanFolderSearchIndex(t.Context(), file.Name(), size, func(string, bool) error {
 		visited++
 		if visited == 3 {
 			return visitorErr
@@ -383,6 +398,37 @@ func TestScanFolderSearchIndexStopsOnVisitorError(t *testing.T) {
 	})
 	if !errors.Is(err, visitorErr) || visited != 3 {
 		t.Fatalf("error = %v, visited = %d", err, visited)
+	}
+}
+
+func TestScanFolderSearchIndexPreservesIgnoredMetadata(t *testing.T) {
+	file, err := os.CreateTemp(t.TempDir(), "search-index-*")
+	if err != nil {
+		t.Fatal(err)
+	}
+	encoder := json.NewEncoder(file)
+	for _, record := range []string{diskSearchValue("visible.txt", false), diskSearchValue("ignored.txt", true)} {
+		if err := encoder.Encode(record); err != nil {
+			t.Fatal(err)
+		}
+	}
+	size, err := file.Seek(0, io.SeekCurrent)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := file.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	seen := map[string]bool{}
+	if err := scanFolderSearchIndex(t.Context(), file.Name(), size, func(path string, ignored bool) error {
+		seen[path] = ignored
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if seen["visible.txt"] || !seen["ignored.txt"] {
+		t.Fatalf("ignored metadata = %#v", seen)
 	}
 }
 
@@ -441,7 +487,7 @@ func TestFolderSearchExplicitRefreshRestartsIndexForUnobservedExternalChange(t *
 	if err := os.WriteFile(path, []byte("external"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := adapter.SearchFiles(t.Context(), "external", nil, true, 100); err != nil {
+	if _, err := adapter.SearchFiles(t.Context(), "external", nil, true, true, 100); err != nil {
 		t.Fatal(err)
 	}
 	refreshed := waitForFolderSearch(t, adapter, "external", nil, 100)
@@ -455,7 +501,7 @@ func BenchmarkFolderSearchCompactCatalog(b *testing.B) {
 		b.Run(fmt.Sprintf("%d", count), func(b *testing.B) {
 			builder := filesearch.NewBuilder(filesearch.DefaultMemoryLimit)
 			for index := range count {
-				builder.Add(fmt.Sprintf("packages/pkg-%06d/src/file-%06d.ts", index/100, index))
+				builder.Add(fmt.Sprintf("packages/pkg-%06d/src/file-%06d.ts", index/100, index), false)
 			}
 			snapshot := builder.Snapshot(true)
 			if snapshot.Overflow() {
@@ -471,7 +517,7 @@ func BenchmarkFolderSearchCompactCatalog(b *testing.B) {
 			b.ReportAllocs()
 			b.ResetTimer()
 			for range b.N {
-				results, err := adapter.searchFiles(b.Context(), query, []string{want}, 100)
+				results, err := adapter.searchFiles(b.Context(), query, []string{want}, true, 100)
 				if err != nil {
 					b.Fatal(err)
 				}
@@ -487,13 +533,13 @@ func BenchmarkFolderSearchCompactCatalog(b *testing.B) {
 func BenchmarkFolderSearchFuzzyMillion(b *testing.B) {
 	builder := filesearch.NewBuilder(filesearch.DefaultMemoryLimit)
 	for index := range 1_000_000 {
-		builder.Add(fmt.Sprintf("packages/pkg-%06d/src/file-%06d.ts", index/100, index))
+		builder.Add(fmt.Sprintf("packages/pkg-%06d/src/file-%06d.ts", index/100, index), false)
 	}
 	snapshot := builder.Snapshot(true)
 	b.ReportAllocs()
 	b.ResetTimer()
 	for range b.N {
-		results, err := snapshot.Search(b.Context(), "p009999f999999", nil, 100)
+		results, err := snapshot.Search(b.Context(), "p009999f999999", nil, 100, false)
 		if err != nil {
 			b.Fatal(err)
 		}
@@ -507,7 +553,7 @@ func BenchmarkFolderSearchFuzzyMillion(b *testing.B) {
 func BenchmarkFolderSearchCanceledMillion(b *testing.B) {
 	builder := filesearch.NewBuilder(filesearch.DefaultMemoryLimit)
 	for index := range 1_000_000 {
-		builder.Add(fmt.Sprintf("packages/pkg-%06d/src/file-%06d.ts", index/100, index))
+		builder.Add(fmt.Sprintf("packages/pkg-%06d/src/file-%06d.ts", index/100, index), false)
 	}
 	snapshot := builder.Snapshot(true)
 	ctx, cancel := context.WithCancel(context.Background())
@@ -515,7 +561,7 @@ func BenchmarkFolderSearchCanceledMillion(b *testing.B) {
 	b.ReportAllocs()
 	b.ResetTimer()
 	for range b.N {
-		if _, err := snapshot.Search(ctx, "file", nil, 100); !errors.Is(err, context.Canceled) {
+		if _, err := snapshot.Search(ctx, "file", nil, 100, false); !errors.Is(err, context.Canceled) {
 			b.Fatalf("error = %v, want canceled", err)
 		}
 	}
@@ -525,7 +571,7 @@ func BenchmarkFolderSearchCanceledMillion(b *testing.B) {
 func BenchmarkFolderSearchEmptyMillion(b *testing.B) {
 	builder := filesearch.NewBuilder(filesearch.DefaultMemoryLimit)
 	for index := range 1_000_000 {
-		builder.Add(fmt.Sprintf("packages/pkg-%06d/src/file-%06d.ts", index/100, index))
+		builder.Add(fmt.Sprintf("packages/pkg-%06d/src/file-%06d.ts", index/100, index), false)
 	}
 	snapshot := builder.Snapshot(true)
 	if snapshot.Overflow() {
@@ -534,7 +580,7 @@ func BenchmarkFolderSearchEmptyMillion(b *testing.B) {
 	b.ReportAllocs()
 	b.ResetTimer()
 	for range b.N {
-		results, err := snapshot.Search(b.Context(), "", nil, 100)
+		results, err := snapshot.Search(b.Context(), "", nil, 100, false)
 		if err != nil {
 			b.Fatal(err)
 		}
@@ -547,9 +593,9 @@ func BenchmarkFolderSearchEmptyMillion(b *testing.B) {
 
 func BenchmarkFolderSearchPackageJSONMillion(b *testing.B) {
 	builder := filesearch.NewBuilder(filesearch.DefaultMemoryLimit)
-	builder.Add("package.json")
+	builder.Add("package.json", false)
 	for index := 1; index < 1_000_000; index++ {
-		builder.Add(fmt.Sprintf("node_modules/pkg-%06d/package.json", index))
+		builder.Add(fmt.Sprintf("node_modules/pkg-%06d/package.json", index), false)
 	}
 	snapshot := builder.Snapshot(true)
 	if snapshot.Overflow() {
@@ -558,7 +604,7 @@ func BenchmarkFolderSearchPackageJSONMillion(b *testing.B) {
 	b.ReportAllocs()
 	b.ResetTimer()
 	for range b.N {
-		results, err := snapshot.Search(b.Context(), "package.json", []string{"node_modules/pkg-999999/package.json"}, 100)
+		results, err := snapshot.Search(b.Context(), "package.json", []string{"node_modules/pkg-999999/package.json"}, 100, false)
 		if err != nil {
 			b.Fatal(err)
 		}
@@ -578,7 +624,7 @@ func BenchmarkFolderSearchMillionFileDiskIndex(b *testing.B) {
 	writer := bufio.NewWriterSize(file, 256*1024)
 	encoder := json.NewEncoder(writer)
 	for index := range 1_000_000 {
-		if err := encoder.Encode(fmt.Sprintf("packages/pkg-%06d/src/file-%06d.ts", index/100, index)); err != nil {
+		if err := encoder.Encode(diskSearchValue(fmt.Sprintf("packages/pkg-%06d/src/file-%06d.ts", index/100, index), false)); err != nil {
 			b.Fatal(err)
 		}
 	}
@@ -600,7 +646,7 @@ func BenchmarkFolderSearchMillionFileDiskIndex(b *testing.B) {
 	b.ReportAllocs()
 	b.ResetTimer()
 	for range b.N {
-		results, err := adapter.searchFiles(b.Context(), "file-999999", []string{"packages/pkg-009999/src/file-999999.ts"}, 100)
+		results, err := adapter.searchFiles(b.Context(), "file-999999", []string{"packages/pkg-009999/src/file-999999.ts"}, true, 100)
 		if err != nil {
 			b.Fatal(err)
 		}

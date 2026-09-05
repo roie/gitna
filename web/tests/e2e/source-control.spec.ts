@@ -1367,7 +1367,11 @@ test('command palette searches complete paths and runs workbench commands', asyn
   writeFileSync(join(app.repo, 'client/index.ts'), 'client\n')
   writeFileSync(join(app.repo, 'server/palette-token/index.ts'), 'server\n')
   writeFileSync(join(app.repo, 'space dir/file name.ts'), 'space\n')
+  const narrowFileName = `${'very-long-prefix-'.repeat(6)}narrow-suffix.ts`
+  writeFileSync(join(app.repo, narrowFileName), 'narrow\n')
   writeFileSync(join(app.repo, 'package.json'), '{}\n')
+  writeFileSync(join(app.repo, '.gitattributes'), '* text=auto\n')
+  writeFileSync(join(app.repo, '.gitignore'), 'node_modules/\n')
   writeFileSync(join(app.repo, 'node_modules/dependency/package.json'), '{}\n')
 
   const searchRequests = new Map<string, number>()
@@ -1412,9 +1416,92 @@ test('command palette searches complete paths and runs workbench commands', asyn
   const activeDescendant = await search.getAttribute('aria-activedescendant')
   expect(activeDescendant).not.toMatch(/\s/)
   await expect(spacedFile).toHaveAttribute('id', activeDescendant!)
+  const fileLabel = spacedFile.locator('[data-palette-file-label]')
+  await expect(fileLabel).toHaveCSS('display', 'flex')
+  const spacedMatches = spacedFile.locator('[data-palette-match]')
+  await expect.poll(async () => (await spacedMatches.allTextContents()).join('')).toBe('filename')
+  await expect(spacedFile.locator('[data-palette-match]').first()).toHaveCSS(
+    'text-decoration-line',
+    'none',
+  )
+  await expect(spacedFile.locator('[data-palette-match]').first()).toHaveClass(/text-blue-600/)
   const settledFileNameRequests = searchRequests.get('file name') ?? 0
   await page.waitForTimeout(700)
   expect(searchRequests.get('file name') ?? 0).toBe(settledFileNameRequests)
+
+  await search.fill('.git')
+  for (const fileName of ['.gitattributes', '.gitignore']) {
+    const option = palette.getByRole('option', {
+      name: `${fileName} ${basename(app.repo)}/`,
+      exact: true,
+    })
+    const name = option.locator('[data-palette-file-name]')
+    await expect(name).toHaveText(fileName)
+    await expect(name.locator('[data-palette-file-name-prefix]')).toHaveCount(0)
+    await expect(name.locator('[data-palette-file-name-suffix]')).toHaveCount(0)
+  }
+
+  const originalViewport = page.viewportSize()
+  await page.setViewportSize({ width: 360, height: 720 })
+  await search.fill('narrow-suffix')
+  const narrowFile = palette.getByRole('option', { name: new RegExp(narrowFileName) })
+  await expect(narrowFile).toBeVisible()
+  const narrowName = narrowFile.locator('[data-palette-file-name]')
+  const truncation = await narrowName.evaluate((element) => {
+    const prefix = element.querySelector<HTMLElement>('[data-palette-file-name-prefix]')!
+    const suffix = element.querySelector<HTMLElement>('[data-palette-file-name-suffix]')!
+    const parentBox = element.getBoundingClientRect()
+    const suffixBox = suffix.getBoundingClientRect()
+    return {
+      prefixClientWidth: prefix.clientWidth,
+      prefixScrollWidth: prefix.scrollWidth,
+      suffixRight: suffixBox.right,
+      suffixWidth: suffixBox.width,
+      parentRight: parentBox.right,
+      parentWidth: parentBox.width,
+    }
+  })
+  expect(truncation.prefixScrollWidth).toBeGreaterThan(truncation.prefixClientWidth)
+  expect(truncation.suffixRight).toBeLessThanOrEqual(truncation.parentRight + 1)
+  expect(truncation.suffixWidth).toBeLessThanOrEqual(truncation.parentWidth / 2 + 1)
+  if (originalViewport != null) await page.setViewportSize(originalViewport)
+
+  let progressiveRequests = 0
+  const progressiveRoute = async (route: import('@playwright/test').Route) => {
+    const url = new URL(route.request().url())
+    if (url.searchParams.get('q') !== 'progressive') {
+      await route.continue()
+      return
+    }
+    progressiveRequests += 1
+    await route.fulfill({
+      json:
+        progressiveRequests === 1
+          ? { generation: 1_000_000, results: [], complete: false }
+          : {
+              generation: 1_000_000,
+              results: [
+                {
+                  path: 'client/index.ts',
+                  name: 'index.ts',
+                  parent: 'client',
+                  matchIndices: [7, 8, 9],
+                  duplicateName: false,
+                },
+              ],
+              complete: true,
+            },
+    })
+  }
+  await page.route('**/api/v1/files/search?*', progressiveRoute)
+  await search.fill('progressive')
+  await expect(palette.getByText('No files match.', { exact: true })).toHaveCount(0)
+  const progressiveFile = palette.getByRole('option', { name: /index\.ts client/ })
+  await expect(progressiveFile).toBeVisible()
+  const progressiveHighlights = progressiveFile.locator('[data-palette-match]')
+  await expect(progressiveHighlights).toHaveText(['ind'])
+  expect(progressiveRequests).toBeGreaterThanOrEqual(2)
+  await page.unroute('**/api/v1/files/search?*', progressiveRoute)
 
   let releasePackageSearch!: () => void
   const packageSearchGate = new Promise<void>((resolve) => {
@@ -1426,14 +1513,57 @@ test('command palette searches complete paths and runs workbench commands', asyn
     await route.continue()
   })
   await search.fill('package.json')
-  await expect(spacedFile).toHaveCount(0)
+  await expect(progressiveFile).toBeVisible()
+  await expect(progressiveFile).toHaveAttribute('aria-disabled', 'true')
+  await expect(progressiveHighlights).toHaveText(['ind'])
+  await search.press('Enter')
+  await expect(palette).toBeVisible()
+  await expect(palette.getByText('No files match.', { exact: true })).toHaveCount(0)
   await expect.poll(() => searchRequests.get('package.json') ?? 0).toBe(1)
   await page.waitForTimeout(600)
   expect(searchRequests.get('package.json') ?? 0).toBe(1)
   releasePackageSearch()
-  await expect(palette.getByRole('option').first()).toHaveAccessibleName(
-    /package\.json Repository root/,
+  const rootPackage = palette.getByRole('option').first()
+  await expect(rootPackage).toHaveAccessibleName(
+    new RegExp(`package\\.json ${basename(app.repo)}/`),
   )
+  const packageMatches = rootPackage.locator('[data-palette-file-name] [data-palette-match]')
+  await expect
+    .poll(async () => (await packageMatches.allTextContents()).join(''))
+    .toBe('package.json')
+  await expect(rootPackage.locator('[data-palette-file-parent] [data-palette-match]')).toHaveCount(
+    0,
+  )
+
+  const failedSearchRoute = async (route: import('@playwright/test').Route) => {
+    const url = new URL(route.request().url())
+    if (url.searchParams.get('q') !== 'failed-search') {
+      await route.continue()
+      return
+    }
+    await route.fulfill({ status: 500, json: { error: 'forced search failure' } })
+  }
+  await page.route('**/api/v1/files/search?*', failedSearchRoute)
+  await search.fill('failed-search')
+  await expect(rootPackage).toBeVisible()
+  await expect(rootPackage).toHaveAttribute('aria-disabled', 'true')
+  await expect(palette.getByRole('alert')).toContainText('Could not search files')
+  await expect(palette.getByRole('alert')).toContainText('forced search failure')
+  await page.waitForTimeout(600)
+  expect(searchRequests.get('failed-search') ?? 0).toBe(1)
+  await page.unroute('**/api/v1/files/search?*', failedSearchRoute)
+
+  await search.fill('dependency/package')
+  const ignoredPackage = palette.getByRole('option', {
+    name: /package\.json node_modules\/dependency/,
+  })
+  await expect(ignoredPackage).toBeVisible()
+  const excludeIgnored = palette.getByRole('button', { name: 'Exclude Ignored Files' })
+  await excludeIgnored.click()
+  await expect(palette.getByRole('button', { name: 'Include Ignored Files' })).toBeVisible()
+  await expect(palette.getByText('No files match.', { exact: true })).toBeVisible()
+  await palette.getByRole('button', { name: 'Include Ignored Files' }).click()
+  await expect(ignoredPackage).toBeVisible()
 
   await search.fill('palette-token index')
   const serverFile = palette.getByRole('option', {
@@ -1810,8 +1940,12 @@ test('ordinary folders open in Explorer and switch back to Git', async ({ page, 
   mkdirSync(join(folder, 'empty'))
   mkdirSync(join(folder, 'nested'))
   mkdirSync(join(folder, 'drop-target'))
+  mkdirSync(join(folder, '.pi-subagents', 'artifacts'), { recursive: true })
+  mkdirSync(join(folder, '.worktrees', 'router-lifecycle'), { recursive: true })
   writeFileSync(join(folder, 'nested', 'child.txt'), 'nested child\n')
   writeFileSync(join(folder, 'drop-target', 'existing.txt'), 'existing\n')
+  writeFileSync(join(folder, '.pi-subagents', 'artifacts', 'result.md'), 'result\n')
+  writeFileSync(join(folder, '.worktrees', 'router-lifecycle', 'state.txt'), 'state\n')
   writeFileSync(join(folder, 'move-me.txt'), 'move me\n')
   writeFileSync(join(folder, 'large.bin'), Buffer.alloc(2_100_000))
   writeFileSync(join(folder, 'notes.txt'), 'folder note\n')
@@ -1836,7 +1970,57 @@ test('ordinary folders open in Explorer and switch back to Git', async ({ page, 
   await expect(page.getByPlaceholder('Commit message')).toHaveCount(0)
   await expect(page.locator('[data-section="graph"]')).toHaveCount(0)
   const explorer = page.locator('#gitna-repository-tree__tree')
-  await expect(explorer.getByRole('treeitem')).toHaveCount(7)
+  await expect(explorer.getByRole('treeitem')).toHaveCount(9)
+  const empty = explorer.getByRole('treeitem', { name: 'empty', exact: true })
+  await expect(empty).not.toHaveAttribute('aria-expanded')
+  await expect(empty.locator('[data-item-section="icon"] svg')).toHaveCount(0)
+
+  const worktrees = explorer.getByRole('treeitem', { name: '.worktrees', exact: true })
+  await worktrees.click()
+  await expect(worktrees).toHaveAttribute('aria-expanded', 'true')
+  await expect(
+    explorer.getByRole('treeitem', { name: 'router-lifecycle', exact: true }),
+  ).toBeVisible()
+  const subagents = explorer.getByRole('treeitem', { name: '.pi-subagents', exact: true })
+  const subagentsBefore = await subagents.boundingBox()
+  const explorerScroll = explorer.locator('[data-file-tree-virtualized-scroll="true"]')
+  const scrollBefore = await explorerScroll.evaluate((element) => element.scrollTop)
+  expect(subagentsBefore).not.toBeNull()
+  await subagents.click()
+  await expect(subagents).toHaveAttribute('aria-expanded', 'true')
+  await expect(worktrees).toHaveAttribute('aria-expanded', 'true')
+  await expect(explorer.getByRole('treeitem', { name: 'artifacts', exact: true })).toBeVisible()
+  await expect
+    .poll(() => explorerScroll.evaluate((element) => element.scrollTop))
+    .toBe(scrollBefore)
+  const subagentsAfter = await subagents.boundingBox()
+  expect(subagentsAfter).not.toBeNull()
+  expect(Math.abs(subagentsAfter!.y - subagentsBefore!.y)).toBeLessThanOrEqual(1)
+
+  const refreshExplorer = page.getByRole('button', { name: 'Refresh Explorer' })
+  const emptyChild = join(folder, 'empty', 'now-nonempty.txt')
+  writeFileSync(emptyChild, 'now nonempty\n')
+  await refreshExplorer.click()
+  await expect(empty).toHaveAttribute('aria-expanded', 'false')
+  await expect(empty.locator('[data-item-section="icon"] svg')).toHaveCount(1)
+  await expect(worktrees).toHaveAttribute('aria-expanded', 'true')
+  await expect(subagents).toHaveAttribute('aria-expanded', 'true')
+  await expect
+    .poll(() => explorerScroll.evaluate((element) => element.scrollTop))
+    .toBe(scrollBefore)
+  expect(Math.abs((await subagents.boundingBox())!.y - subagentsBefore!.y)).toBeLessThanOrEqual(1)
+
+  unlinkSync(emptyChild)
+  await refreshExplorer.click()
+  await expect(empty).not.toHaveAttribute('aria-expanded')
+  await expect(empty.locator('[data-item-section="icon"] svg')).toHaveCount(0)
+  await expect(worktrees).toHaveAttribute('aria-expanded', 'true')
+  await expect(subagents).toHaveAttribute('aria-expanded', 'true')
+  await expect
+    .poll(() => explorerScroll.evaluate((element) => element.scrollTop))
+    .toBe(scrollBefore)
+  expect(Math.abs((await subagents.boundingBox())!.y - subagentsBefore!.y)).toBeLessThanOrEqual(1)
+
   const nested = explorer.getByRole('treeitem', { name: 'nested', exact: true })
   await expect(nested).toHaveAttribute('aria-expanded', 'false')
   await nested.focus()
@@ -1844,7 +2028,6 @@ test('ordinary folders open in Explorer and switch back to Git', async ({ page, 
   await expect(nested).toHaveAttribute('aria-expanded', 'true')
   await expect(explorer.getByRole('treeitem', { name: 'child.txt', exact: true })).toBeVisible()
   await expect(nested).toMatchAriaSnapshot('- treeitem "nested" [expanded]')
-  const empty = explorer.getByRole('treeitem', { name: 'empty', exact: true })
   await empty.click()
   await expect(empty).not.toHaveAttribute('aria-expanded')
   await expect(page.getByText('Select a file from Explorer')).toBeVisible()
@@ -1897,6 +2080,9 @@ test('ordinary folders open in Explorer and switch back to Git', async ({ page, 
   await expect(explorer.getByRole('treeitem', { name: 'notes.txt', exact: true })).toBeVisible()
   await page.getByRole('button', { name: 'Open command palette' }).click()
   const ordinaryPalette = page.getByRole('dialog', { name: 'Command palette' })
+  await expect(ordinaryPalette.getByRole('button', { name: 'Include Ignored Files' })).toHaveCount(
+    0,
+  )
   await ordinaryPalette
     .getByRole('combobox', { name: 'Search files and commands' })
     .fill('child.txt')

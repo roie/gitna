@@ -6,6 +6,7 @@ import {
   buildLazyPathReconciliationOperations,
   filterAlreadyAppliedLazyOperations,
   resolveFileTreeContextSelection,
+  settleKnownEmptyDirectory,
 } from '../src/diffshub/components/DiffsHubFileTree'
 
 describe('FileTree multi-selection context menus', () => {
@@ -77,6 +78,30 @@ describe('lazy FileTree child reconciliation', () => {
       path: 'wide-4999/',
       recursive: true,
     })
+  })
+
+  it('settles stale unloaded state for an authoritatively empty directory through Pierre', () => {
+    const attempt = { attemptId: 3, nodeId: 7, reused: false } satisfies FileTreeChildLoadAttempt
+    const beginChildLoad = vi.fn(() => attempt)
+    const applyChildPatch = vi.fn(() => true)
+    const completeChildLoad = vi.fn(() => true)
+    const getDirectoryLoadState = vi.fn(() => 'unloaded')
+    const model = {
+      getItem: vi.fn(() => ({ isDirectory: () => true })),
+      getDirectoryLoadState,
+      beginChildLoad,
+      applyChildPatch,
+      completeChildLoad,
+    } as unknown as FileTree
+
+    expect(settleKnownEmptyDirectory(model, 'empty/')).toBe(true)
+    expect(beginChildLoad).toHaveBeenCalledWith('empty/')
+    expect(applyChildPatch).toHaveBeenCalledWith(attempt, { operations: [] })
+    expect(completeChildLoad).toHaveBeenCalledWith(attempt)
+
+    getDirectoryLoadState.mockReturnValue('loaded')
+    expect(settleKnownEmptyDirectory(model, 'loaded/')).toBe(false)
+    expect(beginChildLoad).toHaveBeenCalledTimes(1)
   })
 
   it('does not mutate applied paths when a stale child attempt resolves after its replacement', () => {

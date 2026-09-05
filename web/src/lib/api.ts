@@ -128,6 +128,7 @@ export interface ApiClient {
   searchFiles(
     query: string,
     options?: {
+      includeIgnored?: boolean
       recentPaths?: readonly string[]
       refresh?: boolean
       signal?: AbortSignal
@@ -272,6 +273,7 @@ export function createApi(): ApiClient {
     async searchFiles(
       query: string,
       options: {
+        includeIgnored?: boolean
         recentPaths?: readonly string[]
         refresh?: boolean
         signal?: AbortSignal
@@ -279,6 +281,7 @@ export function createApi(): ApiClient {
     ): Promise<FileSearchResults> {
       const params = new URLSearchParams({ q: query })
       for (const path of options.recentPaths?.slice(-20) ?? []) params.append('recent', path)
+      if (options.includeIgnored === true) params.set('includeIgnored', '1')
       if (options.refresh === true) params.set('refresh', '1')
       const res = await expectOK(
         await fetch(`api/v1/files/search?${params.toString()}`, {

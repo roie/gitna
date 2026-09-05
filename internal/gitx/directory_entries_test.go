@@ -27,13 +27,14 @@ func TestDirectoryEntriesPagesImmediateChildren(t *testing.T) {
 		t.Fatal(err)
 	}
 	repo := Repository{Root: root}
+	hasNoChildren := false
 	first, err := repo.DirectoryEntries(context.Background(), "", "", 2)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if got, want := first.Entries, []protocol.DirectoryEntry{
 		{Name: "a.txt", Path: "a.txt", Kind: protocol.DirectoryEntryFile},
-		{Name: "folder", Path: "folder/", Kind: protocol.DirectoryEntryDirectory},
+		{Name: "folder", Path: "folder/", Kind: protocol.DirectoryEntryDirectory, HasChildren: &hasNoChildren},
 	}; !reflect.DeepEqual(got, want) {
 		t.Fatalf("first entries = %#v, want %#v", got, want)
 	}
@@ -122,6 +123,75 @@ func BenchmarkDirectoryEntrySelectionMillionWide(b *testing.B) {
 		)
 		if err != nil || len(selected) != 2_001 || maxRetained != 2_001 {
 			b.Fatalf("selected=%d max=%d err=%v", len(selected), maxRetained, err)
+		}
+	}
+}
+
+func TestOpenedDirectoryMatchesValidatedIdentity(t *testing.T) {
+	root := t.TempDir()
+	firstPath := filepath.Join(root, "first")
+	secondPath := filepath.Join(root, "second")
+	if err := os.Mkdir(firstPath, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Mkdir(secondPath, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	validated, err := os.Lstat(firstPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	first, err := os.Open(firstPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer first.Close()
+	second, err := os.Open(secondPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer second.Close()
+
+	if !openedDirectoryMatches(validated, first) {
+		t.Fatal("matching opened directory was rejected")
+	}
+	if openedDirectoryMatches(validated, second) {
+		t.Fatal("replacement directory identity was accepted")
+	}
+}
+
+func TestDirectoryEntriesReportVisibleChildren(t *testing.T) {
+	root := t.TempDir()
+	for _, directory := range []string{"empty", "metadata-only", "nonempty"} {
+		if err := os.Mkdir(filepath.Join(root, directory), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.Mkdir(filepath.Join(root, "metadata-only", ".git"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, filepath.Join(root, "nonempty", "child.txt"), "child")
+	writeFile(t, filepath.Join(root, "root.txt"), "root")
+
+	entries, err := (Repository{Root: root}).DirectoryEntries(t.Context(), "", "", 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	hasChildren := make(map[string]bool, len(entries.Entries))
+	for _, entry := range entries.Entries {
+		if entry.HasChildren != nil {
+			hasChildren[entry.Path] = *entry.HasChildren
+		}
+	}
+	if hasChildren["empty/"] || hasChildren["metadata-only/"] {
+		t.Fatalf("children metadata = %#v, want empty and metadata-only directories to be leaves", hasChildren)
+	}
+	if !hasChildren["nonempty/"] {
+		t.Fatalf("children metadata = %#v, want nonempty directory expandable", hasChildren)
+	}
+	for _, entry := range entries.Entries {
+		if entry.Kind == protocol.DirectoryEntryFile && entry.HasChildren != nil {
+			t.Fatalf("file entry %#v unexpectedly includes child metadata", entry)
 		}
 	}
 }
