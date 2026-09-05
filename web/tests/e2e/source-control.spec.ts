@@ -1974,7 +1974,6 @@ test('ordinary folders open in Explorer and switch back to Git', async ({ page, 
   const empty = explorer.getByRole('treeitem', { name: 'empty', exact: true })
   await expect(empty).not.toHaveAttribute('aria-expanded')
   await expect(empty.locator('[data-item-section="icon"] svg')).toHaveCount(0)
-
   const worktrees = explorer.getByRole('treeitem', { name: '.worktrees', exact: true })
   await worktrees.click()
   await expect(worktrees).toHaveAttribute('aria-expanded', 'true')
@@ -2028,7 +2027,22 @@ test('ordinary folders open in Explorer and switch back to Git', async ({ page, 
   await expect(nested).toHaveAttribute('aria-expanded', 'true')
   await expect(explorer.getByRole('treeitem', { name: 'child.txt', exact: true })).toBeVisible()
   await expect(nested).toMatchAriaSnapshot('- treeitem "nested" [expanded]')
-  await empty.click()
+  // Observe intermediate states too: a final-state assertion misses a flashing chevron.
+  const expansionChanges = await empty.evaluate(async (element) => {
+    let changes = 0
+    const observer = new MutationObserver((records) => {
+      changes += records.length
+    })
+    observer.observe(element, { attributes: true, attributeFilter: ['aria-expanded'] })
+    ;(element as HTMLElement).click()
+    await new Promise<void>((resolve) => {
+      requestAnimationFrame(() => requestAnimationFrame(() => resolve()))
+    })
+    changes += observer.takeRecords().length
+    observer.disconnect()
+    return changes
+  })
+  expect(expansionChanges).toBe(0)
   await expect(empty).not.toHaveAttribute('aria-expanded')
   await expect(page.getByText('Select a file from Explorer')).toBeVisible()
   await expect(page.getByRole('alert')).toHaveCount(0)

@@ -126,6 +126,16 @@ export function applyLazyDirectoryChildren(
   return true;
 }
 
+// Loaded directories (including empty ones) must not re-enter loading on click.
+export function beginLazyDirectoryLoad(
+  model: FileTreeModel,
+  path: string
+): FileTreeChildLoadAttempt | null {
+  const state = model.getDirectoryLoadState(path);
+  if (state !== 'unloaded' && state !== 'error') return null;
+  return model.beginChildLoad(path);
+}
+
 // Supersede stale unloaded/error state through Pierre's child-load lifecycle.
 // The caller supplies only directories authoritatively known to be empty.
 export function settleKnownEmptyDirectory(model: FileTreeModel, path: string): boolean {
@@ -397,7 +407,8 @@ export const DiffsHubFileTree = memo(function DiffsHubFileTree({
     if (lazyDirectories == null || onLoadDirectory == null) return;
     const expanded = new Set<string>();
     const load = (path: string) => {
-      const attempt = model.beginChildLoad(path);
+      const attempt = beginLazyDirectoryLoad(model, path);
+      if (attempt == null) return;
       void onLoadDirectoryRef.current?.(path.replace(/\/$/, ''))
         .then((children) => {
           if (children == null) {

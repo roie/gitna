@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from 'vitest'
 
 import {
   applyLazyDirectoryChildren,
+  beginLazyDirectoryLoad,
   buildLazyPathReconciliationOperations,
   filterAlreadyAppliedLazyOperations,
   resolveFileTreeContextSelection,
@@ -78,6 +79,32 @@ describe('lazy FileTree child reconciliation', () => {
       path: 'wide-4999/',
       recursive: true,
     })
+  })
+
+  it.each(['loaded', 'loading'] as const)(
+    'does not restart a %s directory on expansion',
+    (state) => {
+      const beginChildLoad = vi.fn()
+      const model = {
+        getDirectoryLoadState: vi.fn(() => state),
+        beginChildLoad,
+      } as unknown as FileTree
+
+      expect(beginLazyDirectoryLoad(model, '.agents/')).toBeNull()
+      expect(beginChildLoad).not.toHaveBeenCalled()
+    },
+  )
+
+  it.each(['unloaded', 'error'] as const)('starts a child load for an %s directory', (state) => {
+    const attempt = { attemptId: 1, nodeId: 7, reused: false } satisfies FileTreeChildLoadAttempt
+    const beginChildLoad = vi.fn(() => attempt)
+    const model = {
+      getDirectoryLoadState: vi.fn(() => state),
+      beginChildLoad,
+    } as unknown as FileTree
+
+    expect(beginLazyDirectoryLoad(model, '.agents/')).toBe(attempt)
+    expect(beginChildLoad).toHaveBeenCalledWith('.agents/')
   })
 
   it('settles stale unloaded state for an authoritatively empty directory through Pierre', () => {
