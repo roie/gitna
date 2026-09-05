@@ -76,7 +76,9 @@ async function download(fetchImpl, url, timeout) {
   let lastError
   for (let attempt = 0; attempt < 3; attempt += 1) {
     try {
-      const response = await fetchImpl(url, { signal: AbortSignal.timeout(timeout) })
+      const response = await fetchImpl(url, {
+        signal: AbortSignal.timeout(timeout),
+      })
       if (!response.ok) throw new Error(`Download failed (${response.status}): ${url}`)
       return Buffer.from(await response.arrayBuffer())
     } catch (error) {
@@ -196,7 +198,9 @@ export async function ensureBinary(options = {}) {
         createHash('sha256').update(winner).digest('hex') !==
         createHash('sha256').update(candidate).digest('hex')
       ) {
-        throw new Error('Concurrent Gitna installation produced an unexpected binary', { cause: error })
+        throw new Error('Concurrent Gitna installation produced an unexpected binary', {
+          cause: error,
+        })
       }
     }
   } finally {

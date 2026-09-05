@@ -193,10 +193,15 @@ test('downloads, verifies, and caches the selected binary', async () => {
 test('aborts and retries stalled downloads with a per-attempt deadline', async () => {
   const cacheDir = await mkdtemp(join(tmpdir(), 'gitna-launcher-test-'))
   let attempts = 0
+  /** @type {typeof globalThis.fetch} */
   const fetchImpl = (_url, options) => {
     attempts += 1
+    const signal = options?.signal
+    assert.ok(signal, 'downloads must supply an abort signal')
     return new Promise((_resolve, reject) => {
-      options.signal.addEventListener('abort', () => reject(options.signal.reason), { once: true })
+      signal.addEventListener('abort', () => reject(signal.reason), {
+        once: true,
+      })
     })
   }
   try {
