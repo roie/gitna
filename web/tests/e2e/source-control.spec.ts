@@ -1512,9 +1512,16 @@ test('command palette searches complete paths and runs workbench commands', asyn
     if (url.searchParams.get('q') === 'package.json') await packageSearchGate
     await route.continue()
   })
+  await expect(progressiveFile).toHaveCSS('opacity', '1')
+  const previousResultBackground = await progressiveFile.evaluate(
+    (element) => getComputedStyle(element).backgroundColor,
+  )
   await search.fill('package.json')
   await expect(progressiveFile).toBeVisible()
   await expect(progressiveFile).toHaveAttribute('aria-disabled', 'true')
+  // Keep retained results visually steady while the next search is pending.
+  await expect(progressiveFile).toHaveCSS('opacity', '1')
+  await expect(progressiveFile).toHaveCSS('background-color', previousResultBackground)
   await expect(progressiveHighlights).toHaveText(['ind'])
   await search.press('Enter')
   await expect(palette).toBeVisible()
@@ -1547,6 +1554,7 @@ test('command palette searches complete paths and runs workbench commands', asyn
   await search.fill('failed-search')
   await expect(rootPackage).toBeVisible()
   await expect(rootPackage).toHaveAttribute('aria-disabled', 'true')
+  await expect(rootPackage).toHaveCSS('opacity', '1')
   await expect(palette.getByRole('alert')).toContainText('Could not search files')
   await expect(palette.getByRole('alert')).toContainText('forced search failure')
   await page.waitForTimeout(600)

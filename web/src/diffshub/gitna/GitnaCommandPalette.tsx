@@ -460,9 +460,7 @@ export function GitnaCommandPalette({
             className={cn(
               'flex min-h-10 w-full cursor-pointer items-center gap-3 rounded-md px-3 py-1.5 text-left outline-none hover:bg-muted focus-visible:ring-2 focus-visible:ring-ring',
               index === activeIndex && 'bg-muted',
-              result.kind === 'file' &&
-                result.stale &&
-                'cursor-default opacity-55 hover:bg-transparent',
+              result.kind === 'file' && result.stale && 'cursor-default',
             )}
             onClick={() => execute(result)}
             onPointerMove={() => {
