@@ -174,6 +174,44 @@ func TestPushAndRejectedPush(t *testing.T) {
 	}
 }
 
+func TestPushDetachedDoesNotOfferUpstream(t *testing.T) {
+	h, bare := newRemoteHarness(t)
+	git(t, h.root, "switch", "--detach")
+
+	rec := h.post(server.OpPush, map[string]any{})
+	if rec.Code != http.StatusInternalServerError {
+		t.Fatalf("detached push status = %d, want %d (%s)", rec.Code, http.StatusInternalServerError, rec.Body)
+	}
+	var body map[string]any
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if body["code"] != nil || body["branch"] != nil || body["error"] == nil || body["error"] == "" {
+		t.Fatalf("body = %v, want Git error without a publish offer", body)
+	}
+
+	// Detached HEAD is pushable when Git has an explicit destination.
+	git(t, h.root, "config", "remote.origin.push", "HEAD:refs/heads/detached")
+	if rec := h.post(server.OpPush, map[string]any{}); rec.Code != http.StatusOK {
+		t.Fatalf("configured detached push status = %d (%s)", rec.Code, rec.Body)
+	}
+	if got, want := git(t, bare, "rev-parse", "refs/heads/detached"), git(t, h.root, "rev-parse", "HEAD"); got != want {
+		t.Fatalf("remote detached = %s, want %s", got, want)
+	}
+}
+
+func TestPushSetUpstreamRejectsBlankBranch(t *testing.T) {
+	for _, branch := range []string{"", " \t "} {
+		t.Run(branch, func(t *testing.T) {
+			h, _ := newRemoteHarness(t)
+			rec := h.post(server.OpPushSetUpstream, map[string]any{"name": branch, "remote": "origin"})
+			if rec.Code != http.StatusBadRequest {
+				t.Fatalf("blank branch status = %d, want %d (%s)", rec.Code, http.StatusBadRequest, rec.Body)
+			}
+		})
+	}
+}
+
 func TestPushSetsUpstream(t *testing.T) {
 	h, _ := newRemoteHarness(t)
 	git(t, h.root, "switch", "-q", "-c", "topic")

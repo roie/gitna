@@ -1261,7 +1261,12 @@ function SourceControlHeaderActions({
       await repository.operation({ op: 'push' })
     } catch (error) {
       if (error instanceof ApiError && error.code === 'no-upstream') {
-        setPublishBranch(error.branch ?? repository.snapshot?.headBranch ?? null)
+        const branch = error.branch ?? repository.snapshot?.headBranch
+        if (branch == null || branch.trim() === '') {
+          onError(message(error))
+          return
+        }
+        setPublishBranch(branch)
         if (remotes[0] != null) setPublishRemote(remotes[0])
       } else {
         onError(message(error))
@@ -1271,7 +1276,7 @@ function SourceControlHeaderActions({
 
   const snapshot = repository.snapshot
   const upstream = snapshot?.upstream
-  const unpublished = snapshot?.headBranch != null && upstream == null
+  const unpublished = (snapshot?.headBranch?.trim() ?? '') !== '' && upstream == null
   const syncLabel =
     upstream == null || snapshot == null || (snapshot.ahead === 0 && snapshot.behind === 0)
       ? null
@@ -1546,9 +1551,10 @@ function SourceControlHeaderActions({
             <Button
               variant="outline"
               size="xs"
-              disabled={publishRemote === ''}
+              disabled={publishRemote === '' || publishBranch.trim() === ''}
               onClick={() =>
                 void run(async () => {
+                  if (publishBranch.trim() === '') return
                   await repository.operation({
                     op: 'push-upstream',
                     remote: publishRemote,

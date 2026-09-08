@@ -121,6 +121,37 @@ func TestPushNoUpstream(t *testing.T) {
 	}
 }
 
+func TestPushDetachedPreservesGitError(t *testing.T) {
+	root, _ := initRemoteRepo(t)
+	runGit(t, root, "push", "-u", "origin", "main")
+	runGit(t, root, "switch", "--detach")
+
+	runner := &ExecRunner{}
+	res, err := runner.Run(context.Background(), root, "push", "--porcelain")
+	if err != nil || res.ExitCode == 0 {
+		t.Fatalf("detached git push = %+v, %v, want failed push", res, err)
+	}
+	repo := Repository{Root: root, GitDir: filepath.Join(root, ".git")}
+	err = repo.Push(context.Background(), runner)
+	if err == nil || errors.Is(err, ErrNoUpstream) || err.Error() != opError("push", res).Error() {
+		t.Fatalf("Push = %v, want original Git error %v", err, opError("push", res))
+	}
+}
+
+func TestPushDetachedConfiguredRefspecSucceeds(t *testing.T) {
+	root, bare := initRemoteRepo(t)
+	runGit(t, root, "switch", "--detach")
+	runGit(t, root, "config", "remote.origin.push", "HEAD:refs/heads/detached")
+
+	repo := Repository{Root: root, GitDir: filepath.Join(root, ".git")}
+	if err := repo.Push(context.Background(), &ExecRunner{}); err != nil {
+		t.Fatalf("configured detached Push: %v", err)
+	}
+	if got, want := runGit(t, bare, "rev-parse", "refs/heads/detached"), runGit(t, root, "rev-parse", "HEAD"); got != want {
+		t.Fatalf("remote detached = %s, want %s", got, want)
+	}
+}
+
 func TestPushSetUpstreamThenPush(t *testing.T) {
 	root, _ := initRemoteRepo(t)
 	runGit(t, root, "push", "-u", "origin", "main")

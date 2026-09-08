@@ -76,7 +76,12 @@ func (r Repository) Push(ctx context.Context, runner Runner) error {
 	if res.ExitCode != 0 {
 		upstream, upstreamErr := runner.Run(ctx, r.Root, "rev-parse", "--verify", "--quiet", "@{upstream}")
 		if upstreamErr == nil && upstream.ExitCode != 0 {
-			return ErrNoUpstream
+			// Detached HEAD has no upstream either, but cannot be published as
+			// a local branch. Keep Git's original error in that case.
+			head, headErr := runner.Run(ctx, r.Root, "symbolic-ref", "--quiet", "HEAD")
+			if headErr == nil && head.ExitCode == 0 && strings.HasPrefix(strings.TrimSpace(string(head.Stdout)), "refs/heads/") {
+				return ErrNoUpstream
+			}
 		}
 		if pushWasRejected(res.Stdout) {
 			return ErrPushRejected
