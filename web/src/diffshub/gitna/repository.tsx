@@ -773,15 +773,25 @@ export class GitnaRepository {
     const source = new EventSource('api/v1/events')
     this.eventSource = source
     let refreshFiles = false
-    const scheduleSnapshot = (includeFiles = false) => {
+    let refreshGraph = false
+    const scheduleSnapshot = (includeFiles = false, includeGraph = false) => {
+      if (this.eventSource !== source) return
       refreshFiles ||= includeFiles
+      refreshGraph ||= includeGraph
       if (this.refreshTimer != null) return
       this.refreshTimer = setTimeout(() => {
         this.refreshTimer = null
         const shouldRefreshFiles = refreshFiles
+        const shouldRefreshGraph = refreshGraph
         refreshFiles = false
+        refreshGraph = false
         void Promise.all([
-          this.refreshSnapshot(shouldRefreshFiles ? 'changed' : 'unchanged'),
+          this.refreshSnapshot(shouldRefreshFiles ? 'changed' : 'unchanged').then(() => {
+            // Reconnect may have missed a capability change as well as Git events.
+            if (shouldRefreshGraph && this.eventSource === source && this.snapshot?.repository) {
+              return this.refreshGraph()
+            }
+          }),
           ...(shouldRefreshFiles ? [this.refreshRepositoryFiles()] : []),
         ])
       }, 150)
@@ -789,7 +799,7 @@ export class GitnaRepository {
     let hasConnected = false
     source.addEventListener('open', () => {
       markStartup('sse-ready')
-      if (hasConnected) scheduleSnapshot(true)
+      if (hasConnected) scheduleSnapshot(true, true)
       hasConnected = true
     })
     source.addEventListener('snapshot-invalidated', () => scheduleSnapshot())

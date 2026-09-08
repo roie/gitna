@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { GitnaRepository } from '../src/diffshub/gitna/repository'
 import { ApiError, type ApiClient } from '../src/lib/api'
@@ -481,5 +481,171 @@ describe('GitnaRepository request sequencing', () => {
     expect(repository.snapshot?.root).toBe('/old')
     expect(repository.generation).toBe(99)
     expect(api.snapshot).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe('GitnaRepository event stream reconnect', () => {
+  class TestEventSource {
+    static current: TestEventSource
+    private readonly listeners = new Map<string, Array<() => void>>()
+
+    constructor() {
+      TestEventSource.current = this
+    }
+
+    addEventListener(type: string, listener: () => void) {
+      const listeners = this.listeners.get(type) ?? []
+      listeners.push(listener)
+      this.listeners.set(type, listeners)
+    }
+
+    dispatch(type: string) {
+      for (const listener of this.listeners.get(type) ?? []) listener()
+    }
+
+    close() {}
+  }
+
+  let disconnect: (() => void) | undefined
+
+  beforeEach(() => {
+    vi.useFakeTimers()
+    vi.stubGlobal('EventSource', TestEventSource)
+  })
+
+  afterEach(() => {
+    disconnect?.()
+    disconnect = undefined
+    vi.useRealTimers()
+    vi.unstubAllGlobals()
+  })
+
+  function setup(repositoryBefore = true) {
+    const api = {
+      snapshot: vi.fn().mockResolvedValue(snapshot('/repo', 2)),
+      graph: vi.fn().mockResolvedValue(graphPage('new', 2)),
+      graphCount: vi.fn().mockResolvedValue({ tip: 'new', generation: 2, total: 1 }),
+    } as unknown as ApiClient
+    const repository = new GitnaRepository(api)
+    repository.snapshot = { ...snapshot('/repo', 1), repository: repositoryBefore }
+    repository.generation = 1
+    repository.graphCommits = graphPage('old').commits
+    repository.graphTip = 'old'
+    const filesRefresh = vi.spyOn(repository, 'refreshRepositoryFiles').mockResolvedValue()
+    disconnect = repository.connectEvents()
+    const source = TestEventSource.current
+    source.dispatch('open')
+    return { api, repository, source, filesRefresh }
+  }
+
+  it('recovers changed Git history without graph invalidation and coalesces rapid reconnects', async () => {
+    const { api, repository, source, filesRefresh } = setup()
+    await vi.advanceTimersByTimeAsync(150)
+    expect(api.snapshot).not.toHaveBeenCalled()
+    expect(api.graph).not.toHaveBeenCalled()
+    expect(filesRefresh).not.toHaveBeenCalled()
+
+    source.dispatch('open')
+    source.dispatch('snapshot-invalidated')
+    source.dispatch('files-invalidated')
+    source.dispatch('open')
+    await vi.advanceTimersByTimeAsync(149)
+    expect(api.snapshot).not.toHaveBeenCalled()
+    expect(api.graph).not.toHaveBeenCalled()
+    await vi.advanceTimersByTimeAsync(1)
+
+    expect(api.snapshot).toHaveBeenCalledTimes(1)
+    expect(filesRefresh).toHaveBeenCalledTimes(1)
+    expect(api.graph).toHaveBeenCalledTimes(1)
+    expect(repository.graphCommits.map((commit) => commit.oid)).toEqual(['new'])
+    expect(repository.graphTip).toBe('new')
+    expect(repository.graphGeneration).toBe(2)
+  })
+
+  it.each([
+    [false, false],
+    [false, true],
+    [true, false],
+    [true, true],
+  ])('resolves Git capability after Snapshot catch-up (%s to %s)', async (before, after) => {
+    const { api, source } = setup(before)
+    const catchUp = deferred<RepoSnapshot>()
+    vi.mocked(api.snapshot).mockReturnValue(catchUp.promise)
+
+    source.dispatch('open')
+    await vi.advanceTimersByTimeAsync(150)
+    expect(api.graph).not.toHaveBeenCalled()
+
+    catchUp.resolve({ ...snapshot('/repo', 2), repository: after })
+    await vi.advanceTimersByTimeAsync(0)
+    expect(api.graph).toHaveBeenCalledTimes(after ? 1 : 0)
+  })
+
+  it('keeps newer graph invalidation data when a reconnect response arrives late', async () => {
+    const { api, repository, source } = setup()
+    const catchUp = deferred<GraphPage>()
+    vi.mocked(api.graph).mockReturnValueOnce(catchUp.promise)
+    source.dispatch('open')
+    await vi.advanceTimersByTimeAsync(150)
+    expect(api.graph).toHaveBeenCalledTimes(1)
+
+    source.dispatch('graph-invalidated')
+    await vi.advanceTimersByTimeAsync(150)
+    expect(api.graph).toHaveBeenCalledTimes(2)
+    expect(repository.graphTip).toBe('new')
+
+    catchUp.resolve(graphPage('stale', 1))
+    await vi.advanceTimersByTimeAsync(0)
+    expect(repository.graphTip).toBe('new')
+    expect(repository.graphGeneration).toBe(2)
+    expect(repository.graphLoading).toBe(false)
+  })
+
+  it('cancels pending reconnect work on disconnect', async () => {
+    const { api, source, filesRefresh } = setup()
+    source.dispatch('open')
+    disconnect?.()
+    await vi.advanceTimersByTimeAsync(150)
+
+    expect(api.snapshot).not.toHaveBeenCalled()
+    expect(filesRefresh).not.toHaveBeenCalled()
+    expect(api.graph).not.toHaveBeenCalled()
+  })
+
+  it.each([false, true])(
+    'does not start Graph after disconnect during Snapshot (replacement: %s)',
+    async (replace) => {
+      const { api, repository, source } = setup()
+      const catchUp = deferred<RepoSnapshot>()
+      vi.mocked(api.snapshot).mockReturnValue(catchUp.promise)
+      source.dispatch('open')
+      await vi.advanceTimersByTimeAsync(150)
+      expect(api.snapshot).toHaveBeenCalledTimes(1)
+
+      disconnect?.()
+      if (replace) {
+        disconnect = repository.connectEvents()
+        TestEventSource.current.dispatch('open')
+      }
+      catchUp.resolve(snapshot('/repo', 2))
+      await vi.advanceTimersByTimeAsync(0)
+
+      expect(api.graph).not.toHaveBeenCalled()
+    },
+  )
+
+  it('can recover on a later reconnect after a failed Snapshot', async () => {
+    const { api, repository, source } = setup(false)
+    vi.mocked(api.snapshot).mockRejectedValueOnce(new Error('offline'))
+    source.dispatch('open')
+    await vi.advanceTimersByTimeAsync(150)
+    expect(repository.error).toBe('offline')
+    expect(api.graph).not.toHaveBeenCalled()
+
+    source.dispatch('open')
+    await vi.advanceTimersByTimeAsync(150)
+    expect(repository.error).toBeNull()
+    expect(api.graph).toHaveBeenCalledTimes(1)
+    expect(repository.graphTip).toBe('new')
   })
 })
