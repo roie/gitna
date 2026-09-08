@@ -3168,26 +3168,42 @@ const GraphCommitRow = memo(function GraphCommitRow({
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end">
             <DropdownMenuItem
-              onSelect={() => void repository.operation({ op: 'cherry-pick', ref: row.commit.oid })}
+              onSelect={() =>
+                void repository.operation({ op: 'cherry-pick', ref: row.commit.oid }).catch(() => {
+                  // The store has already published the mutation error.
+                })
+              }
             >
               Cherry-pick
             </DropdownMenuItem>
             <DropdownMenuItem
-              onSelect={() => void repository.operation({ op: 'revert', ref: row.commit.oid })}
+              onSelect={() =>
+                void repository.operation({ op: 'revert', ref: row.commit.oid }).catch(() => {
+                  // The store has already published the mutation error.
+                })
+              }
             >
               Revert
             </DropdownMenuItem>
             <DropdownMenuSeparator />
             <DropdownMenuItem
               onSelect={() =>
-                void repository.operation({ op: 'reset', ref: row.commit.oid, mode: 'soft' })
+                void repository
+                  .operation({ op: 'reset', ref: row.commit.oid, mode: 'soft' })
+                  .catch(() => {
+                    // The store has already published the mutation error.
+                  })
               }
             >
               Reset soft
             </DropdownMenuItem>
             <DropdownMenuItem
               onSelect={() =>
-                void repository.operation({ op: 'reset', ref: row.commit.oid, mode: 'mixed' })
+                void repository
+                  .operation({ op: 'reset', ref: row.commit.oid, mode: 'mixed' })
+                  .catch(() => {
+                    // The store has already published the mutation error.
+                  })
               }
             >
               Reset mixed
@@ -3316,7 +3332,11 @@ function ConflictPanel({ onError }: { onError(error: string | null): void }) {
           <Button
             size="xs"
             variant="outline"
-            onClick={() => void repository.mutate({ op: 'stage', paths: [conflict.path] })}
+            onClick={() =>
+              void repository
+                .mutate({ op: 'stage', paths: [conflict.path] })
+                .catch((error) => onError(message(error)))
+            }
           >
             Stage edited
           </Button>

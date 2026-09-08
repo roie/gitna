@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { ApiError } from '../src/lib/api'
 import { coalesce, createRepoState, reconcileSelection } from '../src/diffshub/gitna/repository'
 import type { ApiClient } from '../src/lib/api'
@@ -9,6 +9,63 @@ import type {
   GraphCommit,
   RepoSnapshot,
 } from '../src/lib/types'
+
+class TestEventSource {
+  static current: TestEventSource | null = null
+  readyState = 0
+  private readonly listeners = new Map<string, Array<() => void>>()
+
+  constructor() {
+    TestEventSource.current = this
+  }
+
+  addEventListener(type: string, listener: () => void): void {
+    this.listeners.set(type, [...(this.listeners.get(type) ?? []), listener])
+  }
+
+  dispatch(type: string): void {
+    if (type === 'open') this.readyState = 1
+    for (const listener of this.listeners.get(type) ?? []) listener()
+  }
+
+  close(): void {
+    this.readyState = 2
+  }
+}
+
+const connectionCleanups: Array<() => void> = []
+
+beforeEach(() => {
+  TestEventSource.current = null
+  connectionCleanups.length = 0
+  vi.stubGlobal('EventSource', TestEventSource)
+})
+
+afterEach(() => {
+  for (const cleanup of connectionCleanups.splice(0).reverse()) cleanup()
+  vi.unstubAllGlobals()
+})
+
+async function admitAction(state: ReturnType<typeof createRepoState>): Promise<void> {
+  const originalDirectoryEntries = state.api.directoryEntries
+  // Some legacy fixtures intentionally return a fixed directory generation;
+  // adapt only the startup catch-up and restore the real method before any
+  // action-specific response is armed.
+  state.api.directoryEntries = async (path, cursor, signal) => ({
+    ...(await originalDirectoryEntries(path, cursor, signal)),
+    generation: state.generation,
+  })
+  const loading = state.refreshCurrentFolder()
+  const cleanup = state.connectEvents()
+  connectionCleanups.push(cleanup)
+  TestEventSource.current?.dispatch('open')
+  try {
+    await loading
+    expect(state.connectionReady).toBe(true)
+  } finally {
+    state.api.directoryEntries = originalDirectoryEntries
+  }
+}
 
 function change(
   scope: ChangeScope,
@@ -823,7 +880,17 @@ describe('createRepoState', () => {
       current: { path: '/tmp/current', name: 'current', repository: true, lastOpened: '' },
       recent: [{ path: '/tmp/current', name: 'current', repository: true, lastOpened: '' }],
     }))
-    const state = createRepoState({ api: { ...auxApi, folders, removeRecentFolder } })
+    const state = createRepoState({
+      api: {
+        ...auxApi,
+        folders,
+        removeRecentFolder,
+        async snapshot() {
+          return snapshot()
+        },
+      },
+    })
+    await admitAction(state)
     state.folders = {
       current: { path: '/tmp/current', name: 'current', repository: true, lastOpened: '' },
       recent: [
@@ -835,7 +902,8 @@ describe('createRepoState', () => {
     await state.removeRecentFolder('/tmp/old')
 
     expect(removeRecentFolder).toHaveBeenCalledWith('/tmp/old')
-    expect(folders).toHaveBeenCalledOnce()
+    // One catalog read establishes readiness; removal refreshes it once more.
+    expect(folders).toHaveBeenCalledTimes(2)
     expect(state.folders.recent.map((folder) => folder.path)).toEqual(['/tmp/current'])
   })
 
@@ -985,10 +1053,16 @@ describe('createRepoState', () => {
 
   it('mutates and refreshes the snapshot afterwards', async () => {
     const mutate = vi.fn(async () => {})
+    let snapshotCalls = 0
     const api: ApiClient = {
       ...auxApi,
       async snapshot() {
-        return snapshot({ generation: 2, unstaged: [change('unstaged', 'x.txt')] })
+        snapshotCalls += 1
+        return snapshot(
+          snapshotCalls === 1
+            ? { generation: 1 }
+            : { generation: 2, unstaged: [change('unstaged', 'x.txt')] },
+        )
       },
       async diff() {
         throw new Error('not used')
@@ -999,11 +1073,14 @@ describe('createRepoState', () => {
       },
     }
     const state = createRepoState({ api })
+    await admitAction(state)
 
     await state.mutate({ op: 'stage', paths: ['x.txt'] })
 
     expect(mutate).toHaveBeenCalledWith({ op: 'stage', paths: ['x.txt'] })
-    await vi.waitFor(() => expect(state.snapshot).not.toBeNull())
+    expect(snapshotCalls).toBe(2)
+    expect(state.snapshot?.generation).toBe(2)
+    expect(state.snapshot?.unstaged[0]?.path).toBe('x.txt')
     expect(state.busy).toBe(false)
   })
 
@@ -1012,16 +1089,19 @@ describe('createRepoState', () => {
     const gate = new Promise<void>((resolve) => {
       release = resolve
     })
+    let snapshotCalls = 0
     const state = createRepoState({
       api: {
         ...auxApi,
         async snapshot() {
-          await gate
-          return snapshot({ generation: 2 })
+          snapshotCalls += 1
+          if (snapshotCalls > 1) await gate
+          return snapshot({ generation: snapshotCalls === 1 ? 1 : 2 })
         },
         async mutate() {},
       },
     })
+    await admitAction(state)
 
     const pending = state.mutate({ op: 'stage', paths: ['x.txt'] })
     await Promise.resolve()
@@ -1029,6 +1109,8 @@ describe('createRepoState', () => {
     expect(state.activeOp).toBe('stage')
     release()
     await pending
+    expect(snapshotCalls).toBe(2)
+    expect(state.snapshot?.generation).toBe(2)
     expect(state.busy).toBe(false)
     expect(state.activeOp).toBeNull()
   })
@@ -1051,6 +1133,7 @@ describe('createRepoState', () => {
         },
       },
     })
+    await admitAction(state)
 
     await expect(state.mutate({ op: 'patch', patch: 'stale' })).rejects.toThrow(
       'patch does not apply',
@@ -1061,10 +1144,16 @@ describe('createRepoState', () => {
 
   it('commits staged changes and refreshes the snapshot', async () => {
     const commit = vi.fn(async () => ({ ok: true }))
+    let snapshotCalls = 0
     const api: ApiClient = {
       ...auxApi,
       async snapshot() {
-        return snapshot({ generation: 2, staged: [change('staged', 'x.txt')] })
+        snapshotCalls += 1
+        return snapshot(
+          snapshotCalls === 1
+            ? { generation: 1 }
+            : { generation: 2, staged: [change('staged', 'x.txt')] },
+        )
       },
       async diff() {
         throw new Error('not used')
@@ -1075,12 +1164,15 @@ describe('createRepoState', () => {
       commit,
     }
     const state = createRepoState({ api })
+    await admitAction(state)
 
     await state.commit('feature work')
 
     expect(commit).toHaveBeenCalledWith({ message: 'feature work', amend: false })
+    expect(snapshotCalls).toBe(2)
+    expect(state.snapshot?.generation).toBe(2)
+    expect(state.snapshot?.staged[0]?.path).toBe('x.txt')
     expect(state.mutationError).toBeNull()
-    await vi.waitFor(() => expect(state.snapshot).not.toBeNull())
     expect(state.busy).toBe(false)
   })
 
@@ -1089,19 +1181,22 @@ describe('createRepoState', () => {
     const gate = new Promise<void>((resolve) => {
       release = resolve
     })
+    let snapshotCalls = 0
     let settled = false
     const state = createRepoState({
       api: {
         ...auxApi,
         async snapshot() {
-          await gate
-          return snapshot({ generation: 2 })
+          snapshotCalls += 1
+          if (snapshotCalls > 1) await gate
+          return snapshot({ generation: snapshotCalls === 1 ? 1 : 2 })
         },
         async commit() {
           return { ok: true }
         },
       },
     })
+    await admitAction(state)
 
     const pending = (async () => {
       await state.commit('wait for snapshot')
@@ -1113,6 +1208,7 @@ describe('createRepoState', () => {
     expect(state.activeOp).toBe('commit')
     release()
     await pending
+    expect(snapshotCalls).toBe(2)
     expect(state.generation).toBe(2)
     expect(settled).toBe(true)
   })
@@ -1134,7 +1230,7 @@ describe('createRepoState', () => {
           return { ok: false, exitCode: 1, stderr: 'policy rejects this commit' }
         },
         async graph() {
-          throw new Error('not used')
+          return { commits: [], hasMore: false, tip: '', generation: 2 }
         },
         async commitFiles() {
           throw new Error('not used')
@@ -1144,6 +1240,7 @@ describe('createRepoState', () => {
         },
       },
     })
+    await admitAction(state)
 
     await expect(state.commit('subject', true)).rejects.toThrow(/policy rejects this commit/)
     expect(state.mutationError).toMatch(/policy rejects this commit/)
@@ -1464,6 +1561,7 @@ describe('branch and sync operations', () => {
       },
     }
     const state = createRepoState({ api })
+    await admitAction(state)
 
     await state.switchBranch('main')
 
@@ -1500,6 +1598,7 @@ describe('branch and sync operations', () => {
       },
     }
     const state = createRepoState({ api })
+    await admitAction(state)
 
     await state.createBranch('topic', 'main')
     await state.fetchRemote()
@@ -1544,6 +1643,7 @@ describe('branch and sync operations', () => {
       },
     }
     const state = createRepoState({ api })
+    await admitAction(state)
 
     await expect(state.pushRemote()).rejects.toMatchObject({ code: 'no-upstream', branch: 'topic' })
     expect(state.mutationError).toMatch(/no upstream/)
@@ -1615,6 +1715,7 @@ describe('stash, tag, compare, and history operations', () => {
       },
     }
     const state = createRepoState({ api })
+    await admitAction(state)
 
     await state.stashPush('wip', true)
     await state.stashApply('stash@{0}')
@@ -1662,6 +1763,7 @@ describe('stash, tag, compare, and history operations', () => {
       },
     }
     const state = createRepoState({ api })
+    await admitAction(state)
 
     await state.createTag('v1', 'HEAD', 'release one')
     await state.deleteTag('v1')
@@ -1749,7 +1851,7 @@ describe('merge, rebase, and conflict operations', () => {
       },
     }
     const state = createRepoState({ api })
-    await state.refreshSnapshot()
+    await admitAction(state)
 
     await state.mergeBranch('feature')
     expect(mutate).toHaveBeenCalledWith({ op: 'merge', name: 'feature' })
@@ -1770,7 +1872,7 @@ describe('merge, rebase, and conflict operations', () => {
       },
     }
     const state = createRepoState({ api })
-    await state.refreshSnapshot()
+    await admitAction(state)
 
     await state.mergeAbort()
     expect(mutate).toHaveBeenCalledWith({ op: 'merge-abort' })
@@ -1791,7 +1893,7 @@ describe('merge, rebase, and conflict operations', () => {
       },
     }
     const state = createRepoState({ api })
-    await state.refreshSnapshot()
+    await admitAction(state)
 
     await state.mergeContinue()
     expect(mutate).toHaveBeenCalledWith({ op: 'merge-continue' })
@@ -1812,7 +1914,7 @@ describe('merge, rebase, and conflict operations', () => {
       },
     }
     const state = createRepoState({ api })
-    await state.refreshSnapshot()
+    await admitAction(state)
 
     await state.rebaseBranch('main')
     expect(mutate).toHaveBeenCalledWith({ op: 'rebase', name: 'main' })
@@ -1833,7 +1935,7 @@ describe('merge, rebase, and conflict operations', () => {
       },
     }
     const state = createRepoState({ api })
-    await state.refreshSnapshot()
+    await admitAction(state)
 
     await state.rebaseAbort()
     expect(mutate).toHaveBeenCalledWith({ op: 'rebase-abort' })
@@ -1854,7 +1956,7 @@ describe('merge, rebase, and conflict operations', () => {
       },
     }
     const state = createRepoState({ api })
-    await state.refreshSnapshot()
+    await admitAction(state)
 
     await state.rebaseContinue()
     expect(mutate).toHaveBeenCalledWith({ op: 'rebase-continue' })
@@ -1875,7 +1977,7 @@ describe('merge, rebase, and conflict operations', () => {
       },
     }
     const state = createRepoState({ api })
-    await state.refreshSnapshot()
+    await admitAction(state)
 
     await state.resolveOurs('a.txt')
     expect(mutate).toHaveBeenCalledWith({ op: 'resolve-ours', paths: ['a.txt'] })
@@ -1902,7 +2004,7 @@ describe('merge, rebase, and conflict operations', () => {
       },
     }
     const state = createRepoState({ api })
-    await state.refreshSnapshot()
+    await admitAction(state)
 
     await state.cherryPickAbort()
     await state.cherryPickContinue()
@@ -2076,7 +2178,7 @@ describe('operation feedback', () => {
         captured = repo.activeOp ?? ''
       }),
     })
-    void repo.refreshSnapshot()
+    await admitAction(repo)
     await repo.mutate({ op: 'stage', paths: ['a.txt'] })
     expect(captured).toBe('stage')
     expect(repo.activeOp).toBeNull()
@@ -2089,7 +2191,7 @@ describe('operation feedback', () => {
         captured = repo.activeOp ?? ''
       }),
     })
-    void repo.refreshSnapshot()
+    await admitAction(repo)
     await repo.fetchRemote()
     expect(captured).toBe('fetch')
     expect(repo.activeOp).toBeNull()
@@ -2101,7 +2203,7 @@ describe('operation feedback', () => {
         throw new Error('boom')
       }),
     })
-    void repo.refreshSnapshot()
+    await admitAction(repo)
     await repo.pushRemote().catch(() => {})
     expect(repo.activeOp).toBeNull()
   })
@@ -2113,7 +2215,7 @@ describe('operation feedback', () => {
         throw timeoutError
       }),
     })
-    void repo.refreshSnapshot()
+    await admitAction(repo)
     await repo.pullRemote().catch(() => {})
     expect(repo.activeOp).toBeNull()
     expect(repo.mutationError).toBe('Operation timed out')
@@ -2134,7 +2236,7 @@ describe('operation feedback', () => {
         },
       } satisfies ApiClient,
     })
-    void repo.refreshSnapshot()
+    await admitAction(repo)
     await repo.commit('test message')
     expect(captured).toBe('commit')
     expect(repo.activeOp).toBeNull()
@@ -2146,7 +2248,7 @@ describe('operation feedback', () => {
         // Label is set during the operation
       }),
     })
-    void repo.refreshSnapshot()
+    await admitAction(repo)
     // Before any operation, label is null
     expect(repo.activeOpLabel).toBeNull()
 
@@ -2163,7 +2265,7 @@ describe('operation feedback', () => {
         wasBusy = repo.busy
       }),
     })
-    void repo.refreshSnapshot()
+    await admitAction(repo)
     await repo.stashPush('test')
     expect(wasBusy).toBe(true)
     expect(repo.busy).toBe(false)

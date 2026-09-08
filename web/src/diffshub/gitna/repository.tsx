@@ -88,6 +88,13 @@ export type ConnectionState =
   | 'unreachable'
   | 'session-error'
 
+export class ActionGuardError extends Error {
+  constructor(message: string) {
+    super(message)
+    this.name = 'ActionGuardError'
+  }
+}
+
 const RECOVERY_DELAYS = [1_000, 2_000, 4_000, 8_000, 15_000]
 const RECOVERY_OUTAGE_NOTICE = 10_000
 
@@ -349,6 +356,35 @@ export class GitnaRepository {
 
   get connectionReady(): boolean {
     return this.connectionState === 'connected'
+  }
+
+  getActionDisabledReason(policy: 'backend' | 'open-folder' = 'backend'): string | null {
+    if (this.disposed) return 'This repository view is closed. Reopen Gitna to continue.'
+    if (this.busy) {
+      const label = this.activeOpLabel
+      return label == null
+        ? 'Another operation is in progress. Wait for it to finish.'
+        : `Another operation is in progress (${label}). Wait for it to finish.`
+    }
+    if (policy === 'open-folder') return null
+    switch (this.connectionState) {
+      case 'connected':
+        return null
+      case 'connecting':
+        return 'Connecting to backend. Wait for connection and refresh to complete.'
+      case 'reconnecting':
+        return 'Backend connection interrupted. Wait for reconnection or refresh to retry.'
+      case 'reconciling':
+        return `Refreshing backend state. Wait for refresh to complete.${
+          this.connectionError == null ? '' : ` ${this.connectionError} Refresh to retry.`
+        }`
+      case 'unreachable':
+        return 'Backend unreachable. Retry the connection or reopen Gitna.'
+      case 'session-error':
+        return `Backend session error. Reopen Gitna using its current URL.${
+          this.connectionError == null ? '' : ` ${this.connectionError}`
+        }`
+    }
   }
 
   get selectedChange(): FileChange | null {
@@ -1931,6 +1967,8 @@ export class GitnaRepository {
   }
 
   async mutate(request: MutateRequest): Promise<void> {
+    const reason = this.getActionDisabledReason()
+    if (reason != null) this.rejectAction(reason)
     this.busy = true
     this.activeOp = request.op
     this.emit()
@@ -2005,7 +2043,15 @@ export class GitnaRepository {
     this.emit()
   }
 
+  private rejectAction(reason: string): never {
+    this.mutationError = reason
+    this.emit()
+    throw new ActionGuardError(reason)
+  }
+
   private async runWorktreeOperation<T>(label: string, run: () => Promise<T>): Promise<T> {
+    const reason = this.getActionDisabledReason()
+    if (reason != null) this.rejectAction(reason)
     this.busy = true
     this.activeOp = label
     this.emit()
@@ -2025,6 +2071,8 @@ export class GitnaRepository {
   }
 
   async operation(request: MutateRequest): Promise<void> {
+    const reason = this.getActionDisabledReason()
+    if (reason != null) this.rejectAction(reason)
     this.busy = true
     this.activeOp = request.op
     this.emit()
@@ -2050,10 +2098,14 @@ export class GitnaRepository {
   }
 
   openFolder(path: string, signal?: AbortSignal): Promise<{ root: string; href: string }> {
+    const reason = this.getActionDisabledReason('open-folder')
+    if (reason != null) return Promise.reject(new ActionGuardError(reason))
     return signal == null ? this.api.openFolder(path) : this.api.openFolder(path, signal)
   }
 
   async removeRecentFolder(path: string): Promise<void> {
+    const reason = this.getActionDisabledReason()
+    if (reason != null) throw new ActionGuardError(reason)
     await this.api.removeRecentFolder(path)
     if (this.folders != null) {
       this.folders = {
@@ -2066,6 +2118,8 @@ export class GitnaRepository {
   }
 
   revealFolder(): Promise<void> {
+    const reason = this.getActionDisabledReason()
+    if (reason != null) return Promise.reject(new ActionGuardError(reason))
     return this.api.revealFolder()
   }
 
@@ -2190,6 +2244,8 @@ export class GitnaRepository {
   }
 
   async commit(message: string, amend = false): Promise<void> {
+    const reason = this.getActionDisabledReason()
+    if (reason != null) this.rejectAction(reason)
     this.busy = true
     this.activeOp = 'commit'
     this.emit()
