@@ -40,9 +40,10 @@ type Runner interface {
 // ExecRunner invokes a Git executable directly with exec.CommandContext.
 // Arguments are passed verbatim; no shell is involved. Repository-routing Git
 // variables are removed from the inherited environment so the selected folder
-// remains authoritative. GIT_TERMINAL_PROMPT and GIT_OPTIONAL_LOCKS default to
-// 0 so prompts cannot hang the server and snapshot reads do not contend with
-// mutations for optional index refresh locks.
+// remains authoritative. Inherited runtime configuration is also removed;
+// ordinary Git configuration files still apply. GIT_TERMINAL_PROMPT and
+// GIT_OPTIONAL_LOCKS default to 0 so prompts cannot hang the server and snapshot
+// reads do not contend with mutations for optional index refresh locks.
 type ExecRunner struct {
 	// Exec is the git binary. Empty means "git" from PATH. Overridable for
 	// tests.
@@ -222,6 +223,19 @@ func (r *ExecRunner) environment() []string {
 	for _, key := range repositoryRoutingEnv {
 		env = filterKey(env, key)
 	}
+	// Runtime config belongs to the invoking Git command, not this runner.
+	// Match case-insensitively, as with repository-routing variables above.
+	filtered := make([]string, 0, len(env))
+	for _, kv := range env {
+		key, _, _ := strings.Cut(kv, "=")
+		key = strings.ToUpper(key)
+		if key == "GIT_CONFIG_COUNT" || key == "GIT_CONFIG_PARAMETERS" ||
+			strings.HasPrefix(key, "GIT_CONFIG_KEY_") || strings.HasPrefix(key, "GIT_CONFIG_VALUE_") {
+			continue
+		}
+		filtered = append(filtered, kv)
+	}
+	env = filtered
 	// Snapshot reads can overlap mutations; prevent optional index refreshes
 	// from taking index.lock.
 	env = envWith(env, "GIT_TERMINAL_PROMPT=0", "GIT_OPTIONAL_LOCKS=0")

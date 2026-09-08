@@ -7,6 +7,7 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -158,6 +159,120 @@ func TestRunNULScrubsInheritedRoutingEnvironmentAndAllowsExplicitOverride(t *tes
 		}
 		if got[key] != want {
 			t.Fatalf("%s = %q, want %q", key, got[key], want)
+		}
+	}
+}
+
+// runtimeConfigEnvs exercises both formats Git accepts for inherited -c config.
+func runtimeConfigEnvs(root string) map[string][]string {
+	return map[string][]string{
+		"count": {
+			"GIT_CONFIG_COUNT=1",
+			"GIT_CONFIG_KEY_0=core.worktree",
+			"GIT_CONFIG_VALUE_0=" + root,
+		},
+		"parameters": {
+			"GIT_CONFIG_PARAMETERS='core.worktree=" + strings.ReplaceAll(root, "'", "'\\''") + "'",
+		},
+	}
+}
+
+func setRuntimeConfigEnv(t *testing.T, env []string) {
+	t.Helper()
+	for _, kv := range env {
+		key, value, _ := strings.Cut(kv, "=")
+		t.Setenv(key, value)
+	}
+}
+
+func TestExecRunnerIsolatesInheritedRuntimeConfig(t *testing.T) {
+	root := initTestRepo(t)
+	other := t.TempDir()
+	for dir, name := range map[string]string{root: "selected.txt", other: "redirected.txt"} {
+		if err := os.WriteFile(filepath.Join(dir, name), []byte(name), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for channel, env := range runtimeConfigEnvs(other) {
+		t.Run(channel, func(t *testing.T) {
+			setRuntimeConfigEnv(t, env)
+			for _, method := range []string{"Run", "RunInput", "RunNUL"} {
+				t.Run(method, func(t *testing.T) {
+					for _, tc := range []struct {
+						name string
+						args []string
+						env  []string
+						want string
+						exit int
+					}{
+						{name: "selected-files", args: []string{"ls-files", "--others", "--exclude-standard", "--full-name", "-z"}, want: "selected.txt\x00"},
+						{name: "inherited-config-removed", args: []string{"config", "--null", "--get", "core.worktree"}, exit: 1},
+						{name: "explicit-config-preserved", args: []string{"config", "--null", "--get", "core.worktree"}, env: runtimeConfigEnvs(root)[channel], want: root + "\x00"},
+					} {
+						t.Run(tc.name, func(t *testing.T) {
+							r := &ExecRunner{Env: tc.env}
+							args := tc.args
+							var res Result
+							var err error
+							var got string
+							switch method {
+							case "Run":
+								res, err = r.Run(t.Context(), root, args...)
+								got = string(res.Stdout)
+							case "RunInput":
+								res, err = r.RunInput(t.Context(), root, []byte{}, args...)
+								got = string(res.Stdout)
+							case "RunNUL":
+								res, err = r.RunNUL(t.Context(), root, func(record []byte) error {
+									got += string(record) + "\x00"
+									return nil
+								}, args...)
+							}
+							if err != nil || res.ExitCode != tc.exit || got != tc.want {
+								t.Fatalf("output = %q, want %q; exit = %d, want %d; stderr = %q, err = %v", got, tc.want, res.ExitCode, tc.exit, res.Stderr, err)
+							}
+						})
+					}
+				})
+			}
+		})
+	}
+}
+
+func TestExecRunnerEnvironmentScrubsRuntimeConfigCaseInsensitively(t *testing.T) {
+	removed := []string{"git_config_count", "Git_Config_Parameters", "git_config_key_0", "Git_Config_Value_0", "GIT_CONFIG_KEY_99", "GIT_CONFIG_VALUE_99"}
+	preserved := []string{"GIT_CONFIG_GLOBAL", "GIT_CONFIG_SYSTEM", "GIT_CONFIG_NOSYSTEM", "HOME", "GIT_AUTHOR_NAME"}
+	for _, key := range append(append([]string{}, removed...), preserved...) {
+		t.Setenv(key, "sentinel")
+	}
+	env := (&ExecRunner{}).environment()
+	for _, kv := range env {
+		key, _, _ := strings.Cut(kv, "=")
+		for _, unwanted := range removed {
+			if strings.EqualFold(key, unwanted) {
+				t.Errorf("inherited runtime config survived: %s", kv)
+			}
+		}
+	}
+	for _, key := range preserved {
+		if !contains(env, key+"=sentinel") {
+			t.Errorf("ordinary environment variable removed: %s", key)
+		}
+	}
+}
+
+func TestExecRunnerPreservesOrdinaryGitConfig(t *testing.T) {
+	root := initTestRepo(t)
+	runGit(t, root, "config", "gitna.local", "local-value")
+	global := filepath.Join(t.TempDir(), "global.config")
+	if err := os.WriteFile(global, []byte("[gitna]\n\tglobal = global-value\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("GIT_CONFIG_GLOBAL", global)
+	for key, want := range map[string]string{"gitna.local": "local-value", "gitna.global": "global-value", "gitna.command": "command-value"} {
+		res, err := (&ExecRunner{}).Run(t.Context(), root, "-c", "gitna.command=command-value", "config", "--get", key)
+		if err != nil || res.ExitCode != 0 || strings.TrimSpace(string(res.Stdout)) != want {
+			t.Fatalf("config %s: result = %+v, err = %v, want %q", key, res, err, want)
 		}
 	}
 }

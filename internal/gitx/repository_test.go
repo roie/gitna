@@ -66,6 +66,33 @@ func TestDiscoverFromRepoRoot(t *testing.T) {
 	}
 }
 
+func TestDiscoverAndOpenFolderIgnoreInheritedRuntimeConfig(t *testing.T) {
+	root := initTestRepo(t)
+	nested := filepath.Join(root, "nested")
+	if err := os.Mkdir(nested, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	for channel, env := range runtimeConfigEnvs(t.TempDir()) {
+		t.Run(channel, func(t *testing.T) {
+			setRuntimeConfigEnv(t, env)
+			for name, open := range map[string]func(context.Context, Runner, string) (Repository, error){
+				"Discover": Discover, "OpenFolder": OpenFolder,
+			} {
+				t.Run(name, func(t *testing.T) {
+					repo, err := open(t.Context(), &ExecRunner{}, nested)
+					if err != nil {
+						t.Fatal(err)
+					}
+					want := Repository{Root: root, GitDir: filepath.Join(root, ".git"), CommonDir: filepath.Join(root, ".git")}
+					if repo != want {
+						t.Fatalf("repository = %+v, want %+v", repo, want)
+					}
+				})
+			}
+		})
+	}
+}
+
 func TestDiscoverLinkedWorktreeRetainsCommonGitDirectory(t *testing.T) {
 	root := initTestRepo(t)
 	linked := filepath.Join(t.TempDir(), "linked")
