@@ -502,7 +502,18 @@ func (w *Repository) loop(ctx context.Context) {
 				if structuralDirs == nil {
 					structuralDirs = make(map[string]struct{})
 				}
-				structuralDirs[filepath.Dir(filepath.Clean(ev.Name))] = struct{}{}
+				name := filepath.Clean(ev.Name)
+				structuralDirs[filepath.Dir(name)] = struct{}{}
+				// Replacing a directory can change every descendant while its
+				// parent's child names/types stay unchanged. Retain the cheap
+				// signature comparison only for regular-file atomic saves.
+				w.mu.Lock()
+				_, knownDirectory := w.directorySignatures[name]
+				w.mu.Unlock()
+				info, err := os.Lstat(name)
+				if knownDirectory || (err == nil && info.IsDir()) {
+					mark(InvalidateFiles)
+				}
 			}
 			if ev.Op&fsnotify.Create != 0 {
 				if info, err := os.Stat(ev.Name); err == nil && info.IsDir() && w.shouldWatchDir(ev.Name) {

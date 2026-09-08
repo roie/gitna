@@ -149,6 +149,55 @@ func TestFolderSessionSearchReusesIndexesForContentAndRefs(t *testing.T) {
 	}
 }
 
+func TestFolderSessionSearchInvalidatesSamePathDirectoryReplacement(t *testing.T) {
+	for _, repository := range []bool{false, true} {
+		name := "ordinary"
+		if repository {
+			name = "repository"
+		}
+		t.Run(name, func(t *testing.T) {
+			parent := t.TempDir()
+			root := filepath.Join(parent, "root")
+			if repository {
+				root = initSessionRepository(t, parent, "root")
+			}
+			sub := filepath.Join(root, "sub")
+			replacement := filepath.Join(parent, "replacement")
+			for directory, filename := range map[string]string{sub: "old.txt", replacement: "new.txt"} {
+				if err := os.MkdirAll(directory, 0o755); err != nil {
+					t.Fatal(err)
+				}
+				if err := os.WriteFile(filepath.Join(directory, filename), []byte("content"), 0o600); err != nil {
+					t.Fatal(err)
+				}
+			}
+			s := newSearchTestSession(t, root)
+			results := waitForFolderSearch(t, s.adapter, ".txt", nil, 100)
+			if len(results.Results) != 1 || results.Results[0].Path != "sub/old.txt" {
+				t.Fatalf("initial search = %+v", results)
+			}
+			previous := searchIndexPath(s.adapter)
+
+			// Both renames stay on the same filesystem and within one debounce
+			// window: the root's immediate child names and types are unchanged.
+			if err := os.Rename(sub, filepath.Join(parent, "retired")); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.Rename(replacement, sub); err != nil {
+				t.Fatal(err)
+			}
+			seen := sessionSearchEvents(t, s)
+			results = waitForFolderSearch(t, s.adapter, ".txt", nil, 100)
+			if len(results.Results) != 1 || results.Results[0].Path != "sub/new.txt" {
+				t.Fatalf("search after replacement = %+v; events = %v", results, seen)
+			}
+			if !seen[watch.InvalidateFiles] || searchIndexPath(s.adapter) == previous {
+				t.Fatalf("replacement retained index; events = %v", seen)
+			}
+		})
+	}
+}
+
 func TestFolderSessionSearchInvalidatesMembershipAndIgnoreMetadata(t *testing.T) {
 	root := initSessionRepository(t, t.TempDir(), "repo")
 	write := func(path, content string) {
