@@ -3,6 +3,7 @@ package gitx
 import (
 	"context"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -118,6 +119,99 @@ func TestHistoryParsesRefs(t *testing.T) {
 	}
 	if len(featureWork.Refs) != 1 || featureWork.Refs[0] != (protocol.CommitRef{Name: "feature", Kind: protocol.RefKindLocalBranch}) {
 		t.Fatalf("feature refs = %+v, want [feature local-branch]", featureWork.Refs)
+	}
+}
+
+func TestParseRefsPreservesCommas(t *testing.T) {
+	for _, tt := range []struct {
+		name       string
+		decoration string
+		want       []protocol.CommitRef
+	}{
+		{
+			name:       "HEAD branch",
+			decoration: "HEAD -> refs/heads/feature,one",
+			want:       []protocol.CommitRef{{Name: "feature,one", Kind: protocol.RefKindHead}},
+		},
+		{
+			name:       "local branch",
+			decoration: "refs/heads/feature,one",
+			want:       []protocol.CommitRef{{Name: "feature,one", Kind: protocol.RefKindLocalBranch}},
+		},
+		{
+			name:       "remote branch",
+			decoration: "refs/remotes/origin/feature,one",
+			want:       []protocol.CommitRef{{Name: "origin/feature,one", Kind: protocol.RefKindRemoteBranch}},
+		},
+		{
+			name:       "tag",
+			decoration: "tag: refs/tags/v1,one",
+			want:       []protocol.CommitRef{{Name: "v1,one", Kind: protocol.RefKindTag}},
+		},
+		{
+			name:       "multiple decorations",
+			decoration: "HEAD -> refs/heads/feature,one, tag: refs/tags/v1,one, refs/remotes/origin/feature,one, refs/heads/other,one",
+			want: []protocol.CommitRef{
+				{Name: "feature,one", Kind: protocol.RefKindHead},
+				{Name: "v1,one", Kind: protocol.RefKindTag},
+				{Name: "origin/feature,one", Kind: protocol.RefKindRemoteBranch},
+				{Name: "other,one", Kind: protocol.RefKindLocalBranch},
+			},
+		},
+		{
+			name:       "trailing commas",
+			decoration: "HEAD -> refs/heads/feature,, tag: refs/tags/v1,",
+			want: []protocol.CommitRef{
+				{Name: "feature,", Kind: protocol.RefKindHead},
+				{Name: "v1,", Kind: protocol.RefKindTag},
+			},
+		},
+		{
+			name:       "consecutive commas",
+			decoration: "refs/remotes/origin/feature,,one, refs/heads/,other,,",
+			want: []protocol.CommitRef{
+				{Name: "origin/feature,,one", Kind: protocol.RefKindRemoteBranch},
+				{Name: ",other,,", Kind: protocol.RefKindLocalBranch},
+			},
+		},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := parseRefs(tt.decoration); !slices.Equal(got, tt.want) {
+				t.Fatalf("parseRefs(%q) = %+v, want %+v", tt.decoration, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestHistoryPreservesCommasInRefs(t *testing.T) {
+	root := initTestRepo(t)
+	runGit(t, root, "branch", "-m", "feature,,")
+	runGit(t, root, "branch", ",other,")
+	runGit(t, root, "tag", "v1,,one,")
+	runGit(t, root, "update-ref", "refs/remotes/origin/feature,,one,", "HEAD")
+	repo, runner := historyDiscover(t, root)
+
+	commits, err := repo.History(context.Background(), runner, 0, 1)
+	if err != nil {
+		t.Fatalf("History: %v", err)
+	}
+	if len(commits) != 1 {
+		t.Fatalf("got %d commits, want 1", len(commits))
+	}
+	want := []protocol.CommitRef{
+		{Name: "feature,,", Kind: protocol.RefKindHead},
+		{Name: ",other,", Kind: protocol.RefKindLocalBranch},
+		{Name: "v1,,one,", Kind: protocol.RefKindTag},
+		{Name: "origin/feature,,one,", Kind: protocol.RefKindRemoteBranch},
+	}
+	got := commits[0].Refs
+	if len(got) != len(want) {
+		t.Fatalf("refs = %+v, want %+v", got, want)
+	}
+	for _, ref := range want {
+		if !slices.Contains(got, ref) {
+			t.Errorf("refs = %+v, missing %+v", got, ref)
+		}
 	}
 }
 

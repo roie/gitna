@@ -118,12 +118,13 @@ func ParseLog(raw []byte) ([]protocol.GraphCommit, error) {
 }
 
 // parseRefs parses a --decorate=full decoration string into typed refs. The
-// format is a comma-separated list such as
+// format is a comma-space-separated list such as
 // "HEAD -> refs/heads/main, tag: refs/tags/v1.0, refs/remotes/origin/main".
-// Ref name prefixes are stripped so the browser renders friendly labels.
+// Ref names can contain commas but not spaces, so only comma-space separates
+// decorations. Ref name prefixes are stripped for friendly browser labels.
 func parseRefs(decoration string) []protocol.CommitRef {
 	refs := make([]protocol.CommitRef, 0)
-	for _, part := range strings.Split(decoration, ",") {
+	for _, part := range strings.Split(decoration, ", ") {
 		part = strings.TrimSpace(part)
 		switch {
 		case part == "":
