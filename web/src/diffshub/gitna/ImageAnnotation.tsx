@@ -67,7 +67,7 @@ export function ImageAnnotation({
     <>
       <div
         className={cn(
-          'gitna-scrollbar flex min-w-0 items-center justify-center overflow-auto overscroll-contain',
+          'gitna-scrollbar flex min-w-0 items-center justify-center overflow-auto',
           fill && 'h-[calc(100dvh-6rem)] p-6',
         )}
       >

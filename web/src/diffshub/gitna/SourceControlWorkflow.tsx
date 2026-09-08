@@ -290,7 +290,7 @@ function filterRepositoryPaths(
 function createTreeSource(files: readonly TreeFile[]): DiffsHubFileTreeSource {
   const byPath = new Map<string, TreeFile>()
   for (const file of files) byPath.set(file.path, file)
-  const paths = [...byPath.keys()]
+  const paths = [...byPath.keys()].sort()
   const statuses: GitStatusEntry[] = paths.map((path) => ({
     path,
     status: gitStatus(byPath.get(path)!.kind),
