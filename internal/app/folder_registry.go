@@ -68,6 +68,8 @@ type folderRegistry struct {
 	resolveFolder func(context.Context, string) (gitx.Repository, error)
 	newWatcher    folderWatcherFactory
 	closing       atomic.Bool
+	closeOnce     sync.Once
+	closeErr      error
 
 	mu           sync.RWMutex
 	byRoot       map[string]string
@@ -352,13 +354,18 @@ func (r *folderRegistry) ensureActive(
 			err = errFolderRegistryClosed
 		}
 		refreshPending := entry.refreshPending
+		entry.mu.Unlock()
+		if err != nil && session != nil {
+			// Keep shutdown waiting on the transition until an unpublished
+			// backend's worker and event consumer have both exited.
+			_ = session.close()
+			srv.WaitEvents()
+		}
+		entry.mu.Lock()
 		entry.transition = nil
 		close(transition)
 		entry.mu.Unlock()
 		if err != nil {
-			if session != nil {
-				_ = session.close()
-			}
 			return err
 		}
 		if refreshPending {
@@ -576,9 +583,12 @@ func (r *folderRegistry) ServeHTTP(w http.ResponseWriter, request *http.Request)
 }
 
 func (r *folderRegistry) close() error {
-	if !r.closing.CompareAndSwap(false, true) {
-		return nil
-	}
+	r.closeOnce.Do(func() { r.closeErr = r.shutdown() })
+	return r.closeErr
+}
+
+func (r *folderRegistry) shutdown() error {
+	r.closing.Store(true)
 	r.mu.RLock()
 	entries := make([]*folderRoute, 0, len(r.byRoute))
 	for _, entry := range r.byRoute {
@@ -599,29 +609,45 @@ func (r *folderRegistry) close() error {
 	}
 	backends := make([]routeBackend, 0, len(entries))
 	var firstErr error
+	// Stop ready backends before waiting for a retirement transition: that
+	// transition may itself be draining a disconnected caller's mutation.
+	var transitioning []*folderRoute
+	stopBackend := func(backend routeBackend) {
+		if backend.session != nil {
+			if err := backend.session.stop(); err != nil && firstErr == nil {
+				firstErr = err
+			}
+		}
+		backends = append(backends, backend)
+	}
 	for _, entry := range entries {
+		entry.mu.Lock()
+		backend := routeBackend{entry: entry, session: entry.session, server: entry.server}
+		transition := entry.transition
+		entry.mu.Unlock()
+		if transition != nil {
+			transitioning = append(transitioning, entry)
+			continue
+		}
+		stopBackend(backend)
+	}
+	for _, entry := range transitioning {
 		for {
 			entry.mu.Lock()
-			if entry.transition == nil {
-				backend := routeBackend{entry: entry, session: entry.session, server: entry.server}
-				entry.mu.Unlock()
-				// Closing the watcher closes the route's event source. SSE handlers
-				// then return and release their request references, while mutations
-				// already using the adapter are allowed to finish.
-				if backend.session != nil {
-					if err := backend.session.close(); err != nil && firstErr == nil {
-						firstErr = err
-					}
-				}
-				backends = append(backends, backend)
+			transition := entry.transition
+			backend := routeBackend{entry: entry, session: entry.session, server: entry.server}
+			entry.mu.Unlock()
+			if transition == nil {
+				stopBackend(backend)
 				break
 			}
-			transition := entry.transition
-			entry.mu.Unlock()
 			<-transition
 		}
 	}
 	for _, backend := range backends {
+		if backend.session != nil {
+			_ = backend.session.close()
+		}
 		backend.entry.requests.Wait()
 		if backend.server != nil {
 			backend.server.WaitEvents()

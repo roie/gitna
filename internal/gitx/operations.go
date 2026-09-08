@@ -10,8 +10,11 @@ import (
 // interleave Git operations. Jobs run in FIFO order; work whose context is
 // cancelled while still queued is skipped rather than executed.
 type MutationQueue struct {
-	queue chan *queueJob
-	once  sync.Once
+	queue     chan *queueJob
+	admission sync.RWMutex
+	stopping  chan struct{}
+	done      chan struct{}
+	once      sync.Once
 }
 
 type queueJob struct {
@@ -20,14 +23,40 @@ type queueJob struct {
 	done chan error
 }
 
-// NewMutationQueue starts a queue that executes jobs one at a time.
+// NewMutationQueue starts a queue that executes jobs one at a time. Its owner
+// must Stop and Wait before releasing or replacing the repository backend.
 func NewMutationQueue() *MutationQueue {
-	q := &MutationQueue{queue: make(chan *queueJob, 64)}
+	q := &MutationQueue{
+		queue:    make(chan *queueJob, 64),
+		stopping: make(chan struct{}),
+		done:     make(chan struct{}),
+	}
 	go q.run()
 	return q
 }
 
+// ErrMutationQueueClosed is returned when a mutation is submitted after admission stops.
+var ErrMutationQueueClosed = errors.New("gitx: mutation queue closed")
+
+// Stop ends admission without interrupting accepted work. In-flight submissions
+// may be accepted until Stop returns. Blocked submissions wake even if the queue
+// is full and its running mutation cannot yet finish.
+func (q *MutationQueue) Stop() {
+	q.once.Do(func() {
+		close(q.stopping)
+		q.admission.Lock()
+		close(q.queue)
+		q.admission.Unlock()
+	})
+}
+
+// Wait waits for the worker to drain accepted work and exit after Stop.
+func (q *MutationQueue) Wait() {
+	<-q.done
+}
+
 func (q *MutationQueue) run() {
+	defer close(q.done)
 	for j := range q.queue {
 		if err := j.ctx.Err(); err != nil {
 			j.done <- err
@@ -51,7 +80,7 @@ func (q *MutationQueue) run() {
 // is cancelled before the job starts, fn does not run and ctx.Err() is
 // returned. If the caller gives up while a job is running, the job still
 // finishes (mutations are never left half-applied) but the caller sees
-// ctx.Err().
+// ctx.Err(). Submissions after Stop return ErrMutationQueueClosed.
 func (q *MutationQueue) Do(ctx context.Context, fn func(context.Context) error) error {
 	select {
 	case <-ctx.Done():
@@ -59,16 +88,32 @@ func (q *MutationQueue) Do(ctx context.Context, fn func(context.Context) error) 
 	default:
 	}
 	j := &queueJob{ctx: ctx, fn: fn, done: make(chan error, 1)}
-	select {
-	case q.queue <- j:
-	case <-ctx.Done():
-		return ctx.Err()
+	if err := q.enqueue(j); err != nil {
+		return err
 	}
 	select {
 	case err := <-j.done:
 		return err
 	case <-ctx.Done():
 		return ctx.Err()
+	}
+}
+
+func (q *MutationQueue) enqueue(j *queueJob) error {
+	q.admission.RLock()
+	defer q.admission.RUnlock()
+	select {
+	case <-q.stopping:
+		return ErrMutationQueueClosed
+	default:
+	}
+	select {
+	case q.queue <- j:
+		return nil
+	case <-q.stopping:
+		return ErrMutationQueueClosed
+	case <-j.ctx.Done():
+		return j.ctx.Err()
 	}
 }
 

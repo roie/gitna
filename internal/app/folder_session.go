@@ -360,8 +360,11 @@ func (s *folderSession) revealFolder(context.Context) error {
 	return browser.Reveal(s.adapter.current().Root)
 }
 
-func (s *folderSession) close() error {
+// stop closes admission and the event source before waiting for mutations, so
+// global shutdown can disconnect every route's SSE handlers before draining.
+func (s *folderSession) stop() error {
 	s.closeOnce.Do(func() {
+		s.adapter.queue.Stop()
 		s.refreshMu.Lock()
 		s.mu.Lock()
 		s.closed = true
@@ -388,4 +391,10 @@ func (s *folderSession) close() error {
 		close(s.events)
 	})
 	return s.closeErr
+}
+
+func (s *folderSession) close() error {
+	err := s.stop()
+	s.adapter.queue.Wait()
+	return err
 }

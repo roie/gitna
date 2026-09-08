@@ -89,15 +89,26 @@ func (s *fakeDormancyScheduler) after(delay time.Duration, fn func()) dormancyTi
 
 func (s *fakeDormancyScheduler) fireNext(t *testing.T) {
 	t.Helper()
+	if !s.nextTimer(t).fire() {
+		t.Fatal("dormancy timer was cancelled before firing")
+	}
+}
+
+func (s *fakeDormancyScheduler) nextTimer(t *testing.T) *fakeDormancyTimer {
+	t.Helper()
 	s.mu.Lock()
 	timers := append([]*fakeDormancyTimer(nil), s.timers...)
 	s.mu.Unlock()
 	for _, timer := range timers {
-		if timer.fire() {
-			return
+		timer.mu.Lock()
+		active := !timer.stopped && !timer.fired
+		timer.mu.Unlock()
+		if active {
+			return timer
 		}
 	}
 	t.Fatal("no active dormancy timer")
+	return nil
 }
 
 func (s *fakeDormancyScheduler) active() int {
@@ -833,5 +844,258 @@ func TestFolderRegistryShutdownCancelsDormancyAndRejectsRevival(t *testing.T) {
 	registry.ServeHTTP(response, request)
 	if response.Code != http.StatusServiceUnavailable {
 		t.Fatalf("status after shutdown = %d, want 503", response.Code)
+	}
+}
+
+func TestFolderRegistryRetirementWaitsForCancelledCallerMutation(t *testing.T) {
+	registry, scheduler := newLifecycleRegistry(t, true)
+	defer registry.close()
+	entry := registry.byRoute[registry.initialRoute]
+	for range 3 {
+		session, release, err := registry.acquire(t.Context(), entry)
+		if err != nil {
+			t.Fatal(err)
+		}
+		entry.mu.Lock()
+		srv := entry.server
+		entry.mu.Unlock()
+		ctx, cancel := context.WithCancel(t.Context())
+		started := make(chan struct{})
+		finish := make(chan struct{})
+		var finishOnce sync.Once
+		unblock := func() { finishOnce.Do(func() { close(finish) }) }
+		defer unblock()
+		returned := make(chan error, 1)
+		go func() {
+			returned <- session.adapter.queue.Do(ctx, func(context.Context) error {
+				close(started)
+				<-finish
+				return nil
+			})
+		}()
+		<-started
+		cancel()
+		if err := <-returned; !errors.Is(err, context.Canceled) {
+			t.Fatalf("cancelled caller: %v", err)
+		}
+		release()
+		retired := make(chan struct{})
+		timer := scheduler.nextTimer(t)
+		go func() { timer.fire(); close(retired) }()
+		// Event source closure proves retirement reached session teardown.
+		srv.WaitEvents()
+		select {
+		case <-retired:
+			t.Fatal("retirement finished while the old mutation was still running")
+		case <-time.After(20 * time.Millisecond):
+		}
+		// Activation must wait on the retirement transition, not replace its queue.
+		activationCtx, stopActivation := context.WithCancel(t.Context())
+		stopActivation()
+		if err := registry.ensureActive(activationCtx, entry, nil); !errors.Is(err, context.Canceled) {
+			t.Fatalf("activation during drain = %v, want cancellation", err)
+		}
+		unblock()
+		select {
+		case <-retired:
+		case <-time.After(5 * time.Second):
+			t.Fatal("retirement did not finish after mutation")
+		}
+		assertSnapshotRoot(t, registry, "/"+registry.initialRoute+"/api/v1/snapshot", entry.root)
+		entry.mu.Lock()
+		replacement := entry.session
+		entry.mu.Unlock()
+		if replacement == session {
+			t.Fatal("retirement did not replace the backend")
+		}
+	}
+}
+
+func TestFolderRegistryCancelledHTTPMutationBlocksReplacementQueue(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("test uses a POSIX Git hook")
+	}
+	registry, scheduler := newLifecycleRegistry(t, true)
+	defer registry.close()
+	entry := registry.byRoute[registry.initialRoute]
+	oldSession, oldServer := entry.session, entry.server
+	root := entry.root
+	for _, args := range [][]string{
+		{"config", "user.email", "test@example.com"},
+		{"config", "user.name", "Gitna Test"},
+	} {
+		if output, err := exec.Command("git", append([]string{"-C", root}, args...)...).CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v: %s", args, err, output)
+		}
+	}
+	for _, name := range []string{"first.txt", "second.txt"} {
+		if err := os.WriteFile(filepath.Join(root, name), []byte(name), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if output, err := exec.Command("git", "-C", root, "add", "first.txt").CombinedOutput(); err != nil {
+		t.Fatalf("git add: %v: %s", err, output)
+	}
+	started := filepath.Join(root, "hook-started")
+	releaseHook := filepath.Join(root, "hook-release")
+	hook := "#!/bin/sh\ntouch '" + started + "'\nwhile [ ! -f '" + releaseHook + "' ]; do sleep 0.01; done\n"
+	if err := os.WriteFile(filepath.Join(root, ".git", "hooks", "pre-commit"), []byte(hook), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	// Always release Git before the deferred registry drain, including failures.
+	defer func() { _ = os.WriteFile(releaseHook, nil, 0o644) }()
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	responseDone := make(chan struct{})
+	go func() {
+		request := httptest.NewRequest(http.MethodPost,
+			"/"+registry.initialRoute+"/api/v1/operations?op=commit",
+			bytes.NewBufferString(`{"message":"detached mutation"}`)).WithContext(ctx)
+		registry.ServeHTTP(httptest.NewRecorder(), request)
+		close(responseDone)
+	}()
+	deadline := time.Now().Add(5 * time.Second)
+	for !fileExists(started) && time.Now().Before(deadline) {
+		time.Sleep(time.Millisecond)
+	}
+	if !fileExists(started) {
+		t.Fatal("commit hook did not start")
+	}
+	cancel()
+	select {
+	case <-responseDone:
+	case <-time.After(5 * time.Second):
+		t.Fatal("cancelled HTTP handler did not return")
+	}
+	if scheduler.active() != 1 {
+		t.Fatal("cancelled HTTP request did not release its dormancy lease")
+	}
+	retired := make(chan struct{})
+	timer := scheduler.nextTimer(t)
+	go func() { timer.fire(); close(retired) }()
+	oldServer.WaitEvents()
+	secondDone := make(chan int, 1)
+	go func() {
+		request := httptest.NewRequest(http.MethodPost,
+			"/"+registry.initialRoute+"/api/v1/operations?op=stage",
+			bytes.NewBufferString(`{"paths":["second.txt"]}`))
+		response := httptest.NewRecorder()
+		registry.ServeHTTP(response, request)
+		secondDone <- response.Code
+	}()
+	select {
+	case status := <-secondDone:
+		t.Fatalf("replacement mutation returned %d before old Git operation finished", status)
+	case <-retired:
+		t.Fatal("session retired before old Git operation finished")
+	case <-time.After(30 * time.Millisecond):
+	}
+	entry.mu.Lock()
+	waiting := entry.transition != nil && entry.session == nil
+	entry.mu.Unlock()
+	if !waiting {
+		t.Fatal("retirement did not retain the activation barrier")
+	}
+	if err := os.WriteFile(releaseHook, nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case status := <-secondDone:
+		if status != http.StatusOK {
+			t.Fatalf("replacement stage status = %d", status)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("replacement mutation did not finish after drain")
+	}
+	<-retired
+	oldSession.adapter.queue.Wait()
+	if output, err := exec.Command("git", "-C", root, "show", "HEAD:first.txt").CombinedOutput(); err != nil || string(output) != "first.txt" {
+		t.Fatalf("detached commit did not finish: %v: %s", err, output)
+	}
+	if output, err := exec.Command("git", "-C", root, "diff", "--cached", "--name-only").CombinedOutput(); err != nil || strings.TrimSpace(string(output)) != "second.txt" {
+		t.Fatalf("replacement stage did not follow commit: %v: %s", err, output)
+	}
+}
+
+func TestFolderRegistryConcurrentShutdownDrainsDetachedMutationAfterEvents(t *testing.T) {
+	for _, retiring := range []bool{false, true} {
+		name := "active"
+		if retiring {
+			name = "retiring"
+		}
+		t.Run(name, func(t *testing.T) {
+			registry, scheduler := newLifecycleRegistry(t, true)
+			defer registry.close()
+			entry := registry.byRoute[registry.initialRoute]
+			session, release, err := registry.acquire(t.Context(), entry)
+			if err != nil {
+				t.Fatal(err)
+			}
+			// A second route's hub must close even while the first is draining.
+			otherRoot := t.TempDir()
+			result, err := registry.openFolder(t.Context(), otherRoot)
+			if err != nil {
+				t.Fatal(err)
+			}
+			other := registry.byRoute[strings.TrimSuffix(strings.TrimPrefix(result.Href, "../"), "/")]
+			if err := registry.ensureActive(t.Context(), other, nil); err != nil {
+				t.Fatal(err)
+			}
+			otherServer := other.server
+			ctx, cancel := context.WithCancel(t.Context())
+			defer cancel()
+			started := make(chan struct{})
+			finish := make(chan struct{})
+			var finishOnce sync.Once
+			unblock := func() { finishOnce.Do(func() { close(finish) }) }
+			defer unblock()
+			returned := make(chan error, 1)
+			go func() {
+				returned <- session.adapter.queue.Do(ctx, func(context.Context) error {
+					close(started)
+					<-finish
+					return nil
+				})
+			}()
+			<-started
+			cancel()
+			<-returned
+			release()
+			if retiring {
+				srv := entry.server
+				timer := scheduler.nextTimer(t)
+				go timer.fire()
+				srv.WaitEvents()
+			}
+			const callers = 8
+			closed := make(chan error, callers)
+			for range callers {
+				go func() { closed <- registry.close() }()
+			}
+			eventsClosed := make(chan struct{})
+			go func() { otherServer.WaitEvents(); close(eventsClosed) }()
+			select {
+			case <-eventsClosed:
+			case <-time.After(5 * time.Second):
+				t.Fatal("shutdown waited for mutations before closing other event hubs")
+			}
+			select {
+			case err := <-closed:
+				t.Fatalf("concurrent shutdown returned before mutation drained: %v", err)
+			case <-time.After(20 * time.Millisecond):
+			}
+			unblock()
+			for range callers {
+				select {
+				case err := <-closed:
+					if err != nil {
+						t.Fatal(err)
+					}
+				case <-time.After(5 * time.Second):
+					t.Fatal("concurrent shutdown did not finish")
+				}
+			}
+			session.adapter.queue.Wait()
+		})
 	}
 }
