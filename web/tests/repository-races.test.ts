@@ -430,9 +430,25 @@ describe('GitnaRepository request sequencing', () => {
 
     vi.useFakeTimers()
     vi.stubGlobal('EventSource', TestEventSource)
-    const repository = new GitnaRepository({} as ApiClient)
-    const snapshotRefresh = vi.spyOn(repository, 'refreshSnapshot').mockResolvedValue()
-    const filesRefresh = vi.spyOn(repository, 'refreshRepositoryFiles').mockResolvedValue()
+    const api = {
+      snapshot: vi.fn().mockResolvedValue(snapshot('/repo', 2)),
+      directoryEntries: vi
+        .fn()
+        .mockResolvedValue({ directory: '', entries: [], generation: 2, truncated: false }),
+      repositoryFileCount: vi.fn().mockRejectedValue(new Error('auxiliary count unavailable')),
+      graph: vi.fn().mockResolvedValue({ commits: [], tip: '', hasMore: false, generation: 2 }),
+      branches: vi.fn().mockResolvedValue([]),
+      remotes: vi.fn().mockResolvedValue([]),
+      stashes: vi.fn().mockResolvedValue([]),
+      tags: vi.fn().mockResolvedValue([]),
+    } as unknown as ApiClient
+    const repository = new GitnaRepository(api)
+    repository.snapshot = snapshot('/repo', 1)
+    repository.generation = 1
+    repository.repositoryFileTotal = 12
+    repository.repositoryFileTotalGeneration = 1
+    const snapshotRefresh = api.snapshot
+    const filesRefresh = api.directoryEntries
     const disconnect = repository.connectEvents()
 
     TestEventSource.current?.dispatch('open')
@@ -442,8 +458,11 @@ describe('GitnaRepository request sequencing', () => {
 
     TestEventSource.current?.dispatch('open')
     await vi.advanceTimersByTimeAsync(150)
-    expect(snapshotRefresh).toHaveBeenCalledWith('changed')
+    expect(snapshotRefresh).toHaveBeenCalledTimes(1)
     expect(filesRefresh).toHaveBeenCalledTimes(1)
+    expect(repository.repositoryFileTotal).toBe(12)
+    expect(repository.repositoryFileTotalGeneration).toBe(1)
+    expect(repository.connectionReady).toBe(true)
 
     disconnect()
     vi.useRealTimers()
@@ -525,13 +544,21 @@ describe('GitnaRepository event stream reconnect', () => {
       snapshot: vi.fn().mockResolvedValue(snapshot('/repo', 2)),
       graph: vi.fn().mockResolvedValue(graphPage('new', 2)),
       graphCount: vi.fn().mockResolvedValue({ tip: 'new', generation: 2, total: 1 }),
+      directoryEntries: vi
+        .fn()
+        .mockResolvedValue({ directory: '', entries: [], generation: 2, truncated: false }),
+      repositoryFileCount: vi.fn().mockResolvedValue({ generation: 2, total: 12 }),
+      branches: vi.fn().mockResolvedValue([]),
+      remotes: vi.fn().mockResolvedValue([]),
+      stashes: vi.fn().mockResolvedValue([]),
+      tags: vi.fn().mockResolvedValue([]),
     } as unknown as ApiClient
     const repository = new GitnaRepository(api)
     repository.snapshot = { ...snapshot('/repo', 1), repository: repositoryBefore }
     repository.generation = 1
     repository.graphCommits = graphPage('old').commits
     repository.graphTip = 'old'
-    const filesRefresh = vi.spyOn(repository, 'refreshRepositoryFiles').mockResolvedValue()
+    const filesRefresh = api.directoryEntries
     disconnect = repository.connectEvents()
     const source = TestEventSource.current
     source.dispatch('open')

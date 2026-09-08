@@ -61,6 +61,36 @@ export interface RepositoryFileComparison {
 
 type FileMembershipRefresh = 'unknown' | 'unchanged' | 'changed'
 
+export type ReadResult = 'succeeded' | 'failed' | 'obsolete'
+type ReconciliationOutcome = {
+  result: ReadResult
+  failure: string | null
+  source: string | null
+  sessionError: boolean
+  authoritative: boolean
+}
+
+function reconciliationOutcome(
+  result: ReadResult,
+  failure: string | null = null,
+  source: string | null = null,
+  sessionError = false,
+  authoritative = true,
+): ReconciliationOutcome {
+  return { result, failure, source, sessionError, authoritative }
+}
+
+export type ConnectionState =
+  | 'connecting'
+  | 'connected'
+  | 'reconnecting'
+  | 'reconciling'
+  | 'unreachable'
+  | 'session-error'
+
+const RECOVERY_DELAYS = [1_000, 2_000, 4_000, 8_000, 15_000]
+const RECOVERY_OUTAGE_NOTICE = 10_000
+
 function strongerFileMembershipRefresh(
   current: FileMembershipRefresh,
   next: FileMembershipRefresh,
@@ -68,6 +98,13 @@ function strongerFileMembershipRefresh(
   if (current === 'changed' || next === 'changed') return 'changed'
   if (current === 'unchanged' || next === 'unchanged') return 'unchanged'
   return 'unknown'
+}
+
+type ReconciliationIntent = {
+  probeOnly: boolean
+  fileMembership: FileMembershipRefresh
+  includeExplorer: boolean
+  includeGit: boolean
 }
 
 const OP_LABELS: Record<string, string> = {
@@ -180,6 +217,9 @@ export class GitnaRepository {
   loading = false
   error: string | null = null
   mutationError: string | null = null
+  connectionState: ConnectionState = 'connecting'
+  connectionError: string | null = null
+  connectionLastSuccessAt: number | null = null
   busy = false
   activeOp: string | null = null
   generation = 0
@@ -259,11 +299,30 @@ export class GitnaRepository {
   private version = 0
   private readonly listeners = new Set<() => void>()
   private eventSource: EventSource | null = null
-  private refreshPromise: Promise<void> | null = null
+  private refreshPromise: Promise<ReconciliationOutcome> | null = null
   private refreshAgain = false
   private pendingFileMembershipRefresh: FileMembershipRefresh = 'unknown'
   private refreshTimer: ReturnType<typeof setTimeout> | null = null
   private repositoryEpoch = 0
+  private initialRefreshStarted = false
+  private initialRefreshPromise: Promise<ReconciliationOutcome> | null = null
+  private initialRefreshResult: ReconciliationOutcome | null = null
+  private sourceOpen = false
+  private sourceHasOpened = false
+  private readinessEpoch: number | null = null
+  private graphInvalidation: Promise<ReconciliationOutcome> | null = null
+  private reconciliationPromise: Promise<ReconciliationOutcome> | null = null
+  private reconciliationEpoch = 0
+  private unresolvedReconciliationFailure: string | null = null
+  private pendingReconciliation: ReconciliationIntent | null = null
+  private recoveryTimer: ReturnType<typeof setTimeout> | null = null
+  private recoveryStartedAt: number | null = null
+  private recoveryNoticeAt: number | null = null
+  private recoveryNoticeDelivered = false
+  private recoveryTransportLost = false
+  private recoveryAttempt = 0
+  private retryDueAt: number | null = null
+  private disposed = false
   private folderRequest = 0
   private graphRequest = 0
   private graphCountRequest = 0
@@ -273,6 +332,7 @@ export class GitnaRepository {
   private branchesRequest = 0
   private stashesRequest = 0
   private tagsRequest = 0
+  private gitDetailEpoch = 0
   private compareRequest = 0
   private conflictsRequest = 0
   private repositoryFilesGeneration = 0
@@ -285,6 +345,10 @@ export class GitnaRepository {
 
   get activeOpLabel(): string | null {
     return this.activeOp == null ? null : (OP_LABELS[this.activeOp] ?? this.activeOp)
+  }
+
+  get connectionReady(): boolean {
+    return this.connectionState === 'connected'
   }
 
   get selectedChange(): FileChange | null {
@@ -303,7 +367,13 @@ export class GitnaRepository {
     for (const listener of this.listeners) listener()
   }
 
-  async refreshSnapshot(fileMembership: FileMembershipRefresh = 'unknown'): Promise<void> {
+  async refreshSnapshot(fileMembership: FileMembershipRefresh = 'unknown'): Promise<ReadResult> {
+    return (await this.readSnapshot(fileMembership)).result
+  }
+
+  private async readSnapshot(
+    fileMembership: FileMembershipRefresh = 'unknown',
+  ): Promise<ReconciliationOutcome> {
     this.refreshAgain = true
     this.pendingFileMembershipRefresh = strongerFileMembershipRefresh(
       this.pendingFileMembershipRefresh,
@@ -311,8 +381,11 @@ export class GitnaRepository {
     )
     if (this.refreshPromise != null) return this.refreshPromise
 
-    this.refreshPromise = (async () => {
+    const operationEpoch = this.repositoryEpoch
+    const operation = (async (): Promise<ReconciliationOutcome> => {
+      let result = reconciliationOutcome('obsolete')
       while (this.refreshAgain) {
+        if (operationEpoch !== this.repositoryEpoch) return reconciliationOutcome('obsolete')
         this.refreshAgain = false
         const requestedFileMembershipRefresh = this.pendingFileMembershipRefresh
         this.pendingFileMembershipRefresh = 'unknown'
@@ -321,79 +394,112 @@ export class GitnaRepository {
         this.emit()
         const epoch = this.repositoryEpoch
         try {
-          const snapshot = await this.api.snapshot()
-          if (epoch !== this.repositoryEpoch || snapshot.generation <= this.generation) continue
-          const previousGeneration = this.generation
-          this.generation = snapshot.generation
-          this.snapshot = snapshot
-          const effectiveFileMembershipRefresh = strongerFileMembershipRefresh(
-            requestedFileMembershipRefresh,
-            this.pendingFileMembershipRefresh,
-          )
-          this.pendingFileMembershipRefresh = 'unknown'
-          if (
-            effectiveFileMembershipRefresh === 'unchanged' &&
-            this.repositoryFileTotalGeneration === previousGeneration
-          ) {
-            this.repositoryFileTotalGeneration = snapshot.generation
+          const next = await this.api.snapshot()
+          if (epoch !== this.repositoryEpoch || operationEpoch !== this.repositoryEpoch) {
+            return reconciliationOutcome('obsolete')
           }
-          this.selection = reconcileSelection(this.selection, snapshot.staged, snapshot.unstaged)
-          this.conflictsRequest += 1
-          this.conflicts =
-            snapshot.operation === 'merge' ||
-            snapshot.operation === 'rebase' ||
-            snapshot.operation === 'cherry-pick' ||
-            snapshot.operation === 'revert'
-              ? (snapshot.conflicts ?? [])
-              : []
-          this.conflictsLoading = false
-          this.conflictsError = null
+          if (next.generation < this.generation) {
+            result = reconciliationOutcome('obsolete')
+            continue
+          }
+          const previousGeneration = this.generation
+          if (next.generation > this.generation) {
+            this.generation = next.generation
+            this.snapshot = next
+            const effectiveFileMembershipRefresh = strongerFileMembershipRefresh(
+              requestedFileMembershipRefresh,
+              this.pendingFileMembershipRefresh,
+            )
+            if (
+              effectiveFileMembershipRefresh === 'unchanged' &&
+              this.repositoryFileTotalGeneration === previousGeneration
+            ) {
+              this.repositoryFileTotalGeneration = next.generation
+            }
+            this.selection = reconcileSelection(this.selection, next.staged, next.unstaged)
+            this.conflictsRequest += 1
+            this.conflictsLoading = false
+            this.conflictsError = null
+            this.conflicts =
+              next.operation === 'merge' ||
+              next.operation === 'rebase' ||
+              next.operation === 'cherry-pick' ||
+              next.operation === 'revert'
+                ? (next.conflicts ?? [])
+                : []
+          }
+          this.pendingFileMembershipRefresh = 'unknown'
+          this.error = null
+          if (next.repository !== true) this.clearGitState()
+          result = reconciliationOutcome('succeeded')
           markStartup('snapshot-ready')
           markStartup('source-control-ready')
         } catch (error) {
-          if (epoch === this.repositoryEpoch) this.error = errorMessage(error)
+          if (epoch === this.repositoryEpoch && operationEpoch === this.repositoryEpoch) {
+            this.error = errorMessage(error)
+            result = reconciliationOutcome(
+              'failed',
+              errorMessage(error),
+              'snapshot',
+              error instanceof ApiError && (error.status === 403 || error.status === 404),
+            )
+          } else return reconciliationOutcome('obsolete')
         } finally {
-          if (epoch === this.repositoryEpoch) {
+          if (epoch === this.repositoryEpoch && operationEpoch === this.repositoryEpoch) {
             this.loading = false
             this.emit()
           }
         }
       }
+      return result
     })()
+    this.refreshPromise = operation
 
     try {
-      await this.refreshPromise
+      return await operation
     } finally {
-      this.refreshPromise = null
+      if (this.refreshPromise === operation) this.refreshPromise = null
     }
   }
 
-  async refreshFolders(): Promise<void> {
+  async refreshFolders(operationEpoch = this.repositoryEpoch): Promise<void> {
     const request = ++this.folderRequest
     this.foldersLoading = true
     this.foldersError = null
     this.emit()
     try {
       const folders = await this.api.folders()
-      if (request !== this.folderRequest) return
+      if (request !== this.folderRequest || operationEpoch !== this.repositoryEpoch) return
       this.folders = folders
     } catch (error) {
-      if (request === this.folderRequest) this.foldersError = errorMessage(error)
+      if (request === this.folderRequest && operationEpoch === this.repositoryEpoch)
+        this.foldersError = errorMessage(error)
     } finally {
-      if (request === this.folderRequest) {
+      if (request === this.folderRequest && operationEpoch === this.repositoryEpoch) {
         this.foldersLoading = false
         this.emit()
       }
     }
   }
 
-  async refreshRepositoryFiles(): Promise<void> {
-    await this.refreshOrdinaryDirectories()
-    if (this.snapshot?.repository === true) await this.refreshRepositoryFileCount()
-    else {
+  async refreshRepositoryFiles(operationEpoch = this.repositoryEpoch): Promise<ReadResult> {
+    return (await this.readRepositoryFiles(operationEpoch)).result
+  }
+
+  private async readRepositoryFiles(
+    operationEpoch = this.repositoryEpoch,
+  ): Promise<ReconciliationOutcome> {
+    const directories = await this.refreshOrdinaryDirectories(operationEpoch)
+    if (operationEpoch !== this.repositoryEpoch) return reconciliationOutcome('obsolete')
+    if (directories.result !== 'succeeded') return directories
+    if (this.snapshot?.repository === true) {
+      await this.refreshRepositoryFileCount()
+      if (operationEpoch !== this.repositoryEpoch) return reconciliationOutcome('obsolete')
+    } else {
       this.repositoryFileTotal = null
       this.repositoryFileTotalGeneration = 0
     }
+    return reconciliationOutcome('succeeded')
   }
 
   async refreshRepositoryFileCount(): Promise<void> {
@@ -444,7 +550,9 @@ export class GitnaRepository {
   async loadOrdinaryDirectory(
     directory: string,
     refresh = false,
+    operationEpoch = this.repositoryEpoch,
   ): Promise<readonly string[] | null> {
+    if (operationEpoch !== this.repositoryEpoch) return null
     const key = directory.replace(/\/$/, '')
     const existing = this.ordinaryDirectoryRequests.get(key)
     if (!refresh) {
@@ -457,6 +565,7 @@ export class GitnaRepository {
       } catch {
         // A requested refresh supersedes the failed in-flight listing.
       }
+      if (operationEpoch !== this.repositoryEpoch) return null
       const refreshing = this.ordinaryDirectoryRequests.get(key)
       if (refreshing != null) return refreshing
     }
@@ -476,6 +585,7 @@ export class GitnaRepository {
     key: string,
     cursor: string | undefined,
   ): Promise<readonly string[] | null> {
+    const epoch = this.repositoryEpoch
     const controller = new AbortController()
     this.ordinaryDirectoryControllers.set(key, controller)
     const operation = (async (): Promise<readonly string[] | null> => {
@@ -554,9 +664,11 @@ export class GitnaRepository {
         if (this.ordinaryDirectoryControllers.get(key) === controller) {
           this.ordinaryDirectoryControllers.delete(key)
           this.ordinaryDirectoryRequests.delete(key)
+          if (epoch === this.repositoryEpoch) {
+            this.repositoryFilesLoading = this.ordinaryDirectoryRequests.size > 0
+            this.emit()
+          }
         }
-        this.repositoryFilesLoading = this.ordinaryDirectoryRequests.size > 0
-        this.emit()
       }
     })()
     this.ordinaryDirectoryRequests.set(key, operation)
@@ -696,10 +808,13 @@ export class GitnaRepository {
     await this.refreshRepositoryFiles()
   }
 
-  private async refreshOrdinaryDirectories(): Promise<void> {
+  private async refreshOrdinaryDirectories(
+    operationEpoch = this.repositoryEpoch,
+  ): Promise<ReconciliationOutcome> {
     const loadedDirectories =
       this.ordinaryDirectoryChildren.size === 0 ? [''] : [...this.ordinaryDirectoryChildren.keys()]
     const directoriesByDepth = new Map<number, string[]>()
+    let result = reconciliationOutcome('succeeded')
     for (const directory of loadedDirectories) {
       const depth = directory === '' ? 0 : directory.split('/').length
       const directories = directoriesByDepth.get(depth) ?? []
@@ -708,6 +823,7 @@ export class GitnaRepository {
     }
 
     for (const depth of [...directoriesByDepth.keys()].sort((left, right) => left - right)) {
+      if (operationEpoch !== this.repositoryEpoch) return reconciliationOutcome('obsolete')
       const directories = (directoriesByDepth.get(depth) ?? [])
         .filter((directory) => directory === '' || this.ordinaryDirectoryChildren.has(directory))
         .sort((left, right) => left.localeCompare(right))
@@ -723,59 +839,509 @@ export class GitnaRepository {
             // turn its now-obsolete child request into a Repository-wide error.
             if (directory !== '' && !this.ordinaryDirectoryChildren.has(directory)) continue
             try {
-              await this.loadOrdinaryDirectory(directory, true)
-            } catch {
-              // Individual directory errors are retained beside stale children;
-              // other loaded directories at this depth still receive their
-              // bounded refresh.
+              const refreshed = await this.loadOrdinaryDirectory(directory, true, operationEpoch)
+              if (operationEpoch !== this.repositoryEpoch) return
+              if (
+                refreshed == null &&
+                (directory === '' || this.ordinaryDirectoryChildren.has(directory)) &&
+                result.result !== 'failed'
+              ) {
+                result = reconciliationOutcome('obsolete')
+              }
+            } catch (error) {
+              if (operationEpoch !== this.repositoryEpoch) return
+              // Individual directory errors remain authoritative failures even
+              // when another loaded directory refreshes successfully.
+              result = reconciliationOutcome(
+                'failed',
+                errorMessage(error),
+                `directory:${directory}`,
+              )
             }
           }
         }),
       )
     }
+    return result
   }
 
-  private async reconcileInitialGenerations(): Promise<void> {
+  private async reconcileInitialGenerations(
+    operationEpoch = this.repositoryEpoch,
+  ): Promise<ReconciliationOutcome> {
     for (let attempt = 0; attempt < 3; attempt += 1) {
-      if (this.snapshot == null || this.error != null || this.repositoryFilesError != null) return
-      if (this.generation === this.repositoryFilesGeneration) return
+      if (operationEpoch !== this.repositoryEpoch) return reconciliationOutcome('obsolete')
+      if (this.snapshot == null) return reconciliationOutcome('obsolete')
+      if (this.generation === this.repositoryFilesGeneration)
+        return reconciliationOutcome('succeeded')
       if (this.generation > this.repositoryFilesGeneration) {
-        await this.refreshRepositoryFiles()
+        const result = await this.readRepositoryFiles(operationEpoch)
+        if (result.result !== 'succeeded') return result
       } else {
-        await this.refreshSnapshot()
+        const result = await this.readSnapshot()
+        if (result.result !== 'succeeded') return result
       }
     }
-    if (
-      this.snapshot != null &&
-      this.generation !== this.repositoryFilesGeneration &&
-      this.error == null &&
-      this.repositoryFilesError == null
-    ) {
+    if (operationEpoch !== this.repositoryEpoch) return reconciliationOutcome('obsolete')
+    if (this.snapshot != null && this.generation !== this.repositoryFilesGeneration) {
       this.repositoryFilesError =
         'Folder changed while initial data was loading. Refresh to try again.'
       this.emit()
+      return reconciliationOutcome('failed', this.repositoryFilesError, 'generation')
+    }
+    return reconciliationOutcome('succeeded')
+  }
+
+  private setConnectionState(state: ConnectionState, error: string | null = null): void {
+    this.connectionState = state
+    this.connectionError = error
+    this.emit()
+  }
+
+  private invalidateReadWork(): void {
+    this.repositoryEpoch += 1
+    this.readinessEpoch = null
+    this.graphInvalidation = null
+    this.refreshAgain = false
+    this.pendingFileMembershipRefresh = 'unknown'
+    this.refreshPromise = null
+    this.initialRefreshResult = null
+    this.initialRefreshPromise = null
+    this.folderRequest += 1
+    this.foldersLoading = false
+    this.foldersError = null
+    this.loading = false
+    this.error = null
+    this.invalidateGitLoading()
+    this.repositoryFilesLoading = false
+    this.repositoryFilesError = null
+    this.ordinaryDirectoryErrors.clear()
+    this.repositoryFileCountLoading = false
+    this.ordinarySearchRequest += 1
+    this.ordinarySearchLoading = false
+    this.ordinarySearchError = null
+    this.graphRequest += 1
+    this.graphCountRequest += 1
+    this.branchesRequest += 1
+    this.stashesRequest += 1
+    this.tagsRequest += 1
+    this.repositoryFileCountRequest += 1
+    this.graphController?.abort()
+    this.graphCountController?.abort()
+    this.repositoryFileCountController?.abort()
+    for (const controller of this.ordinaryDirectoryControllers.values()) controller.abort()
+    this.ordinarySearchController?.abort()
+  }
+
+  private invalidateGitLoading(): void {
+    this.gitDetailEpoch += 1
+    this.compareRequest += 1
+    this.conflictsRequest += 1
+    this.filesLoading = {}
+    this.filesError = {}
+    this.graphLoading = false
+    this.graphCountLoading = false
+    this.branchesLoading = false
+    this.stashesLoading = false
+    this.tagsLoading = false
+    this.compareLoading = false
+    this.conflictsLoading = false
+    this.graphError = null
+    this.branchesError = null
+    this.stashesError = null
+    this.tagsError = null
+    this.compareError = null
+    this.conflictsError = null
+  }
+
+  private clearGitState(): void {
+    this.invalidateGitLoading()
+    this.graphGeneration = 0
+    this.graphCountCache.clear()
+    this.repositoryFileCountRequest += 1
+    this.repositoryFileCountController?.abort()
+    this.repositoryFileCountLoading = false
+    this.repositoryFileTotal = null
+    this.repositoryFileTotalGeneration = 0
+    this.expanded = {}
+    this.commitFiles = {}
+    this.commitStats = {}
+    this.commitDiff = null
+    this.compare = null
+    this.compareFiles = []
+    this.compareDiff = null
+    this.selection = null
+    this.graphRequest += 1
+    this.graphCountRequest += 1
+    this.branchesRequest += 1
+    this.stashesRequest += 1
+    this.tagsRequest += 1
+    this.graphController?.abort()
+    this.graphCountController?.abort()
+    this.graphCommits = []
+    this.graphRows = []
+    this.graphError = null
+    this.graphHasMore = false
+    this.graphTip = ''
+    this.graphTotal = null
+    this.branches = []
+    this.remotes = []
+    this.branchesError = null
+    this.stashes = []
+    this.stashesError = null
+    this.tags = []
+    this.tagsError = null
+    this.conflicts = []
+    this.conflictsError = null
+  }
+
+  private async performReconciliation(
+    operationEpoch: number,
+    intent: ReconciliationIntent,
+  ): Promise<ReconciliationOutcome> {
+    if (operationEpoch !== this.repositoryEpoch) return reconciliationOutcome('obsolete')
+    this.setConnectionState(
+      this.sourceOpen
+        ? 'reconciling'
+        : this.recoveryNoticeDelivered
+          ? 'unreachable'
+          : this.sourceHasOpened
+            ? 'reconnecting'
+            : 'connecting',
+      this.sourceOpen || this.recoveryNoticeDelivered ? this.connectionError : null,
+    )
+    const previousRepository = this.snapshot?.repository
+    const snapshotResult = await this.readSnapshot(intent.fileMembership)
+    if (operationEpoch !== this.repositoryEpoch) return reconciliationOutcome('obsolete')
+    if (snapshotResult.result !== 'succeeded') {
+      if (!intent.probeOnly) this.readinessEpoch = null
+      return snapshotResult
+    }
+    if (intent.probeOnly) return reconciliationOutcome('succeeded', null, null, false, false)
+
+    const capabilityChanged =
+      previousRepository != null && previousRepository !== this.snapshot?.repository
+    const includeExplorer = intent.includeExplorer || capabilityChanged
+    const includeGit = intent.includeGit || capabilityChanged
+    const gitEpoch = this.gitDetailEpoch
+    const loadedGit = includeGit && this.snapshot?.repository === true
+    const gitReads = () =>
+      Promise.all([this.readGraph(), this.readBranches(), this.readStashes(), this.readTags()])
+    // Explorer and Git are independent after Snapshot. Counts remain auxiliary
+    // to success; Explorer retains its existing bounded count/generation work.
+    const invalidatedGraph = this.graphInvalidation
+    if (loadedGit) this.graphInvalidation = null
+    const [explorer, git, graphInvalidation] = await Promise.all([
+      includeExplorer
+        ? this.readRepositoryFiles(operationEpoch)
+        : reconciliationOutcome('succeeded'),
+      loadedGit ? gitReads() : [],
+      loadedGit ? null : invalidatedGraph,
+    ])
+    if (operationEpoch !== this.repositoryEpoch) return reconciliationOutcome('obsolete')
+    const generation =
+      includeExplorer && explorer.result === 'succeeded'
+        ? await this.reconcileInitialGenerations(operationEpoch)
+        : explorer
+    if (operationEpoch !== this.repositoryEpoch) return reconciliationOutcome('obsolete')
+
+    // Snapshot/count reconciliation can change capability after the first
+    // fan-out. Git outcomes invalidated by capability loss no longer apply.
+    const resultingGit = this.snapshot?.repository === true
+    const gitResults = resultingGit
+      ? (!loadedGit && (includeGit || previousRepository !== true)) ||
+        (loadedGit && gitEpoch !== this.gitDetailEpoch)
+        ? await gitReads()
+        : git
+      : []
+    if (operationEpoch !== this.repositoryEpoch) return reconciliationOutcome('obsolete')
+    if (this.graphInvalidation === invalidatedGraph) this.graphInvalidation = null
+    const results = [
+      explorer,
+      generation,
+      ...gitResults,
+      ...(resultingGit && graphInvalidation != null ? [graphInvalidation] : []),
+    ]
+    const unsuccessful =
+      results.find((outcome) => outcome.result === 'failed') ??
+      results.find((outcome) => outcome.result === 'obsolete')
+    if (unsuccessful != null) {
+      this.readinessEpoch = null
+      return unsuccessful
+    }
+    if (includeExplorer && includeGit) this.readinessEpoch = operationEpoch
+    return reconciliationOutcome(
+      'succeeded',
+      null,
+      null,
+      false,
+      this.readinessEpoch === operationEpoch,
+    )
+  }
+
+  private finishReconciliation(outcome: ReconciliationOutcome): void {
+    // Keep the captured reason across partial catch-up; loader error stores may
+    // already have changed without recovering the failed authoritative scope.
+    if (outcome.result === 'failed') this.unresolvedReconciliationFailure = outcome.failure
+    else if (outcome.result === 'succeeded' && outcome.authoritative)
+      this.unresolvedReconciliationFailure = null
+    const failure = this.unresolvedReconciliationFailure
+    if (outcome.result === 'succeeded' && outcome.authoritative && this.sourceOpen) {
+      this.connectionLastSuccessAt = Date.now()
+      this.recoveryStartedAt = null
+      this.recoveryNoticeAt = null
+      this.recoveryNoticeDelivered = false
+      this.recoveryTransportLost = false
+      this.recoveryAttempt = 0
+      this.retryDueAt = null
+      if (this.recoveryTimer != null) clearTimeout(this.recoveryTimer)
+      this.recoveryTimer = null
+      this.setConnectionState('connected', null)
+    } else if (outcome.result === 'failed' && outcome.sessionError) {
+      this.setConnectionState('session-error', outcome.failure)
+    } else if (this.sourceOpen) {
+      this.setConnectionState('reconciling', failure)
+    } else if (!this.recoveryNoticeDelivered) {
+      this.setConnectionState(this.sourceHasOpened ? 'reconnecting' : 'connecting', failure)
     }
   }
 
+  private startReconciliation(
+    probeOnly = false,
+    fileMembership: FileMembershipRefresh = 'unknown',
+    includeExplorer = true,
+    includeGit = true,
+  ): Promise<ReconciliationOutcome> {
+    const intent = { probeOnly, fileMembership, includeExplorer, includeGit }
+    if (this.reconciliationPromise != null) {
+      const pending = this.pendingReconciliation
+      this.pendingReconciliation =
+        pending == null
+          ? intent
+          : {
+              probeOnly: pending.probeOnly && probeOnly,
+              fileMembership: strongerFileMembershipRefresh(pending.fileMembership, fileMembership),
+              includeExplorer: pending.includeExplorer || includeExplorer,
+              includeGit: pending.includeGit || includeGit,
+            }
+      // Structural intent must reach the pending Snapshot before it decides
+      // whether the old exact count may be carried to a new generation.
+      if (this.refreshPromise != null) {
+        this.pendingFileMembershipRefresh = strongerFileMembershipRefresh(
+          this.pendingFileMembershipRefresh,
+          fileMembership,
+        )
+      }
+      return this.reconciliationPromise
+    }
+    const owner = this.eventSource
+    const lifecycle = this.reconciliationEpoch
+    let settledReadEpoch = this.repositoryEpoch
+    const run = async (): Promise<ReconciliationOutcome> => {
+      let next: ReconciliationIntent | null = intent
+      let outcome = reconciliationOutcome('succeeded')
+      while (next != null) {
+        if (lifecycle !== this.reconciliationEpoch) return reconciliationOutcome('obsolete')
+        this.pendingReconciliation = null
+        settledReadEpoch = this.repositoryEpoch
+        const current = await this.performReconciliation(settledReadEpoch, next)
+        if (lifecycle !== this.reconciliationEpoch) return reconciliationOutcome('obsolete')
+        // A partial follow-up cannot erase an unmet authoritative loader.
+        if (
+          current.result !== 'succeeded' ||
+          (next.includeExplorer && next.includeGit && !next.probeOnly) ||
+          outcome.result === 'succeeded'
+        ) {
+          outcome = current
+        }
+        // Event handlers can accumulate intent while the read is awaited.
+        next = this.pendingReconciliation as ReconciliationIntent | null
+        if (next != null && !this.sourceOpen) next = { ...next, probeOnly: true }
+      }
+      return outcome
+    }
+    const operation = run().then((outcome) => {
+      if (this.reconciliationPromise !== operation) return reconciliationOutcome('obsolete')
+      // Release the owned slot before exposing completion to callers (not in
+      // a detached finally). CLOSED replacement must inherit a settled deadline.
+      this.reconciliationPromise = null
+      if (lifecycle !== this.reconciliationEpoch || (owner != null && this.eventSource !== owner)) {
+        return reconciliationOutcome('obsolete')
+      }
+      if (settledReadEpoch !== this.repositoryEpoch) outcome = reconciliationOutcome('obsolete')
+      this.finishReconciliation(outcome)
+      if (
+        this.connectionState !== 'connected' &&
+        (outcome.result !== 'succeeded' || !outcome.authoritative || this.recoveryTransportLost)
+      ) {
+        this.retryDueAt = null
+        this.scheduleRecovery(true)
+      }
+      return outcome
+    })
+    this.reconciliationPromise = operation
+    return operation
+  }
+
+  private scheduleRecovery(force = false): void {
+    if (this.disposed || this.eventSource == null || this.connectionState === 'connected') return
+    const now = Date.now()
+    this.recoveryStartedAt ??= now
+    if (force && this.recoveryTimer != null) {
+      clearTimeout(this.recoveryTimer)
+      this.recoveryTimer = null
+    }
+
+    // A retry deadline belongs to one probe. Do not replace it when a notice
+    // wake or a second caller merely asks to keep recovery alive.
+    if (this.retryDueAt == null && this.reconciliationPromise == null) {
+      const base = RECOVERY_DELAYS[Math.min(this.recoveryAttempt, RECOVERY_DELAYS.length - 1)]!
+      const jitter = Math.min(base * (0.8 + Math.random() * 0.4), RECOVERY_DELAYS.at(-1)!)
+      this.retryDueAt = now + jitter
+    }
+    if (this.recoveryTimer != null) return
+    const noticeAt =
+      this.recoveryTransportLost && !this.sourceOpen && !this.recoveryNoticeDelivered
+        ? this.recoveryNoticeAt
+        : null
+    const retryAt = this.reconciliationPromise == null ? this.retryDueAt : null
+    const due = Math.min(retryAt ?? Infinity, noticeAt ?? Infinity)
+    if (!Number.isFinite(due)) return
+    const owner = this.eventSource
+    const ownerEpoch = this.reconciliationEpoch
+    this.recoveryTimer = setTimeout(
+      () => {
+        this.recoveryTimer = null
+        if (this.eventSource !== owner || this.reconciliationEpoch !== ownerEpoch) return
+        const currentTime = Date.now()
+        const notifyOutage =
+          noticeAt != null &&
+          currentTime >= noticeAt &&
+          !this.sourceOpen &&
+          !this.recoveryNoticeDelivered
+        if (notifyOutage) {
+          this.recoveryNoticeDelivered = true
+          this.setConnectionState('unreachable', this.connectionError ?? 'Backend unreachable')
+        }
+        if (this.reconciliationPromise != null) {
+          this.scheduleRecovery()
+          return
+        }
+        if (this.retryDueAt == null || currentTime < this.retryDueAt) {
+          this.scheduleRecovery()
+          return
+        }
+
+        // Consume this deadline only when its probe actually starts. The next
+        // deadline is assigned by the settled operation, not by its start.
+        this.retryDueAt = null
+        this.recoveryAttempt += 1
+        const source = this.eventSource
+        const sourceEpoch = this.reconciliationEpoch
+        void this.startReconciliation(!this.sourceOpen).then((outcome) => {
+          if (this.eventSource !== source || this.reconciliationEpoch !== sourceEpoch) return
+          if (outcome.result === 'succeeded' && source != null && source.readyState === 2) {
+            // This is an internal replacement in the same outage. Keep the
+            // recovery state, but let the new source own future callbacks.
+            this.disposeConnection(source, true)
+            this.connectEvents()
+          }
+        })
+        // While the probe is pending, this can only arm the undelivered
+        // notice; retryDueAt remains empty until the probe settles.
+        this.scheduleRecovery()
+      },
+      Math.max(0, due - now),
+    )
+  }
+
+  async retryConnection(): Promise<void> {
+    if (this.recoveryTimer != null) clearTimeout(this.recoveryTimer)
+    this.recoveryTimer = null
+    this.recoveryStartedAt ??= Date.now()
+    if (this.eventSource == null || this.eventSource.readyState === 2) {
+      this.disposeConnection(this.eventSource ?? undefined, true)
+      this.connectEvents()
+    }
+    const owner = this.eventSource
+    const ownerEpoch = this.reconciliationEpoch
+    let pending = this.reconciliationPromise
+    if (pending == null) {
+      this.retryDueAt = null
+      this.recoveryAttempt += 1
+      pending = this.startReconciliation(!this.sourceOpen)
+    }
+    // Both manual-start and manual-join leave the notice armed during await.
+    this.scheduleRecovery()
+    const outcome = await pending
+    if (this.eventSource !== owner || this.reconciliationEpoch !== ownerEpoch) return
+    if (outcome.result !== 'succeeded' || !this.sourceOpen) this.scheduleRecovery()
+  }
+
+  retryNow(): Promise<void> {
+    return this.retryConnection()
+  }
+
   async refreshCurrentFolder(): Promise<void> {
-    const folders = this.refreshFolders()
-    await this.refreshSnapshot()
-    const explorer = this.refreshRepositoryFiles()
-    const gitData = this.snapshot?.repository
-      ? [this.refreshGraph(), this.refreshBranches(), this.refreshStashes(), this.refreshTags()]
-      : []
-    await Promise.allSettled([folders, explorer, ...gitData])
-    await this.reconcileInitialGenerations()
+    if (this.initialRefreshPromise != null) {
+      await this.initialRefreshPromise
+      return
+    }
+    this.initialRefreshStarted = true
+    void this.refreshFolders()
+    const readEpoch = this.repositoryEpoch
+    const lifecycleEpoch = this.reconciliationEpoch
+    const operation = this.startReconciliation(false)
+    this.initialRefreshPromise = operation
+    try {
+      const result = await operation
+      if (this.reconciliationEpoch === lifecycleEpoch && readEpoch === this.repositoryEpoch)
+        this.initialRefreshResult = result
+    } finally {
+      if (this.initialRefreshPromise === operation) this.initialRefreshPromise = null
+    }
+  }
+
+  private disposeConnection(owner?: EventSource, preserveRecovery = false): void {
+    if (this.eventSource == null || (owner != null && this.eventSource !== owner)) return
+    this.disposed = true
+    if (this.refreshTimer != null) clearTimeout(this.refreshTimer)
+    this.refreshTimer = null
+    if (this.recoveryTimer != null) clearTimeout(this.recoveryTimer)
+    this.recoveryTimer = null
+    this.invalidateReadWork()
+    this.reconciliationEpoch += 1
+    this.pendingReconciliation = null
+    this.reconciliationPromise = null
+    this.initialRefreshPromise = null
+    this.initialRefreshResult = null
+    if (!preserveRecovery) {
+      this.unresolvedReconciliationFailure = null
+      this.recoveryStartedAt = null
+      this.recoveryNoticeAt = null
+      this.recoveryNoticeDelivered = false
+      this.recoveryTransportLost = false
+      this.recoveryAttempt = 0
+      this.retryDueAt = null
+    }
+    this.eventSource.close()
+    this.sourceOpen = false
+    this.sourceHasOpened = false
+    this.eventSource = null
+    this.setConnectionState('connecting', null)
   }
 
   connectEvents(): () => void {
     if (this.eventSource != null) return () => {}
+    this.disposed = false
     const source = new EventSource('api/v1/events')
     this.eventSource = source
     let refreshFiles = false
     let refreshGraph = false
     const scheduleSnapshot = (includeFiles = false, includeGraph = false) => {
       if (this.eventSource !== source) return
+      // Membership safety takes effect at receipt, not at coalesced dispatch:
+      // an already-pending Snapshot can settle before this timer fires.
+      if (includeFiles && this.refreshPromise != null) this.pendingFileMembershipRefresh = 'changed'
       refreshFiles ||= includeFiles
       refreshGraph ||= includeGraph
       if (this.refreshTimer != null) return
@@ -785,43 +1351,87 @@ export class GitnaRepository {
         const shouldRefreshGraph = refreshGraph
         refreshFiles = false
         refreshGraph = false
-        void Promise.all([
-          this.refreshSnapshot(shouldRefreshFiles ? 'changed' : 'unchanged').then(() => {
-            // Reconnect may have missed a capability change as well as Git events.
-            if (shouldRefreshGraph && this.eventSource === source && this.snapshot?.repository) {
-              return this.refreshGraph()
-            }
-          }),
-          ...(shouldRefreshFiles ? [this.refreshRepositoryFiles()] : []),
-        ])
+        void this.startReconciliation(
+          !this.sourceOpen,
+          shouldRefreshFiles ? 'changed' : 'unchanged',
+          shouldRefreshFiles,
+          shouldRefreshGraph,
+        )
       }, 150)
     }
-    let hasConnected = false
     source.addEventListener('open', () => {
+      if (this.eventSource !== source) return
+      this.sourceOpen = true
+      // An open transport retires the old unavailable deadline. Catch-up
+      // reconciliation may still retry, but it must not become unreachable
+      // solely because the historical outage lasted ten seconds.
+      this.recoveryTransportLost = false
+      this.recoveryNoticeAt = null
+      this.recoveryNoticeDelivered = false
+      if (this.recoveryTimer != null) {
+        clearTimeout(this.recoveryTimer)
+        this.recoveryTimer = null
+      }
       markStartup('sse-ready')
-      if (hasConnected) scheduleSnapshot(true, true)
-      hasConnected = true
+      if (this.initialRefreshStarted && this.initialRefreshPromise != null) {
+        // The owned operation will publish its captured outcome. Do not attach
+        // a second finalizer that can erase its failure or certify a probe.
+        this.setConnectionState('reconciling', null)
+      } else if (!this.sourceHasOpened && this.initialRefreshResult?.result === 'succeeded') {
+        this.finishReconciliation(this.initialRefreshResult)
+      } else if (this.initialRefreshStarted && this.initialRefreshResult != null) {
+        void this.startReconciliation(false)
+      } else if (this.sourceHasOpened) {
+        this.setConnectionState('reconciling', null)
+        scheduleSnapshot(true, true)
+      } else if (this.initialRefreshStarted) {
+        this.setConnectionState('reconciling', null)
+        void this.startReconciliation(false)
+      } else {
+        this.setConnectionState('reconciling', null)
+      }
+      this.sourceHasOpened = true
+    })
+    source.addEventListener('error', () => {
+      if (this.eventSource !== source) return
+      this.sourceOpen = false
+      this.invalidateReadWork()
+      if (!this.recoveryTransportLost) {
+        this.recoveryStartedAt = Date.now()
+        this.recoveryNoticeAt = this.recoveryStartedAt + RECOVERY_OUTAGE_NOTICE
+        this.recoveryNoticeDelivered = false
+        this.recoveryTransportLost = true
+      }
+      this.setConnectionState('reconnecting', 'Backend connection lost')
+      this.scheduleRecovery()
     })
     source.addEventListener('snapshot-invalidated', () => scheduleSnapshot())
     source.addEventListener('files-invalidated', () => scheduleSnapshot(true))
     source.addEventListener('graph-invalidated', () => {
       scheduleSnapshot()
-      if (this.snapshot?.repository) void this.refreshGraph()
+      if (this.sourceOpen && this.snapshot?.repository) this.graphInvalidation = this.readGraph()
     })
+    if (this.retryDueAt != null || this.recoveryTransportLost) this.scheduleRecovery()
+    let cleanedUp = false
     return () => {
-      if (this.refreshTimer != null) clearTimeout(this.refreshTimer)
-      this.refreshTimer = null
-      source.close()
-      if (this.eventSource === source) this.eventSource = null
+      if (cleanedUp) return
+      cleanedUp = true
+      this.disposeConnection()
     }
   }
 
-  async refreshGraph(countRecovery = 0): Promise<void> {
+  async refreshGraph(countRecovery = 0): Promise<ReadResult> {
+    return (await this.readGraph(countRecovery)).result
+  }
+
+  private async readGraph(countRecovery = 0): Promise<ReconciliationOutcome> {
     const request = ++this.graphRequest
     const countRequest = ++this.graphCountRequest
     const epoch = this.repositoryEpoch
     this.graphController?.abort()
     this.graphCountController?.abort()
+    this.graphCountController = null
+    this.graphCountLoading = false
     const controller = new AbortController()
     this.graphController = controller
     this.graphLoading = true
@@ -846,7 +1456,8 @@ export class GitnaRepository {
           }
         }
       }
-      if (request !== this.graphRequest || epoch !== this.repositoryEpoch) return
+      if (request !== this.graphRequest || epoch !== this.repositoryEpoch)
+        return reconciliationOutcome('obsolete')
       this.graphCommits = page.commits
       this.graphRows = computeGraph(page.commits)
       this.graphHasMore = page.hasMore
@@ -881,6 +1492,11 @@ export class GitnaRepository {
       ) {
         this.graphError = errorMessage(error)
       }
+      return controller.signal.aborted ||
+        epoch !== this.repositoryEpoch ||
+        request !== this.graphRequest
+        ? reconciliationOutcome('obsolete')
+        : reconciliationOutcome('failed', errorMessage(error), 'graph')
     } finally {
       if (this.graphController === controller) this.graphController = null
       if (request === this.graphRequest && epoch === this.repositoryEpoch) {
@@ -888,6 +1504,7 @@ export class GitnaRepository {
         this.emit()
       }
     }
+    return reconciliationOutcome('succeeded')
   }
 
   private async loadGraphCount(
@@ -938,11 +1555,19 @@ export class GitnaRepository {
     } finally {
       if (this.graphCountController === controller) {
         this.graphCountController = null
-        this.graphCountLoading = false
-        this.emit()
+        if (request === this.graphCountRequest && epoch === this.repositoryEpoch) {
+          this.graphCountLoading = false
+          this.emit()
+        }
       }
     }
-    if (refresh) await this.refreshGraph(recovery + 1)
+    if (
+      refresh &&
+      request === this.graphCountRequest &&
+      epoch === this.repositoryEpoch &&
+      !controller.signal.aborted
+    )
+      await this.refreshGraph(recovery + 1)
   }
 
   async loadMoreGraph(): Promise<void> {
@@ -986,27 +1611,33 @@ export class GitnaRepository {
         this.emit()
       }
     }
-    if (refresh) await this.refreshGraph()
+    if (
+      refresh &&
+      request === this.graphRequest &&
+      epoch === this.repositoryEpoch &&
+      !controller.signal.aborted
+    )
+      await this.refreshGraph()
   }
 
   async loadCommitDetails(oid: string): Promise<void> {
     if (this.commitFiles[oid] != null || this.filesLoading[oid]) return
-    const epoch = this.repositoryEpoch
+    const epoch = this.gitDetailEpoch
     this.filesLoading = { ...this.filesLoading, [oid]: true }
     const { [oid]: _previous, ...remainingErrors } = this.filesError
     this.filesError = remainingErrors
     this.emit()
     try {
       const { files, stats } = await this.api.commitFiles(oid)
-      if (epoch !== this.repositoryEpoch) return
+      if (epoch !== this.gitDetailEpoch) return
       this.commitFiles = { ...this.commitFiles, [oid]: files }
       if (stats != null) this.commitStats = { ...this.commitStats, [oid]: stats }
     } catch (error) {
-      if (epoch === this.repositoryEpoch) {
+      if (epoch === this.gitDetailEpoch) {
         this.filesError = { ...this.filesError, [oid]: errorMessage(error) }
       }
     } finally {
-      if (epoch === this.repositoryEpoch) {
+      if (epoch === this.gitDetailEpoch) {
         const { [oid]: _loading, ...remainingLoading } = this.filesLoading
         this.filesLoading = remainingLoading
         this.emit()
@@ -1171,31 +1802,63 @@ export class GitnaRepository {
     this.emit()
   }
 
-  async refreshBranches(): Promise<void> {
+  async refreshBranches(): Promise<ReadResult> {
+    return (await this.readBranches()).result
+  }
+
+  private async readBranches(): Promise<ReconciliationOutcome> {
     const request = ++this.branchesRequest
     const epoch = this.repositoryEpoch
     this.branchesLoading = true
     this.branchesError = null
     this.emit()
     try {
-      const [branches, remotes] = await Promise.all([this.api.branches(), this.api.remotes()])
-      if (request === this.branchesRequest && epoch === this.repositoryEpoch) {
-        this.branches = branches
-        this.remotes = remotes
+      // Capture each failure when it completes, but drain both reads before
+      // releasing the pair. A rejected branch must not detach pending remotes.
+      const [branches, remotes] = await Promise.all([
+        this.api.branches().then(
+          (value) => ({ value, failure: null }),
+          (error) => ({
+            value: [],
+            failure: reconciliationOutcome('failed', errorMessage(error), 'branches'),
+          }),
+        ),
+        this.api.remotes().then(
+          (value) => ({ value, failure: null }),
+          (error) => ({
+            value: [],
+            failure: reconciliationOutcome('failed', errorMessage(error), 'remotes'),
+          }),
+        ),
+      ])
+      if (request !== this.branchesRequest || epoch !== this.repositoryEpoch)
+        return reconciliationOutcome('obsolete')
+      const failure = branches.failure ?? remotes.failure
+      if (failure != null) {
+        this.branchesError = failure.failure
+        return failure
       }
+      this.branches = branches.value
+      this.remotes = remotes.value
     } catch (error) {
-      if (request === this.branchesRequest && epoch === this.repositoryEpoch) {
-        this.branchesError = errorMessage(error)
-      }
+      if (request !== this.branchesRequest || epoch !== this.repositoryEpoch)
+        return reconciliationOutcome('obsolete')
+      this.branchesError = errorMessage(error)
+      return reconciliationOutcome('failed', errorMessage(error), 'branches')
     } finally {
       if (request === this.branchesRequest && epoch === this.repositoryEpoch) {
         this.branchesLoading = false
         this.emit()
       }
     }
+    return reconciliationOutcome('succeeded')
   }
 
-  async refreshStashes(): Promise<void> {
+  async refreshStashes(): Promise<ReadResult> {
+    return (await this.readStashes()).result
+  }
+
+  private async readStashes(): Promise<ReconciliationOutcome> {
     const request = ++this.stashesRequest
     const epoch = this.repositoryEpoch
     this.stashesLoading = true
@@ -1203,22 +1866,28 @@ export class GitnaRepository {
     this.emit()
     try {
       const stashes = await this.api.stashes()
-      if (request === this.stashesRequest && epoch === this.repositoryEpoch) {
-        this.stashes = stashes
-      }
+      if (request !== this.stashesRequest || epoch !== this.repositoryEpoch)
+        return reconciliationOutcome('obsolete')
+      this.stashes = stashes
     } catch (error) {
-      if (request === this.stashesRequest && epoch === this.repositoryEpoch) {
-        this.stashesError = errorMessage(error)
-      }
+      if (request !== this.stashesRequest || epoch !== this.repositoryEpoch)
+        return reconciliationOutcome('obsolete')
+      this.stashesError = errorMessage(error)
+      return reconciliationOutcome('failed', errorMessage(error), 'stashes')
     } finally {
       if (request === this.stashesRequest && epoch === this.repositoryEpoch) {
         this.stashesLoading = false
         this.emit()
       }
     }
+    return reconciliationOutcome('succeeded')
   }
 
-  async refreshTags(): Promise<void> {
+  async refreshTags(): Promise<ReadResult> {
+    return (await this.readTags()).result
+  }
+
+  private async readTags(): Promise<ReconciliationOutcome> {
     const request = ++this.tagsRequest
     const epoch = this.repositoryEpoch
     this.tagsLoading = true
@@ -1226,19 +1895,21 @@ export class GitnaRepository {
     this.emit()
     try {
       const tags = await this.api.tags()
-      if (request === this.tagsRequest && epoch === this.repositoryEpoch) {
-        this.tags = tags
-      }
+      if (request !== this.tagsRequest || epoch !== this.repositoryEpoch)
+        return reconciliationOutcome('obsolete')
+      this.tags = tags
     } catch (error) {
-      if (request === this.tagsRequest && epoch === this.repositoryEpoch) {
-        this.tagsError = errorMessage(error)
-      }
+      if (request !== this.tagsRequest || epoch !== this.repositoryEpoch)
+        return reconciliationOutcome('obsolete')
+      this.tagsError = errorMessage(error)
+      return reconciliationOutcome('failed', errorMessage(error), 'tags')
     } finally {
       if (request === this.tagsRequest && epoch === this.repositoryEpoch) {
         this.tagsLoading = false
         this.emit()
       }
     }
+    return reconciliationOutcome('succeeded')
   }
 
   async refreshConflicts(): Promise<void> {
