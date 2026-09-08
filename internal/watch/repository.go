@@ -28,8 +28,10 @@ const (
 
 	// InvalidateSnapshot means the source-control snapshot may have changed.
 	InvalidateSnapshot InvalidationKind = "snapshot-invalidated"
-	// InvalidateFiles means worktree path membership changed. Consumers must
-	// refresh both the source-control snapshot and file-tree structure.
+	// InvalidateFiles means worktree membership or filename-search metadata may
+	// have changed. Index writes are conservatively included because check-ignore
+	// excludes tracked paths; .gitignore edits affect cached ignored flags.
+	// Consumers must refresh the snapshot, file tree, and filename indexes.
 	InvalidateFiles InvalidationKind = "files-invalidated"
 	// InvalidateGraph means branch topology may have changed (consumed by the
 	// future graph view).
@@ -444,6 +446,8 @@ func (w *Repository) loop(ctx context.Context) {
 		}
 		if len(structuralDirs) > 0 && w.worktreeStructureChanged(structuralDirs) {
 			pending[InvalidateFiles] = true
+		}
+		if pending[InvalidateFiles] {
 			delete(pending, InvalidateSnapshot)
 		}
 		structuralDirs = nil
@@ -571,7 +575,7 @@ func (w *Repository) classify(ev fsnotify.Event) []InvalidationKind {
 			rel = filepath.ToSlash(rel)
 			switch rel {
 			case "index":
-				return []InvalidationKind{InvalidateSnapshot}
+				return []InvalidationKind{InvalidateFiles}
 			case "HEAD":
 				return []InvalidationKind{InvalidateSnapshot, InvalidateGraph}
 			}
@@ -591,6 +595,9 @@ func (w *Repository) classify(ev fsnotify.Event) []InvalidationKind {
 		}
 	}
 	if w.isInsideWorktree(name) {
+		if filepath.Base(name) == ".gitignore" {
+			return []InvalidationKind{InvalidateFiles}
+		}
 		return []InvalidationKind{InvalidateSnapshot}
 	}
 	return nil
@@ -674,7 +681,11 @@ func (w *Repository) isInsideWorktree(p string) bool {
 
 // fallback periodically compares logical repository state so it can recover
 // when filesystem notifications are missed. Worktree and ref state remain
-// separate to avoid recounting Explorer for a ref-only change.
+// separate to avoid recounting Explorer for a ref-only change. A changed status
+// fingerprint still conservatively invalidates filename indexes, including for
+// content-only changes: this recovery path cannot infer which events were lost.
+// This is not comprehensive ignore observation: info/exclude, external/global
+// excludes, and unobserved ordinary-folder descendants may need explicit refresh.
 func (w *Repository) fallback(ctx context.Context, runner gitx.Runner) {
 	interval := w.opts.FallbackInterval
 	if interval == 0 {

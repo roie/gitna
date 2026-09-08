@@ -2,6 +2,7 @@ package watch
 
 import (
 	"context"
+	"crypto/sha256"
 	"errors"
 	"os"
 	"os/exec"
@@ -9,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/fsnotify/fsnotify"
 	"github.com/roie/gitna/internal/gitx"
 )
 
@@ -266,21 +268,20 @@ func TestWatcherReportsIndexAndCommitChanges(t *testing.T) {
 
 	writeFile(t, root, "tracked.txt", "changed\n")
 	runGit(t, root, "add", "tracked.txt")
-	if got := nextEvent(t, events); got != InvalidateSnapshot {
-		t.Fatalf("stage: got %q, want %q", got, InvalidateSnapshot)
+	if got := nextEvent(t, events); got != InvalidateFiles {
+		t.Fatalf("stage: got %q, want %q", got, InvalidateFiles)
 	}
 	drain(t, events, 100*time.Millisecond)
 
 	runGit(t, root, "commit", "-q", "-m", "change")
 	// A commit updates both HEAD and refs/heads/main, so the debounced flush
-	// emits snapshot and graph invalidations together; Go map iteration order
-	// is random, so accept either arrival order as long as the snapshot
-	// invalidation is among them.
+	// emits snapshot (possibly promoted to files by an index write) and graph
+	// invalidations together. Go map iteration order is random.
 	seen := map[InvalidationKind]bool{}
 	seen[nextEvent(t, events)] = true
 	seen[nextEvent(t, events)] = true
-	if !seen[InvalidateSnapshot] {
-		t.Fatalf("commit: got %v, want a snapshot invalidation", seen)
+	if (!seen[InvalidateSnapshot] && !seen[InvalidateFiles]) || !seen[InvalidateGraph] {
+		t.Fatalf("commit: got %v, want snapshot/files and graph invalidations", seen)
 	}
 	drain(t, events, 200*time.Millisecond)
 }
@@ -312,7 +313,7 @@ func TestWatcherReportsHeadAndPackedRefChanges(t *testing.T) {
 	seen := map[InvalidationKind]bool{}
 	seen[nextEvent(t, events)] = true
 	seen[nextEvent(t, events)] = true
-	if !seen[InvalidateSnapshot] || !seen[InvalidateGraph] {
+	if (!seen[InvalidateSnapshot] && !seen[InvalidateFiles]) || !seen[InvalidateGraph] {
 		t.Fatalf("clean switch invalidations = %v", seen)
 	}
 	drain(t, events, 150*time.Millisecond)
@@ -526,5 +527,51 @@ func TestCloseClosesEvents(t *testing.T) {
 		}
 	case <-time.After(5 * time.Second):
 		t.Fatal("Events channel not closed after Close")
+	}
+}
+
+func TestWatcherClassifiesSearchMetadataConservatively(t *testing.T) {
+	root := trackedRepo(t)
+	w := startWatcher(t, root, Options{FallbackInterval: -1})
+	for _, path := range []string{".git/index", ".gitignore", "nested/.gitignore"} {
+		for _, op := range []fsnotify.Op{fsnotify.Write, fsnotify.Create, fsnotify.Remove, fsnotify.Rename} {
+			kinds := w.classify(fsnotify.Event{Name: filepath.Join(root, path), Op: op})
+			if len(kinds) != 1 || kinds[0] != InvalidateFiles {
+				t.Errorf("%s %s: %v, want files invalidation", path, op, kinds)
+			}
+		}
+	}
+}
+
+func TestWatcherOverflowConservativelyInvalidatesFilesAndGraph(t *testing.T) {
+	root := trackedRepo(t)
+	w := startWatcher(t, root, Options{Debounce: 30 * time.Millisecond, FallbackInterval: -1})
+	w.fsw.Errors <- fsnotify.ErrEventOverflow
+	seen := map[InvalidationKind]bool{}
+	seen[nextEvent(t, w.Events())] = true
+	seen[nextEvent(t, w.Events())] = true
+	if !seen[InvalidateFiles] || !seen[InvalidateGraph] {
+		t.Fatalf("overflow events = %v", seen)
+	}
+}
+
+func TestWatcherTemporaryMembershipAcrossScansIsStructural(t *testing.T) {
+	root := t.TempDir()
+	writeFile(t, root, "file.txt", "before")
+	w := &Repository{directorySignatures: make(map[string][sha256.Size]byte)}
+	w.rememberDirectoryLocked(root)
+	directories := map[string]struct{}{root: {}}
+	writeFile(t, root, ".file.txt.save", "after")
+	if !w.worktreeStructureChanged(directories) {
+		t.Fatal("temporary entry present at scan must invalidate membership")
+	}
+	if err := os.Remove(filepath.Join(root, ".file.txt.save")); err != nil {
+		t.Fatal(err)
+	}
+	if !w.worktreeStructureChanged(directories) {
+		t.Fatal("temporary entry removal must invalidate membership")
+	}
+	if w.worktreeStructureChanged(directories) {
+		t.Fatal("unchanged membership must retain indexes")
 	}
 }

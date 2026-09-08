@@ -127,6 +127,11 @@ func TestFolderSessionSetupReconcilesFileMembership(t *testing.T) {
 	case <-time.After(time.Second):
 		t.Fatal("watcher setup did not start")
 	}
+	waitForFolderSearch(t, session.adapter, "created", nil, 100)
+	previousIndex := searchIndexPath(session.adapter)
+	if _, err := session.adapter.DirectoryEntries(t.Context(), "", "", 100); err != nil {
+		t.Fatal(err)
+	}
 	if err := os.WriteFile(filepath.Join(root, "created-during-setup.txt"), []byte("created\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -139,6 +144,13 @@ func TestFolderSessionSetupReconcilesFileMembership(t *testing.T) {
 		}
 	case <-time.After(time.Second):
 		t.Fatal("timed out waiting for setup reconciliation")
+	}
+	if results := waitForFolderSearch(t, session.adapter, "created", nil, 100); len(results.Results) != 1 || searchIndexPath(session.adapter) == previousIndex {
+		t.Fatalf("setup retained stale search: %+v", results)
+	}
+	entries, err := session.adapter.DirectoryEntries(t.Context(), "", "", 100)
+	if err != nil || len(entries.Entries) != 1 {
+		t.Fatalf("setup retained stale directory cache: %+v, %v", entries, err)
 	}
 }
 

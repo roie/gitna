@@ -230,7 +230,8 @@ func (s *folderSession) startWatcher(repo gitx.Repository) {
 			_ = previous.Close()
 		}
 		// Reconcile once installation completes to cover changes made during
-		// the initial recursive walk.
+		// the initial recursive walk, including indexes warmed before setup ended.
+		s.adapter.invalidateFileSearch()
 		for _, event := range []watch.InvalidationKind{watch.InvalidateFiles, watch.InvalidateGraph} {
 			select {
 			case s.events <- event:
@@ -292,7 +293,12 @@ func (s *folderSession) forward(watcher watch.Watcher) {
 	go func() {
 		defer s.forwards.Done()
 		for event := range watcher.Events() {
-			s.adapter.invalidateFileSearch()
+			// Files includes membership and ignore/tracking metadata changes.
+			// Content and refs only affect snapshots/graphs, not filename indexes
+			// or the ordinary-folder directory cache invalidated with them.
+			if event == watch.InvalidateFiles {
+				s.adapter.invalidateFileSearch()
+			}
 			select {
 			case s.events <- event:
 			case <-s.ctx.Done():
