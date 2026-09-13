@@ -106,7 +106,7 @@ func TestOperationHistoryOps(t *testing.T) {
 	}
 }
 
-func TestOperationMapsTask13Errors(t *testing.T) {
+func TestOperationMapsErrors(t *testing.T) {
 	for _, tc := range []struct {
 		name string
 		err  error
