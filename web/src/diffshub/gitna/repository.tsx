@@ -854,6 +854,10 @@ export class GitnaRepository {
     return this.documents.get(path.slice('untitled:'.length))
   }
 
+  documentForPath(path: string): DocumentSnapshot | null {
+    return this.documents.findByPath(path)
+  }
+
   updateUntitledContent(path: string, contents: string): DocumentSnapshot | null {
     const document = this.untitledDocument(path)
     if (document == null) return null
@@ -867,6 +871,28 @@ export class GitnaRepository {
     const path = `untitled:${document.id}`
     this.selectRepositoryFile(path, true)
     return path
+  }
+
+  async saveUntitledDocument(path: string, destination: string): Promise<WorktreeFile> {
+    const document = this.untitledDocument(path)
+    if (document == null) throw new Error('This untitled document is no longer available.')
+    const saved = await this.runWorktreeOperation('save-file', () =>
+      this.api.createWorktreeFile(destination, document.contents),
+    )
+    this.documents.acknowledgeSave(document.id, document.revision, document.contents, {
+      path: destination,
+      baselineHash: saved.hash,
+    })
+    this.repositoryOpenPaths = this.repositoryOpenPaths.map((openPath) =>
+      openPath === path ? destination : openPath,
+    )
+    this.repositoryFilePath =
+      this.repositoryFilePath === path ? destination : this.repositoryFilePath
+    this.repositorySelectedPaths = this.repositorySelectedPaths.map((selectedPath) =>
+      selectedPath === path ? destination : selectedPath,
+    )
+    this.emit()
+    return saved
   }
 
   async openRepositoryFile(path: string, reveal = true): Promise<void> {
@@ -908,38 +934,33 @@ export class GitnaRepository {
         .sort((left, right) => left.localeCompare(right))
       let next = 0
       const workerCount = Math.min(4, directories.length)
-      await Promise.all(
-        Array.from({ length: workerCount }, async () => {
-          for (;;) {
-            const directory = directories[next]
-            next += 1
-            if (directory == null) return
-            // A refreshed parent may have removed this loaded subtree. Do not
-            // turn its now-obsolete child request into a Repository-wide error.
-            if (directory !== '' && !this.ordinaryDirectoryChildren.has(directory)) continue
-            try {
-              const refreshed = await this.loadOrdinaryDirectory(directory, true, operationEpoch)
-              if (operationEpoch !== this.repositoryEpoch) return
-              if (
-                refreshed == null &&
-                (directory === '' || this.ordinaryDirectoryChildren.has(directory)) &&
-                result.result !== 'failed'
-              ) {
-                result = reconciliationOutcome('obsolete')
-              }
-            } catch (error) {
-              if (operationEpoch !== this.repositoryEpoch) return
-              // Individual directory errors remain authoritative failures even
-              // when another loaded directory refreshes successfully.
-              result = reconciliationOutcome(
-                'failed',
-                errorMessage(error),
-                `directory:${directory}`,
-              )
+      const refreshDirectoryWorker = async (): Promise<void> => {
+        for (;;) {
+          const directory = directories[next]
+          next += 1
+          if (directory == null) return
+          // A refreshed parent may have removed this loaded subtree. Do not
+          // turn its now-obsolete child request into a Repository-wide error.
+          if (directory !== '' && !this.ordinaryDirectoryChildren.has(directory)) continue
+          try {
+            const refreshed = await this.loadOrdinaryDirectory(directory, true, operationEpoch)
+            if (operationEpoch !== this.repositoryEpoch) return
+            if (
+              refreshed == null &&
+              (directory === '' || this.ordinaryDirectoryChildren.has(directory)) &&
+              result.result !== 'failed'
+            ) {
+              result = reconciliationOutcome('obsolete')
             }
+          } catch (error) {
+            if (operationEpoch !== this.repositoryEpoch) return
+            // Individual directory errors remain authoritative failures even
+            // when another loaded directory refreshes successfully.
+            result = reconciliationOutcome('failed', errorMessage(error), `directory:${directory}`)
           }
-        }),
-      )
+        }
+      }
+      await Promise.all(Array.from({ length: workerCount }, refreshDirectoryWorker))
     }
     return result
   }

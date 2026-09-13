@@ -50,6 +50,7 @@ import { FolderLoadingScreen, folderDisplayName } from './FolderLoadingScreen'
 import { GitnaHome } from './GitnaHome'
 import { GitnaSourceControl } from './SourceControlWorkflow'
 import { Confirm } from './Modal'
+import { UntitledSaveAsModal } from './UntitledSaveAsModal'
 import {
   adaptGitnaFile,
   appendGitnaReviewPage,
@@ -365,6 +366,7 @@ function GitnaReviewUIInner() {
     paths: string[]
     dirtyPaths: string[]
   } | null>(null)
+  const [pendingUntitledSaveAs, setPendingUntitledSaveAs] = useState<string | null>(null)
   const [pendingFolderSwitch, setPendingFolderSwitch] = useState<{
     focusTarget: HTMLElement | null
     path: string
@@ -1192,6 +1194,16 @@ function GitnaReviewUIInner() {
     },
     [repository],
   )
+  const requestSave = useCallback(
+    (path: string) => {
+      if (repository.isUntitledPath(path)) {
+        setPendingUntitledSaveAs(path)
+        return
+      }
+      void saveWorktreeFile(path)
+    },
+    [repository, saveWorktreeFile],
+  )
   const gitnaEditorActions: GitnaEditorActions | undefined =
     target?.filePath != null && worktreeFiles.has(target.filePath)
       ? {
@@ -1211,7 +1223,7 @@ function GitnaReviewUIInner() {
           disabledReason: backendDisabledReason,
           onChange: handleWorktreeEditChange,
           onOpenChange: (scope, path) => repository.select(scope, path),
-          onSave: (path) => void saveWorktreeFile(path),
+          onSave: requestSave,
         }
       : undefined
 
@@ -1229,11 +1241,11 @@ function GitnaReviewUIInner() {
       const path = target?.filePath
       if (path == null || !worktreeDraftsRef.current.has(path)) return
       event.preventDefault()
-      void saveWorktreeFile(path)
+      requestSave(path)
     }
     window.addEventListener('keydown', onSave)
     return () => window.removeEventListener('keydown', onSave)
-  }, [dirtyPaths, saveWorktreeFile, target?.filePath])
+  }, [dirtyPaths, requestSave, target?.filePath])
 
   const toggleSidebar = useCallback(() => {
     if (window.matchMedia('(max-width: 767px)').matches) {
@@ -1349,6 +1361,10 @@ function GitnaReviewUIInner() {
         keywords: 'write dirty changes',
         disabledReason: backendDisabledReason,
         run: async () => {
+          if (repository.isUntitledPath(currentPath)) {
+            setPendingUntitledSaveAs(currentPath)
+            return
+          }
           const saved = await saveWorktreeFile(currentPath)
           if (!saved) {
             const reason = repository.getActionDisabledReason()
@@ -1651,6 +1667,29 @@ function GitnaReviewUIInner() {
                 return next
               })
               repository.closeRepositoryFiles(pending.paths)
+            }}
+          />
+        )}
+        {pendingUntitledSaveAs != null && (
+          <UntitledSaveAsModal
+            documentPath={pendingUntitledSaveAs}
+            initialPath={`${repository.untitledDocument(pendingUntitledSaveAs)?.label ?? 'untitled'}.txt`}
+            onClose={() => setPendingUntitledSaveAs(null)}
+            onError={setReviewActionError}
+            onSaved={(path, file) => {
+              const source = pendingUntitledSaveAs
+              setPendingUntitledSaveAs(null)
+              setWorktreeFiles((current) => {
+                const next = new Map(current)
+                next.delete(source)
+                next.set(path, file)
+                return next
+              })
+              setWorktreeDrafts((current) => {
+                const next = new Map(current)
+                next.delete(source)
+                return next
+              })
             }}
           />
         )}

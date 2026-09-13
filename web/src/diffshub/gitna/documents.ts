@@ -97,6 +97,13 @@ export class DocumentStore {
     return [...this.documents.values()].map(snapshot)
   }
 
+  findByPath(path: string): DocumentSnapshot | null {
+    for (const document of this.documents.values()) {
+      if (document.path === path) return snapshot(document)
+    }
+    return null
+  }
+
   updateContent(id: string, contents: string): DocumentSnapshot {
     const document = this.require(id)
     if (document.contents !== contents) {

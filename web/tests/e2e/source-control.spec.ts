@@ -2120,6 +2120,46 @@ test('global New File creates an in-memory untitled tab', async ({ page, app }) 
   await expect(tab.getByLabel('Unsaved changes')).toBeVisible()
   await page.keyboard.press('Control+z')
   await expect(tab.getByLabel('Unsaved changes')).toHaveCount(0)
+
+  await page.keyboard.type('saved')
+  await expect(tab.getByLabel('Unsaved changes')).toBeVisible()
+  await page.keyboard.press('Control+s')
+  const saveAs = page.getByRole('dialog', { name: 'Save As' })
+  await expect(saveAs).toBeVisible()
+  const savePath = saveAs.getByRole('textbox', { name: 'Repository-relative path' })
+  await savePath.fill('saved.txt')
+  await saveAs.getByRole('button', { name: 'Save', exact: true }).click()
+  await expect(saveAs).toHaveCount(0)
+  await expect(page.getByRole('tab', { name: 'saved.txt' })).toHaveAttribute(
+    'aria-selected',
+    'true',
+  )
+  await expect(
+    page.getByRole('tab', { name: 'saved.txt' }).getByLabel('Unsaved changes'),
+  ).toHaveCount(0)
+
+  await page.getByRole('button', { name: 'Open command palette' }).click()
+  const secondPalette = page.getByRole('dialog', { name: 'Command palette' })
+  const secondSearch = secondPalette.getByRole('combobox', { name: 'Search files and commands' })
+  await secondSearch.fill('>new file')
+  await secondSearch.press('Enter')
+  const secondTab = page.getByRole('tab', { name: 'Untitled-2' })
+  await expect(secondTab).toBeVisible()
+  const secondEditor = page
+    .locator('.code-view')
+    .locator('[contenteditable="true"], textarea')
+    .first()
+  await secondEditor.click()
+  await page.keyboard.type('collision')
+  await page.keyboard.press('Control+s')
+  const collisionSaveAs = page.getByRole('dialog', { name: 'Save As' })
+  await collisionSaveAs.getByRole('textbox', { name: 'Repository-relative path' }).fill('saved.txt')
+  await collisionSaveAs.getByRole('button', { name: 'Save', exact: true }).click()
+  await expect(
+    page.locator('[role="alert"]').filter({ hasText: /already exists|exists|entry/i }),
+  ).toBeVisible()
+  await expect(collisionSaveAs).toBeVisible()
+  await collisionSaveAs.getByRole('button', { name: 'Cancel', exact: true }).click()
 })
 
 test('repository files can be edited, created in folders, and renamed', async ({ page, app }) => {
