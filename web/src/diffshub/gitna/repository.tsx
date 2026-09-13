@@ -876,10 +876,12 @@ export class GitnaRepository {
   async saveUntitledDocument(path: string, destination: string): Promise<WorktreeFile> {
     const document = this.untitledDocument(path)
     if (document == null) throw new Error('This untitled document is no longer available.')
+    const submittedRevision = document.revision
+    const submittedContents = document.contents
     const saved = await this.runWorktreeOperation('save-file', () =>
-      this.api.createWorktreeFile(destination, document.contents),
+      this.api.createWorktreeFile(destination, submittedContents),
     )
-    this.documents.acknowledgeSave(document.id, document.revision, document.contents, {
+    this.documents.acknowledgeSave(document.id, submittedRevision, submittedContents, {
       path: destination,
       baselineHash: saved.hash,
     })

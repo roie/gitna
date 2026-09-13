@@ -51,6 +51,7 @@ import { GitnaHome } from './GitnaHome'
 import { GitnaSourceControl } from './SourceControlWorkflow'
 import { Confirm } from './Modal'
 import { UntitledSaveAsModal } from './UntitledSaveAsModal'
+import { DirtyTabCloseModal } from './DirtyTabCloseModal'
 import {
   adaptGitnaFile,
   appendGitnaReviewPage,
@@ -1194,6 +1195,21 @@ function GitnaReviewUIInner() {
     },
     [repository],
   )
+  const savePendingTabs = useCallback(async () => {
+    const pending = pendingTabClose
+    if (pending == null) return
+    const untitled = pending.dirtyPaths.find((path) => repository.isUntitledPath(path))
+    if (untitled != null) {
+      setPendingUntitledSaveAs(untitled)
+      return
+    }
+    for (const path of pending.dirtyPaths) {
+      if (!(await saveWorktreeFile(path))) return
+    }
+    setPendingTabClose(null)
+    repository.closeRepositoryFiles(pending.paths)
+  }, [pendingTabClose, repository, saveWorktreeFile])
+
   const requestSave = useCallback(
     (path: string) => {
       if (repository.isUntitledPath(path)) {
@@ -1645,20 +1661,10 @@ function GitnaReviewUIInner() {
           />
         )}
         {pendingTabClose != null && (
-          <Confirm
-            title={
-              pendingTabClose.dirtyPaths.length === 1
-                ? `Discard unsaved changes to ${pendingTabClose.dirtyPaths[0]}?`
-                : `Discard unsaved changes in ${pendingTabClose.dirtyPaths.length} files?`
-            }
-            message={
-              pendingTabClose.dirtyPaths.length === 1
-                ? 'Your unsaved edits will be lost. The file on disk will not be changed.'
-                : 'Your unsaved edits in these tabs will be lost. Files on disk will not be changed.'
-            }
-            confirmLabel="Discard changes"
+          <DirtyTabCloseModal
+            dirtyPaths={pendingTabClose.dirtyPaths}
             onCancel={() => setPendingTabClose(null)}
-            onConfirm={() => {
+            onDiscard={() => {
               const pending = pendingTabClose
               setPendingTabClose(null)
               setWorktreeDrafts((current) => {
@@ -1668,6 +1674,7 @@ function GitnaReviewUIInner() {
               })
               repository.closeRepositoryFiles(pending.paths)
             }}
+            onSave={() => void savePendingTabs()}
           />
         )}
         {pendingUntitledSaveAs != null && (
@@ -1690,6 +1697,18 @@ function GitnaReviewUIInner() {
                 next.delete(source)
                 return next
               })
+              const pending = pendingTabClose
+              if (pending == null) return
+              const remainingDirty = pending.dirtyPaths.filter((candidate) => candidate !== source)
+              repository.closeRepositoryFiles([source])
+              if (remainingDirty.length === 0) {
+                setPendingTabClose(null)
+              } else {
+                setPendingTabClose({
+                  paths: pending.paths.filter((candidate) => candidate !== source),
+                  dirtyPaths: remainingDirty,
+                })
+              }
             }}
           />
         )}

@@ -2160,6 +2160,20 @@ test('global New File creates an in-memory untitled tab', async ({ page, app }) 
   ).toBeVisible()
   await expect(collisionSaveAs).toBeVisible()
   await collisionSaveAs.getByRole('button', { name: 'Cancel', exact: true }).click()
+
+  await page.getByRole('button', { name: 'Close untitled:' }).click()
+  const dirtyClose = page.getByRole('dialog', { name: 'Save changes before closing?' })
+  await expect(dirtyClose).toBeVisible()
+  await expect(dirtyClose.getByRole('button', { name: 'Save', exact: true })).toBeVisible()
+  await expect(dirtyClose.getByRole('button', { name: "Don't Save", exact: true })).toBeVisible()
+  await dirtyClose.getByRole('button', { name: 'Cancel', exact: true }).click()
+  await expect(dirtyClose).toHaveCount(0)
+  await page.getByRole('button', { name: 'Close untitled:' }).click()
+  await page
+    .getByRole('dialog', { name: 'Save changes before closing?' })
+    .getByRole('button', { name: "Don't Save", exact: true })
+    .click()
+  await expect(page.getByRole('tab', { name: 'Untitled-2' })).toHaveCount(0)
 })
 
 test('repository files can be edited, created in folders, and renamed', async ({ page, app }) => {
