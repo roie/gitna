@@ -342,6 +342,7 @@ function GitnaReviewUIInner() {
   const [mobileViewport, setMobileViewport] = useState(false)
   const [sidebarVisible, setSidebarVisible] = useState(true)
   const [commandPaletteOpen, setCommandPaletteOpen] = useState(false)
+  const [commandPaletteInitialQuery, setCommandPaletteInitialQuery] = useState('')
   const [recentFilePaths, setRecentFilePaths] = useState<readonly string[]>([])
   const [overflow, setOverflow] = useState<'wrap' | 'scroll'>('wrap')
   const [showBackgrounds, setShowBackgrounds] = useState(true)
@@ -1367,6 +1368,37 @@ function GitnaReviewUIInner() {
     [paletteFileHistory, repository],
   )
 
+  const goToLine = useCallback(
+    (line: number) => {
+      const path = target?.filePath
+      const viewer = viewerRef.current
+      if (path == null || viewer == null) return
+      const item = viewer.getItem(path)
+      if (item?.type !== 'file') return
+      const lineCount = item.file.contents.split('\n').length
+      const clampedLine = Math.max(1, Math.min(lineCount, line))
+      viewer.scrollTo({ type: 'line', id: path, lineNumber: clampedLine - 1, align: 'center' })
+      const editor = viewer.getEditor(path) as unknown as
+        | { focus(options: { lineNumber: number; character: number }): void }
+        | undefined
+      editor?.focus({ lineNumber: clampedLine, character: 0 })
+    },
+    [target?.filePath],
+  )
+
+  useEffect(() => {
+    const onGoToLine = (event: KeyboardEvent) => {
+      if (!(event.ctrlKey || event.metaKey) || event.altKey || event.key.toLowerCase() !== 'g') {
+        return
+      }
+      event.preventDefault()
+      setCommandPaletteInitialQuery(':')
+      setCommandPaletteOpen(true)
+    }
+    window.addEventListener('keydown', onGoToLine)
+    return () => window.removeEventListener('keydown', onGoToLine)
+  }, [])
+
   const paletteCommands = useMemo<GitnaPaletteCommand[]>(() => {
     const commands: GitnaPaletteCommand[] = [
       {
@@ -1717,9 +1749,14 @@ function GitnaReviewUIInner() {
           searching={repository.ordinarySearchLoading}
           supportsIgnoredFiles={repository.snapshot?.repository ?? false}
           open={commandPaletteOpen && !homeOpen}
-          onClose={() => setCommandPaletteOpen(false)}
+          initialQuery={commandPaletteInitialQuery}
+          onClose={() => {
+            setCommandPaletteOpen(false)
+            setCommandPaletteInitialQuery('')
+          }}
           onError={setReviewActionError}
           onFileQueryChange={searchOrdinaryPalette}
+          onGoToLine={goToLine}
           onOpenFile={(path) => {
             setHomeOpen(false)
             return repository.openRepositoryFile(path, true)

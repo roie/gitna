@@ -163,8 +163,10 @@ interface GitnaCommandPaletteProps {
   onClose(): void
   onError(error: string): void
   onFileQueryChange(query: string, includeIgnored: boolean): void
+  onGoToLine?(line: number): void
   onOpenFile(path: string): void | Promise<void>
   open: boolean
+  initialQuery?: string
 }
 
 type PaletteResult =
@@ -236,8 +238,10 @@ export function GitnaCommandPalette({
   onClose,
   onError,
   onFileQueryChange,
+  onGoToLine,
   onOpenFile,
   open,
+  initialQuery = '',
 }: GitnaCommandPaletteProps) {
   const dialogRef = useRef<HTMLDialogElement>(null)
   const inputRef = useRef<HTMLInputElement>(null)
@@ -249,12 +253,32 @@ export function GitnaCommandPalette({
   const [refusal, setRefusal] = useState<string | null>(null)
   const listboxId = useId()
   const commandMode = query.trimStart().startsWith('>')
+  const lineMode = query.trimStart().startsWith(':')
   const commandQuery = commandMode ? query.trimStart().slice(1).trim() : ''
+  const lineQuery = lineMode ? query.trimStart().slice(1).trim() : ''
   const fileRequestKey = `${includeIgnored ? '1' : '0'}\u0000${query}`
 
   const fileResultsCurrent =
     fileResultQuery === query && fileResultIncludeIgnored === includeIgnored
   const results = useMemo<PaletteResult[]>(() => {
+    if (lineMode) {
+      const line = Number.parseInt(lineQuery, 10)
+      return Number.isFinite(line) && line > 0 && onGoToLine != null
+        ? [
+            {
+              id: 'go-to-line',
+              kind: 'command',
+              command: {
+                id: 'go-to-line',
+                icon: null,
+                label: `Go to line ${line}`,
+                description: 'Move the editor caret to this line',
+                run: () => onGoToLine(line),
+              },
+            },
+          ]
+        : []
+    }
     if (commandMode) {
       return commands
         .filter((command) =>
@@ -275,12 +299,21 @@ export function GitnaCommandPalette({
       path: file.path,
       stale: !fileResultsCurrent,
     }))
-  }, [commandMode, commandQuery, commands, externalFileResults, fileResultsCurrent])
+  }, [
+    commandMode,
+    commandQuery,
+    commands,
+    externalFileResults,
+    fileResultsCurrent,
+    lineMode,
+    lineQuery,
+    onGoToLine,
+  ])
 
   useEffect(() => {
     const dialog = dialogRef.current
     if (!open || dialog == null) return
-    setQuery('')
+    setQuery(initialQuery)
     setIncludeIgnored(true)
     setActiveIndex(0)
     setRefusal(null)
@@ -290,14 +323,14 @@ export function GitnaCommandPalette({
     return () => {
       if (dialog.open) dialog.close()
     }
-  }, [open])
+  }, [initialQuery, open])
 
   useEffect(() => {
     setActiveIndex((current) => Math.min(current, Math.max(0, results.length - 1)))
   }, [results.length])
 
   useEffect(() => {
-    if (!open || commandMode) return
+    if (!open || commandMode || lineMode) return
     const repeatedQuery = lastRequestedFileQueryRef.current === fileRequestKey
     if (repeatedQuery && ((fileResultsCurrent && fileSearchComplete) || searching || error != null))
       return
@@ -312,6 +345,7 @@ export function GitnaCommandPalette({
   }, [
     commandMode,
     error,
+    lineMode,
     fileRequestKey,
     fileResultsCurrent,
     fileSearchComplete,
@@ -383,7 +417,7 @@ export function GitnaCommandPalette({
           aria-label="Search files and commands"
           autoComplete="off"
           className="h-8 min-w-0 flex-1 bg-transparent text-sm outline-none placeholder:text-muted-foreground"
-          placeholder="Search files or type > for commands"
+          placeholder="Search files, type > for commands, or : for a line"
           spellCheck={false}
           value={query}
           onChange={(event) => {
