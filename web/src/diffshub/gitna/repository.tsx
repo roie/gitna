@@ -9,6 +9,7 @@ import {
 
 import { ApiError, createApi, type ApiClient, type MutateRequest } from '../../lib/api'
 import { appendGraph, computeGraph, type GraphRow } from '../../lib/graph-lanes'
+import { DocumentStore, type DocumentSnapshot } from './documents'
 import type {
   Branch,
   ChangeKind,
@@ -243,6 +244,7 @@ export class GitnaRepository {
   repositoryFileComparisonActive = false
   repositoryFileRevealVersion = 0
   worktreeRename: { source: string; destination: string; version: number } | null = null
+  private readonly documents = new DocumentStore()
 
   repositoryPaths: string[] = []
   repositoryIgnoredPaths = new Set<string>()
@@ -841,6 +843,30 @@ export class GitnaRepository {
       }
       if (directory) parent = child
     }
+  }
+
+  isUntitledPath(path: string): boolean {
+    return path.startsWith('untitled:')
+  }
+
+  untitledDocument(path: string): DocumentSnapshot | null {
+    if (!this.isUntitledPath(path)) return null
+    return this.documents.get(path.slice('untitled:'.length))
+  }
+
+  updateUntitledContent(path: string, contents: string): DocumentSnapshot | null {
+    const document = this.untitledDocument(path)
+    if (document == null) return null
+    const updated = this.documents.updateContent(document.id, contents)
+    this.emit()
+    return updated
+  }
+
+  createUntitledDocument(): string {
+    const document = this.documents.createUntitled('', this.snapshot?.root)
+    const path = `untitled:${document.id}`
+    this.selectRepositoryFile(path, true)
+    return path
   }
 
   async openRepositoryFile(path: string, reveal = true): Promise<void> {
@@ -1728,6 +1754,7 @@ export class GitnaRepository {
   }
 
   canOpenRepositoryFile(path: string): boolean {
+    if (this.isUntitledPath(path)) return this.untitledDocument(path) != null
     if (path.endsWith('/')) return false
     const snapshot = this.snapshot
     const changes =
@@ -1828,6 +1855,9 @@ export class GitnaRepository {
       const nextPath = openPaths.slice(currentIndex + 1).find((path) => !closing.has(path))
       const previousPath = openPaths.slice(0, currentIndex).findLast((path) => !closing.has(path))
       this.repositoryFilePath = nextPath ?? previousPath ?? null
+    }
+    for (const path of closing) {
+      if (this.isUntitledPath(path)) this.documents.delete(path.slice('untitled:'.length))
     }
     this.emit()
   }

@@ -557,6 +557,12 @@ function GitnaReviewUIInner() {
     setErrorMessage(null)
     const loadRepositoryFile = async (path: string): Promise<LoadedDiffsHubData> => {
       try {
+        const untitled = repository.untitledDocument(path)
+        if (untitled != null) {
+          const loaded: WorktreeFile = { path, content: untitled.contents, hash: '' }
+          setWorktreeFiles((current) => new Map(current).set(path, loaded))
+          return adaptWorktreeFile(loaded, repository.generation)
+        }
         const loaded = await repository.api.readWorktreeFile(path)
         const rename = repository.worktreeRename
         const previousPath =
@@ -1140,6 +1146,7 @@ function GitnaReviewUIInner() {
     [dirtyPaths, repository],
   )
   const handleWorktreeEditChange = useCallback((path: string, file: FileContents) => {
+    repository.updateUntitledContent(path, file.contents)
     setRecentlySavedPath((current) => (current === path ? null : current))
     const next = new Map(worktreeDraftsRef.current)
     const baseline = worktreeFilesRef.current.get(path)
@@ -1283,6 +1290,14 @@ function GitnaReviewUIInner() {
         description: 'Refresh the current folder',
         keywords: 'reload repository explorer graph',
         run: () => repository.refreshCurrentFolder(),
+      },
+      {
+        id: 'new-file',
+        icon: <IconPlus />,
+        label: 'New File',
+        description: 'Create an untitled file in memory',
+        keywords: 'untitled document buffer',
+        run: () => repository.createUntitledDocument(),
       },
       {
         id: 'toggle-sidebar',
@@ -1787,7 +1802,9 @@ function RepositoryFileTabs({
         {openPaths.map((path, index) => {
           const active =
             !repository.repositoryFileComparisonActive && repository.repositoryFilePath === path
-          const name = path.split('/').at(-1) ?? path
+          const name = repository.isUntitledPath(path)
+            ? (repository.untitledDocument(path)?.label ?? 'Untitled')
+            : (path.split('/').at(-1) ?? path)
           const icon = repositoryTabIconResolver.resolveIcon('file-tree-icon-file', path)
           const iconHref = `#${icon.name.replace(/^#/, '')}`
           const iconViewBox =

@@ -2094,6 +2094,34 @@ test('mobile command palette describes the active Source Control overlay', async
   ).toBeVisible()
 })
 
+test('global New File creates an in-memory untitled tab', async ({ page, app }) => {
+  await page.goto(app.url)
+  const paletteTrigger = page.getByRole('button', { name: 'Open command palette' })
+  await paletteTrigger.click()
+  const palette = page.getByRole('dialog', { name: 'Command palette' })
+  const search = palette.getByRole('combobox', { name: 'Search files and commands' })
+  await search.fill('>new file')
+  const newFile = palette.getByRole('option', {
+    name: /New File Create an untitled file in memory/,
+  })
+  await expect(newFile).toBeVisible()
+  await search.press('Enter')
+
+  const tab = page.getByRole('tab', { name: 'Untitled-1' })
+  await expect(tab).toBeVisible()
+  await expect(tab).toHaveAttribute('aria-selected', 'true')
+  await expect(page.getByRole('dialog', { name: 'Command palette' })).toHaveCount(0)
+  await expect(page.locator('[data-section="repository"]')).toBeVisible()
+
+  const editor = page.locator('.code-view').locator('[contenteditable="true"], textarea').first()
+  await expect(editor).toBeVisible()
+  await editor.click()
+  await page.keyboard.type('draft')
+  await expect(tab.getByLabel('Unsaved changes')).toBeVisible()
+  await page.keyboard.press('Control+z')
+  await expect(tab.getByLabel('Unsaved changes')).toHaveCount(0)
+})
+
 test('repository files can be edited, created in folders, and renamed', async ({ page, app }) => {
   const nextRepo = join(dirname(app.repo), 'repository-editor-switch-target')
   mkdirSync(nextRepo)
