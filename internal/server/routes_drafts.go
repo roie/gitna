@@ -24,11 +24,21 @@ func (s *Server) handleDrafts(w http.ResponseWriter, r *http.Request) {
 			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 			return
 		}
-		writeJSON(w, http.StatusOK, records)
+		scoped := records[:0]
+		for _, record := range records {
+			if record.FolderKey == "" || record.FolderKey == s.draftFolderKey {
+				scoped = append(scoped, record)
+			}
+		}
+		writeJSON(w, http.StatusOK, scoped)
 	case http.MethodPost:
 		var record drafts.Record
 		if err := decodeDraftRequest(w, r, &record); err != nil {
 			writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+			return
+		}
+		if record.FolderKey != s.draftFolderKey {
+			writeJSON(w, http.StatusForbidden, map[string]string{"error": "draft belongs to another folder"})
 			return
 		}
 		if err := s.drafts.Put(record); err != nil {
@@ -41,6 +51,15 @@ func (s *Server) handleDrafts(w http.ResponseWriter, r *http.Request) {
 		revision, err := strconv.ParseUint(r.URL.Query().Get("revision"), 10, 64)
 		if err != nil {
 			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "revision must be an unsigned integer"})
+			return
+		}
+		record, err := s.drafts.Get(documentID)
+		if err != nil {
+			writeDraftError(w, err)
+			return
+		}
+		if record.FolderKey != "" && record.FolderKey != s.draftFolderKey {
+			writeJSON(w, http.StatusForbidden, map[string]string{"error": "draft belongs to another folder"})
 			return
 		}
 		if err := s.drafts.Delete(documentID, revision); err != nil {

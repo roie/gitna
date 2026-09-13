@@ -84,6 +84,8 @@ type Options struct {
 	Repo Repo
 	// Drafts stores bounded local recovery records. When nil, draft routes return 503.
 	Drafts *drafts.Journal
+	// DraftFolderKey scopes draft records to the active folder capability.
+	DraftFolderKey string
 	// Events streams repository invalidation kinds. When nil, the events
 	// endpoint closes its stream immediately.
 	Events <-chan watch.InvalidationKind
@@ -111,6 +113,7 @@ type Server struct {
 	security           Security
 	repo               Repo
 	drafts             *drafts.Journal
+	draftFolderKey     string
 	hub                *eventsHub
 	gen                atomic.Uint64
 	openFolder         func(context.Context, string) (protocol.OpenFolderResult, error)
@@ -135,6 +138,7 @@ func New(staticFS fs.FS, opts Options) (*Server, error) {
 		version:            version,
 		repo:               opts.Repo,
 		drafts:             opts.Drafts,
+		draftFolderKey:     opts.DraftFolderKey,
 		openFolder:         opts.OpenFolder,
 		revealFolder:       opts.RevealFolder,
 		folders:            opts.Folders,

@@ -263,6 +263,7 @@ func (r *folderRegistry) createBackend(
 		Version:                   r.version,
 		Repo:                      session.adapter,
 		Drafts:                    r.drafts,
+		DraftFolderKey:            repo.Root,
 		Events:                    session.events,
 		InitialGeneration:         generation,
 		OnEventSubscribersChanged: func(delta int) { r.subscribersChanged(entry, delta) },

@@ -49,6 +49,42 @@ func TestDraftRoutesPersistAndRejectStaleRevisions(t *testing.T) {
 	}
 }
 
+func TestDraftRoutesScopeRecordsToFolder(t *testing.T) {
+	journal, err := drafts.Open(t.TempDir(), drafts.Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := journal.Put(drafts.Record{
+		DocumentID: "document-other",
+		ClientID:   "client-other",
+		FolderKey:  "/other",
+		Label:      "Untitled-1",
+		Revision:   1,
+		Contents:   "private",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	srv, err := New(newTestFS(), Options{
+		Version:        "test-version",
+		Token:          testToken,
+		Host:           testHost,
+		Drafts:         journal,
+		DraftFolderKey: "/current",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	listed := worktreeRequest(t, srv.Handler(), http.MethodGet, "/drafts", "")
+	if listed.Code != http.StatusOK || containsDraft(listed.Body.Bytes(), "document-other") {
+		t.Fatalf("scoped list status = %d, body = %s", listed.Code, listed.Body.String())
+	}
+	body := `{"schema":1,"documentId":"document-new","clientId":"client-new","folderKey":"/other","label":"Untitled-2","revision":1,"contents":"blocked"}`
+	created := worktreeRequest(t, srv.Handler(), http.MethodPost, "/drafts", body)
+	if created.Code != http.StatusForbidden {
+		t.Fatalf("cross-folder create status = %d, body = %s", created.Code, created.Body.String())
+	}
+}
+
 func containsDraft(data []byte, documentID string) bool {
 	var records []drafts.Record
 	if err := json.Unmarshal(data, &records); err != nil {
