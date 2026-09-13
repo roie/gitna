@@ -2179,11 +2179,106 @@ test('global New File creates an in-memory untitled tab', async ({ page, app }) 
   await dirtyClose.getByRole('button', { name: 'Cancel', exact: true }).click()
   await expect(dirtyClose).toHaveCount(0)
   await page.getByRole('button', { name: 'Close untitled:' }).click()
+  const discardResponse = page.waitForResponse(
+    (response) =>
+      response.request().method() === 'DELETE' && response.url().includes('/api/v1/drafts'),
+  )
   await page
     .getByRole('dialog', { name: 'Save changes before closing?' })
     .getByRole('button', { name: "Don't Save", exact: true })
     .click()
+  const deletedDraft = await discardResponse
+  expect(deletedDraft.status()).toBe(200)
+  expect(new URL(deletedDraft.url()).searchParams.get('revision')).not.toBeNull()
   await expect(page.getByRole('tab', { name: 'Untitled-2' })).toHaveCount(0)
+})
+
+test('durable drafts recover after a backend restart on a new port', async ({ page, app }) => {
+  await page.goto(app.url)
+  await page.getByRole('button', { name: 'Open command palette' }).click()
+  const palette = page.getByRole('dialog', { name: 'Command palette' })
+  const search = palette.getByRole('combobox', { name: 'Search files and commands' })
+  await search.fill('>new file')
+  await search.press('Enter')
+  const editor = page.locator('.code-view').locator('[contenteditable="true"], textarea').first()
+  await editor.click()
+  const backupRequest = page.waitForRequest(
+    (request) => request.method() === 'POST' && request.url().endsWith('/api/v1/drafts'),
+  )
+  const backup = page.waitForResponse(
+    (response) =>
+      response.request().method() === 'POST' && response.url().endsWith('/api/v1/drafts'),
+  )
+  await page.keyboard.type('restart draft')
+  const backupResponse = await backup
+  const backupPayload = await backupRequest
+  expect(
+    backupResponse.status(),
+    `${await backupResponse.text()} request=${backupPayload.postData()}`,
+  ).toBe(200)
+
+  const restarted = await app.restart()
+  await page.goto(restarted.url)
+  const recovery = page.getByRole('dialog', { name: 'Recover unsaved documents' })
+  await expect(recovery).toBeVisible()
+  await recovery.getByRole('button', { name: 'Restore copy' }).click()
+  await expect(page.getByRole('tab', { name: 'Untitled-1 (Recovered)' })).toBeVisible()
+})
+
+test('failed draft backup is visible without blocking local editing', async ({ page, app }) => {
+  await page.route('**/api/v1/drafts', async (route) => {
+    if (route.request().method() === 'POST') {
+      await route.abort('failed')
+      return
+    }
+    await route.continue()
+  })
+  await page.goto(app.url)
+  await page.getByRole('button', { name: 'Open command palette' }).click()
+  const palette = page.getByRole('dialog', { name: 'Command palette' })
+  const search = palette.getByRole('combobox', { name: 'Search files and commands' })
+  await search.fill('>new file')
+  await search.press('Enter')
+  const editor = page.locator('.code-view').locator('[contenteditable="true"], textarea').first()
+  await editor.click()
+  await page.keyboard.type('offline draft')
+  await expect(
+    page.locator('[role="alert"]').filter({ hasText: /Could not back up/ }),
+  ).toBeVisible()
+  await expect(page.getByRole('tab', { name: 'Untitled-1' })).toBeVisible()
+  await expect(
+    page.getByRole('tab', { name: 'Untitled-1' }).getByLabel('Unsaved changes'),
+  ).toBeVisible()
+})
+
+test('durable draft recovery restores a new untitled document identity', async ({ page, app }) => {
+  await page.route('**/api/v1/drafts', async (route) => {
+    if (route.request().method() !== 'GET') {
+      await route.continue()
+      return
+    }
+    await route.fulfill({
+      json: [
+        {
+          schema: 1,
+          documentId: 'recovery-document',
+          clientId: 'recovery-client',
+          folderKey: app.repo,
+          label: 'Untitled-7',
+          revision: 3,
+          contents: 'recovered text',
+          updatedAt: new Date().toISOString(),
+        },
+      ],
+    })
+  })
+  await page.goto(app.url)
+  const recovery = page.getByRole('dialog', { name: 'Recover unsaved documents' })
+  await expect(recovery).toBeVisible()
+  await expect(recovery).toContainText('Untitled-7')
+  await recovery.getByRole('button', { name: 'Restore copy' }).click()
+  await expect(recovery).toHaveCount(0)
+  await expect(page.getByRole('tab', { name: 'Untitled-7 (Recovered)' })).toBeVisible()
 })
 
 test('repository files can be edited, created in folders, and renamed', async ({ page, app }) => {

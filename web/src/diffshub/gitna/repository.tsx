@@ -7,7 +7,13 @@ import {
   useSyncExternalStore,
 } from 'react'
 
-import { ApiError, createApi, type ApiClient, type MutateRequest } from '../../lib/api'
+import {
+  ApiError,
+  createApi,
+  type ApiClient,
+  type DraftRecord,
+  type MutateRequest,
+} from '../../lib/api'
 import { appendGraph, computeGraph, type GraphRow } from '../../lib/graph-lanes'
 import { DocumentStore, type DocumentSnapshot } from './documents'
 import type {
@@ -245,6 +251,7 @@ export class GitnaRepository {
   repositoryFileRevealVersion = 0
   worktreeRename: { source: string; destination: string; version: number } | null = null
   private readonly documents = new DocumentStore()
+  private readonly recoverySources = new Map<string, DraftRecord>()
 
   repositoryPaths: string[] = []
   repositoryIgnoredPaths = new Set<string>()
@@ -873,6 +880,59 @@ export class GitnaRepository {
     return path
   }
 
+  async restoreDraft(record: DraftRecord): Promise<string> {
+    let suffix = ' (Recovered)'
+    if (record.path != null && this.api.readWorktreeFile != null) {
+      try {
+        const current = await this.api.readWorktreeFile(record.path)
+        if (record.baselineHash != null && current.hash !== record.baselineHash) {
+          suffix = ' (Conflict — disk changed)'
+        }
+      } catch (error) {
+        if (error instanceof ApiError && error.code === 'file-not-found') {
+          suffix = ' (Recovered — file missing)'
+        }
+      }
+    }
+    const document = this.documents.createUntitled(
+      record.contents,
+      record.folderKey,
+      `${record.label}${suffix}`,
+    )
+    this.recoverySources.set(document.id, record)
+    const path = `untitled:${document.id}`
+    this.selectRepositoryFile(path, true)
+    this.emit()
+    return path
+  }
+
+  async discardUntitledDocument(path: string): Promise<void> {
+    const document = this.untitledDocument(path)
+    if (document == null) return
+    const source = this.recoverySources.get(document.id)
+    const documentID = source?.documentId ?? document.id
+    const revision = source?.revision ?? document.revision
+    if (this.api.deleteDraft != null) {
+      try {
+        await this.api.deleteDraft(documentID, revision)
+      } catch (error) {
+        if (error instanceof ApiError && error.status === 404) {
+          // The backup may already have been acknowledged and cleaned up.
+        } else if (error instanceof ApiError && error.status === 409 && this.api.drafts != null) {
+          const current = (await this.api.drafts()).find(
+            (candidate) => candidate.documentId === documentID,
+          )
+          if (current == null) throw error
+          await this.api.deleteDraft(documentID, current.revision)
+        } else {
+          throw error
+        }
+      }
+      this.recoverySources.delete(document.id)
+    }
+    this.closeRepositoryFiles([path])
+  }
+
   async saveUntitledDocument(path: string, destination: string): Promise<WorktreeFile> {
     const document = this.untitledDocument(path)
     if (document == null) throw new Error('This untitled document is no longer available.')
@@ -885,6 +945,15 @@ export class GitnaRepository {
       path: destination,
       baselineHash: saved.hash,
     })
+    const recoverySource = this.recoverySources.get(document.id)
+    if (recoverySource != null && this.api.deleteDraft != null) {
+      try {
+        await this.api.deleteDraft(recoverySource.documentId, recoverySource.revision)
+        this.recoverySources.delete(document.id)
+      } catch (error) {
+        this.mutationError = `Saved ${destination}, but could not remove its recovery backup: ${error instanceof Error ? error.message : String(error)}`
+      }
+    }
     this.repositoryOpenPaths = this.repositoryOpenPaths.map((openPath) =>
       openPath === path ? destination : openPath,
     )

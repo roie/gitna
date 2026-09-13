@@ -37,7 +37,9 @@ func (s *Server) handleDrafts(w http.ResponseWriter, r *http.Request) {
 			writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
 			return
 		}
-		if record.FolderKey != s.draftFolderKey {
+		if record.FolderKey == "" {
+			record.FolderKey = s.draftFolderKey
+		} else if record.FolderKey != s.draftFolderKey {
 			writeJSON(w, http.StatusForbidden, map[string]string{"error": "draft belongs to another folder"})
 			return
 		}

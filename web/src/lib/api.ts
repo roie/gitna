@@ -400,7 +400,11 @@ export function createApi(): ApiClient {
       await expectOK(
         await fetch(
           `api/v1/drafts?documentId=${encodeURIComponent(documentId)}&revision=${String(revision)}`,
-          { method: 'DELETE', signal: AbortSignal.timeout(MUTATE_TIMEOUT) },
+          {
+            method: 'DELETE',
+            headers: { 'Content-Type': 'application/json' },
+            signal: AbortSignal.timeout(MUTATE_TIMEOUT),
+          },
         ),
       )
     },

@@ -50,6 +50,28 @@ func TestJournalPutGetAndRevisionChecks(t *testing.T) {
 	}
 }
 
+func TestJournalPersistsAcrossReopen(t *testing.T) {
+	dir := t.TempDir()
+	first, err := Open(dir, Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := first.Put(testRecord(4, "survives restart")); err != nil {
+		t.Fatal(err)
+	}
+	second, err := Open(dir, Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	record, err := second.Get("document-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if record.Revision != 4 || record.Contents != "survives restart" {
+		t.Fatalf("reopened record = %#v", record)
+	}
+}
+
 func TestJournalBoundsContentAndRecords(t *testing.T) {
 	journal, err := Open(t.TempDir(), Options{MaxContent: 4, MaxRecords: 1, MaxTotalSize: 256})
 	if err != nil {

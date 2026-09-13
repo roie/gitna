@@ -14,6 +14,7 @@ export interface GitnaFixture {
   repo: string
   baseOid: string
   headOid: string
+  restart(): Promise<Pick<GitnaFixture, 'url' | 'origin' | 'token'>>
 }
 
 function git(cwd: string, ...args: string[]): string {
@@ -212,6 +213,17 @@ export const test = base.extend<{ app: GitnaFixture }>({
         url: running.url,
         origin: parsed.origin,
         token: parsed.pathname.split('/')[2] ?? '',
+        restart: async () => {
+          if (child != null) await stopGitna(child)
+          const next = await startGitna(binary, fixture.repo)
+          child = next.child
+          const nextURL = new URL(next.url)
+          return {
+            url: next.url,
+            origin: nextURL.origin,
+            token: nextURL.pathname.split('/')[2] ?? '',
+          }
+        },
       })
     } finally {
       try {

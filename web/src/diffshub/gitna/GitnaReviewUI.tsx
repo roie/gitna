@@ -39,7 +39,7 @@ import {
 import { ThemeSourceProvider } from '../components/ThemeSourceProvider'
 import { docsThemeCatalog, themeController } from '../components/themeController'
 import type { CommentMetadata, ViewerLoadState } from '../lib/types'
-import { ApiError, type DiffRequest, type ReviewRequest } from '../../lib/api'
+import { ApiError, type DiffRequest, type DraftRecord, type ReviewRequest } from '../../lib/api'
 import type { FileDiff, WorktreeFile } from '../../lib/types'
 import type { DarkThemeName, LightThemeName } from '../lib/themeNames'
 import type { LoadedDiffsHubData } from '../lib/diffsHubDataAccumulator'
@@ -52,6 +52,7 @@ import { GitnaSourceControl } from './SourceControlWorkflow'
 import { Confirm } from './Modal'
 import { UntitledSaveAsModal } from './UntitledSaveAsModal'
 import { DirtyTabCloseModal } from './DirtyTabCloseModal'
+import { DraftRecoveryModal } from './DraftRecoveryModal'
 import {
   adaptGitnaFile,
   appendGitnaReviewPage,
@@ -368,6 +369,8 @@ function GitnaReviewUIInner() {
     dirtyPaths: string[]
   } | null>(null)
   const [pendingUntitledSaveAs, setPendingUntitledSaveAs] = useState<string | null>(null)
+  const [recoverableDrafts, setRecoverableDrafts] = useState<readonly DraftRecord[]>([])
+  const [draftRecoveryOpen, setDraftRecoveryOpen] = useState(false)
   const [pendingFolderSwitch, setPendingFolderSwitch] = useState<{
     focusTarget: HTMLElement | null
     path: string
@@ -412,6 +415,25 @@ function GitnaReviewUIInner() {
   useEffect(() => {
     setThemesHydrated(true)
     markDestinationStartup()
+    const loadDrafts = repository.api.drafts
+    if (loadDrafts != null) {
+      let active = true
+      void loadDrafts()
+        .then((drafts) => {
+          if (!active || drafts.length === 0) return
+          setRecoverableDrafts(drafts)
+          setDraftRecoveryOpen(true)
+        })
+        .catch(() => undefined)
+      return () => {
+        active = false
+        folderSwitchOperationRef.current?.controller.abort()
+      }
+    }
+    return () => folderSwitchOperationRef.current?.controller.abort()
+  }, [repository.api])
+
+  useEffect(() => {
     return () => folderSwitchOperationRef.current?.controller.abort()
   }, [])
 
@@ -1251,6 +1273,25 @@ function GitnaReviewUIInner() {
     repository.closeRepositoryFiles(pending.paths)
   }, [pendingTabClose, repository, saveWorktreeFile])
 
+  const discardPendingTabs = useCallback(async () => {
+    const pending = pendingTabClose
+    if (pending == null) return
+    try {
+      for (const path of pending.dirtyPaths) {
+        if (repository.isUntitledPath(path)) await repository.discardUntitledDocument(path)
+      }
+      setWorktreeDrafts((current) => {
+        const next = new Map(current)
+        for (const path of pending.dirtyPaths) next.delete(path)
+        return next
+      })
+      setPendingTabClose(null)
+      repository.closeRepositoryFiles(pending.paths)
+    } catch (error) {
+      setReviewActionError(error instanceof Error ? error.message : String(error))
+    }
+  }, [pendingTabClose, repository])
+
   const requestSave = useCallback(
     (path: string) => {
       if (repository.isUntitledPath(path)) {
@@ -1701,20 +1742,41 @@ function GitnaReviewUIInner() {
             }}
           />
         )}
+        {draftRecoveryOpen && recoverableDrafts.length > 0 && (
+          <DraftRecoveryModal
+            drafts={recoverableDrafts}
+            onClose={() => setDraftRecoveryOpen(false)}
+            onRestore={(draft) => {
+              void repository.restoreDraft(draft).then(() => {
+                setRecoverableDrafts((current) =>
+                  current.filter((candidate) => candidate.documentId !== draft.documentId),
+                )
+                setDraftRecoveryOpen(false)
+              })
+            }}
+            onDiscard={(draft) => {
+              if (repository.api.deleteDraft == null) return
+              void repository.api
+                .deleteDraft(draft.documentId, draft.revision)
+                .then(() => {
+                  setRecoverableDrafts((current) =>
+                    current.filter((candidate) => candidate.documentId !== draft.documentId),
+                  )
+                  if (recoverableDrafts.length <= 1) setDraftRecoveryOpen(false)
+                })
+                .catch((error: unknown) =>
+                  setReviewActionError(
+                    `Could not discard ${draft.label}: ${error instanceof Error ? error.message : String(error)}`,
+                  ),
+                )
+            }}
+          />
+        )}
         {pendingTabClose != null && (
           <DirtyTabCloseModal
             dirtyPaths={pendingTabClose.dirtyPaths}
             onCancel={() => setPendingTabClose(null)}
-            onDiscard={() => {
-              const pending = pendingTabClose
-              setPendingTabClose(null)
-              setWorktreeDrafts((current) => {
-                const next = new Map(current)
-                for (const path of pending.dirtyPaths) next.delete(path)
-                return next
-              })
-              repository.closeRepositoryFiles(pending.paths)
-            }}
+            onDiscard={() => void discardPendingTabs()}
             onSave={() => void savePendingTabs()}
           />
         )}

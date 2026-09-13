@@ -50,13 +50,13 @@ export class DocumentStore {
   private readonly documents = new Map<string, DocumentRecord>()
   private nextUntitled = 1
 
-  createUntitled(contents = '', folderKey?: string): DocumentSnapshot {
+  createUntitled(contents = '', folderKey?: string, label?: string): DocumentSnapshot {
     const id = documentId()
-    const label = this.nextUntitledLabel()
+    const documentLabel = label ?? this.nextUntitledLabel()
     const document: DocumentRecord = {
       id,
       folderKey,
-      label,
+      label: documentLabel,
       contents,
       revision: 0,
       savedRevision: 0,
