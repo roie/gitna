@@ -131,6 +131,28 @@ func TestWorktreeFileRejectsUnsafeAndUnsupportedInputs(t *testing.T) {
 	}
 }
 
+func TestCreateWorktreeFile(t *testing.T) {
+	root := initTestRepo(t)
+	repo := Repository{Root: root}
+	ctx := context.Background()
+	if err := os.Mkdir(filepath.Join(root, "docs"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	file, err := repo.CreateWorktreeFile(ctx, "docs/new.txt", "draft\n")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if file.Path != "docs/new.txt" || file.Content != "draft\n" || file.Hash == "" {
+		t.Fatalf("file = %#v", file)
+	}
+	if err := os.WriteFile(filepath.Join(root, "docs", "new.txt"), []byte("changed\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := repo.CreateWorktreeFile(ctx, "docs/new.txt", "again\n"); !errors.Is(err, protocol.ErrWorktreeEntryExists) {
+		t.Fatalf("duplicate error = %v, want ErrWorktreeEntryExists", err)
+	}
+}
+
 func TestCreateAndRenameWorktreeEntries(t *testing.T) {
 	root := initTestRepo(t)
 	repo := Repository{Root: root}

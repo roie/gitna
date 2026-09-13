@@ -137,6 +137,7 @@ export interface ApiClient {
   readWorktreeFile(path: string): Promise<WorktreeFile>
   compareWorktreeFiles(leftPath: string, rightPath: string, signal?: AbortSignal): Promise<FileDiff>
   writeWorktreeFile(path: string, content: string, expectedHash: string): Promise<WorktreeFile>
+  createWorktreeFile(path: string, content: string): Promise<WorktreeFile>
   createWorktreeEntry(path: string, directory: boolean): Promise<void>
   renameWorktreeEntry(source: string, destination: string): Promise<void>
   diff(request: DiffRequest): Promise<FileDiff>
@@ -327,6 +328,17 @@ export function createApi(): ApiClient {
           method: 'PUT',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ path, content, expectedHash }),
+          signal: AbortSignal.timeout(MUTATE_TIMEOUT),
+        }),
+      )
+      return (await res.json()) as WorktreeFile
+    },
+    async createWorktreeFile(path: string, content: string): Promise<WorktreeFile> {
+      const res = await expectOK(
+        await fetch('api/v1/worktree/file', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ path, content }),
           signal: AbortSignal.timeout(MUTATE_TIMEOUT),
         }),
       )

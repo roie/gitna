@@ -39,6 +39,14 @@ func (f *fakeWorktreeRepo) WriteWorktreeFile(_ context.Context, path, content, _
 	return f.file, nil
 }
 
+func (f *fakeWorktreeRepo) CreateWorktreeFile(_ context.Context, path, content string) (protocol.WorktreeFile, error) {
+	if f.err != nil {
+		return protocol.WorktreeFile{}, f.err
+	}
+	f.file = protocol.WorktreeFile{Path: path, Content: content, Hash: "created"}
+	return f.file, nil
+}
+
 func (f *fakeWorktreeRepo) CreateWorktreeEntry(_ context.Context, path string, directory bool) error {
 	f.createdPath, f.createdDir = path, directory
 	return f.err
@@ -81,6 +89,11 @@ func TestWorktreeFileRoutesReadAndWrite(t *testing.T) {
 	write := worktreeRequest(t, h, http.MethodPut, "/worktree/file", `{"path":"notes.txt","content":"after\n","expectedHash":"before"}`)
 	if write.Code != http.StatusOK || repo.file.Content != "after\n" {
 		t.Fatalf("write status = %d, file = %#v, body = %s", write.Code, repo.file, write.Body.String())
+	}
+
+	create := worktreeRequest(t, h, http.MethodPost, "/worktree/file", `{"path":"new.txt","content":"created\n"}`)
+	if create.Code != http.StatusOK || repo.file.Path != "new.txt" || repo.file.Content != "created\n" {
+		t.Fatalf("create status = %d, file = %#v, body = %s", create.Code, repo.file, create.Body.String())
 	}
 }
 

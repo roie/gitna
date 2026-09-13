@@ -44,6 +44,8 @@ func (s *Server) apiRoutes() http.Handler {
 			s.handleCompareWorktreeFiles(w, r)
 		case r.Method == http.MethodPut && p == "/worktree/file":
 			s.handleWriteWorktreeFile(w, r)
+		case r.Method == http.MethodPost && p == "/worktree/file":
+			s.handleCreateWorktreeFile(w, r)
 		case r.Method == http.MethodPost && p == "/worktree/entry":
 			s.handleCreateWorktreeEntry(w, r)
 		case r.Method == http.MethodPatch && p == "/worktree/entry":

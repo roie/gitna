@@ -171,6 +171,53 @@ func (r Repository) WriteWorktreeFile(ctx context.Context, path, content, expect
 	return worktreeFile(path, data), nil
 }
 
+// CreateWorktreeFile creates one regular text file without overwriting an existing entry.
+func (r Repository) CreateWorktreeFile(ctx context.Context, path, content string) (protocol.WorktreeFile, error) {
+	if err := ctx.Err(); err != nil {
+		return protocol.WorktreeFile{}, err
+	}
+	if len(content) > DefaultDiffBytes {
+		return protocol.WorktreeFile{}, fmt.Errorf("%w: %q", protocol.ErrWorktreeFileTooLarge, path)
+	}
+	data := []byte(content)
+	if isBinary(data) {
+		return protocol.WorktreeFile{}, fmt.Errorf("%w: %q", protocol.ErrWorktreeBinary, path)
+	}
+	if _, err := r.resolveNewWorktreeEntry(path); err != nil {
+		return protocol.WorktreeFile{}, err
+	}
+	root, err := os.OpenRoot(r.Root)
+	if err != nil {
+		return protocol.WorktreeFile{}, err
+	}
+	defer root.Close()
+	file, err := root.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o644)
+	if err != nil {
+		if errors.Is(err, os.ErrExist) {
+			return protocol.WorktreeFile{}, fmt.Errorf("%w: %q", protocol.ErrWorktreeEntryExists, path)
+		}
+		return protocol.WorktreeFile{}, err
+	}
+	if _, err := file.Write(data); err != nil {
+		closeErr := file.Close()
+		if closeErr != nil {
+			return protocol.WorktreeFile{}, fmt.Errorf("write file: %w; close file: %v", err, closeErr)
+		}
+		return protocol.WorktreeFile{}, err
+	}
+	if err := file.Sync(); err != nil {
+		closeErr := file.Close()
+		if closeErr != nil {
+			return protocol.WorktreeFile{}, fmt.Errorf("sync file: %w; close file: %v", err, closeErr)
+		}
+		return protocol.WorktreeFile{}, err
+	}
+	if err := file.Close(); err != nil {
+		return protocol.WorktreeFile{}, err
+	}
+	return worktreeFile(path, data), nil
+}
+
 // CreateWorktreeEntry creates one empty file or directory without overwriting
 // an existing entry. Parent directories must already exist.
 func (r Repository) CreateWorktreeEntry(ctx context.Context, path string, directory bool) error {

@@ -146,6 +146,9 @@ const auxApi: ApiClient = {
   async writeWorktreeFile() {
     throw new Error('writeWorktreeFile not used')
   },
+  async createWorktreeFile() {
+    throw new Error('createWorktreeFile not used')
+  },
   async createWorktreeEntry() {
     throw new Error('createWorktreeEntry not used')
   },

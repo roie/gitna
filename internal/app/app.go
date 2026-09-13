@@ -136,6 +136,19 @@ func (a *repoAdapter) WriteWorktreeFile(ctx context.Context, path, content, expe
 	return file, err
 }
 
+func (a *repoAdapter) CreateWorktreeFile(ctx context.Context, path, content string) (protocol.WorktreeFile, error) {
+	var file protocol.WorktreeFile
+	err := a.queue.Do(ctx, func(ctx context.Context) error {
+		var err error
+		file, err = a.current().CreateWorktreeFile(ctx, path, content)
+		return err
+	})
+	if err == nil {
+		a.invalidateFileSearch()
+	}
+	return file, err
+}
+
 func (a *repoAdapter) CreateWorktreeEntry(ctx context.Context, path string, directory bool) error {
 	err := a.queue.Do(ctx, func(ctx context.Context) error {
 		return a.current().CreateWorktreeEntry(ctx, path, directory)

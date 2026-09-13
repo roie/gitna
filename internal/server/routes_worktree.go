@@ -19,6 +19,7 @@ type worktreeRepository interface {
 	ReadWorktreeFile(context.Context, string) (protocol.WorktreeFile, error)
 	CompareWorktreeFiles(context.Context, string, string) (protocol.FileDiff, error)
 	WriteWorktreeFile(context.Context, string, string, string) (protocol.WorktreeFile, error)
+	CreateWorktreeFile(context.Context, string, string) (protocol.WorktreeFile, error)
 	CreateWorktreeEntry(context.Context, string, bool) error
 	RenameWorktreeEntry(context.Context, string, string) error
 }
@@ -91,6 +92,28 @@ func (s *Server) handleWriteWorktreeFile(w http.ResponseWriter, r *http.Request)
 	ctx, cancel := withTimeout(r.Context(), LocalMutationTimeout)
 	defer cancel()
 	file, err := repo.WriteWorktreeFile(ctx, req.Path, req.Content, req.ExpectedHash)
+	if err != nil {
+		writeWorktreeError(w, r, s, err)
+		return
+	}
+	s.gen.Add(1)
+	writeJSON(w, http.StatusOK, file)
+}
+
+func (s *Server) handleCreateWorktreeFile(w http.ResponseWriter, r *http.Request) {
+	repo, ok := s.worktreeRepository()
+	if !ok {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "worktree files unavailable"})
+		return
+	}
+	var req worktreeFileRequest
+	if err := decodeWorktreeRequest(w, r, &req); err != nil {
+		writeMutationDecodeError(w, err)
+		return
+	}
+	ctx, cancel := withTimeout(r.Context(), LocalMutationTimeout)
+	defer cancel()
+	file, err := repo.CreateWorktreeFile(ctx, req.Path, req.Content)
 	if err != nil {
 		writeWorktreeError(w, r, s, err)
 		return
