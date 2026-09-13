@@ -1730,6 +1730,29 @@ test('command palette keeps busy mutations discoverable with a refusal reason', 
   await response
 })
 
+test('dispatched mutation loss stays unknown until acknowledged', async ({ page, app }) => {
+  await page.route('**/api/v1/operations?op=stage', async (route) => {
+    await route.abort('failed')
+  })
+  await page.goto(app.url)
+  await expect(page.locator('[data-connection-state="connected"]')).toBeVisible({
+    timeout: 20_000,
+  })
+  await page
+    .locator('#gitna-unstaged-tree__tree')
+    .getByRole('treeitem', {
+      name: 'modified.txt',
+      exact: true,
+    })
+    .click()
+  await page.getByRole('button', { name: 'Stage file modified.txt' }).click()
+  const unknown = page.getByRole('alert').filter({ hasText: 'outcome is unknown' })
+  await expect(unknown).toBeVisible()
+  await expect(unknown).toContainText('Inspect the repository before repeating the action')
+  await unknown.getByRole('button', { name: 'Acknowledge' }).click()
+  await expect(unknown).toHaveCount(0)
+})
+
 test('Astra refresh updates already-rendered headers without remounting the editor', async ({
   page,
   app,

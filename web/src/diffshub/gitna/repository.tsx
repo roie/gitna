@@ -159,7 +159,11 @@ const OP_LABELS: Record<string, string> = {
 
 export function startupTraceEnabled(): boolean {
   if (typeof window === 'undefined') return false
-  return new URL(window.location.href).searchParams.get('trace-startup') === '1'
+  try {
+    return new URL(window.location.href).searchParams.get('trace-startup') === '1'
+  } catch {
+    return false
+  }
 }
 
 export function markStartup(name: string): void {
@@ -224,6 +228,7 @@ export class GitnaRepository {
   loading = false
   error: string | null = null
   mutationError: string | null = null
+  uncertainMutation: string | null = null
   connectionState: ConnectionState = 'connecting'
   connectionError: string | null = null
   connectionLastSuccessAt: number | null = null
@@ -352,6 +357,18 @@ export class GitnaRepository {
 
   get activeOpLabel(): string | null {
     return this.activeOp == null ? null : (OP_LABELS[this.activeOp] ?? this.activeOp)
+  }
+
+  acknowledgeUncertainMutation(): void {
+    if (this.uncertainMutation == null) return
+    this.uncertainMutation = null
+    this.emit()
+  }
+
+  private recordUncertainMutation(label: string, error: unknown): void {
+    if (error instanceof ApiError) return
+    this.uncertainMutation = `${label} outcome is unknown. Gitna could not confirm whether the backend completed it. Inspect the repository before repeating the action.`
+    this.emit()
   }
 
   get connectionReady(): boolean {
@@ -1977,6 +1994,7 @@ export class GitnaRepository {
       this.mutationError = null
     } catch (error) {
       this.mutationError = errorMessage(error)
+      this.recordUncertainMutation(this.activeOpLabel ?? request.op, error)
       throw error
     } finally {
       const refreshes = [this.refreshSnapshot(), this.refreshRepositoryFiles()]
@@ -2061,6 +2079,7 @@ export class GitnaRepository {
       return result
     } catch (error) {
       this.mutationError = errorMessage(error)
+      this.recordUncertainMutation(this.activeOpLabel ?? label, error)
       throw error
     } finally {
       await Promise.allSettled([this.refreshSnapshot(), this.refreshRepositoryFiles()])
@@ -2081,6 +2100,7 @@ export class GitnaRepository {
       this.mutationError = null
     } catch (error) {
       this.mutationError = errorMessage(error)
+      this.recordUncertainMutation(this.activeOpLabel ?? request.op, error)
       throw error
     } finally {
       await Promise.allSettled([
@@ -2258,6 +2278,7 @@ export class GitnaRepository {
       this.mutationError = null
     } catch (error) {
       this.mutationError = errorMessage(error)
+      this.recordUncertainMutation('Commit', error)
       throw error
     } finally {
       await Promise.allSettled([

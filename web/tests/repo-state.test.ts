@@ -2221,6 +2221,30 @@ describe('operation feedback', () => {
     expect(repo.mutationError).toBe('Operation timed out')
   })
 
+  it('records and requires acknowledgment for a lost mutation outcome', async () => {
+    const repo = createRepoState({
+      api: mockMutateApi(async () => {
+        throw new TypeError('Failed to fetch')
+      }),
+    })
+    await admitAction(repo)
+    await expect(repo.pullRemote()).rejects.toThrow('Failed to fetch')
+    expect(repo.uncertainMutation).toContain('Pulling outcome is unknown')
+    repo.acknowledgeUncertainMutation()
+    expect(repo.uncertainMutation).toBeNull()
+  })
+
+  it('does not mark an authoritative API failure as unknown', async () => {
+    const repo = createRepoState({
+      api: mockMutateApi(async () => {
+        throw new ApiError(409, 'pull rejected')
+      }),
+    })
+    await admitAction(repo)
+    await expect(repo.pullRemote()).rejects.toThrow('pull rejected')
+    expect(repo.uncertainMutation).toBeNull()
+  })
+
   it('sets activeOp during commit', async () => {
     let captured = ''
     const repo = createRepoState({
