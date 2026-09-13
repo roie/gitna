@@ -45,6 +45,7 @@ import type { DarkThemeName, LightThemeName } from '../lib/themeNames'
 import type { LoadedDiffsHubData } from '../lib/diffsHubDataAccumulator'
 import { cn } from '../lib/cn'
 import { GitnaCommandPalette, type GitnaPaletteCommand } from './GitnaCommandPalette'
+import { ConnectionStatus } from './ConnectionStatus'
 import { FolderLoadingScreen, folderDisplayName } from './FolderLoadingScreen'
 import { GitnaHome } from './GitnaHome'
 import { GitnaSourceControl } from './SourceControlWorkflow'
@@ -58,7 +59,12 @@ import {
   diffImageAnnotations,
   type GitnaReviewAccumulator,
 } from './reviewAdapter'
-import { startupTraceEnabled, useRepository, type RepositoryFileComparison } from './repository'
+import {
+  ActionGuardError,
+  startupTraceEnabled,
+  useRepository,
+  type RepositoryFileComparison,
+} from './repository'
 
 interface ReviewTarget {
   comparison?: RepositoryFileComparison
@@ -235,7 +241,6 @@ function updateViewerItems(
       item.type === 'file' &&
       existing.edit === true &&
       item.edit === true &&
-      existing.file.cacheKey === item.file.cacheKey &&
       existing.file.contents === item.file.contents
     ) {
       continue
@@ -557,9 +562,10 @@ function GitnaReviewUIInner() {
         const previousPath =
           rename == null ? path : previousWorktreePath(path, rename.source, rename.destination)
         const previousDraft = worktreeDraftsRef.current.get(previousPath)
-        const draft =
+        const storedDraft =
           worktreeDraftsRef.current.get(path) ??
           (previousDraft == null ? undefined : { ...previousDraft, name: path })
+        const draft = storedDraft
         if (draft == null) {
           setWorktreeFiles((current) => new Map(current).set(path, loaded))
         }
@@ -871,6 +877,8 @@ function GitnaReviewUIInner() {
     handleViewerReady()
   }, [handleViewerReady, imageDiff, reviewData, selectedImageRequest, viewerAvailable])
 
+  const backendDisabledReason = repository.getActionDisabledReason()
+  const openFolderDisabledReason = repository.getActionDisabledReason('open-folder')
   const workingScope =
     target?.request?.scope === 'staged' || target?.request?.scope === 'unstaged'
       ? target.request.scope
@@ -903,6 +911,11 @@ function GitnaReviewUIInner() {
             })
           },
           onFileAction(action: GitnaFileAction, path: string) {
+            const reason = repository.getActionDisabledReason()
+            if (reason != null) {
+              setReviewActionError(reason)
+              return
+            }
             setReviewActionError(null)
             const list =
               workingScope === 'staged'
@@ -928,10 +941,13 @@ function GitnaReviewUIInner() {
               )
           },
           onPatch(request) {
+            const reason = repository.getActionDisabledReason()
+            if (reason != null) return Promise.reject(new ActionGuardError(reason))
             setReviewActionError(null)
             return repository.mutate(request)
           },
           onError: setReviewActionError,
+          disabledReason: backendDisabledReason,
         }
 
   const graphFile = repository.commitDiff
@@ -941,7 +957,8 @@ function GitnaReviewUIInner() {
       ? undefined
       : {
           ariaLabel: (path: string) => `Open ${path} in Repository`,
-          canOpenFile: (path: string) => path === graphPath && !path.endsWith('/'),
+          canOpenFile: (path: string) =>
+            path === graphPath && !path.endsWith('/') && repository.canOpenRepositoryFile(path),
           onOpenFile: (path: string) => {
             void repository
               .openRepositoryFile(path, true)
@@ -986,6 +1003,12 @@ function GitnaReviewUIInner() {
   }, [homeOpen])
   const performFolderSwitch = useCallback(
     async (path: string, returnHome: boolean, restoreFocus?: HTMLElement | null) => {
+      const reason = repository.getActionDisabledReason('open-folder')
+      if (reason != null) {
+        if (returnHome) setHomeSwitchError(reason)
+        else setReviewActionError(reason)
+        return
+      }
       if (returnHome) setHomeSwitchError(null)
       const previousOperation = folderSwitchOperationRef.current
       previousOperation?.controller.abort()
@@ -1053,7 +1076,9 @@ function GitnaReviewUIInner() {
   )
   const openFolderInNewTab = useCallback(
     (path: string): Promise<void> => {
-      const newTab = window.open('about:blank', '_blank')
+      const reason = repository.getActionDisabledReason('open-folder')
+      if (reason != null) return Promise.reject(new ActionGuardError(reason))
+      const newTab = window.open()
       if (newTab == null) {
         return Promise.reject(new Error('Allow pop-ups to open this folder in a new tab.'))
       }
@@ -1076,6 +1101,12 @@ function GitnaReviewUIInner() {
   )
   const requestFolderSwitch = useCallback(
     async (path: string, returnHome: boolean) => {
+      const reason = repository.getActionDisabledReason('open-folder')
+      if (reason != null) {
+        if (returnHome) setHomeSwitchError(reason)
+        else setReviewActionError(reason)
+        return
+      }
       if (path === repository.snapshot?.root) {
         if (returnHome) closeHome()
         return
@@ -1118,10 +1149,15 @@ function GitnaReviewUIInner() {
     setWorktreeDrafts(next)
   }, [])
   const saveWorktreeFile = useCallback(
-    async (path: string) => {
+    async (path: string): Promise<boolean> => {
       const baseline = worktreeFilesRef.current.get(path)
       const draft = worktreeDraftsRef.current.get(path)
-      if (baseline == null || draft == null || savingPathRef.current != null) return
+      if (baseline == null || draft == null || savingPathRef.current != null) return false
+      const reason = repository.getActionDisabledReason()
+      if (reason != null) {
+        setReviewActionError(reason)
+        return false
+      }
       const submittedContent = draft.contents
       savingPathRef.current = path
       setSavingPath(path)
@@ -1145,6 +1181,7 @@ function GitnaReviewUIInner() {
         savingPathRef.current = null
         setSavingPath(null)
       }
+      return true
     },
     [repository],
   )
@@ -1164,6 +1201,7 @@ function GitnaReviewUIInner() {
           dirtyPaths,
           recentlySavedPath,
           saving: savingPath != null,
+          disabledReason: backendDisabledReason,
           onChange: handleWorktreeEditChange,
           onOpenChange: (scope, path) => repository.select(scope, path),
           onSave: (path) => void saveWorktreeFile(path),
@@ -1220,7 +1258,9 @@ function GitnaReviewUIInner() {
         label: 'Open Folder',
         description: 'Enter an absolute local folder path',
         keywords: 'switch location path',
+        disabledReason: openFolderDisabledReason,
         run() {
+          if (repository.getActionDisabledReason('open-folder') != null) return
           openHome()
           window.setTimeout(
             () => document.querySelector<HTMLInputElement>('[aria-label="Folder path"]')?.focus(),
@@ -1285,26 +1325,34 @@ function GitnaReviewUIInner() {
       (target?.request?.scope === 'staged' || target?.request?.scope === 'unstaged'
         ? target.selectedPath
         : undefined)
-    if (currentPath != null && worktreeDrafts.has(currentPath) && !repository.busy) {
+    if (currentPath != null && worktreeDrafts.has(currentPath)) {
       commands.push({
         id: 'save-file',
         icon: <IconCheck />,
         label: 'Save File',
         description: currentPath,
         keywords: 'write dirty changes',
-        run: () => saveWorktreeFile(currentPath),
+        disabledReason: backendDisabledReason,
+        run: async () => {
+          const saved = await saveWorktreeFile(currentPath)
+          if (!saved) {
+            const reason = repository.getActionDisabledReason()
+            if (reason != null) throw new ActionGuardError(reason)
+          }
+        },
       })
     }
     const unstagedChange = repository.snapshot?.unstaged.find(
       (change) => change.path === currentPath,
     )
-    if (unstagedChange != null && !repository.busy) {
+    if (unstagedChange != null) {
       commands.push({
         id: 'stage-file',
         icon: <IconPlus />,
         label: 'Stage Current File',
         description: unstagedChange.path,
         keywords: 'git add',
+        disabledReason: backendDisabledReason,
         run: () =>
           repository.mutate({
             op: 'stage',
@@ -1315,13 +1363,14 @@ function GitnaReviewUIInner() {
       })
     }
     const stagedChange = repository.snapshot?.staged.find((change) => change.path === currentPath)
-    if (stagedChange != null && !repository.busy) {
+    if (stagedChange != null) {
       commands.push({
         id: 'unstage-file',
         icon: <IconMinus />,
         label: 'Unstage Current File',
         description: stagedChange.path,
         keywords: 'git reset index',
+        disabledReason: backendDisabledReason,
         run: () =>
           repository.mutate({
             op: 'unstage',
@@ -1331,30 +1380,29 @@ function GitnaReviewUIInner() {
           }),
       })
     }
-
-    if (!repository.busy) {
-      for (const folder of repository.folders?.recent ?? []) {
-        if (folder.path === repository.snapshot?.root) continue
-        commands.push({
-          id: `recent-folder:${folder.path}`,
-          icon: <IconFolder />,
-          label: `Open Recent Folder: ${folder.name}`,
-          description: folder.path,
-          keywords: 'recent history switch folder',
-          run: () => requestFolderSwitch(folder.path, false),
-        })
-      }
-      for (const branch of repository.branches) {
-        if (branch.current || branch.remote) continue
-        commands.push({
-          id: `switch-branch:${branch.name}`,
-          icon: <IconBranch />,
-          label: `Switch Branch: ${branch.name}`,
-          description: branch.upstream ?? 'Local branch',
-          keywords: 'git checkout branch',
-          run: () => repository.switchBranch(branch.name),
-        })
-      }
+    for (const folder of repository.folders?.recent ?? []) {
+      if (folder.path === repository.snapshot?.root) continue
+      commands.push({
+        id: `recent-folder:${folder.path}`,
+        icon: <IconFolder />,
+        label: `Open Recent Folder: ${folder.name}`,
+        description: folder.path,
+        keywords: 'recent history switch folder',
+        disabledReason: openFolderDisabledReason,
+        run: () => requestFolderSwitch(folder.path, false),
+      })
+    }
+    for (const branch of repository.branches) {
+      if (branch.current || branch.remote) continue
+      commands.push({
+        id: `switch-branch:${branch.name}`,
+        icon: <IconBranch />,
+        label: `Switch Branch: ${branch.name}`,
+        description: branch.upstream ?? 'Local branch',
+        keywords: 'git checkout branch',
+        disabledReason: backendDisabledReason,
+        run: () => repository.switchBranch(branch.name),
+      })
     }
     return commands
   }, [
@@ -1366,6 +1414,8 @@ function GitnaReviewUIInner() {
     repository,
     repository.branches,
     repository.busy,
+    backendDisabledReason,
+    openFolderDisabledReason,
     repository.folders?.recent,
     repository.generation,
     repository.snapshot?.root,
@@ -1410,8 +1460,11 @@ function GitnaReviewUIInner() {
               onOpenCommandPalette={() => setCommandPaletteOpen(true)}
               onSaveGitHubToken={() => {}}
               onOpenFolder={(path) => requestFolderSwitch(path, false)}
+              backendDisabledReason={backendDisabledReason}
+              openFolderDisabledReason={openFolderDisabledReason}
               onOpenFolderInNewTab={openFolderInNewTab}
               onRemoveRecentFolder={(path) => repository.removeRecentFolder(path)}
+              connectionStatus={<ConnectionStatus />}
               onRevealFolder={async () => {
                 setReviewActionError(null)
                 try {
@@ -1444,6 +1497,9 @@ function GitnaReviewUIInner() {
               onBack={closeHome}
               onClearSwitchError={() => setHomeSwitchError(null)}
               onOpenFolder={(path) => requestFolderSwitch(path, true)}
+              backendDisabledReason={backendDisabledReason}
+              connectionStatus={<ConnectionStatus />}
+              openFolderDisabledReason={openFolderDisabledReason}
               onOpenFolderInNewTab={openFolderInNewTab}
               onRefresh={() => void repository.refreshFolders()}
               onRemoveRecentFolder={(path) => repository.removeRecentFolder(path)}
@@ -1546,6 +1602,7 @@ function GitnaReviewUIInner() {
             message={`${dirtyPaths.size} unsaved ${dirtyPaths.size === 1 ? 'file' : 'files'} will be discarded.`}
             confirmLabel="Discard and switch"
             onCancel={() => setPendingFolderSwitch(null)}
+            disabledReason={repository.getActionDisabledReason('open-folder')}
             onConfirm={() => {
               const pending = pendingFolderSwitch
               setPendingFolderSwitch(null)
@@ -1591,6 +1648,7 @@ function GitnaReviewUIInner() {
                 : 'The file will be restored to its staged version. This cannot be undone.'
             }
             confirmLabel={pendingFileAction.action === 'delete' ? 'Delete file' : 'Discard changes'}
+            disabledReason={repository.getActionDisabledReason()}
             onCancel={() => setPendingFileAction(null)}
             onConfirm={() => {
               const pending = pendingFileAction

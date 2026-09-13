@@ -18,7 +18,15 @@ import {
 import { Editor, type EditorOptions } from '@pierre/diffs/edit';
 import { EditProvider, type CodeViewHandle, useStableCallback } from '@pierre/diffs/react';
 import { IconCheck, IconChevronSm } from '@pierre/icons';
-import { memo, type ComponentProps, type RefObject, useMemo, useRef, useState } from 'react';
+import {
+  memo,
+  type ComponentProps,
+  type RefObject,
+  useCallback,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
 
 import { Button } from './Button';
 import {
@@ -58,6 +66,7 @@ export interface GitnaEditorActions {
   dirtyPaths: ReadonlySet<string>;
   recentlySavedPath: string | null;
   saving: boolean;
+  disabledReason?: string | null;
   onChange(path: string, file: FileContents): void;
   onOpenChange(scope: ChangeScope, path: string): void;
   onSave(path: string): void;
@@ -85,6 +94,7 @@ export interface GitnaViewerActions {
   onOpenFile(path: string): void;
   onPatch(request: MutateRequest): Promise<void>;
   onError(error: string): void;
+  disabledReason?: string | null;
   scope: 'staged' | 'unstaged';
 }
 
@@ -495,7 +505,7 @@ export const DiffsHubViewer = memo(function DiffsHubViewer({
     );
   });
 
-  const renderHeaderMetadata = useStableCallback(
+  const renderHeaderMetadata = useCallback(
     (item: CodeViewItem<CommentMetadata>) => {
       if (item.type === 'file' && gitnaEditorActions != null) {
         return <WorktreeHeaderActions actions={gitnaEditorActions} path={item.file.name} />;
@@ -540,7 +550,8 @@ export const DiffsHubViewer = memo(function DiffsHubViewer({
           Open File
         </FileHeaderAction>
       );
-    }
+    },
+    [gitnaEditorActions, gitnaComparisonActions, gitnaActions, gitnaOpenFileAction]
   );
 
   const renderHeaderPrefix = useStableCallback(
@@ -705,9 +716,10 @@ function WorktreeHeaderActions({
         type="button"
         aria-hidden={!dirty && !recentlySaved}
         className={cn(!dirty && !recentlySaved && 'invisible')}
-        disabled={!dirty || actions.saving}
+        disabled={!dirty || actions.saving || actions.disabledReason != null}
         tabIndex={dirty ? 0 : -1}
-        title={dirty ? `Save ${path}` : undefined}
+        aria-describedby={actions.disabledReason == null ? undefined : `gitna-action-reason-${path.replace(/[^a-zA-Z0-9_-]/g, '-')}`}
+        title={dirty ? actions.disabledReason ?? `Save ${path}` : undefined}
         onClick={() => actions.onSave(path)}
       >
         {dirty ? (
@@ -725,6 +737,15 @@ function WorktreeHeaderActions({
           'Save'
         )}
       </FileHeaderAction>
+      {dirty && actions.disabledReason != null && (
+        <span
+          id={`gitna-action-reason-${path.replace(/[^a-zA-Z0-9_-]/g, '-')}`}
+          className="sr-only"
+          role="note"
+        >
+          {actions.disabledReason}
+        </span>
+      )}
     </span>
   );
 }
@@ -791,7 +812,9 @@ function GitnaHeaderActions({
       )}
       <FileHeaderAction
         type="button"
-        aria-label={`${primaryLabel} file ${path}`}
+        disabled={actions.disabledReason != null}
+        aria-label={`${primaryLabel} file ${path}${actions.disabledReason == null ? '' : `. ${actions.disabledReason}`}`}
+        title={actions.disabledReason ?? undefined}
         onClick={() => actions.onFileAction(primary, path, kind)}
       >
         {primaryLabel}
@@ -799,7 +822,9 @@ function GitnaHeaderActions({
       {actions.scope === 'unstaged' && (
         <FileHeaderAction
           type="button"
-          aria-label={`${destructiveLabel} file ${path}`}
+          disabled={actions.disabledReason != null}
+          aria-label={`${destructiveLabel} file ${path}${actions.disabledReason == null ? '' : `. ${actions.disabledReason}`}`}
+          title={actions.disabledReason ?? undefined}
           onClick={() => actions.onFileAction(destructive, path, kind)}
         >
           {destructiveLabel}
@@ -821,9 +846,9 @@ function GitnaHeaderActions({
           <FileHeaderAction
             key={hunk.range}
             type="button"
-            disabled={patchId == null}
-            aria-label={`${verb} hunk ${index + 1} in ${path}`}
-            title={hunk.range}
+            disabled={patchId == null || actions.disabledReason != null}
+            aria-label={`${verb} hunk ${index + 1} in ${path}${actions.disabledReason == null ? '' : `. ${actions.disabledReason}`}`}
+            title={actions.disabledReason ?? hunk.range}
             onClick={() => {
               if (patchId == null) return;
               void actions
@@ -846,6 +871,11 @@ function GitnaHeaderActions({
           </FileHeaderAction>
         );
       })}
+      {actions.disabledReason != null && (
+        <span className="sr-only" role="note">
+          {actions.disabledReason}
+        </span>
+      )}
     </span>
   );
 }

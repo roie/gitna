@@ -8,10 +8,11 @@ import { Button } from '../components/Button'
 interface ModalProps {
   children: ReactNode
   onClose(): void
+  disabledReason?: string | null
   title: string
 }
 
-export function Modal({ children, onClose, title }: ModalProps) {
+export function Modal({ children, onClose, disabledReason, title }: ModalProps) {
   const dialogRef = useRef<HTMLDialogElement>(null)
 
   useEffect(() => {
@@ -42,6 +43,11 @@ export function Modal({ children, onClose, title }: ModalProps) {
         </Button>
       </div>
       <div className="gitna-scrollbar max-h-[calc(100dvh-8rem)] overflow-y-auto overscroll-contain p-4">
+        {disabledReason != null && (
+          <p className="mb-3 overflow-wrap-anywhere text-xs text-muted-foreground" role="note">
+            {disabledReason}
+          </p>
+        )}
         {children}
       </div>
     </dialog>
@@ -53,10 +59,18 @@ interface ConfirmProps {
   message: string
   onCancel(): void
   onConfirm(): void
+  disabledReason?: string | null
   title: string
 }
 
-export function Confirm({ confirmLabel, message, onCancel, onConfirm, title }: ConfirmProps) {
+export function Confirm({
+  confirmLabel,
+  message,
+  onCancel,
+  onConfirm,
+  disabledReason,
+  title,
+}: ConfirmProps) {
   const portalContainer =
     typeof document === 'undefined'
       ? undefined
@@ -77,6 +91,15 @@ export function Confirm({ confirmLabel, message, onCancel, onConfirm, title }: C
           <AlertDialog.Description className="mt-3 text-sm leading-6 text-muted-foreground">
             {message}
           </AlertDialog.Description>
+          {disabledReason != null && (
+            <p
+              id="gitna-confirm-disabled-reason"
+              className="mt-3 overflow-wrap-anywhere text-xs text-muted-foreground"
+              role="note"
+            >
+              {disabledReason}
+            </p>
+          )}
           <div className="mt-6 flex justify-end gap-2">
             <AlertDialog.Cancel asChild>
               <Button variant="outline" size="sm">
@@ -84,7 +107,15 @@ export function Confirm({ confirmLabel, message, onCancel, onConfirm, title }: C
               </Button>
             </AlertDialog.Cancel>
             <AlertDialog.Action asChild>
-              <Button variant="destructive" size="sm" onClick={onConfirm}>
+              <Button
+                variant="destructive"
+                size="sm"
+                disabled={disabledReason != null}
+                aria-describedby={
+                  disabledReason == null ? undefined : 'gitna-confirm-disabled-reason'
+                }
+                onClick={onConfirm}
+              >
                 {confirmLabel}
               </Button>
             </AlertDialog.Action>

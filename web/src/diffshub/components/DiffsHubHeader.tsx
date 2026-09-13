@@ -30,6 +30,7 @@ import {
   type CSSProperties,
   type Dispatch,
   memo,
+  type ReactNode,
   type Ref,
   type SetStateAction,
   useEffect,
@@ -90,6 +91,9 @@ interface HeaderProps {
   onOpenFolderInNewTab?(path: string): Promise<void>;
   onRemoveRecentFolder?(path: string): Promise<void>;
   onRevealFolder?(): Promise<void>;
+  backendDisabledReason?: string | null;
+  connectionStatus?: ReactNode;
+  openFolderDisabledReason?: string | null;
   recentFolders?: readonly Folder[];
   onToggleCollapseMode(): void;
   onToggleFileTreeOverlay(): void;
@@ -109,12 +113,16 @@ function LocalFolderForm({
   onOpenInNewTab,
   onRemoveRecent,
   onSwitch,
+  backendDisabledReason,
+  openFolderDisabledReason,
   recentFolders = [],
 }: {
   initialPath: string;
   onOpenInNewTab?: (path: string) => Promise<void>;
   onRemoveRecent?: (path: string) => Promise<void>;
   onSwitch?: (path: string) => Promise<void>;
+  backendDisabledReason?: string | null;
+  openFolderDisabledReason?: string | null;
   recentFolders?: readonly Folder[];
 }) {
   const [path, setPath] = useState(initialPath);
@@ -170,6 +178,11 @@ function LocalFolderForm({
   ) => {
     const callback = action === 'new-tab' ? onOpenInNewTab : onRemoveRecent;
     if (callback == null || folderAction != null) return;
+    const reason = action === 'new-tab' ? openFolderDisabledReason : backendDisabledReason;
+    if (reason != null) {
+      setActionError(reason);
+      return;
+    }
     setFolderAction(`${action}:${folder.path}`);
     setActionError(null);
     void callback(folder.path)
@@ -182,6 +195,10 @@ function LocalFolderForm({
   const switchFolder = (targetPath: string) => {
     if (targetPath === '' || targetPath === initialPath || onSwitch == null)
       return;
+    if (openFolderDisabledReason != null) {
+      setError(openFolderDisabledReason);
+      return;
+    }
     setPath(targetPath);
     setPending(true);
     setError(null);
@@ -288,8 +305,8 @@ function LocalFolderForm({
           variant="ghost"
           size="icon-md"
           aria-label="Switch folder"
-          title="Switch folder"
-          disabled={pending}
+          disabled={pending || openFolderDisabledReason != null}
+          title={openFolderDisabledReason ?? 'Switch folder'}
           className="text-primary"
         >
           <IconCheck className="size-4" />
@@ -341,7 +358,8 @@ function LocalFolderForm({
                     role="option"
                     aria-selected={index === activeIndex}
                     className="min-w-0 flex-1 cursor-pointer px-2 py-2 text-left outline-none"
-                    disabled={pending || actionPending}
+                    disabled={pending || actionPending || openFolderDisabledReason != null}
+                    title={openFolderDisabledReason ?? undefined}
                     onClick={() => switchFolder(folder.path)}
                   >
                     <span className="block truncate text-sm font-medium">
@@ -364,7 +382,8 @@ function LocalFolderForm({
                             size="icon-md"
                             className="size-8 shadow-none"
                             aria-label={`Open ${folder.name} in new tab`}
-                            disabled={pending || folderAction != null}
+                            disabled={pending || folderAction != null || openFolderDisabledReason != null}
+                            title={openFolderDisabledReason ?? undefined}
                             onMouseDown={(event) => event.preventDefault()}
                             onClick={() => runFolderAction('new-tab', folder)}
                           >
@@ -383,7 +402,8 @@ function LocalFolderForm({
                             size="icon-md"
                             className="size-8 shadow-none hover:text-destructive"
                             aria-label={`Remove ${folder.name} from recent folders`}
-                            disabled={pending || folderAction != null}
+                            disabled={pending || folderAction != null || backendDisabledReason != null}
+                            title={backendDisabledReason ?? undefined}
                             onMouseDown={(event) => event.preventDefault()}
                             onClick={() => runFolderAction('remove', folder)}
                           >
@@ -434,6 +454,9 @@ export const DiffsHubHeader = memo(function DiffsHubHeader({
   onOpenFolderInNewTab,
   onRemoveRecentFolder,
   onRevealFolder,
+  backendDisabledReason,
+  connectionStatus,
+  openFolderDisabledReason,
   recentFolders = [],
   onToggleCollapseMode,
   onToggleFileTreeOverlay,
@@ -499,6 +522,8 @@ export const DiffsHubHeader = memo(function DiffsHubHeader({
           onOpenInNewTab={onOpenFolderInNewTab}
           onRemoveRecent={onRemoveRecentFolder}
           onSwitch={onOpenFolder}
+          backendDisabledReason={backendDisabledReason}
+          openFolderDisabledReason={openFolderDisabledReason}
           recentFolders={recentFolders}
         />
       ) : (
@@ -510,6 +535,7 @@ export const DiffsHubHeader = memo(function DiffsHubHeader({
           inputClassName="w-full md:w-auto"
         />
       )}
+      {connectionStatus}
       <div className="flex w-full items-center justify-between gap-2 md:w-auto md:justify-end">
         <Button
           type="button"
@@ -561,7 +587,8 @@ export const DiffsHubHeader = memo(function DiffsHubHeader({
                 variant="ghost"
                 size="icon-md"
                 aria-label="Reveal folder in file manager"
-                title="Reveal folder in file manager"
+                title={backendDisabledReason ?? 'Reveal folder in file manager'}
+                disabled={backendDisabledReason != null}
                 className={cn(CHROME_ICON_BUTTON_CLASS, 'hidden md:flex')}
                 onClick={() => void onRevealFolder()}
               >

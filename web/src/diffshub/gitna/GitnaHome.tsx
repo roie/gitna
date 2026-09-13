@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type RefObject } from 'react'
+import { useEffect, useMemo, useRef, useState, type ReactNode, type RefObject } from 'react'
 
 import {
   IconArrowLeftBar,
@@ -30,6 +30,9 @@ interface GitnaHomeProps {
   onOpenFolderInNewTab(path: string): Promise<void>
   onRefresh(): void
   onRemoveRecentFolder(path: string): Promise<void>
+  backendDisabledReason?: string | null
+  connectionStatus?: ReactNode
+  openFolderDisabledReason?: string | null
 }
 
 function OpenFolderForm({
@@ -38,12 +41,14 @@ function OpenFolderForm({
   opening,
   onClearError,
   onOpenFolder,
+  openFolderDisabledReason,
 }: {
   error: string | null
   inputRef: RefObject<HTMLInputElement | null>
   opening: boolean
   onClearError(): void
   onOpenFolder(path: string): Promise<void>
+  openFolderDisabledReason?: string | null
 }) {
   const [path, setPath] = useState('')
   const [localError, setLocalError] = useState<string | null>(null)
@@ -54,6 +59,10 @@ function OpenFolderForm({
   const open = async () => {
     const nextPath = path.trim()
     if (nextPath === '') return
+    if (openFolderDisabledReason != null) {
+      setLocalError(openFolderDisabledReason)
+      return
+    }
     setLocalError(null)
     onClearError()
     try {
@@ -105,7 +114,11 @@ function OpenFolderForm({
             </p>
           )}
         </div>
-        <Button type="submit" disabled={opening || path.trim() === ''}>
+        <Button
+          type="submit"
+          disabled={opening || path.trim() === '' || openFolderDisabledReason != null}
+          title={openFolderDisabledReason ?? undefined}
+        >
           Open Folder
         </Button>
       </form>
@@ -120,6 +133,8 @@ function FolderRow({
   onOpen,
   onOpenInNewTab,
   onRemove,
+  openFolderDisabledReason,
+  backendDisabledReason,
 }: {
   action: 'new-tab' | 'remove' | null
   disabled?: boolean
@@ -127,6 +142,8 @@ function FolderRow({
   onOpen(): void
   onOpenInNewTab(): void
   onRemove(): void
+  openFolderDisabledReason?: string | null
+  backendDisabledReason?: string | null
 }) {
   const opened = formatOpenedAt(folder.lastOpened)
   const rowDisabled = disabled || action != null
@@ -173,7 +190,8 @@ function FolderRow({
                 size="icon-md"
                 aria-label={`Open ${folder.name} in new tab`}
                 className="size-9 shadow-none sm:size-8"
-                disabled={rowDisabled}
+                disabled={rowDisabled || openFolderDisabledReason != null}
+                title={openFolderDisabledReason ?? undefined}
                 onClick={onOpenInNewTab}
               >
                 <IconArrowUpRight className="size-4" />
@@ -189,7 +207,8 @@ function FolderRow({
                 size="icon-md"
                 aria-label={`Remove ${folder.name} from recent folders`}
                 className="size-9 shadow-none hover:text-destructive sm:size-8"
-                disabled={rowDisabled}
+                disabled={rowDisabled || backendDisabledReason != null}
+                title={backendDisabledReason ?? undefined}
                 onClick={onRemove}
               >
                 <IconTrash className="size-4" />
@@ -215,6 +234,9 @@ export function GitnaHome({
   onOpenFolderInNewTab,
   onRefresh,
   onRemoveRecentFolder,
+  backendDisabledReason,
+  connectionStatus,
+  openFolderDisabledReason,
 }: GitnaHomeProps) {
   const [query, setQuery] = useState('')
   const [recentAction, setRecentAction] = useState<{
@@ -282,6 +304,9 @@ export function GitnaHome({
         </span>
         <span className="sm:hidden">Back</span>
       </Button>
+      <div className="absolute top-3 right-3 max-w-[calc(100%-6rem)] sm:top-5 sm:right-6">
+        {connectionStatus}
+      </div>
 
       <div className="mx-auto flex min-h-full w-full max-w-2xl flex-col px-5 pt-20 pb-16 sm:px-8 sm:pt-24 sm:pb-24 lg:pt-28">
         <div className="flex min-w-0 flex-col items-center text-center">
@@ -305,6 +330,7 @@ export function GitnaHome({
           opening={opening}
           onClearError={onClearSwitchError}
           onOpenFolder={onOpenFolder}
+          openFolderDisabledReason={openFolderDisabledReason}
         />
 
         {showRecentFolders && (
@@ -414,12 +440,22 @@ export function GitnaHome({
                         action={action}
                         disabled={opening || recentAction != null}
                         folder={folder}
+                        openFolderDisabledReason={openFolderDisabledReason}
+                        backendDisabledReason={backendDisabledReason}
                         onOpen={() => {
                           setRecentActionError(null)
                           onClearSwitchError()
+                          if (openFolderDisabledReason != null) {
+                            setRecentActionError(openFolderDisabledReason)
+                            return
+                          }
                           void onOpenFolder(folder.path)
                         }}
                         onOpenInNewTab={() => {
+                          if (openFolderDisabledReason != null) {
+                            setRecentActionError(openFolderDisabledReason)
+                            return
+                          }
                           setRecentAction({ path: folder.path, type: 'new-tab' })
                           setRecentActionError(null)
                           void onOpenFolderInNewTab(folder.path)
@@ -431,6 +467,10 @@ export function GitnaHome({
                             .finally(() => setRecentAction(null))
                         }}
                         onRemove={() => {
+                          if (backendDisabledReason != null) {
+                            setRecentActionError(backendDisabledReason)
+                            return
+                          }
                           setRecentAction({ path: folder.path, type: 'remove' })
                           setRecentActionError(null)
                           void onRemoveRecentFolder(folder.path)

@@ -135,6 +135,7 @@ function MiddleTruncatedHighlightedText({
 
 export interface GitnaPaletteCommand {
   description?: string
+  disabledReason?: string | null
   icon: ReactNode
   id: string
   keywords?: string
@@ -162,7 +163,7 @@ interface GitnaCommandPaletteProps {
   onClose(): void
   onError(error: string): void
   onFileQueryChange(query: string, includeIgnored: boolean): void
-  onOpenFile(path: string): void
+  onOpenFile(path: string): void | Promise<void>
   open: boolean
 }
 
@@ -245,6 +246,7 @@ export function GitnaCommandPalette({
   const [query, setQuery] = useState('')
   const [includeIgnored, setIncludeIgnored] = useState(true)
   const [activeIndex, setActiveIndex] = useState(0)
+  const [refusal, setRefusal] = useState<string | null>(null)
   const listboxId = useId()
   const commandMode = query.trimStart().startsWith('>')
   const commandQuery = commandMode ? query.trimStart().slice(1).trim() : ''
@@ -281,6 +283,7 @@ export function GitnaCommandPalette({
     setQuery('')
     setIncludeIgnored(true)
     setActiveIndex(0)
+    setRefusal(null)
     lastRequestedFileQueryRef.current = null
     if (!dialog.open) dialog.showModal()
     queueMicrotask(() => inputRef.current?.focus())
@@ -327,12 +330,17 @@ export function GitnaCommandPalette({
 
   const execute = (result: PaletteResult | undefined) => {
     if (result == null || (result.kind === 'file' && result.stale)) return
-    onClose()
+    if (result.kind === 'command' && result.command.disabledReason != null) {
+      setRefusal(result.command.disabledReason)
+      return
+    }
     try {
       const operation = result.kind === 'file' ? onOpenFile(result.path) : result.command.run()
-      void Promise.resolve(operation).catch((reason: unknown) =>
-        onError(reason instanceof Error ? reason.message : String(reason)),
-      )
+      void Promise.resolve(operation)
+        .then(() => onClose())
+        .catch((reason: unknown) =>
+          onError(reason instanceof Error ? reason.message : String(reason)),
+        )
     } catch (reason) {
       onError(reason instanceof Error ? reason.message : String(reason))
     }
@@ -381,6 +389,7 @@ export function GitnaCommandPalette({
           onChange={(event) => {
             setQuery(event.currentTarget.value)
             setActiveIndex(0)
+            setRefusal(null)
           }}
           onKeyDown={(event) => {
             if (event.nativeEvent.isComposing) return
@@ -449,7 +458,18 @@ export function GitnaCommandPalette({
             type="button"
             role="option"
             aria-selected={index === activeIndex}
-            aria-disabled={result.kind === 'file' && result.stale ? true : undefined}
+            aria-disabled={
+              result.kind === 'file'
+                ? result.stale
+                : result.command.disabledReason == null
+                  ? undefined
+                  : true
+            }
+            aria-describedby={
+              result.kind === 'command' && result.command.disabledReason != null
+                ? `${listboxId}-reason-${index}`
+                : undefined
+            }
             aria-label={
               result.kind === 'file'
                 ? `${result.name} ${paletteFileParentLabel(result.parent, folderLabel)}`
@@ -463,6 +483,11 @@ export function GitnaCommandPalette({
               result.kind === 'file' && result.stale && 'cursor-default',
             )}
             onClick={() => execute(result)}
+            onMouseDown={(event) => {
+              if (result.kind === 'command' && result.command.disabledReason != null) {
+                event.preventDefault()
+              }
+            }}
             onPointerMove={() => {
               if (result.kind !== 'file' || !result.stale) setActiveIndex(index)
             }}
@@ -488,11 +513,24 @@ export function GitnaCommandPalette({
                     {result.command.description}
                   </span>
                 )}
+                {result.command.disabledReason != null && (
+                  <span
+                    id={`${listboxId}-reason-${index}`}
+                    className="mt-0.5 block overflow-wrap-anywhere text-xs text-muted-foreground"
+                  >
+                    {result.command.disabledReason}
+                  </span>
+                )}
               </span>
             )}
           </button>
         ))}
 
+        {refusal != null && commandMode && (
+          <p className="px-3 py-2 text-xs text-muted-foreground" role="status">
+            {refusal}
+          </p>
+        )}
         {fileSearchErrorCurrent && !searching && (
           <div className="px-3 py-4 text-center" role="alert">
             <p className="text-sm font-medium">Could not search files</p>

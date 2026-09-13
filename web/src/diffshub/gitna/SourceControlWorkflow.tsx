@@ -684,6 +684,11 @@ export function GitnaSourceControl() {
   const submitCommit = useCallback(async () => {
     const nextMessage = commitMessage.trim()
     if (nextMessage.length === 0 || repository.busy) return
+    const reason = repository.getActionDisabledReason()
+    if (reason != null) {
+      setLocalError(reason)
+      return
+    }
     setLocalError(null)
     try {
       await repository.commit(nextMessage, amend)
@@ -692,6 +697,18 @@ export function GitnaSourceControl() {
       setLocalError(message(error))
     }
   }, [amend, commitMessage, repository])
+
+  const backendDisabledReason = repository.getActionDisabledReason()
+  const previousMutationErrorRef = useRef(repository.mutationError)
+  useEffect(() => {
+    if (
+      repository.mutationError != null &&
+      repository.mutationError !== previousMutationErrorRef.current
+    ) {
+      setLocalError(null)
+    }
+    previousMutationErrorRef.current = repository.mutationError
+  }, [repository.mutationError])
 
   const selectRepositoryPath = useCallback(
     (path: string) => repository.selectRepositoryFile(path),
@@ -718,6 +735,7 @@ export function GitnaSourceControl() {
     ({ draggedPaths, target }: FileTreeDropContext) => {
       if (
         repository.busy ||
+        repository.getActionDisabledReason() != null ||
         repositoryView !== 'tree' ||
         repositoryFilters.size > 0 ||
         repositoryVisibilityFiltered ||
@@ -763,6 +781,7 @@ export function GitnaSourceControl() {
     () => ({
       canDrag: (paths) =>
         !repository.busy &&
+        repository.getActionDisabledReason() == null &&
         repositoryView === 'tree' &&
         repositoryFilters.size === 0 &&
         !repositoryVisibilityFiltered &&
@@ -951,6 +970,7 @@ export function GitnaSourceControl() {
                       size="sm"
                       disabled={
                         repository.busy ||
+                        backendDisabledReason != null ||
                         commitMessage.trim().length === 0 ||
                         (staged.length === 0 && (!amend || snapshot.headOid == null))
                       }
@@ -1164,6 +1184,7 @@ export function GitnaSourceControl() {
           title={pendingConfirm.title}
           message={pendingConfirm.message}
           confirmLabel={pendingConfirm.confirmLabel}
+          disabledReason={repository.getActionDisabledReason()}
           onCancel={() => setPendingConfirm(null)}
           onConfirm={() => {
             const pending = pendingConfirm
@@ -1195,6 +1216,7 @@ function SourceControlHeaderActions({
   const [moreOpen, setMoreOpen] = useState(false)
   const [publishBranch, setPublishBranch] = useState<string | null>(null)
   const fetching = repository.activeOp === 'Fetching'
+  const disabledReason = repository.getActionDisabledReason()
   const fetchRefreshVisible = useDelayedRefreshIndicator(fetching)
   const [publishRemote, setPublishRemote] = useState('')
   const normalizedBranchQuery = branchQuery.trim().toLocaleLowerCase()
@@ -1213,6 +1235,11 @@ function SourceControlHeaderActions({
 
   const run = useCallback(
     async (action: () => Promise<void>) => {
+      const reason = repository.getActionDisabledReason()
+      if (reason != null) {
+        onError(reason)
+        return
+      }
       onError(null)
       try {
         await action()
@@ -1326,7 +1353,7 @@ function SourceControlHeaderActions({
             onSubmit={(event) => {
               event.preventDefault()
               const name = branchQuery.trim()
-              if (name.length === 0) return
+              if (name.length === 0 || disabledReason != null) return
               setBranchQuery('')
               setBranchMenuOpen(false)
               void run(() => repository.createBranch(name))
@@ -1339,7 +1366,13 @@ function SourceControlHeaderActions({
               value={branchQuery}
               onChange={(event) => setBranchQuery(event.currentTarget.value)}
             />
-            <Button variant="outline" size="sm" type="submit" disabled={branchQuery.trim() === ''}>
+            <Button
+              variant="outline"
+              size="sm"
+              type="submit"
+              disabled={branchQuery.trim() === '' || disabledReason != null}
+              title={disabledReason ?? undefined}
+            >
               New
             </Button>
           </form>
@@ -1366,7 +1399,7 @@ function SourceControlHeaderActions({
               </DropdownMenuItem>
             ) : (
               <DropdownMenuSub key={branch.name}>
-                <DropdownMenuSubTrigger disabled={repository.busy}>
+                <DropdownMenuSubTrigger disabled={repository.busy || disabledReason != null}>
                   <span className="w-4" />
                   <span className="min-w-0 flex-1 truncate">{branch.name}</span>
                   {branch.upstream != null && (
@@ -1378,6 +1411,7 @@ function SourceControlHeaderActions({
                 </DropdownMenuSubTrigger>
                 <DropdownMenuSubContent>
                   <DropdownMenuItem
+                    disabled={disabledReason != null}
                     onSelect={() => void run(() => repository.switchBranch(branch.name))}
                   >
                     Switch to branch
@@ -1407,7 +1441,7 @@ function SourceControlHeaderActions({
                   <DropdownMenuItem
                     key={branch.name}
                     aria-label={`Checkout ${branch.name} as ${localName}`}
-                    disabled={repository.busy}
+                    disabled={repository.busy || disabledReason != null}
                     onSelect={() => void run(() => repository.createBranch(localName, branch.name))}
                   >
                     <span className="w-4" />
@@ -1428,9 +1462,9 @@ function SourceControlHeaderActions({
       <Button
         variant="ghost"
         size="icon-only"
-        disabled={repository.busy}
+        disabled={repository.busy || disabledReason != null}
         aria-label={fetching ? 'Fetching' : 'Fetch'}
-        title={fetching ? 'Fetching' : 'Fetch'}
+        title={disabledReason ?? (fetching ? 'Fetching' : 'Fetch')}
         className={CHROME_ICON_BUTTON_CLASS}
         onClick={() => void run(() => repository.operation({ op: 'fetch' }))}
       >
@@ -1445,9 +1479,9 @@ function SourceControlHeaderActions({
         <Button
           variant="ghost"
           size="xs"
-          disabled={repository.busy}
+          disabled={repository.busy || disabledReason != null}
           aria-label="Publish branch"
-          title="Publish branch"
+          title={disabledReason ?? 'Publish branch'}
           onClick={() => void push()}
         >
           Publish
@@ -1494,10 +1528,15 @@ function SourceControlHeaderActions({
           </Button>
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end">
-          <DropdownMenuItem onSelect={() => void run(() => repository.operation({ op: 'pull' }))}>
+          <DropdownMenuItem
+            disabled={disabledReason != null}
+            onSelect={() => void run(() => repository.operation({ op: 'pull' }))}
+          >
             Pull
           </DropdownMenuItem>
-          <DropdownMenuItem onSelect={() => void push()}>Push</DropdownMenuItem>
+          <DropdownMenuItem disabled={disabledReason != null} onSelect={() => void push()}>
+            Push
+          </DropdownMenuItem>
           {upstream != null && snapshot != null && snapshot.behind > 0 && (
             <DropdownMenuItem
               onSelect={() =>
@@ -1531,7 +1570,11 @@ function SourceControlHeaderActions({
         </DropdownMenuContent>
       </DropdownMenu>
       {publishBranch != null && (
-        <Modal title={`Publish ${publishBranch}`} onClose={() => setPublishBranch(null)}>
+        <Modal
+          title={`Publish ${publishBranch}`}
+          disabledReason={disabledReason}
+          onClose={() => setPublishBranch(null)}
+        >
           <div className="flex items-center gap-2 text-xs" role="status">
             <span className="min-w-0 flex-1 truncate">
               <b>{publishBranch}</b> has no upstream
@@ -1751,6 +1794,8 @@ function RepositoryContextMenu({
   onRefresh(): void
   onRename(source: string): void
 }) {
+  const repository = useRepository()
+  const disabledReason = repository.getActionDisabledReason()
   const closeForDialog = () => context.close({ restoreFocus: false })
   return (
     <DropdownMenu
@@ -1807,6 +1852,7 @@ function RepositoryContextMenu({
           </>
         )}
         <DropdownMenuItem
+          disabled={disabledReason != null}
           onSelect={() => {
             closeForDialog()
             onCreate('file', repositoryItemParent(item))
@@ -1815,6 +1861,7 @@ function RepositoryContextMenu({
           New File
         </DropdownMenuItem>
         <DropdownMenuItem
+          disabled={disabledReason != null}
           onSelect={() => {
             closeForDialog()
             onCreate('folder', repositoryItemParent(item))
@@ -1823,6 +1870,7 @@ function RepositoryContextMenu({
           New Folder
         </DropdownMenuItem>
         <DropdownMenuItem
+          disabled={disabledReason != null}
           onSelect={() => {
             closeForDialog()
             onRename(trimDirectoryPath(item.path))
@@ -1939,6 +1987,8 @@ function RepositoryHeaderActions({
   showIgnoredFiles: boolean
   view: RepositoryViewMode
 }) {
+  const repository = useRepository()
+  const disabledReason = repository.getActionDisabledReason()
   const filtered = selectedStatuses.size > 0
   const visibleFilters = REPOSITORY_FILTERS.filter(({ status }) => availableStatuses.has(status))
   const [isMac] = useState(
@@ -2040,14 +2090,20 @@ function RepositoryHeaderActions({
           </Button>
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end">
-          <DropdownMenuItem onSelect={() => onCreate('file', repositoryCreationParent(model))}>
+          <DropdownMenuItem
+            disabled={disabledReason != null}
+            onSelect={() => onCreate('file', repositoryCreationParent(model))}
+          >
             New File
           </DropdownMenuItem>
-          <DropdownMenuItem onSelect={() => onCreate('folder', repositoryCreationParent(model))}>
+          <DropdownMenuItem
+            disabled={disabledReason != null}
+            onSelect={() => onCreate('folder', repositoryCreationParent(model))}
+          >
             New Folder
           </DropdownMenuItem>
           <DropdownMenuItem
-            disabled={model == null}
+            disabled={model == null || disabledReason != null}
             onSelect={() => {
               const source = model?.getSelectedPaths()[0]
               if (source != null) onRename(source)
@@ -2353,6 +2409,7 @@ function ChangeSection({
     () => new Map(changes.map((change) => [change.path, change])),
     [changes],
   )
+  const disabledReason = repository.getActionDisabledReason()
   const selectedPath =
     repository.selection?.scope === scope ? repository.selection.change.path : null
   const discardChanges = useCallback(
@@ -2391,13 +2448,14 @@ function ChangeSection({
           ? [changesByPath.get(itemPath)].filter((change): change is TreeFile => change != null)
           : changes.filter((change) => change.path.startsWith(`${itemPath}/`))
       if (itemChanges.length === 0) return null
+      const disabledSuffix = disabledReason == null ? '' : ` — ${disabledReason}`
       if (scope === 'staged') {
         return [
           {
             id: 'unstage',
-            label: `Unstage ${item.name}`,
+            label: `Unstage ${item.name}${disabledSuffix}`,
             icon: { name: 'gitna-action-unstage' },
-            disabled: repository.busy,
+            disabled: repository.busy || disabledReason != null,
             onAction: () =>
               void onRun(() =>
                 repository.mutate({ op: 'unstage', paths: mutationPaths(itemChanges) }),
@@ -2408,9 +2466,9 @@ function ChangeSection({
       return [
         {
           id: 'discard',
-          label: `Discard changes in ${item.name}`,
+          label: `Discard changes in ${item.name}${disabledSuffix}`,
           icon: { name: 'gitna-action-discard' },
-          disabled: repository.busy,
+          disabled: repository.busy || disabledReason != null,
           onAction: () =>
             onConfirm({
               ...discardConfirmationCopy(item.name, itemChanges, row.kind === 'directory'),
@@ -2419,15 +2477,15 @@ function ChangeSection({
         },
         {
           id: 'stage',
-          label: `Stage ${item.name}`,
+          label: `Stage ${item.name}${disabledSuffix}`,
           icon: { name: 'gitna-action-stage' },
-          disabled: repository.busy,
+          disabled: repository.busy || disabledReason != null,
           onAction: () =>
             void onRun(() => repository.mutate({ op: 'stage', paths: mutationPaths(itemChanges) })),
         },
       ]
     },
-    [changes, changesByPath, discardChanges, onConfirm, onRun, repository, scope],
+    [changes, changesByPath, discardChanges, disabledReason, onConfirm, onRun, repository, scope],
   )
 
   const headerActions =
@@ -2437,8 +2495,8 @@ function ChangeSection({
         variant="ghost"
         size="icon-only"
         aria-label="Unstage all changes"
-        title="Unstage All Changes"
-        disabled={repository.busy}
+        disabled={repository.busy || disabledReason != null}
+        title={disabledReason ?? 'Unstage All Changes'}
         onClick={() =>
           void onRun(() => repository.mutate({ op: 'unstage', paths: mutationPaths(changes) }))
         }
@@ -2452,8 +2510,8 @@ function ChangeSection({
           variant="ghost"
           size="icon-only"
           aria-label="Discard all changes"
-          title="Discard All Changes"
-          disabled={repository.busy}
+          disabled={repository.busy || disabledReason != null}
+          title={disabledReason ?? 'Discard All Changes'}
           onClick={() =>
             onConfirm({
               ...discardConfirmationCopy(null, changes, true),
@@ -2468,8 +2526,8 @@ function ChangeSection({
           variant="ghost"
           size="icon-only"
           aria-label="Stage all changes"
-          title="Stage All Changes"
-          disabled={repository.busy}
+          disabled={repository.busy || disabledReason != null}
+          title={disabledReason ?? 'Stage All Changes'}
           onClick={() =>
             void onRun(() => repository.mutate({ op: 'stage', paths: mutationPaths(changes) }))
           }
@@ -3009,6 +3067,7 @@ const GraphCommitRow = memo(function GraphCommitRow({
 }) {
   const repository = useRepository()
   const open = repository.expanded[row.commit.oid] === true
+  const disabledReason = repository.getActionDisabledReason()
   const shortOid = row.commit.oid.slice(0, 8)
   const files = repository.commitFiles[row.commit.oid]
   const stats = repository.commitStats[row.commit.oid]
@@ -3168,6 +3227,7 @@ const GraphCommitRow = memo(function GraphCommitRow({
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end">
             <DropdownMenuItem
+              disabled={disabledReason != null}
               onSelect={() =>
                 void repository.operation({ op: 'cherry-pick', ref: row.commit.oid }).catch(() => {
                   // The store has already published the mutation error.
@@ -3177,6 +3237,7 @@ const GraphCommitRow = memo(function GraphCommitRow({
               Cherry-pick
             </DropdownMenuItem>
             <DropdownMenuItem
+              disabled={disabledReason != null}
               onSelect={() =>
                 void repository.operation({ op: 'revert', ref: row.commit.oid }).catch(() => {
                   // The store has already published the mutation error.
@@ -3187,6 +3248,7 @@ const GraphCommitRow = memo(function GraphCommitRow({
             </DropdownMenuItem>
             <DropdownMenuSeparator />
             <DropdownMenuItem
+              disabled={disabledReason != null}
               onSelect={() =>
                 void repository
                   .operation({ op: 'reset', ref: row.commit.oid, mode: 'soft' })
@@ -3198,6 +3260,7 @@ const GraphCommitRow = memo(function GraphCommitRow({
               Reset soft
             </DropdownMenuItem>
             <DropdownMenuItem
+              disabled={disabledReason != null}
               onSelect={() =>
                 void repository
                   .operation({ op: 'reset', ref: row.commit.oid, mode: 'mixed' })
@@ -3209,6 +3272,7 @@ const GraphCommitRow = memo(function GraphCommitRow({
               Reset mixed
             </DropdownMenuItem>
             <DropdownMenuItem
+              disabled={disabledReason != null}
               onSelect={() =>
                 onConfirm({
                   title: `Hard reset to ${shortOid}?`,
@@ -3280,6 +3344,7 @@ function ConflictPanel({ onError }: { onError(error: string | null): void }) {
     operation !== 'revert'
   )
     return null
+  const disabledReason = repository.getActionDisabledReason()
   const labels: Record<string, string> = {
     merge: 'Merge in progress',
     rebase: 'Rebase in progress',
@@ -3287,6 +3352,10 @@ function ConflictPanel({ onError }: { onError(error: string | null): void }) {
     revert: 'Revert in progress',
   }
   const run = async (request: Parameters<typeof repository.operation>[0]) => {
+    if (disabledReason != null) {
+      onError(disabledReason)
+      return
+    }
     onError(null)
     try {
       await repository.operation(request)
@@ -3309,6 +3378,8 @@ function ConflictPanel({ onError }: { onError(error: string | null): void }) {
           <Button
             size="xs"
             variant="outline"
+            disabled={disabledReason != null}
+            title={disabledReason ?? undefined}
             onClick={() => void run({ op: 'resolve-ours', paths: [conflict.path] })}
           >
             Ours
@@ -3316,6 +3387,8 @@ function ConflictPanel({ onError }: { onError(error: string | null): void }) {
           <Button
             size="xs"
             variant="outline"
+            disabled={disabledReason != null}
+            title={disabledReason ?? undefined}
             onClick={() => void run({ op: 'resolve-theirs', paths: [conflict.path] })}
           >
             Theirs
@@ -3324,6 +3397,8 @@ function ConflictPanel({ onError }: { onError(error: string | null): void }) {
             <Button
               size="xs"
               variant="outline"
+              disabled={disabledReason != null}
+              title={disabledReason ?? undefined}
               onClick={() => void run({ op: 'resolve-both', paths: [conflict.path] })}
             >
               Both
@@ -3332,6 +3407,8 @@ function ConflictPanel({ onError }: { onError(error: string | null): void }) {
           <Button
             size="xs"
             variant="outline"
+            disabled={disabledReason != null}
+            title={disabledReason ?? undefined}
             onClick={() =>
               void repository
                 .mutate({ op: 'stage', paths: [conflict.path] })
@@ -3346,6 +3423,8 @@ function ConflictPanel({ onError }: { onError(error: string | null): void }) {
         <Button
           size="xs"
           variant="outline"
+          disabled={disabledReason != null}
+          title={disabledReason ?? undefined}
           onClick={() => void run({ op: `${operation}-abort` as 'merge-abort' })}
         >
           Abort
@@ -3353,7 +3432,8 @@ function ConflictPanel({ onError }: { onError(error: string | null): void }) {
         <Button
           size="xs"
           variant="default"
-          disabled={unresolved > 0}
+          disabled={unresolved > 0 || disabledReason != null}
+          title={disabledReason ?? undefined}
           onClick={() => void run({ op: `${operation}-continue` as 'merge-continue' })}
         >
           Continue
@@ -3381,6 +3461,7 @@ function OperationModal({ kind, onClose, onConfirm, onError }: OperationModalPro
   const [tagMessage, setTagMessage] = useState('')
   const [tagTarget, setTagTarget] = useState('HEAD')
   const [remote, setRemote] = useState('')
+  const disabledReason = repository.getActionDisabledReason()
 
   useEffect(() => {
     if (repository.remotes.includes(remote)) return
@@ -3395,6 +3476,10 @@ function OperationModal({ kind, onClose, onConfirm, onError }: OperationModalPro
   }, [kind, repository])
 
   const run = async (action: () => Promise<void>) => {
+    if (disabledReason != null) {
+      onError(disabledReason)
+      return
+    }
     onError(null)
     try {
       await action()
@@ -3437,7 +3522,7 @@ function OperationModal({ kind, onClose, onConfirm, onError }: OperationModalPro
       .filter((branch) => !branch.current)
       .map((branch) => branch.name)
     return (
-      <Modal title="Merge or rebase" onClose={onClose}>
+      <Modal title="Merge or rebase" disabledReason={disabledReason} onClose={onClose}>
         <div className="grid gap-3">
           <SelectField
             label="Branch or reference"
@@ -3454,7 +3539,7 @@ function OperationModal({ kind, onClose, onConfirm, onError }: OperationModalPro
             <Button
               variant="outline"
               size="sm"
-              disabled={!target}
+              disabled={!target || disabledReason != null}
               onClick={() =>
                 void run(async () => {
                   await repository.operation({ op: 'merge', name: target })
@@ -3467,7 +3552,7 @@ function OperationModal({ kind, onClose, onConfirm, onError }: OperationModalPro
             <Button
               variant="outline"
               size="sm"
-              disabled={!target}
+              disabled={!target || disabledReason != null}
               onClick={() =>
                 void run(async () => {
                   await repository.operation({ op: 'rebase', name: target })
@@ -3484,17 +3569,17 @@ function OperationModal({ kind, onClose, onConfirm, onError }: OperationModalPro
   }
   if (kind === 'stash') {
     return (
-      <Modal title="Stashes" onClose={onClose}>
+      <Modal title="Stashes" disabledReason={disabledReason} onClose={onClose}>
         <form
           className="mb-4 grid gap-2"
           onSubmit={(event: FormEvent) => {
             event.preventDefault()
             const value = stashMessage.trim()
             if (!value) return
-            setStashMessage('')
-            void run(() =>
-              repository.operation({ op: 'stash-push', message: value, includeUntracked }),
-            )
+            void run(async () => {
+              await repository.operation({ op: 'stash-push', message: value, includeUntracked })
+              setStashMessage('')
+            })
           }}
         >
           <Input
@@ -3515,7 +3600,13 @@ function OperationModal({ kind, onClose, onConfirm, onError }: OperationModalPro
             />
             Include untracked
           </label>
-          <Button variant="outline" size="sm" type="submit">
+          <Button
+            variant="outline"
+            size="sm"
+            type="submit"
+            disabled={disabledReason != null}
+            title={disabledReason ?? 'Create stash'}
+          >
             Stash
           </Button>
         </form>
@@ -3531,6 +3622,8 @@ function OperationModal({ kind, onClose, onConfirm, onError }: OperationModalPro
               <Button
                 variant="ghost"
                 size="xs"
+                disabled={disabledReason != null}
+                title={disabledReason ?? 'Apply stash'}
                 onClick={() =>
                   void run(() => repository.operation({ op: 'stash-apply', ref: stash.ref }))
                 }
@@ -3540,6 +3633,8 @@ function OperationModal({ kind, onClose, onConfirm, onError }: OperationModalPro
               <Button
                 variant="ghost"
                 size="xs"
+                disabled={disabledReason != null}
+                title={disabledReason ?? 'Pop stash'}
                 onClick={() =>
                   void run(() => repository.operation({ op: 'stash-pop', ref: stash.ref }))
                 }
@@ -3549,6 +3644,8 @@ function OperationModal({ kind, onClose, onConfirm, onError }: OperationModalPro
               <Button
                 variant="ghost"
                 size="xs"
+                disabled={disabledReason != null}
+                title={disabledReason ?? 'Drop stash'}
                 onClick={() =>
                   onConfirm({
                     title: `Drop ${stash.ref}?`,
@@ -3570,22 +3667,22 @@ function OperationModal({ kind, onClose, onConfirm, onError }: OperationModalPro
     )
   }
   return (
-    <Modal title="Tags" onClose={onClose}>
+    <Modal title="Tags" disabledReason={disabledReason} onClose={onClose}>
       <form
         className="mb-4 grid gap-2"
         onSubmit={(event) => {
           event.preventDefault()
           const name = tagName.trim()
           if (!name) return
-          setTagName('')
-          void run(() =>
-            repository.operation({
+          void run(async () => {
+            await repository.operation({
               op: 'create-tag',
               name,
               start: tagTarget === 'HEAD' ? undefined : tagTarget,
               message: tagMessage.trim(),
-            }),
-          )
+            })
+            setTagName('')
+          })
         }}
       >
         <Input
@@ -3601,7 +3698,13 @@ function OperationModal({ kind, onClose, onConfirm, onError }: OperationModalPro
           value={tagMessage}
           onChange={(event) => setTagMessage(event.currentTarget.value)}
         />
-        <Button variant="outline" size="sm" type="submit">
+        <Button
+          variant="outline"
+          size="sm"
+          type="submit"
+          disabled={disabledReason != null}
+          title={disabledReason ?? 'Create tag'}
+        >
           Create
         </Button>
       </form>
@@ -3634,7 +3737,8 @@ function OperationModal({ kind, onClose, onConfirm, onError }: OperationModalPro
             <Button
               variant="ghost"
               size="xs"
-              disabled={remote === ''}
+              disabled={remote === '' || disabledReason != null}
+              title={disabledReason ?? (remote === '' ? 'Select a remote' : 'Push tag')}
               onClick={() =>
                 void run(() => repository.operation({ op: 'push-tag', remote, name: tag.name }))
               }
@@ -3644,6 +3748,8 @@ function OperationModal({ kind, onClose, onConfirm, onError }: OperationModalPro
             <Button
               variant="ghost"
               size="xs"
+              disabled={disabledReason != null}
+              title={disabledReason ?? 'Delete tag'}
               onClick={() =>
                 onConfirm({
                   title: `Delete tag ${tag.name}?`,

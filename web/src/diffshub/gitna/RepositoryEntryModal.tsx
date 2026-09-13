@@ -38,6 +38,8 @@ export function RepositoryEntryModal({
     event.preventDefault()
     const destination = path.trim().replace(/\/$/, '')
     if (destination.length === 0 || submitting) return
+    const disabledReason = repository.getActionDisabledReason()
+    if (disabledReason != null) return
     setSubmitting(true)
     onError('')
     try {
@@ -75,6 +77,11 @@ export function RepositoryEntryModal({
           value={path}
           onChange={(event) => setPath(event.currentTarget.value)}
         />
+        {repository.getActionDisabledReason() != null && (
+          <p className="mt-2 overflow-wrap-anywhere text-xs text-muted-foreground" role="note">
+            {repository.getActionDisabledReason()}
+          </p>
+        )}
         {kind === 'folder' && (
           <p className="mt-2 text-xs text-muted-foreground">
             Git does not track empty folders, so Gitna will offer to create a file inside it next.
@@ -84,7 +91,13 @@ export function RepositoryEntryModal({
           <Button type="button" variant="outline" size="sm" onClick={onClose}>
             Cancel
           </Button>
-          <Button type="submit" size="sm" disabled={path.trim().length === 0 || submitting}>
+          <Button
+            type="submit"
+            size="sm"
+            disabled={
+              path.trim().length === 0 || submitting || repository.getActionDisabledReason() != null
+            }
+          >
             {submitting ? 'Working…' : kind === 'rename' ? 'Rename' : 'Create'}
           </Button>
         </div>

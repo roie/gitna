@@ -848,6 +848,9 @@ test('raster images replace the code body', async ({ page, app }) => {
   writeFileSync(join(app.repo, 'untracked-preview.png'), before)
 
   await page.goto(app.url)
+  await expect(page.locator('[data-connection-state="connected"]')).toBeVisible({
+    timeout: 20_000,
+  })
   await page
     .locator('#gitna-unstaged-tree__tree')
     .getByRole('treeitem', { name: 'untracked-preview.png', exact: true })
@@ -1632,7 +1635,7 @@ test('command palette searches complete paths and runs workbench commands', asyn
   await expect(page.getByRole('button', { name: 'Switch to split view' })).toBeVisible()
 })
 
-test('command palette omits mutations while a repository operation is busy', async ({
+test('command palette keeps busy mutations discoverable with a refusal reason', async ({
   page,
   app,
 }) => {
@@ -1644,7 +1647,9 @@ test('command palette omits mutations while a repository operation is busy', asy
   const stageReleased = new Promise<void>((resolve) => {
     releaseStage = resolve
   })
+  let stageRequests = 0
   await page.route('**/api/v1/operations?op=stage', async (route) => {
+    stageRequests += 1
     markStageStarted()
     await stageReleased
     await route.continue()
@@ -1661,14 +1666,381 @@ test('command palette omits mutations while a repository operation is busy', asy
   await page.getByRole('button', { name: 'Stage file modified.txt' }).click()
   await stageStarted
 
-  await page.getByRole('button', { name: 'Open command palette' }).click()
-  const palette = page.getByRole('dialog', { name: 'Command palette' })
-  const search = palette.getByRole('combobox', { name: 'Search files and commands' })
-  await search.fill('>stage current file')
-  await expect(palette.getByRole('option', { name: /Stage Current File/ })).toHaveCount(0)
+  try {
+    const changesTree = page.locator('#gitna-unstaged-tree__tree')
+    const stagedTree = page.locator('#gitna-staged-tree__tree')
+    const busyModifiedRow = changesTree.getByRole('treeitem', {
+      name: 'modified.txt',
+      exact: true,
+    })
+    await busyModifiedRow.hover()
+    const unavailableStageRow = changesTree.getByRole('button', {
+      name: /Stage modified\.txt — Another operation is in progress/,
+    })
+    const unavailableDiscardRow = changesTree.getByRole('button', {
+      name: /Discard changes in modified\.txt — Another operation is in progress/,
+    })
+    await expect(unavailableStageRow).toBeDisabled()
+    await expect(unavailableStageRow).toHaveAttribute('title', /Another operation is in progress/)
+    await expect(unavailableDiscardRow).toBeDisabled()
+    await expect(unavailableDiscardRow).toHaveAttribute('title', /Another operation is in progress/)
+    await unavailableStageRow.click({ force: true })
+    await unavailableDiscardRow.click({ force: true })
+    const busyStagedRow = stagedTree.getByRole('treeitem', { name: 'staged.txt', exact: true })
+    await busyStagedRow.hover()
+    const unavailableUnstageRow = stagedTree.getByRole('button', {
+      name: /Unstage staged\.txt — Another operation is in progress/,
+    })
+    await expect(unavailableUnstageRow).toBeDisabled()
+    await expect(unavailableUnstageRow).toHaveAttribute('title', /Another operation is in progress/)
+    await unavailableUnstageRow.click({ force: true })
+    expect(stageRequests).toBe(1)
 
-  releaseStage()
+    await page.getByRole('button', { name: 'Open command palette' }).click()
+    const palette = page.getByRole('dialog', { name: 'Command palette' })
+    const search = palette.getByRole('combobox', { name: 'Search files and commands' })
+    await search.fill('>stage current file')
+    const unavailableStage = palette.getByRole('option', { name: /Stage Current File/ })
+    await expect(unavailableStage).toBeVisible()
+    await expect(unavailableStage).toHaveAttribute('aria-disabled', 'true')
+    await expect(unavailableStage).toContainText('Another operation is in progress')
+    const paletteQuery = await search.inputValue()
+    const paletteSelection = await search.getAttribute('aria-activedescendant')
+
+    const unavailableStageBounds = await unavailableStage.boundingBox()
+    expect(unavailableStageBounds).not.toBeNull()
+    await page.mouse.click(
+      unavailableStageBounds!.x + unavailableStageBounds!.width / 2,
+      unavailableStageBounds!.y + unavailableStageBounds!.height / 2,
+    )
+    await expect(search).toBeFocused()
+    await expect(search).toHaveValue(paletteQuery)
+    await expect(search).toHaveAttribute('aria-activedescendant', paletteSelection ?? '')
+    await expect(palette.getByRole('status')).toContainText('Another operation is in progress')
+    expect(stageRequests).toBe(1)
+
+    await search.press('Enter')
+    await expect(search).toBeFocused()
+    await expect(search).toHaveValue(paletteQuery)
+    await expect(search).toHaveAttribute('aria-activedescendant', paletteSelection ?? '')
+    expect(stageRequests).toBe(1)
+  } finally {
+    releaseStage()
+  }
   await response
+})
+
+test('Astra refresh updates already-rendered headers without remounting the editor', async ({
+  page,
+  app,
+}) => {
+  test.setTimeout(120_000)
+  await page.goto(app.url)
+  await page.locator('[data-section="repository"]').click()
+
+  const repositoryTree = page.locator('#gitna-repository-tree__tree')
+  const expectedDiskContents = 'main branch\n Astra draft while reconciling'
+  await repositoryTree.getByRole('treeitem', { name: 'main.txt', exact: true }).click()
+  const editor = page.getByRole('textbox', { name: 'main.txt' })
+  await expect(editor).toBeVisible()
+  const connection = page.locator('[data-connection-state]')
+  await expect(connection).toHaveAttribute('data-connection-state', 'connected', {
+    timeout: 20_000,
+  })
+  const announcement = connection.locator('[data-connection-announcement]')
+  await expect(announcement).toHaveCount(1)
+  const announcementHandle = await announcement.elementHandle()
+  expect(announcementHandle).not.toBeNull()
+  await editor.click()
+  await page.keyboard.press('Control+End')
+  const cleanEditorValue = (await editor.textContent()) ?? ''
+  await page.keyboard.type(' Astra draft')
+  const save = page.getByRole('button', { name: 'Save', exact: true })
+  await expect(save).toBeEnabled()
+  await expect(editor).toBeFocused()
+
+  const editorHandle = await editor.elementHandle()
+  expect(editorHandle).not.toBeNull()
+  await editorHandle!.evaluate((element) => {
+    ;(window as Window & { __astraEditor?: Element }).__astraEditor = element
+  })
+  const readEditorState = () =>
+    editor.evaluate((element) => {
+      const editorRoot = element.shadowRoot ?? element
+      const editable =
+        (element.matches('textarea, input, [contenteditable="true"]')
+          ? element
+          : editorRoot.querySelector<HTMLElement>(
+              'textarea, input, [contenteditable="true"], [role="textbox"]',
+            )) ?? element
+      let active: Element | null = document.activeElement
+      while (active?.shadowRoot?.activeElement != null) {
+        active = active.shadowRoot.activeElement
+      }
+      const rootNode = active?.getRootNode()
+      const value =
+        'value' in editable
+          ? String((editable as HTMLTextAreaElement | HTMLInputElement).value)
+          : (editable.textContent ?? '')
+      if (editable instanceof HTMLTextAreaElement || editable instanceof HTMLInputElement) {
+        const start = editable.selectionStart ?? 0
+        const end = editable.selectionEnd ?? start
+        return {
+          value,
+          focused: active === element || active === editable || element.contains(active),
+          selection: {
+            text: value.slice(start, end),
+            start,
+            end,
+            visible: end > start,
+          },
+        }
+      }
+      const selection =
+        rootNode != null &&
+        'getSelection' in rootNode &&
+        typeof rootNode.getSelection === 'function'
+          ? rootNode.getSelection()
+          : window.getSelection()
+      return {
+        value,
+        focused: active === element || active === editable || element.contains(active),
+        selection:
+          selection == null
+            ? null
+            : {
+                text: selection.toString(),
+                anchorOffset: selection.anchorOffset,
+                focusOffset: selection.focusOffset,
+                anchorText: selection.anchorNode?.textContent ?? null,
+                focusText: selection.focusNode?.textContent ?? null,
+                visible: !selection.isCollapsed,
+              },
+      }
+    })
+  const stateBeforeRefresh = await readEditorState()
+  let stateDuringRefresh = stateBeforeRefresh
+  const saveReason = page.locator('#gitna-action-reason-main-txt')
+  const expectedReason = 'Refreshing backend state. Wait for refresh to complete.'
+
+  let releaseSnapshot!: () => void
+  let markSnapshotRequested!: () => void
+  const snapshotGate = new Promise<void>((resolve) => {
+    releaseSnapshot = resolve
+  })
+  const snapshotRequested = new Promise<void>((resolve) => {
+    markSnapshotRequested = resolve
+  })
+  let snapshotHeld = false
+  await page.route('**/api/v1/snapshot', async (route) => {
+    if (!snapshotHeld && route.request().method() === 'GET') {
+      snapshotHeld = true
+      markSnapshotRequested()
+      await snapshotGate
+    }
+    await route.continue()
+  })
+
+  const putRequests: string[] = []
+  page.on('request', (request) => {
+    if (request.method() === 'PUT' && request.url().endsWith('/api/v1/worktree/file')) {
+      putRequests.push(request.postData() ?? '')
+    }
+  })
+
+  writeFileSync(join(app.repo, 'astra-trigger.txt'), 'trigger native SSE\n')
+  try {
+    await snapshotRequested
+    await expect(connection).toHaveAttribute('data-connection-state', 'reconciling')
+    await expect(announcement).toContainText('Refreshing backend state')
+    expect(
+      await announcement.evaluate((element, original) => element === original, announcementHandle),
+    ).toBe(true)
+    await expect(editor).toBeFocused()
+    expect(await readEditorState()).toEqual(stateBeforeRefresh)
+
+    await page.keyboard.press('Control+End')
+    await page.keyboard.type(' while reconciling')
+    // Establish the range through real keyboard input, not a programmatic DOM
+    // Range: this exercises Pierre's native selection ownership.
+    const lastCharacter = editor.locator('[data-char]').last()
+    await lastCharacter.scrollIntoViewIfNeeded()
+    await expect
+      .poll(async () => (await lastCharacter.boundingBox()) != null, {
+        message: 'Pierre did not render the selected editor characters',
+      })
+      .toBe(true)
+    const lastCharacterBox = await lastCharacter.boundingBox()
+    expect(lastCharacterBox).not.toBeNull()
+    await page.mouse.move(
+      lastCharacterBox!.x + lastCharacterBox!.width,
+      lastCharacterBox!.y + lastCharacterBox!.height / 2,
+    )
+    await page.mouse.down()
+    await page.mouse.move(
+      lastCharacterBox!.x + 0.5,
+      lastCharacterBox!.y + lastCharacterBox!.height / 2,
+    )
+    await page.mouse.up()
+    await expect.poll(async () => (await readEditorState()).selection?.visible).toBe(true)
+    stateDuringRefresh = await readEditorState()
+    expect(stateDuringRefresh.selection?.text.length ?? 0).toBeGreaterThan(0)
+    await expect(save).toBeDisabled()
+    await expect(saveReason).toBeVisible()
+    await expect(saveReason).toHaveText(expectedReason)
+    await page.keyboard.press('Control+s')
+    expect(putRequests).toHaveLength(0)
+  } finally {
+    releaseSnapshot()
+  }
+  await expect(connection).toHaveAttribute('data-connection-state', 'connected', {
+    timeout: 20_000,
+  })
+  await expect(announcement).toHaveText('Backend connection restored.')
+  expect(
+    await announcement.evaluate((element, original) => element === original, announcementHandle),
+  ).toBe(true)
+  await expect(save).toBeEnabled({ timeout: 20_000 })
+  await expect(saveReason).toHaveCount(0)
+  expect(await editorHandle!.evaluate((element) => element.isConnected)).toBe(true)
+  // This is the regression proof: assert the actual editor still owns focus
+  // before any later explicit focus used for undo/redo.
+  await expect(editor).toBeFocused()
+  const stateAfterRefresh = await readEditorState()
+  const selectedTextAfterRefresh = stateDuringRefresh.selection?.text
+  expect(selectedTextAfterRefresh?.length ?? 0).toBeGreaterThan(0)
+  // This black-box replacement is deliberately performed before any refocus:
+  // if Pierre retained the semantic user range, it replaces that exact range.
+  await page.keyboard.type('X')
+  const stateAfterReplacement = await readEditorState()
+  await page.keyboard.press('Control+z')
+  await expect.poll(async () => (await readEditorState()).value).toBe(stateDuringRefresh.value)
+  expect(stateAfterReplacement.value).toBe(
+    `${stateDuringRefresh.value.slice(0, -selectedTextAfterRefresh!.length)}X`,
+  )
+  expect(stateAfterRefresh).toMatchObject({
+    value: stateDuringRefresh.value,
+    focused: true,
+  })
+  // Preserve the observed native-selection diagnostic without mistaking it
+  // for Pierre's semantic selection: Chromium reports a collapsed DOM range
+  // after recovery, while the replacement above proves the internal range.
+  expect(stateAfterRefresh.selection?.visible).toBe(false)
+  expect(
+    await editorHandle!.evaluate(
+      (element) => (window as Window & { __astraEditor?: Element }).__astraEditor === element,
+    ),
+  ).toBe(true)
+
+  // Undo and redo on the same mounted editor prove its history survived the refresh.
+  await page.keyboard.press('Control+z')
+  await expect.poll(async () => (await readEditorState()).value).toBe(cleanEditorValue)
+  await page.keyboard.press('Control+Shift+z')
+  await expect.poll(async () => (await readEditorState()).value).toBe(stateDuringRefresh.value)
+
+  const saveResponse = page.waitForResponse(
+    (response) =>
+      response.request().method() === 'PUT' && response.url().endsWith('/api/v1/worktree/file'),
+  )
+  await save.click()
+  const savedResponse = await saveResponse
+  expect(savedResponse.status(), await savedResponse.text()).toBe(200)
+  await expect
+    .poll(() => readFileSync(join(app.repo, 'main.txt'), 'utf8'))
+    .toBe(expectedDiskContents)
+  expect(putRequests).toHaveLength(1)
+
+  // File and expanded hunk controls already displayed during the same live transition
+  // must update their disabled reason without requiring a new item or tab.
+  await page
+    .locator('#gitna-unstaged-tree__tree')
+    .getByRole('treeitem', { name: 'two-hunk.txt', exact: true })
+    .click()
+  const renderedFile = page.locator('diffs-container').filter({ hasText: 'two-hunk.txt' })
+  await expect(renderedFile).toBeVisible()
+  await page.getByRole('button', { name: 'Show hunk actions for two-hunk.txt' }).click()
+  const fileAction = page.getByRole('button', { name: 'Stage file two-hunk.txt' })
+  const hunkAction = page.getByRole('button', { name: 'Stage hunk 1 in two-hunk.txt' })
+  await expect(fileAction).toBeEnabled()
+  await expect(hunkAction).toBeEnabled()
+
+  let releaseHunkSnapshot!: () => void
+  let markHunkSnapshotRequested!: () => void
+  const hunkSnapshotGate = new Promise<void>((resolve) => {
+    releaseHunkSnapshot = resolve
+  })
+  const hunkSnapshotRequested = new Promise<void>((resolve) => {
+    markHunkSnapshotRequested = resolve
+  })
+  let hunkSnapshotHeld = false
+  await page.route('**/api/v1/snapshot', async (route) => {
+    if (!hunkSnapshotHeld && route.request().method() === 'GET') {
+      hunkSnapshotHeld = true
+      markHunkSnapshotRequested()
+      await hunkSnapshotGate
+    }
+    await route.continue()
+  })
+  writeFileSync(join(app.repo, 'astra-trigger-2.txt'), 'trigger second native SSE\n')
+  try {
+    await hunkSnapshotRequested
+    await expect(connection).toHaveAttribute('data-connection-state', 'reconciling')
+    await expect(fileAction).toBeDisabled()
+    await expect(hunkAction).toBeDisabled()
+    await expect(renderedFile.getByRole('note')).toContainText(expectedReason)
+    const statusSummary = connection.locator('summary')
+    await statusSummary.focus()
+    await expect(statusSummary).toBeFocused()
+  } finally {
+    releaseHunkSnapshot()
+  }
+  await expect(connection).toHaveAttribute('data-connection-state', 'connected', {
+    timeout: 20_000,
+  })
+  await expect(connection.locator('summary')).toBeFocused()
+  await page.keyboard.press('Tab')
+  await page.keyboard.press('Tab')
+  await expect(connection.locator('summary')).toHaveCount(0)
+  await expect(page.locator(':focus')).toHaveCount(1)
+  await expect(fileAction).toBeEnabled({ timeout: 20_000 })
+  await expect(hunkAction).toBeEnabled({ timeout: 20_000 })
+  await expect(renderedFile.getByRole('note')).toHaveCount(0)
+
+  let releaseRetrySnapshot!: () => void
+  let markRetrySnapshotRequested!: () => void
+  const retrySnapshotGate = new Promise<void>((resolve) => {
+    releaseRetrySnapshot = resolve
+  })
+  const retrySnapshotRequested = new Promise<void>((resolve) => {
+    markRetrySnapshotRequested = resolve
+  })
+  let retrySnapshotHeld = false
+  await page.route('**/api/v1/snapshot', async (route) => {
+    if (!retrySnapshotHeld && route.request().method() === 'GET') {
+      retrySnapshotHeld = true
+      markRetrySnapshotRequested()
+      await retrySnapshotGate
+    }
+    await route.continue()
+  })
+  writeFileSync(join(app.repo, 'astra-trigger-3.txt'), 'trigger third native SSE\\n')
+  try {
+    await retrySnapshotRequested
+    await expect(connection).toHaveAttribute('data-connection-state', 'reconciling')
+    const retry = connection.getByRole('button', { name: 'Retry', exact: true })
+    await retry.focus()
+    await expect(retry).toBeFocused()
+  } finally {
+    releaseRetrySnapshot()
+  }
+  await expect(connection).toHaveAttribute('data-connection-state', 'connected', {
+    timeout: 20_000,
+  })
+  const completedRetry = connection.getByRole('button', { name: 'Retry', exact: true })
+  await expect(completedRetry).toBeFocused()
+  await page.keyboard.press('Tab')
+  await expect(completedRetry).toHaveCount(0)
+  await expect(page.locator(':focus')).toHaveCount(1)
 })
 
 test('mobile command palette describes the active Source Control overlay', async ({
@@ -1798,7 +2170,10 @@ test('repository files can be edited, created in folders, and renamed', async ({
   releaseSave()
   const firstResponse = await firstSaveResponse
   expect(firstResponse.status(), await firstResponse.text()).toBe(200)
-  await expect(save).toBeEnabled()
+  await expect(page.locator('[data-connection-state="connected"]')).toBeVisible({
+    timeout: 20_000,
+  })
+  await expect(save).toBeEnabled({ timeout: 20_000 })
   const secondSaveResponse = page.waitForResponse(
     (response) =>
       response.request().method() === 'PUT' && response.url().endsWith('/api/v1/worktree/file'),
@@ -1835,7 +2210,11 @@ test('repository files can be edited, created in folders, and renamed', async ({
       timeout: 1_000,
     })
   }).toPass()
-  await expect(page.getByRole('button', { name: 'Save', exact: true })).toBeEnabled()
+  const newSave = page.getByRole('button', { name: 'Save', exact: true })
+  await expect(page.locator('[data-connection-state="connected"]')).toBeVisible({
+    timeout: 20_000,
+  })
+  await expect(newSave).toBeEnabled({ timeout: 20_000 })
   await page.keyboard.press('Control+s')
   await expect
     .poll(() => readFileSync(join(app.repo, 'notes/new.txt'), 'utf8'))
