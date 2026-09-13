@@ -112,6 +112,20 @@ export interface CommitRequest {
 /** Outcome of a commit operation. Hooks run normally; a rejected commit
  * returns OK=false with git's exit code and output so the UI can show the
  * hook's reason while preserving the user's text. */
+export interface DraftRecord {
+  schema: number
+  documentId: string
+  clientId: string
+  folderKey?: string
+  path?: string
+  label: string
+  revision: number
+  contents: string
+  baselineHash?: string
+  updatedAt: string
+  recovery?: string
+}
+
 export interface OperationResult {
   ok: boolean
   exitCode?: number
@@ -140,6 +154,9 @@ export interface ApiClient {
   createWorktreeFile(path: string, content: string): Promise<WorktreeFile>
   createWorktreeEntry(path: string, directory: boolean): Promise<void>
   renameWorktreeEntry(source: string, destination: string): Promise<void>
+  drafts?(): Promise<DraftRecord[]>
+  putDraft?(record: DraftRecord): Promise<DraftRecord>
+  deleteDraft?(documentId: string, revision: number): Promise<void>
   diff(request: DiffRequest): Promise<FileDiff>
   review(request: ReviewRequest): Promise<ReviewResponse>
   mutate(request: MutateRequest): Promise<void>
@@ -362,6 +379,29 @@ export function createApi(): ApiClient {
           body: JSON.stringify({ source, destination }),
           signal: AbortSignal.timeout(MUTATE_TIMEOUT),
         }),
+      )
+    },
+    async drafts(): Promise<DraftRecord[]> {
+      const res = await expectOK(await fetch('api/v1/drafts'))
+      return (await res.json()) as DraftRecord[]
+    },
+    async putDraft(record: DraftRecord): Promise<DraftRecord> {
+      const res = await expectOK(
+        await fetch('api/v1/drafts', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(record),
+          signal: AbortSignal.timeout(MUTATE_TIMEOUT),
+        }),
+      )
+      return (await res.json()) as DraftRecord
+    },
+    async deleteDraft(documentId: string, revision: number): Promise<void> {
+      await expectOK(
+        await fetch(
+          `api/v1/drafts?documentId=${encodeURIComponent(documentId)}&revision=${String(revision)}`,
+          { method: 'DELETE', signal: AbortSignal.timeout(MUTATE_TIMEOUT) },
+        ),
       )
     },
     async diff(request: DiffRequest): Promise<FileDiff> {

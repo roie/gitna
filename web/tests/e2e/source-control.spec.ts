@@ -2116,8 +2116,18 @@ test('global New File creates an in-memory untitled tab', async ({ page, app }) 
   const editor = page.locator('.code-view').locator('[contenteditable="true"], textarea').first()
   await expect(editor).toBeVisible()
   await editor.click()
+  const draftBackup = page.waitForRequest(
+    (request) => request.method() === 'POST' && request.url().endsWith('/api/v1/drafts'),
+  )
   await page.keyboard.type('draft')
   await expect(tab.getByLabel('Unsaved changes')).toBeVisible()
+  const backupRequest = await draftBackup
+  const backupPayload = (await backupRequest.postDataJSON()) as {
+    contents: string
+    revision: number
+  }
+  expect(backupPayload.contents).toBe('draft')
+  expect(backupPayload.revision).toBeGreaterThan(0)
   await page.keyboard.press('Control+z')
   await expect(tab.getByLabel('Unsaved changes')).toHaveCount(0)
 
