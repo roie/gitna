@@ -72,6 +72,8 @@ func (s *Server) apiRoutes() http.Handler {
 			s.handleCompare(w, r)
 		case r.Method == http.MethodGet && isCommitSubroute(p, "files"):
 			s.handleCommitFiles(w, r)
+		case p == "/drafts":
+			s.handleDrafts(w, r)
 		case r.Method == http.MethodGet && p == "/events":
 			s.handleEvents(w, r)
 		case r.Method == http.MethodPost && p == "/folder/reveal":

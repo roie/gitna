@@ -11,6 +11,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/roie/gitna/internal/drafts"
 	"github.com/roie/gitna/internal/folder"
 	"github.com/roie/gitna/internal/gitx"
 	"github.com/roie/gitna/internal/protocol"
@@ -30,6 +31,7 @@ type folderRegistryOptions struct {
 	afterFunc     func(time.Duration, func()) dormancyTimer
 	openFolder    func(context.Context, string) (gitx.Repository, error)
 	newWatcher    folderWatcherFactory
+	drafts        *drafts.Journal
 }
 
 type folderRoute struct {
@@ -67,6 +69,7 @@ type folderRegistry struct {
 	afterFunc     func(time.Duration, func()) dormancyTimer
 	resolveFolder func(context.Context, string) (gitx.Repository, error)
 	newWatcher    folderWatcherFactory
+	drafts        *drafts.Journal
 	closing       atomic.Bool
 	closeOnce     sync.Once
 	closeErr      error
@@ -109,6 +112,9 @@ func newFolderRegistry(
 		if options[0].newWatcher != nil {
 			config.newWatcher = options[0].newWatcher
 		}
+		if options[0].drafts != nil {
+			config.drafts = options[0].drafts
+		}
 	}
 	staticServer, err := server.New(static, server.Options{Version: version})
 	if err != nil {
@@ -126,6 +132,7 @@ func newFolderRegistry(
 		afterFunc:     config.afterFunc,
 		resolveFolder: config.openFolder,
 		newWatcher:    config.newWatcher,
+		drafts:        config.drafts,
 		byRoot:        make(map[string]string),
 		byRoute:       make(map[string]*folderRoute),
 	}
@@ -255,6 +262,7 @@ func (r *folderRegistry) createBackend(
 	srv, err := server.New(r.static, server.Options{
 		Version:                   r.version,
 		Repo:                      session.adapter,
+		Drafts:                    r.drafts,
 		Events:                    session.events,
 		InitialGeneration:         generation,
 		OnEventSubscribersChanged: func(delta int) { r.subscribersChanged(entry, delta) },

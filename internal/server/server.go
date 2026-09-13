@@ -11,6 +11,7 @@ import (
 	"strings"
 	"sync/atomic"
 
+	"github.com/roie/gitna/internal/drafts"
 	"github.com/roie/gitna/internal/protocol"
 	"github.com/roie/gitna/internal/watch"
 )
@@ -81,6 +82,8 @@ type Options struct {
 	Host string
 	// Repo supplies repository state. When nil, snapshot routes return 503.
 	Repo Repo
+	// Drafts stores bounded local recovery records. When nil, draft routes return 503.
+	Drafts *drafts.Journal
 	// Events streams repository invalidation kinds. When nil, the events
 	// endpoint closes its stream immediately.
 	Events <-chan watch.InvalidationKind
@@ -107,6 +110,7 @@ type Server struct {
 	api                http.Handler
 	security           Security
 	repo               Repo
+	drafts             *drafts.Journal
 	hub                *eventsHub
 	gen                atomic.Uint64
 	openFolder         func(context.Context, string) (protocol.OpenFolderResult, error)
@@ -130,6 +134,7 @@ func New(staticFS fs.FS, opts Options) (*Server, error) {
 		static:             staticFS,
 		version:            version,
 		repo:               opts.Repo,
+		drafts:             opts.Drafts,
 		openFolder:         opts.OpenFolder,
 		revealFolder:       opts.RevealFolder,
 		folders:            opts.Folders,

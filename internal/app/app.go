@@ -9,11 +9,13 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"time"
 
 	"github.com/roie/gitna/internal/browser"
+	"github.com/roie/gitna/internal/drafts"
 	"github.com/roie/gitna/internal/folder"
 	"github.com/roie/gitna/internal/gitx"
 	"github.com/roie/gitna/internal/protocol"
@@ -479,6 +481,15 @@ func Run(ctx context.Context, path, version string) error {
 		return fmt.Errorf("app: load embedded assets: %w", err)
 	}
 
+	configDir, err := os.UserConfigDir()
+	if err != nil {
+		return fmt.Errorf("app: draft journal config directory: %w", err)
+	}
+	draftJournal, err := drafts.Open(filepath.Join(configDir, "gitna", "drafts", "v1"), drafts.Options{})
+	if err != nil {
+		return fmt.Errorf("app: open draft journal: %w", err)
+	}
+
 	basePath := server.CapabilityPath(token)
 	registry, err := newFolderRegistry(
 		ctx,
@@ -488,6 +499,7 @@ func Run(ctx context.Context, path, version string) error {
 		folder.OpenDefault(),
 		basePath,
 		repo,
+		folderRegistryOptions{drafts: draftJournal},
 	)
 	if err != nil {
 		return fmt.Errorf("app: create folder registry: %w", err)
