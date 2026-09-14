@@ -117,7 +117,7 @@ export function MarkdownWorkbench({
 
   return (
     <section className="flex h-full min-h-0 flex-col bg-background" aria-label="Markdown document">
-      <div className="flex shrink-0 items-center gap-1 border-b px-3 py-2 text-xs">
+      <div className="flex min-h-8 shrink-0 items-center gap-1 border-b border-border px-2 py-1 text-xs">
         <span className="mr-auto truncate font-medium" title={path}>
           {path}
         </span>
@@ -135,24 +135,26 @@ export function MarkdownWorkbench({
                 View Changes
               </Button>
             )}
-            <Button
-              disabled={
-                !editorActions.dirtyPaths.has(path) ||
-                editorActions.saving ||
-                editorActions.disabledReason != null
-              }
-              onClick={() => editorActions.onSave(path)}
-              size="xs"
-              title={editorActions.disabledReason ?? undefined}
-              type="button"
-              variant="ghost"
-            >
-              {editorActions.saving
-                ? 'Saving…'
-                : editorActions.dirtyPaths.has(path)
-                  ? 'Save'
-                  : 'Saved'}
-            </Button>
+            {(editorActions.dirtyPaths.has(path) || editorActions.recentlySavedPath === path) && (
+              <Button
+                disabled={
+                  !editorActions.dirtyPaths.has(path) ||
+                  editorActions.saving ||
+                  editorActions.disabledReason != null
+                }
+                onClick={() => editorActions.onSave(path)}
+                size="xs"
+                title={editorActions.disabledReason ?? undefined}
+                type="button"
+                variant="ghost"
+              >
+                {editorActions.saving
+                  ? 'Saving…'
+                  : editorActions.dirtyPaths.has(path)
+                    ? 'Save'
+                    : 'Saved'}
+              </Button>
+            )}
           </>
         )}
         <div
@@ -202,15 +204,17 @@ export function MarkdownWorkbench({
               />
             )}
             {showPreview && (
-              <article className="markdown-preview gitna-scrollbar min-h-0 overflow-auto px-6 py-5 text-sm">
-                <ReactMarkdown
-                  remarkPlugins={[remarkGfm]}
-                  skipHtml
-                  urlTransform={safeUrlTransform}
-                  components={markdownComponents}
-                >
-                  {markdown}
-                </ReactMarkdown>
+              <article className="markdown-preview gitna-scrollbar min-h-0 overflow-auto px-4 py-5 text-sm sm:px-6">
+                <div className="mx-auto w-full max-w-3xl">
+                  <ReactMarkdown
+                    remarkPlugins={[remarkGfm]}
+                    skipHtml
+                    urlTransform={safeUrlTransform}
+                    components={markdownComponents}
+                  >
+                    {markdown}
+                  </ReactMarkdown>
+                </div>
               </article>
             )}
           </div>

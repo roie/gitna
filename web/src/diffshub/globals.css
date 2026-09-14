@@ -464,7 +464,7 @@
 .markdown-preview :where(code) { border-radius: 0.25rem; background: var(--muted); padding: 0.1rem 0.3rem; font-family: var(--font-geist-mono); font-size: 0.9em; }
 .markdown-preview :where(pre) { overflow: auto; border: 1px solid var(--border); border-radius: 0.5rem; padding: 1rem; background: var(--muted); }
 .markdown-preview :where(pre code) { padding: 0; background: transparent; }
-.markdown-preview :where(blockquote) { border-left: 3px solid var(--border); padding-left: 1rem; color: var(--muted-foreground); }
+.markdown-preview :where(blockquote) { margin-inline: 0; padding: 0.6rem 1rem; border-radius: 0.35rem; background: var(--muted); color: var(--muted-foreground); }
 .markdown-preview :where(table) { width: 100%; border-collapse: collapse; }
 .markdown-preview :where(th, td) { border: 1px solid var(--border); padding: 0.45rem 0.65rem; text-align: left; }
 .markdown-preview :where(img) { max-width: 100%; height: auto; border-radius: 0.4rem; }
