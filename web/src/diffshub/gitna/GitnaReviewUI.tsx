@@ -1349,9 +1349,7 @@ function GitnaReviewUIInner() {
           onChange: handleWorktreeEditChange,
           onOpenChange: (scope, path) => repository.select(scope, path),
           onSave: requestSave,
-          ...(markdownPath == null
-            ? {}
-            : { markdownMode, onMarkdownModeChange: setMarkdownMode }),
+          ...(markdownPath == null ? {} : { markdownMode, onMarkdownModeChange: setMarkdownMode }),
         }
       : undefined
 
@@ -1762,11 +1760,10 @@ function GitnaReviewUIInner() {
                       />
                     </div>
                   )
-                ) : (
+                ) : markdownMode === 'preview' ? (
                   <MarkdownWorkbench
-                    editorActions={gitnaEditorActions}
                     error={loadState === 'error' ? (errorMessage ?? repository.error) : null}
-                    mode={markdownMode}
+                    mode="preview"
                     onChange={handleMarkdownChange}
                     onModeChange={setMarkdownMode}
                     onOpenPath={(path) => {
@@ -1779,8 +1776,52 @@ function GitnaReviewUIInner() {
                         )
                     }}
                     path={markdownPath}
+                    previewOnly
                     value={markdownValue}
                   />
+                ) : (
+                  <div className="grid h-full min-h-0 grid-cols-1 divide-x md:grid-cols-2">
+                    <DiffsHubViewer
+                      className="code-view h-full min-w-0"
+                      commentsEnabled={false}
+                      diffStyle={diffStyle}
+                      overflow={overflow}
+                      showBackgrounds={showBackgrounds}
+                      diffIndicators={diffIndicators}
+                      lineNumbers={lineNumbers}
+                      scrollRef={scrollRef}
+                      themeType={colorMode}
+                      viewerRef={viewerRef}
+                      initialItems={reviewData?.items ?? []}
+                      gitnaActions={gitnaActions}
+                      gitnaComparisonActions={gitnaComparisonActions}
+                      gitnaEditorActions={gitnaEditorActions}
+                      gitnaOpenFileAction={gitnaOpenFileAction}
+                      onCommentDeleted={() => {}}
+                      onCommentSaved={() => {}}
+                      onLineLinkChange={handleLineLinkChange}
+                      onScroll={handleReviewScroll}
+                      onViewerReady={handleViewerReady}
+                    />
+                    <MarkdownWorkbench
+                      error={loadState === 'error' ? (errorMessage ?? repository.error) : null}
+                      mode="preview"
+                      onChange={handleMarkdownChange}
+                      onModeChange={setMarkdownMode}
+                      onOpenPath={(path) => {
+                        void repository
+                          .openRepositoryFile(path, true)
+                          .catch((error: unknown) =>
+                            setReviewActionError(
+                              error instanceof Error ? error.message : String(error),
+                            ),
+                          )
+                      }}
+                      path={markdownPath}
+                      previewOnly
+                      value={markdownValue}
+                    />
+                  </div>
                 )}
               </div>
             </div>

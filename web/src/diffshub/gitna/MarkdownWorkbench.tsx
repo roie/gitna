@@ -16,6 +16,7 @@ interface MarkdownWorkbenchProps {
   error?: string | null
   editorActions?: GitnaEditorActions
   onOpenPath(path: string): void
+  previewOnly?: boolean
 }
 
 const MAX_MARKDOWN_BYTES = 512 * 1024
@@ -69,6 +70,7 @@ export function MarkdownWorkbench({
   error,
   editorActions,
   onOpenPath,
+  previewOnly = false,
 }: MarkdownWorkbenchProps) {
   const [debouncedValue, setDebouncedValue] = useState(value ?? '')
   useEffect(() => {
@@ -78,8 +80,8 @@ export function MarkdownWorkbench({
 
   const tooLarge = new TextEncoder().encode(value ?? '').byteLength > MAX_MARKDOWN_BYTES
   const markdown = useMemo(() => (tooLarge ? '' : debouncedValue), [debouncedValue, tooLarge])
-  const showEditor = mode !== 'preview'
-  const showPreview = mode !== 'editor'
+  const showEditor = !previewOnly && mode !== 'preview'
+  const showPreview = true
   const safeUrlTransform: UrlTransform = (url) => (isSafeLink(url) ? url : '')
   const markdownComponents: Components = {
     a: ({ href, children, ...props }: ComponentProps<'a'>) => (
@@ -117,7 +119,8 @@ export function MarkdownWorkbench({
 
   return (
     <section className="flex h-full min-h-0 flex-col bg-background" aria-label="Markdown document">
-      <div className="flex min-h-8 shrink-0 items-center gap-1 border-b border-border px-2 py-1 text-xs">
+      {!previewOnly && (
+        <div className="flex min-h-8 shrink-0 items-center gap-1 border-b border-border px-2 py-1 text-xs">
         <span className="mr-auto truncate font-medium" title={path}>
           {path}
         </span>
@@ -175,7 +178,8 @@ export function MarkdownWorkbench({
             </Button>
           ))}
         </div>
-      </div>
+        </div>
+      )}
       {error == null ? (
         tooLarge && mode !== 'editor' ? (
           <div className="m-4 rounded border p-4 text-sm" role="alert">
