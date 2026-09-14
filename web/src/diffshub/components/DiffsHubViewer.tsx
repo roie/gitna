@@ -491,7 +491,7 @@ export const DiffsHubViewer = memo(function DiffsHubViewer({
     }
   );
 
-  const renderBody = useStableCallback((item: CodeViewItem<CommentMetadata>) => {
+  const renderBody = useCallback((item: CodeViewItem<CommentMetadata>) => {
     const images = item.annotations?.flatMap((annotation) =>
       annotation.metadata.kind === 'image'
         ? [{ metadata: annotation.metadata, side: 'side' in annotation ? annotation.side : undefined }]
@@ -527,7 +527,7 @@ export const DiffsHubViewer = memo(function DiffsHubViewer({
         ))}
       </div>
     );
-  });
+  }, [markdownPreview, markdownPreviewLayout, markdownPreviewPath]);
 
   const renderHeaderMetadata = useCallback(
     (item: CodeViewItem<CommentMetadata>) => {
