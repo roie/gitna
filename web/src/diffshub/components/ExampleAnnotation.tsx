@@ -48,7 +48,7 @@ export const ExampleAnnotation = memo(function ExampleAnnotation({
           event.stopPropagation();
           onDelete(itemId, annotation.metadata.key);
         }}
-        className="pointer-events-none absolute top-0 right-0 z-1 inline-flex translate-x-[35%] -translate-y-[35%] cursor-pointer items-center justify-center rounded-full bg-neutral-500 opacity-0 shadow-[inherit] transition-opacity duration-100 group-hover:pointer-events-auto group-hover:opacity-100"
+        className="pointer-events-none absolute top-0 right-0 z-1 inline-flex translate-x-[35%] -translate-y-[35%] cursor-pointer items-center justify-center rounded-full bg-neutral-500 opacity-0 transition-opacity duration-100 group-hover:pointer-events-auto group-hover:opacity-100"
       >
         <IconX size={12} />
       </Button>

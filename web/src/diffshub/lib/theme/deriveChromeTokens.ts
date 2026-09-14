@@ -30,7 +30,6 @@ export interface ChromeTokens {
   surfaceBorder: string;
   surfaceHover: string;
   surfaceSelected: string;
-  surfaceShadow: string;
 }
 
 // Muted-text floor (WCAG AA normal text); used to decide whether the theme's
@@ -126,18 +125,17 @@ export function deriveChromeTokens(theme: ThemeLike): ChromeTokens | undefined {
     mutedFg: muted,
     ring: fg,
     scrollbarThumb:
-      editorBg != null
-        ? colorUtils.isDarkSurface(editorBg, editorFg)
+      editorBg == null
+        ? undefined
+        : colorUtils.isDarkSurface(editorBg, editorFg)
           ? `color-mix(in lab, ${editorBg} 80%, white)`
-          : `color-mix(in lab, ${editorBg} 85%, black)`
-        : undefined,
+          : `color-mix(in lab, ${editorBg} 85%, black)`,
     scrollbarTrack: editorBg ?? undefined,
     separator,
     surface: `color-mix(in srgb, ${fg} 7%, ${cardBase})`,
     surfaceBorder: `color-mix(in srgb, ${fg} 18%, ${cardBase})`,
     surfaceHover: `color-mix(in srgb, ${fg} 14%, ${cardBase})`,
     surfaceSelected: `color-mix(in srgb, ${fg} 20%, ${cardBase})`,
-    surfaceShadow: '0 8px 16px rgb(0 0 0 / 0.07), 0 2px 4px rgb(0 0 0 / 0.05)',
   });
   cache.set(theme, tokens);
   return tokens;

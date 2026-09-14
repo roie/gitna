@@ -78,7 +78,7 @@ function ButtonGroupItem({
     <Button
       className={cn(
         'text-muted-foreground rounded-[calc(var(--radius-lg)-1px)] gap-1.5',
-        isSelected && 'text-foreground pointer-events-none shadow-xs',
+        isSelected && 'text-foreground pointer-events-none',
         className
       )}
       variant={isSelected ? (context.variant ?? 'outline') : 'ghost'}

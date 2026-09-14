@@ -186,6 +186,8 @@
   --cv-gutter-horizontal: 0px;
   --gitna-gutter-vertical: 0px;
   --gitna-gutter-horizontal: 0px;
+  /* Gitna keeps transient editor surfaces flat; Pierre consumes this token. */
+  --gitna-overlay-shadow: none;
   color-scheme: light;
   -webkit-font-smoothing: antialiased;
 }
@@ -375,7 +377,7 @@
   @apply max-h-[80dvh] overflow-y-auto;
   @apply -translate-y-2;
   @apply rounded-xl border border-[rgb(0_0_0_/_0.15)] bg-clip-padding p-4 dark:border-[rgb(255_255_255_/_0.1)];
-  @apply opacity-0 shadow-2xl;
+  @apply opacity-0;
   @apply pointer-events-none transition-all duration-200 ease-out;
   @apply [scrollbar-color:transparent_transparent] [scrollbar-gutter:stable] [scrollbar-width:thin];
   @apply hover:[scrollbar-color:auto];
@@ -436,6 +438,6 @@
   @apply md:top-auto md:right-auto md:left-auto;
   @apply md:translate-y-0 md:transform-none;
   @apply md:rounded-none md:border-none md:bg-transparent;
-  @apply md:p-0 md:opacity-100 md:shadow-none md:transition-none;
+  @apply md:p-0 md:opacity-100 md:transition-none;
   @apply md:sticky md:top-22 md:max-h-[calc(100vh_-_112px)];
 }

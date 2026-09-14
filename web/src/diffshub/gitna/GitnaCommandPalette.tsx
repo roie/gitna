@@ -392,8 +392,7 @@ export function GitnaCommandPalette({
     <dialog
       ref={dialogRef}
       aria-label="Command palette"
-      className="fixed inset-x-0 top-[8dvh] m-0 mx-auto max-h-[min(660px,84dvh)] w-[min(680px,calc(100vw-1.5rem))] overflow-hidden rounded-xl border border-border bg-background p-0 text-foreground shadow-none backdrop:bg-black/45 md:top-[12dvh]"
-      style={{ boxShadow: 'none' }}
+      className="fixed inset-x-0 top-[8dvh] m-0 mx-auto max-h-[min(660px,84dvh)] w-[min(680px,calc(100vw-1.5rem))] overflow-hidden rounded-xl border border-border bg-background p-0 text-foreground backdrop:bg-black/45 md:top-[12dvh]"
       onCancel={(event) => {
         event.preventDefault()
         onClose()

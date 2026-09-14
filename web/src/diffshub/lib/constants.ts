@@ -13,6 +13,10 @@ export const CODE_VIEW_CUSTOM_CSS = `
   container-name: sticky-header;
 }
 
+[data-editor-widget] {
+  box-shadow: var(--gitna-overlay-shadow, none) !important;
+}
+
 @container sticky-header scroll-state(stuck: top) {
   [data-diffs-header]::after {
     position: absolute;
@@ -79,7 +83,6 @@ const HIDDEN_SEARCH_UNSAFE_CSS = `
   }
 
   [data-file-tree-sticky-overlay-content] {
-    box-shadow: 0 2px 3px -4px rgb(0 0 0 / 1);
 
     [data-item-section="spacing"] {
       opacity: 0.5;
@@ -97,7 +100,6 @@ const HIDDEN_SEARCH_UNSAFE_CSS = `
 
   @media (prefers-color-scheme: dark) {
     [data-file-tree-sticky-overlay-content] {
-      box-shadow: 0 3px 3px -3px rgb(0 0 0 / 80%);
 
       [data-item-section="spacing"] {
         opacity: 0.6;

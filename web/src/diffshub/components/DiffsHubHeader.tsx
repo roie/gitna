@@ -380,7 +380,7 @@ function LocalFolderForm({
                             type="button"
                             variant="ghost"
                             size="icon-md"
-                            className="size-8 shadow-none"
+                            className="size-8"
                             aria-label={`Open ${folder.name} in new tab`}
                             disabled={pending || folderAction != null || openFolderDisabledReason != null}
                             title={openFolderDisabledReason ?? undefined}
@@ -390,7 +390,7 @@ function LocalFolderForm({
                             <IconArrowUpRight className="size-4" />
                           </Button>
                         </TooltipTrigger>
-                        <TooltipContent className="shadow-none">Open in New Tab</TooltipContent>
+                        <TooltipContent >Open in New Tab</TooltipContent>
                       </Tooltip>
                     )}
                     {onRemoveRecent != null && (
@@ -400,7 +400,7 @@ function LocalFolderForm({
                             type="button"
                             variant="ghost"
                             size="icon-md"
-                            className="size-8 shadow-none hover:text-destructive"
+                            className="size-8 hover:text-destructive"
                             aria-label={`Remove ${folder.name} from recent folders`}
                             disabled={pending || folderAction != null || backendDisabledReason != null}
                             title={backendDisabledReason ?? undefined}
@@ -410,7 +410,7 @@ function LocalFolderForm({
                             <IconTrash className="size-4" />
                           </Button>
                         </TooltipTrigger>
-                        <TooltipContent className="shadow-none">Remove from Recent</TooltipContent>
+                        <TooltipContent >Remove from Recent</TooltipContent>
                       </Tooltip>
                     )}
                   </span>

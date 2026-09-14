@@ -189,7 +189,7 @@ function FolderRow({
                 variant="ghost"
                 size="icon-md"
                 aria-label={`Open ${folder.name} in new tab`}
-                className="size-9 shadow-none sm:size-8"
+                className="size-9 sm:size-8"
                 disabled={rowDisabled || openFolderDisabledReason != null}
                 title={openFolderDisabledReason ?? undefined}
                 onClick={onOpenInNewTab}
@@ -197,7 +197,7 @@ function FolderRow({
                 <IconArrowUpRight className="size-4" />
               </Button>
             </TooltipTrigger>
-            <TooltipContent className="shadow-none">Open in New Tab</TooltipContent>
+            <TooltipContent>Open in New Tab</TooltipContent>
           </Tooltip>
           <Tooltip>
             <TooltipTrigger asChild>
@@ -206,7 +206,7 @@ function FolderRow({
                 variant="ghost"
                 size="icon-md"
                 aria-label={`Remove ${folder.name} from recent folders`}
-                className="size-9 shadow-none hover:text-destructive sm:size-8"
+                className="size-9 hover:text-destructive sm:size-8"
                 disabled={rowDisabled || backendDisabledReason != null}
                 title={backendDisabledReason ?? undefined}
                 onClick={onRemove}
@@ -214,7 +214,7 @@ function FolderRow({
                 <IconTrash className="size-4" />
               </Button>
             </TooltipTrigger>
-            <TooltipContent className="shadow-none">Remove from Recent</TooltipContent>
+            <TooltipContent>Remove from Recent</TooltipContent>
           </Tooltip>
         </span>
       </TooltipProvider>

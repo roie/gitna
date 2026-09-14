@@ -133,7 +133,7 @@ function SidebarWrapper({
         'contain-strict z-30 flex h-full min-h-0 flex-col border-r border-[var(--color-border-opaque)] transition-transform duration-300 ease-[cubic-bezier(0.32,0.72,0,1)] will-change-transform motion-reduce:transition-none md:z-auto md:translate-y-0 md:will-change-auto',
         themeStyle == null && 'bg-[var(--diffshub-sidebar-bg)]',
         mobileOverlayOpen
-          ? 'pointer-events-auto translate-y-0 overflow-hidden rounded-t-xl shadow-[0_16px_32px_rgb(0_0_0_/0.25)] md:h-full md:overflow-visible md:rounded-none md:shadow-none'
+          ? 'pointer-events-auto translate-y-0 overflow-hidden rounded-t-xl md:h-full md:overflow-visible md:rounded-none'
           : 'pointer-events-none translate-y-[calc(100%+1.5rem)] overflow-hidden rounded-xl md:pointer-events-auto md:h-full md:overflow-visible md:rounded-none',
       )}
       style={themeStyle}

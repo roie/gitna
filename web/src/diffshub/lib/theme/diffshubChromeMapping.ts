@@ -31,7 +31,7 @@ export const diffshubChromeMapping: ChromeMapping = (chrome, theme) => {
   // bg-only theme). Mirror the previous behavior: paint just the background when
   // we have one, otherwise contribute nothing.
   if (chrome == null) {
-    return bg != null ? ({ backgroundColor: bg } as CSSProperties) : undefined;
+    return bg == null ? undefined : ({ backgroundColor: bg } as CSSProperties);
   }
 
   const fg = chrome.fg;
@@ -66,7 +66,6 @@ export const diffshubChromeMapping: ChromeMapping = (chrome, theme) => {
   style['--diffshub-annotation-border'] = chrome.surfaceBorder;
   style['--diffshub-annotation-hover-border'] =
     `color-mix(in srgb, ${fg} 28%, ${base})`;
-  style['--diffshub-annotation-shadow'] = chrome.surfaceShadow;
   style['--color-popover'] = chrome.surface;
   style['--popover'] = chrome.surface;
   style['--color-popover-foreground'] = fg;
