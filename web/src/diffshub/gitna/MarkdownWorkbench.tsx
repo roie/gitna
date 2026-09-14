@@ -1,6 +1,9 @@
-import { useEffect, useMemo, useState } from 'react'
-import ReactMarkdown from 'react-markdown'
+import { useEffect, useMemo, useState, type ComponentProps } from 'react'
+import ReactMarkdown, { type Components, type UrlTransform } from 'react-markdown'
 import remarkGfm from 'remark-gfm'
+
+import { Button } from '../components/Button'
+import type { GitnaEditorActions } from '../components/DiffsHubViewer'
 
 export type MarkdownViewMode = 'editor' | 'preview' | 'split'
 
@@ -11,41 +14,50 @@ interface MarkdownWorkbenchProps {
   onModeChange(mode: MarkdownViewMode): void
   onChange(value: string): void
   error?: string | null
+  editorActions?: GitnaEditorActions
+  onOpenPath(path: string): void
 }
 
 const MAX_MARKDOWN_BYTES = 512 * 1024
 
 function isSafeLink(value: string): boolean {
-  if (
-    value.startsWith('#') ||
-    value.startsWith('/') ||
-    value.startsWith('./') ||
-    value.startsWith('../')
-  ) {
-    return true
-  }
+  if (value.startsWith('#') || value.startsWith('//')) return !value.startsWith('//')
   try {
     const protocol = new URL(value).protocol
     return protocol === 'http:' || protocol === 'https:' || protocol === 'mailto:'
   } catch {
-    return false
+    return !/^[a-z][a-z\d+.-]*:/i.test(value)
   }
 }
 
-function resolveLocalResource(source: string, documentPath: string): string | null {
-  if (!source.startsWith('.') && !source.startsWith('/')) return null
-  const base = documentPath.split('/').slice(0, -1).join('/')
-  const parts = `${base}/${source}`.split('/')
-  const resolved: string[] = []
-  for (const part of parts) {
-    if (part === '' || part === '.') continue
-    if (part === '..') resolved.pop()
-    else resolved.push(part)
+function resolveRepositoryPath(source: string, documentPath: string): string | null {
+  if (
+    source === '' ||
+    source.startsWith('#') ||
+    source.startsWith('//') ||
+    /^[a-z][a-z\d+.-]*:/i.test(source)
+  ) {
+    return null
   }
-  if (resolved.some((part) => part === '.git')) return null
-  // The content route is intentionally same-origin and path-scoped. It never
-  // accepts arbitrary file:// URLs or carries a capability outside this app.
-  return `api/v1/content?path=${encodeURIComponent(resolved.join('/'))}`
+  const base = source.startsWith('/') ? [] : documentPath.split('/').slice(0, -1)
+  const resolved: string[] = [...base]
+  for (const part of source.split('/')) {
+    if (part === '' || part === '.') continue
+    if (part === '..') {
+      if (resolved.length === 0) return null
+      resolved.pop()
+    } else {
+      resolved.push(part)
+    }
+  }
+  if (resolved.length === 0 || resolved.some((part) => part === '.git')) return null
+  return resolved.join('/')
+}
+
+function resolveLocalResource(source: string, documentPath: string): string | null {
+  const path = resolveRepositoryPath(source, documentPath)
+  if (path == null) return null
+  return `api/v1/content?path=${encodeURIComponent(path)}`
 }
 
 export function MarkdownWorkbench({
@@ -55,6 +67,8 @@ export function MarkdownWorkbench({
   onModeChange,
   onChange,
   error,
+  editorActions,
+  onOpenPath,
 }: MarkdownWorkbenchProps) {
   const [debouncedValue, setDebouncedValue] = useState(value ?? '')
   useEffect(() => {
@@ -66,6 +80,40 @@ export function MarkdownWorkbench({
   const markdown = useMemo(() => (tooLarge ? '' : debouncedValue), [debouncedValue, tooLarge])
   const showEditor = mode !== 'preview'
   const showPreview = mode !== 'editor'
+  const safeUrlTransform: UrlTransform = (url) => (isSafeLink(url) ? url : '')
+  const markdownComponents: Components = {
+    a: ({ href, children, ...props }: ComponentProps<'a'>) => (
+      <a
+        {...props}
+        href={href && isSafeLink(href) ? href : undefined}
+        onClick={(event) => {
+          if (href == null || !isSafeLink(href)) {
+            event.preventDefault()
+            return
+          }
+          const localPath = resolveRepositoryPath(href.split(/[?#]/, 1)[0]!, path)
+          if (localPath != null) {
+            event.preventDefault()
+            onOpenPath(localPath)
+          }
+        }}
+        rel={href?.startsWith('http') ? 'noreferrer noopener' : undefined}
+        target={href?.startsWith('http') ? '_blank' : undefined}
+      >
+        {children}
+      </a>
+    ),
+    img: ({ src, alt }: ComponentProps<'img'>) => {
+      const localSrc = src == null ? null : resolveLocalResource(src, path)
+      return localSrc == null ? (
+        <span className="rounded border px-2 py-1 text-xs text-muted-foreground">
+          Blocked image resource: {alt ?? 'unnamed'}
+        </span>
+      ) : (
+        <img alt={alt ?? ''} loading="lazy" src={localSrc} />
+      )
+    },
+  }
 
   return (
     <section className="flex h-full min-h-0 flex-col bg-background" aria-label="Markdown document">
@@ -73,20 +121,61 @@ export function MarkdownWorkbench({
         <span className="mr-auto truncate font-medium" title={path}>
           {path}
         </span>
-        {(['editor', 'preview', 'split'] as const).map((nextMode) => (
-          <button
-            className={`rounded px-2 py-1 ${mode === nextMode ? 'bg-accent font-medium' : 'text-muted-foreground hover:bg-accent/60'}`}
-            key={nextMode}
-            onClick={() => onModeChange(nextMode)}
-            type="button"
-            aria-pressed={mode === nextMode}
-          >
-            {nextMode[0].toUpperCase() + nextMode.slice(1)}
-          </button>
-        ))}
+        {editorActions != null && (
+          <>
+            {editorActions.changeScopes(path).length > 0 && (
+              <Button
+                onClick={() =>
+                  editorActions.onOpenChange(editorActions.changeScopes(path)[0]!, path)
+                }
+                size="xs"
+                type="button"
+                variant="ghost"
+              >
+                View Changes
+              </Button>
+            )}
+            <Button
+              disabled={
+                !editorActions.dirtyPaths.has(path) ||
+                editorActions.saving ||
+                editorActions.disabledReason != null
+              }
+              onClick={() => editorActions.onSave(path)}
+              size="xs"
+              title={editorActions.disabledReason ?? undefined}
+              type="button"
+              variant="ghost"
+            >
+              {editorActions.saving
+                ? 'Saving…'
+                : editorActions.dirtyPaths.has(path)
+                  ? 'Save'
+                  : 'Saved'}
+            </Button>
+          </>
+        )}
+        <div
+          className="flex items-center rounded-md border bg-muted/30 p-0.5"
+          role="group"
+          aria-label="Markdown view mode"
+        >
+          {(['editor', 'preview', 'split'] as const).map((nextMode) => (
+            <Button
+              aria-pressed={mode === nextMode}
+              key={nextMode}
+              onClick={() => onModeChange(nextMode)}
+              size="xs"
+              type="button"
+              variant={mode === nextMode ? 'secondary' : 'ghost'}
+            >
+              {nextMode[0].toUpperCase() + nextMode.slice(1)}
+            </Button>
+          ))}
+        </div>
       </div>
       {error == null ? (
-        tooLarge ? (
+        tooLarge && mode !== 'editor' ? (
           <div className="m-4 rounded border p-4 text-sm" role="alert">
             This Markdown file is larger than the 512 KiB preview limit. Use the editor or save a
             smaller file.
@@ -106,40 +195,19 @@ export function MarkdownWorkbench({
             {showEditor && (
               <textarea
                 aria-label="Markdown editor"
-                className="min-h-0 w-full resize-none overflow-auto bg-transparent p-6 font-mono text-sm leading-6 outline-none"
+                className="min-h-0 w-full resize-none overflow-auto border-0 bg-transparent p-6 font-mono text-sm leading-6 outline-none focus:ring-0"
                 onChange={(event) => onChange(event.target.value)}
                 spellCheck={false}
                 value={value}
               />
             )}
             {showPreview && (
-              <article className="gitna-scrollbar min-h-0 overflow-auto px-6 py-5 text-sm leading-7 prose prose-neutral dark:prose-invert max-w-none">
+              <article className="markdown-preview gitna-scrollbar min-h-0 overflow-auto px-6 py-5 text-sm">
                 <ReactMarkdown
                   remarkPlugins={[remarkGfm]}
                   skipHtml
-                  urlTransform={(url) => (isSafeLink(url) ? url : '')}
-                  components={{
-                    a: ({ href, children, ...props }) => (
-                      <a
-                        {...props}
-                        href={href && isSafeLink(href) ? href : undefined}
-                        rel={href?.startsWith('http') ? 'noreferrer noopener' : undefined}
-                        target={href?.startsWith('http') ? '_blank' : undefined}
-                      >
-                        {children}
-                      </a>
-                    ),
-                    img: ({ src, alt }) => {
-                      const localSrc = src == null ? null : resolveLocalResource(src, path)
-                      return localSrc == null ? (
-                        <span className="rounded border px-2 py-1 text-xs text-muted-foreground">
-                          Blocked image resource: {alt ?? 'unnamed'}
-                        </span>
-                      ) : (
-                        <img alt={alt ?? ''} loading="lazy" src={localSrc} />
-                      )
-                    },
-                  }}
+                  urlTransform={safeUrlTransform}
+                  components={markdownComponents}
                 >
                   {markdown}
                 </ReactMarkdown>

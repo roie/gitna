@@ -16,6 +16,24 @@ import (
 	"github.com/roie/gitna/internal/protocol"
 )
 
+// ReadWorktreeResource returns one bounded regular worktree resource.
+func (r Repository) ReadWorktreeResource(ctx context.Context, path string) ([]byte, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	_, info, err := r.resolveWorktreeEntry(path, true)
+	if err != nil {
+		return nil, err
+	}
+	if !info.Mode().IsRegular() {
+		return nil, fmt.Errorf("%w: %q is not a regular file", protocol.ErrInvalidPath, path)
+	}
+	if info.Size() > DefaultDiffBytes {
+		return nil, fmt.Errorf("%w: %q", protocol.ErrWorktreeFileTooLarge, path)
+	}
+	return r.readBoundedWorktreeFile(path)
+}
+
 // ReadWorktreeFile returns one bounded, regular text file from the worktree.
 func (r Repository) ReadWorktreeFile(ctx context.Context, path string) (protocol.WorktreeFile, error) {
 	if err := ctx.Err(); err != nil {

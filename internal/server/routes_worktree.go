@@ -5,8 +5,12 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"mime"
 	"net/http"
 	"os"
+	"path/filepath"
+	"strconv"
+	"strings"
 
 	"github.com/roie/gitna/internal/gitx"
 	"github.com/roie/gitna/internal/protocol"
@@ -14,6 +18,10 @@ import (
 
 // JSON may escape each source byte as a six-byte \uXXXX sequence.
 const worktreeRequestBodyLimit = gitx.DefaultDiffBytes*6 + 16<<10
+
+type worktreeResourceRepository interface {
+	ReadWorktreeResource(context.Context, string) ([]byte, error)
+}
 
 type worktreeRepository interface {
 	ReadWorktreeFile(context.Context, string) (protocol.WorktreeFile, error)
@@ -40,6 +48,39 @@ type worktreeEntryRequest struct {
 func (s *Server) worktreeRepository() (worktreeRepository, bool) {
 	repo, ok := s.repo.(worktreeRepository)
 	return repo, ok
+}
+
+func (s *Server) handleReadWorktreeResource(w http.ResponseWriter, r *http.Request) {
+	repo, ok := s.repo.(worktreeResourceRepository)
+	if !ok {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "worktree resources unavailable"})
+		return
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), ReadTimeout)
+	defer cancel()
+	path := r.URL.Query().Get("path")
+	data, err := repo.ReadWorktreeResource(ctx, path)
+	if err != nil {
+		writeWorktreeError(w, r, s, err)
+		return
+	}
+	contentType := http.DetectContentType(data)
+	if extension := strings.ToLower(filepath.Ext(path)); extension != "" {
+		if detected := mime.TypeByExtension(extension); detected != "" {
+			contentType = detected
+		}
+	}
+	if !strings.HasPrefix(contentType, "image/") || contentType == "image/svg+xml" {
+		writeJSON(w, http.StatusUnsupportedMediaType, map[string]string{"error": "resource is not a supported image"})
+		return
+	}
+	w.Header().Set("Cache-Control", "no-store")
+	w.Header().Set("Content-Type", contentType)
+	w.Header().Set("Content-Length", strconv.Itoa(len(data)))
+	w.WriteHeader(http.StatusOK)
+	if r.Method != http.MethodHead {
+		_, _ = w.Write(data)
+	}
 }
 
 func (s *Server) handleReadWorktreeFile(w http.ResponseWriter, r *http.Request) {

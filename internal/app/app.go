@@ -120,6 +120,10 @@ func (a *repoAdapter) SearchFiles(
 	return a.searchFiles(ctx, query, recentPaths, includeIgnored, limit)
 }
 
+func (a *repoAdapter) ReadWorktreeResource(ctx context.Context, path string) ([]byte, error) {
+	return a.current().ReadWorktreeResource(ctx, path)
+}
+
 func (a *repoAdapter) ReadWorktreeFile(ctx context.Context, path string) (protocol.WorktreeFile, error) {
 	return a.current().ReadWorktreeFile(ctx, path)
 }

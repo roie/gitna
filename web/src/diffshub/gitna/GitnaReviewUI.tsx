@@ -351,6 +351,7 @@ function GitnaReviewUIInner() {
   const [lineNumbers, setLineNumbers] = useState(true)
   const [markdownMode, setMarkdownMode] = useState<MarkdownViewMode>('split')
   const [themesHydrated, setThemesHydrated] = useState(false)
+  useEffect(() => setMarkdownMode('split'), [target?.filePath])
   const [loadState, setLoadState] = useState<ViewerLoadState>('fetching')
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
   const [reviewData, setReviewData] = useState<LoadedDiffsHubData | null>(null)
@@ -661,6 +662,7 @@ function GitnaReviewUIInner() {
           error instanceof ApiError &&
           (error.code === 'binary-file' || error.code === 'file-too-large')
         if (!unavailableTextFile) throw error
+        if (/\.(md|markdown|mdown|mkdn)$/i.test(path)) throw error
         if (!repository.snapshot?.repository) {
           if (!rasterImagePattern.test(path)) throw error
           const diff = await repository.api.compareWorktreeFiles(
@@ -1759,10 +1761,20 @@ function GitnaReviewUIInner() {
                   )
                 ) : (
                   <MarkdownWorkbench
+                    editorActions={gitnaEditorActions}
                     error={loadState === 'error' ? (errorMessage ?? repository.error) : null}
                     mode={markdownMode}
                     onChange={handleMarkdownChange}
                     onModeChange={setMarkdownMode}
+                    onOpenPath={(path) => {
+                      void repository
+                        .openRepositoryFile(path, true)
+                        .catch((error: unknown) =>
+                          setReviewActionError(
+                            error instanceof Error ? error.message : String(error),
+                          ),
+                        )
+                    }}
                     path={markdownPath}
                     value={markdownValue}
                   />

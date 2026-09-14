@@ -38,6 +38,8 @@ func (s *Server) apiRoutes() http.Handler {
 			s.handleDirectoryEntries(w, r)
 		case r.Method == http.MethodGet && p == "/files/search":
 			s.handleFileSearch(w, r)
+		case (r.Method == http.MethodGet || r.Method == http.MethodHead) && p == "/content":
+			s.handleReadWorktreeResource(w, r)
 		case r.Method == http.MethodGet && p == "/worktree/file":
 			s.handleReadWorktreeFile(w, r)
 		case r.Method == http.MethodGet && p == "/worktree/compare":
