@@ -45,7 +45,7 @@ import type { DarkThemeName, LightThemeName } from '../lib/themeNames'
 import type { LoadedDiffsHubData } from '../lib/diffsHubDataAccumulator'
 import { cn } from '../lib/cn'
 import { GitnaCommandPalette, type GitnaPaletteCommand } from './GitnaCommandPalette'
-import { ConnectionStatus } from './ConnectionStatus'
+import { GlobalToastHost } from './ConnectionStatus'
 import { FolderLoadingScreen, folderDisplayName } from './FolderLoadingScreen'
 import { GitnaHome } from './GitnaHome'
 import { GitnaSourceControl } from './SourceControlWorkflow'
@@ -1378,6 +1378,8 @@ function GitnaReviewUIInner() {
       const lineCount = item.file.contents.split('\n').length
       const clampedLine = Math.max(1, Math.min(lineCount, line))
       viewer.scrollTo({ type: 'line', id: path, lineNumber: clampedLine - 1, align: 'center' })
+      // SAFETY: Editable file items are created with Pierre's Editor instance;
+      // CodeView exposes it through the narrower DiffsEditor interface.
       const editor = viewer.getEditor(path) as unknown as
         | { focus(options: { lineNumber: number; character: number }): void }
         | undefined
@@ -1625,7 +1627,6 @@ function GitnaReviewUIInner() {
               openFolderDisabledReason={openFolderDisabledReason}
               onOpenFolderInNewTab={openFolderInNewTab}
               onRemoveRecentFolder={(path) => repository.removeRecentFolder(path)}
-              connectionStatus={<ConnectionStatus />}
               onRevealFolder={async () => {
                 setReviewActionError(null)
                 try {
@@ -1659,7 +1660,6 @@ function GitnaReviewUIInner() {
               onClearSwitchError={() => setHomeSwitchError(null)}
               onOpenFolder={(path) => requestFolderSwitch(path, true)}
               backendDisabledReason={backendDisabledReason}
-              connectionStatus={<ConnectionStatus />}
               openFolderDisabledReason={openFolderDisabledReason}
               onOpenFolderInNewTab={openFolderInNewTab}
               onRefresh={() => void repository.refreshFolders()}
@@ -1722,6 +1722,12 @@ function GitnaReviewUIInner() {
                       errorMessage={errorMessage ?? repository.error}
                       localRepository
                       onRetry={() => setReviewAttempt((attempt) => attempt + 1)}
+                      suppressError={
+                        loadState === 'error' &&
+                        (repository.connectionState !== 'connected' ||
+                          errorMessage === 'Failed to fetch' ||
+                          repository.error === 'Failed to fetch')
+                      }
                       state={loadState}
                     />
                   </div>
@@ -1729,15 +1735,11 @@ function GitnaReviewUIInner() {
               </div>
             </div>
           </div>
-          {reviewActionError != null && (
-            <p
-              className="fixed right-3 bottom-3 z-50 max-w-md rounded-md bg-red-600 px-3 py-2 text-xs text-white shadow-lg"
-              role="alert"
-            >
-              {reviewActionError}
-            </p>
-          )}
         </ReviewGrid>
+        <GlobalToastHost
+          actionError={reviewActionError}
+          onDismissActionError={() => setReviewActionError(null)}
+        />
         <GitnaCommandPalette
           commands={paletteCommands}
           error={repository.ordinarySearchError}
@@ -2218,12 +2220,21 @@ function ReviewGrid({
   containerRef: Ref<HTMLDivElement>
   sidebarVisible: boolean
 }) {
+  const repository = useRepository()
+  const connectionUnavailable =
+    repository.connectionState === 'reconnecting' ||
+    repository.connectionState === 'unreachable' ||
+    repository.connectionState === 'session-error'
+
   return (
     <div
       ref={containerRef}
       role="region"
       aria-label="Review"
+      aria-busy={connectionUnavailable || undefined}
+      data-connection-state={repository.connectionState}
       className={cn(
+        connectionUnavailable && 'pointer-events-none grayscale opacity-60',
         "grid min-h-0 flex-1 grid-cols-1 grid-rows-[auto_minmax(0,1fr)] overflow-hidden overscroll-contain contain-strict [grid-template-areas:'header''viewer']",
         sidebarVisible
           ? "md:grid-cols-[320px_minmax(0,1fr)] md:[grid-template-areas:'header_header''tree_viewer']"

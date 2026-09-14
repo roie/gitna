@@ -12,6 +12,7 @@ interface DiffsHubStatusPanelProps {
   contentKind?: 'diff' | 'file';
   errorMessage: string | null;
   localRepository?: boolean;
+  suppressError?: boolean;
   onRetry(): void;
   state: ViewerLoadState;
 }
@@ -21,6 +22,7 @@ export function DiffsHubStatusPanel({
   errorMessage,
   localRepository = false,
   onRetry,
+  suppressError = false,
   state,
 }: DiffsHubStatusPanelProps) {
   // Mirror the rest of the diffshub chrome so the loading screen sits on the
@@ -32,6 +34,7 @@ export function DiffsHubStatusPanel({
   const themeChromeStyle =
     Object.keys(chromeStyle).length > 0 ? chromeStyle : undefined;
   const isError = state === 'error';
+  if (isError && suppressError) return null;
   const fileContent = contentKind === 'file';
   const title = isError
     ? fileContent

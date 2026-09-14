@@ -530,6 +530,7 @@ export function GitnaSourceControl() {
   const measuredWorkflowHeight = useNaturalPaneHeight(workflowPane, workflowContent)
 
   const snapshot = repository.snapshot
+  const connectionHealthy = repository.connectionState === 'connected'
   const staged = snapshot?.staged ?? []
   const unstaged = snapshot?.unstaged ?? []
   const changedPathCount = new Set(
@@ -876,7 +877,7 @@ export function GitnaSourceControl() {
   if (snapshot == null) {
     return (
       <div className="flex h-full items-center justify-center px-4 text-sm text-muted-foreground">
-        {repository.error ?? 'Loading repository…'}
+        {connectionHealthy ? (repository.error ?? 'Loading repository…') : null}
       </div>
     )
   }
@@ -1037,7 +1038,7 @@ export function GitnaSourceControl() {
               {repository.repositoryFilesLoading && repository.repositoryPaths.length === 0 && (
                 <p className="px-8 py-2 text-xs text-muted-foreground">Loading files…</p>
               )}
-              {repository.repositoryFilesError != null && (
+              {connectionHealthy && repository.repositoryFilesError != null && (
                 <p className="px-8 py-2 text-xs text-red-500" role="alert">
                   {repository.repositoryFilesError}
                 </p>
@@ -1165,7 +1166,7 @@ export function GitnaSourceControl() {
           </Button>
         </div>
       )}
-      {(localError ?? repository.mutationError) != null && (
+      {connectionHealthy && (localError ?? repository.mutationError) != null && (
         <p
           className="mx-3 mb-3 rounded-md bg-red-500/10 px-2.5 py-2 text-xs text-red-600 dark:text-red-400"
           role="alert"
@@ -2946,7 +2947,7 @@ function GraphSection({
                 Loading more commits…
               </p>
             )}
-            {repository.graphError != null && (
+            {repository.connectionState === 'connected' && repository.graphError != null && (
               <div className="space-y-1 px-2 py-2">
                 <p role="alert" className="text-xs text-red-500">
                   {repository.graphError}
@@ -3339,11 +3340,12 @@ const GraphCommitRow = memo(function GraphCommitRow({
           {files != null && files.length === 0 && !repository.filesLoading[row.commit.oid] && (
             <p className="px-3 py-2 text-xs text-muted-foreground">No changed files</p>
           )}
-          {repository.filesError[row.commit.oid] != null && (
-            <p role="alert" className="px-3 py-2 text-xs text-red-500">
-              {repository.filesError[row.commit.oid]}
-            </p>
-          )}
+          {repository.connectionState === 'connected' &&
+            repository.filesError[row.commit.oid] != null && (
+              <p role="alert" className="px-3 py-2 text-xs text-red-500">
+                {repository.filesError[row.commit.oid]}
+              </p>
+            )}
         </div>
       )}
     </div>

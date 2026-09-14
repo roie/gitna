@@ -848,7 +848,7 @@ test('raster images replace the code body', async ({ page, app }) => {
   writeFileSync(join(app.repo, 'untracked-preview.png'), before)
 
   await page.goto(app.url)
-  await expect(page.locator('[data-connection-state="connected"]')).toBeVisible({
+  await expect(page.getByRole('region', { name: 'Review' })).toBeVisible({
     timeout: 20_000,
   })
   await page
@@ -1735,7 +1735,7 @@ test('dispatched mutation loss stays unknown until acknowledged', async ({ page,
     await route.abort('failed')
   })
   await page.goto(app.url)
-  await expect(page.locator('[data-connection-state="connected"]')).toBeVisible({
+  await expect(page.getByRole('region', { name: 'Review' })).toBeVisible({
     timeout: 20_000,
   })
   await page
@@ -1766,7 +1766,7 @@ test('Astra refresh updates already-rendered headers without remounting the edit
   await repositoryTree.getByRole('treeitem', { name: 'main.txt', exact: true }).click()
   const editor = page.getByRole('textbox', { name: 'main.txt' })
   await expect(editor).toBeVisible()
-  const connection = page.locator('[data-connection-state]')
+  const connection = page.getByRole('status')
   await expect(connection).toHaveAttribute('data-connection-state', 'connected', {
     timeout: 20_000,
   })
@@ -2380,7 +2380,7 @@ test('repository files can be edited, created in folders, and renamed', async ({
   releaseSave()
   const firstResponse = await firstSaveResponse
   expect(firstResponse.status(), await firstResponse.text()).toBe(200)
-  await expect(page.locator('[data-connection-state="connected"]')).toBeVisible({
+  await expect(page.getByRole('region', { name: 'Review' })).toBeVisible({
     timeout: 20_000,
   })
   await expect(save).toBeEnabled({ timeout: 20_000 })
@@ -2421,7 +2421,7 @@ test('repository files can be edited, created in folders, and renamed', async ({
     })
   }).toPass()
   const newSave = page.getByRole('button', { name: 'Save', exact: true })
-  await expect(page.locator('[data-connection-state="connected"]')).toBeVisible({
+  await expect(page.getByRole('region', { name: 'Review' })).toBeVisible({
     timeout: 20_000,
   })
   await expect(newSave).toBeEnabled({ timeout: 20_000 })

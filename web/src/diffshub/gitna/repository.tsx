@@ -1859,6 +1859,14 @@ export class GitnaRepository {
   }
 
   selectRepositoryFile(path: string, reveal = false): void {
+    if (
+      (this.connectionState === 'reconnecting' ||
+        this.connectionState === 'unreachable' ||
+        this.connectionState === 'session-error') &&
+      !this.repositoryOpenPaths.includes(path) &&
+      !this.isUntitledPath(path)
+    )
+      return
     if (!this.canOpenRepositoryFile(path) && !this.repositoryOpenPaths.includes(path)) return
     this.selection = null
     this.commitDiff = null

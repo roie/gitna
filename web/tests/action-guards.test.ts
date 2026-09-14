@@ -658,7 +658,7 @@ describe('GitnaRepository action guards', () => {
     expect(client.mutate).not.toHaveBeenCalled()
   })
 
-  it('keeps reads, retry, and local selection available while backend actions are blocked', async () => {
+  it('keeps reads and retry available while repository file opening is blocked', async () => {
     const client = api({
       snapshot: vi.fn(async () => snapshot()),
       folders: vi.fn(async () => ({ current: {}, recent: [] })),
@@ -667,7 +667,7 @@ describe('GitnaRepository action guards', () => {
     repository.connectionState = 'unreachable'
     repository.repositoryPaths = ['file.txt']
     repository.selectRepositoryFile('file.txt')
-    expect(repository.repositoryFilePath).toBe('file.txt')
+    expect(repository.repositoryFilePath).toBeNull()
     await repository.refreshSnapshot()
     await repository.refreshFolders()
     const cleanup = repository.connectEvents()
@@ -676,7 +676,7 @@ describe('GitnaRepository action guards', () => {
     expect(client.snapshot).toHaveBeenCalled()
     expect(client.folders).toHaveBeenCalled()
     expect(client.mutate).not.toHaveBeenCalled()
-    expect(repository.repositoryFilePath).toBe('file.txt')
+    expect(repository.repositoryFilePath).toBeNull()
   })
 
   it('dispatches ready save/create/rename and settles worktree busy ownership', async () => {

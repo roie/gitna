@@ -1,8 +1,7 @@
-import { IconChevronSm, IconRefresh } from '@pierre/icons'
 import { useEffect, useRef, useState } from 'react'
 
-import { Button } from '../components/Button'
 import { useRepository, type ConnectionState } from './repository'
+import { ToastHost, type Toast } from './ToastHost'
 
 const LABELS: Record<Exclude<ConnectionState, 'connected'>, string> = {
   connecting: 'Connecting to backend…',
@@ -48,118 +47,87 @@ export function connectionStatusDetails(
   return { label: LABELS[state], details }
 }
 
-export function ConnectionStatus() {
+export function GlobalToastHost({
+  actionError,
+  onDismissActionError,
+}: {
+  actionError: string | null
+  onDismissActionError(): void
+}) {
   const repository = useRepository()
   const previousState = useRef(repository.connectionState)
-  const statusHadFocus = useRef(false)
-  const [refreshAcknowledgment, setRefreshAcknowledgment] = useState(false)
+  const [connectionIncident, setConnectionIncident] = useState(false)
+  const [retryAvailable, setRetryAvailable] = useState(false)
+  const [retryPending, setRetryPending] = useState(false)
+  const [dismissed, setDismissed] = useState(false)
   const [announcement, setAnnouncement] = useState('')
   const state = repository.connectionState
-  const unavailable = state !== 'connected'
-  const recoveringWithFocus =
-    state === 'connected' && previousState.current !== 'connected' && statusHadFocus.current
+  const connectionFailure = state === 'unreachable' || state === 'session-error'
 
   useEffect(() => {
-    if (previousState.current !== state) {
+    const previous = previousState.current
+    if (previous !== state) {
       setAnnouncement(
         state === 'connected'
           ? 'Backend connection restored.'
           : `${LABELS[state]} ${SUPPORTING[state]}`,
       )
-    }
-    if (state === 'connected' && previousState.current !== 'connected') {
-      // Keep the focused summary or Retry button mounted through the recovery
-      // render. The acknowledgement is dismissed by leaving this section,
-      // rather than by a timer that can race with keyboard navigation.
-      if (statusHadFocus.current) setRefreshAcknowledgment(true)
+      if (state === 'connected') {
+        setConnectionIncident(false)
+        setRetryAvailable(false)
+        setRetryPending(false)
+        setDismissed(false)
+      } else if (connectionFailure || (previous === 'connected' && state === 'reconnecting')) {
+        setConnectionIncident(true)
+        if (connectionFailure) setRetryAvailable(true)
+        if (!connectionIncident) setDismissed(false)
+      }
     }
     previousState.current = state
-  }, [state])
+  }, [connectionFailure, state])
 
   const retry = () => {
-    void repository.retryConnection().catch(() => undefined)
+    if (retryPending) return
+    setRetryPending(true)
+    void repository.retryConnection().finally(() => {
+      if (repository.connectionState !== 'connected') setRetryPending(false)
+    })
   }
-  const descriptionId = 'gitna-connection-status-description'
-  const statusDetails = connectionStatusDetails(
-    state,
-    repository.connectionError,
-    repository.connectionLastSuccessAt,
-    repository.snapshot != null,
-  )
-  const showingAcknowledgment = refreshAcknowledgment || recoveringWithFocus
-  let label = ''
-  if (unavailable) label = statusDetails.label ?? ''
-  else if (showingAcknowledgment) label = 'Refresh complete'
-  const details = statusDetails.details
-  const showRetry = unavailable || showingAcknowledgment
-  const visible = unavailable || showingAcknowledgment
+  const connectionVisible = connectionIncident && !dismissed
+  const toasts: Toast[] = []
+
+  if (connectionVisible) {
+    toasts.push({
+      id: 'connection',
+      dataState: state,
+      title: state === 'session-error' ? 'Session unavailable' : 'Connection interrupted',
+      description:
+        state === 'session-error'
+          ? `${repository.connectionError ?? 'Open Gitna’s current URL.'} Keep this tab open to retain unsaved edits.`
+          : 'Trying to reconnect. Keep this tab open to retain unsaved edits.',
+      onDismiss: () => setDismissed(true),
+      severity: 'warning',
+      action: retryAvailable
+        ? { disabled: retryPending, label: retryPending ? 'Retrying…' : 'Retry', onClick: retry }
+        : undefined,
+    })
+  }
+
+  if (actionError != null) {
+    toasts.push({
+      id: 'action-error',
+      title: actionError,
+      onDismiss: onDismissActionError,
+      severity: 'error',
+    })
+  }
 
   return (
-    <section
-      data-connection-state={state}
-      aria-label="Connection status"
-      className={
-        visible ? 'mt-8 min-w-0 max-w-full shrink md:mt-0' : 'h-px w-px shrink-0 overflow-hidden'
-      }
-      onFocus={() => {
-        statusHadFocus.current = true
-      }}
-      onBlur={(event) => {
-        if (!event.currentTarget.contains(event.relatedTarget)) {
-          statusHadFocus.current = false
-          setRefreshAcknowledgment(false)
-        }
-      }}
-    >
-      <span aria-live="polite" data-connection-announcement className="sr-only">
+    <>
+      <span aria-live="polite" className="sr-only">
         {announcement}
       </span>
-      {visible ? (
-        <div className="flex min-w-0 max-w-full items-start gap-2 text-xs">
-          <details className="group min-w-0 flex-1">
-            <summary className="flex min-w-0 cursor-pointer list-none items-center gap-1 rounded-sm py-1 font-medium text-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring [&::-webkit-details-marker]:hidden">
-              <IconChevronSm
-                aria-hidden="true"
-                className="size-3 shrink-0 -rotate-90 transition-transform group-open:rotate-0"
-              />
-              <span className="min-w-0 overflow-wrap-anywhere">{label}</span>
-            </summary>
-            <div
-              id={descriptionId}
-              className="max-w-full overflow-wrap-anywhere pb-1 pl-4 leading-5 text-muted-foreground"
-            >
-              {details.map((detail, index) => (
-                <span key={`${detail}-${index}`}>
-                  {index > 0 && ' '}
-                  {repository.connectionLastSuccessAt != null &&
-                  detail.startsWith('Last refreshed') ? (
-                    <time dateTime={new Date(repository.connectionLastSuccessAt).toISOString()}>
-                      {detail}
-                    </time>
-                  ) : (
-                    detail
-                  )}
-                </span>
-              ))}
-            </div>
-          </details>
-          {showRetry && (
-            <Button
-              type="button"
-              variant="ghost"
-              size="sm"
-              className="shrink-0"
-              aria-describedby={unavailable ? descriptionId : undefined}
-              onClick={retry}
-            >
-              <IconRefresh aria-hidden="true" className="size-3.5" />
-              Retry
-            </Button>
-          )}
-        </div>
-      ) : (
-        <span className="sr-only">Connected</span>
-      )}
-    </section>
+      <ToastHost toasts={toasts} />
+    </>
   )
 }
