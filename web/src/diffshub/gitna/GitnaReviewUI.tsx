@@ -53,6 +53,7 @@ import { Confirm } from './Modal'
 import { UntitledSaveAsModal } from './UntitledSaveAsModal'
 import { DirtyTabCloseModal } from './DirtyTabCloseModal'
 import { DraftRecoveryModal } from './DraftRecoveryModal'
+import { MarkdownWorkbench, type MarkdownViewMode } from './MarkdownWorkbench'
 import {
   adaptGitnaFile,
   appendGitnaReviewPage,
@@ -348,6 +349,7 @@ function GitnaReviewUIInner() {
   const [showBackgrounds, setShowBackgrounds] = useState(true)
   const [diffIndicators, setDiffIndicators] = useState<DiffIndicators>('bars')
   const [lineNumbers, setLineNumbers] = useState(true)
+  const [markdownMode, setMarkdownMode] = useState<MarkdownViewMode>('split')
   const [themesHydrated, setThemesHydrated] = useState(false)
   const [loadState, setLoadState] = useState<ViewerLoadState>('fetching')
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
@@ -1303,6 +1305,28 @@ function GitnaReviewUIInner() {
     },
     [repository, saveWorktreeFile],
   )
+  const markdownPath =
+    target?.filePath != null && /\.(md|markdown|mdown|mkdn)$/i.test(target.filePath)
+      ? target.filePath
+      : null
+  const markdownValue =
+    markdownPath == null
+      ? null
+      : (worktreeDrafts.get(markdownPath)?.contents ??
+        worktreeFiles.get(markdownPath)?.content ??
+        null)
+  const handleMarkdownChange = useCallback(
+    (contents: string) => {
+      if (markdownPath == null) return
+      handleWorktreeEditChange(markdownPath, {
+        name: markdownPath,
+        contents,
+        lang: 'markdown',
+        cacheKey: `markdown:${markdownPath}`,
+      })
+    },
+    [handleWorktreeEditChange, markdownPath],
+  )
   const gitnaEditorActions: GitnaEditorActions | undefined =
     target?.filePath != null && worktreeFiles.has(target.filePath)
       ? {
@@ -1692,45 +1716,56 @@ function GitnaReviewUIInner() {
                 ) : scopeKnownEmpty ||
                   (loadState === 'ready' && reviewData != null && reviewData.items.length === 0) ? (
                   <GitnaEmptyState scope={target?.request?.scope} />
-                ) : viewerAvailable && reviewData != null ? (
-                  <DiffsHubViewer
-                    className="code-view h-full"
-                    commentsEnabled={false}
-                    diffStyle={diffStyle}
-                    overflow={overflow}
-                    showBackgrounds={showBackgrounds}
-                    diffIndicators={diffIndicators}
-                    lineNumbers={lineNumbers}
-                    scrollRef={scrollRef}
-                    themeType={colorMode}
-                    viewerRef={viewerRef}
-                    initialItems={reviewData.items}
-                    gitnaActions={gitnaActions}
-                    gitnaComparisonActions={gitnaComparisonActions}
-                    gitnaEditorActions={gitnaEditorActions}
-                    gitnaOpenFileAction={gitnaOpenFileAction}
-                    onCommentDeleted={() => {}}
-                    onCommentSaved={() => {}}
-                    onLineLinkChange={handleLineLinkChange}
-                    onScroll={handleReviewScroll}
-                    onViewerReady={handleViewerReady}
-                  />
-                ) : (
-                  <div className="grid h-full min-h-0 [&>*]:h-full">
-                    <DiffsHubStatusPanel
-                      contentKind={target?.filePath == null ? 'diff' : 'file'}
-                      errorMessage={errorMessage ?? repository.error}
-                      localRepository
-                      onRetry={() => setReviewAttempt((attempt) => attempt + 1)}
-                      suppressError={
-                        loadState === 'error' &&
-                        (repository.connectionState !== 'connected' ||
-                          errorMessage === 'Failed to fetch' ||
-                          repository.error === 'Failed to fetch')
-                      }
-                      state={loadState}
+                ) : markdownPath == null ? (
+                  viewerAvailable && reviewData != null ? (
+                    <DiffsHubViewer
+                      className="code-view h-full"
+                      commentsEnabled={false}
+                      diffStyle={diffStyle}
+                      overflow={overflow}
+                      showBackgrounds={showBackgrounds}
+                      diffIndicators={diffIndicators}
+                      lineNumbers={lineNumbers}
+                      scrollRef={scrollRef}
+                      themeType={colorMode}
+                      viewerRef={viewerRef}
+                      initialItems={reviewData.items}
+                      gitnaActions={gitnaActions}
+                      gitnaComparisonActions={gitnaComparisonActions}
+                      gitnaEditorActions={gitnaEditorActions}
+                      gitnaOpenFileAction={gitnaOpenFileAction}
+                      onCommentDeleted={() => {}}
+                      onCommentSaved={() => {}}
+                      onLineLinkChange={handleLineLinkChange}
+                      onScroll={handleReviewScroll}
+                      onViewerReady={handleViewerReady}
                     />
-                  </div>
+                  ) : (
+                    <div className="grid h-full min-h-0 [&>*]:h-full">
+                      <DiffsHubStatusPanel
+                        contentKind={target?.filePath == null ? 'diff' : 'file'}
+                        errorMessage={errorMessage ?? repository.error}
+                        localRepository
+                        onRetry={() => setReviewAttempt((attempt) => attempt + 1)}
+                        suppressError={
+                          loadState === 'error' &&
+                          (repository.connectionState !== 'connected' ||
+                            errorMessage === 'Failed to fetch' ||
+                            repository.error === 'Failed to fetch')
+                        }
+                        state={loadState}
+                      />
+                    </div>
+                  )
+                ) : (
+                  <MarkdownWorkbench
+                    error={loadState === 'error' ? (errorMessage ?? repository.error) : null}
+                    mode={markdownMode}
+                    onChange={handleMarkdownChange}
+                    onModeChange={setMarkdownMode}
+                    path={markdownPath}
+                    value={markdownValue}
+                  />
                 )}
               </div>
             </div>
