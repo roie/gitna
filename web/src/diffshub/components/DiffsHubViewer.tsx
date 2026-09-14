@@ -15,7 +15,12 @@ import {
   type SelectedLineRange,
   type ThemeTypes,
 } from '@pierre/diffs';
-import { Editor, type EditorOptions } from '@pierre/diffs/edit';
+import {
+  Editor,
+  type EditorChangeEvent,
+  type EditorOptions,
+  type EditorType,
+} from '@pierre/diffs/edit';
 import { EditProvider, type CodeViewHandle, useStableCallback } from '@pierre/diffs/react';
 import { IconCheck, IconChevronSm } from '@pierre/icons';
 import {
@@ -103,7 +108,7 @@ function getNextItemVersion(item: CodeViewItem<CommentMetadata>): number {
 }
 
 function updateViewerDiffItem(
-  viewer: CodeViewHandle<CommentMetadata>,
+  viewer: CodeViewHandle<CommentMetadata, undefined>,
   itemId: string,
   updateItem: (item: CodeViewDiffItem<CommentMetadata>) => boolean
 ): CodeViewDiffItem<CommentMetadata> | undefined {
@@ -137,7 +142,7 @@ interface DiffsHubViewerProps {
   lineNumbers: boolean;
   scrollRef: RefObject<HTMLDivElement | null>;
   themeType: ThemeTypes;
-  viewerRef: RefObject<CodeViewHandle<CommentMetadata> | null>;
+  viewerRef: RefObject<CodeViewHandle<CommentMetadata, undefined> | null>;
   initialItems: CodeViewItem<CommentMetadata>[];
   loadDiffFiles?: FileDiffContentsLoader;
   onLineLinkChange(selection: CodeViewLineSelection | null): void;
@@ -213,7 +218,7 @@ export const DiffsHubViewer = memo(function DiffsHubViewer({
   );
 
   const handleViewerRef = useStableCallback(
-    (viewer: CodeViewHandle<CommentMetadata> | null) => {
+    (viewer: CodeViewHandle<CommentMetadata, undefined> | null) => {
       viewerRef.current = viewer;
       if (viewer != null) {
         onViewerReady();
@@ -576,7 +581,7 @@ export const DiffsHubViewer = memo(function DiffsHubViewer({
 
   // NOTE(amadeus): For some insane reason, the react compiler did not know how
   // to properly memoize this, so we pulled it into a `useMemo` for safety...
-  const options: CodeViewOptions<CommentMetadata> = useMemo(
+  const options: CodeViewOptions<CommentMetadata, undefined> = useMemo(
     () =>
       ({
         // Use this to validate itemMetrics when changing layout with unsafeCSS.
@@ -607,7 +612,7 @@ export const DiffsHubViewer = memo(function DiffsHubViewer({
         onLineSelectionEnd: commentsEnabled
           ? (range, context) => handleLineSelectionEnd(range, context.item)
           : undefined,
-      }) satisfies CodeViewOptions<CommentMetadata>,
+      }) satisfies CodeViewOptions<CommentMetadata, undefined>,
     [
       commentsEnabled,
       diffIndicators,
@@ -622,8 +627,8 @@ export const DiffsHubViewer = memo(function DiffsHubViewer({
     ]
   );
   const handleItemEditChange = useStableCallback(
-    (item: CodeViewItem<CommentMetadata>, file: FileContents) => {
-      gitnaEditorActions?.onChange(item.id, file);
+    (event: EditorChangeEvent<EditorType, CommentMetadata, undefined>, item: CodeViewItem<CommentMetadata>) => {
+      gitnaEditorActions?.onChange(item.id, event.file);
     }
   );
 
@@ -639,7 +644,9 @@ export const DiffsHubViewer = memo(function DiffsHubViewer({
       )}
       options={options}
       editorOptions={WORKTREE_EDITOR_OPTIONS}
+      getEditStateKey={(item) => `worktree:${item.id}`}
       onItemEditChange={gitnaEditorActions == null ? undefined : handleItemEditChange}
+      onItemEditComplete={() => 'accept'}
       onScroll={onScroll}
       style={annotationThemeStyle}
       selectedLines={commentsEnabled ? selectedLines : null}
@@ -653,10 +660,14 @@ export const DiffsHubViewer = memo(function DiffsHubViewer({
   );
 });
 
-const WORKTREE_EDITOR_OPTIONS = { persistState: true } satisfies EditorOptions<CommentMetadata>;
+const WORKTREE_EDITOR_OPTIONS = {} satisfies EditorOptions<'file' | 'file-diff', CommentMetadata, undefined>;
 
-function createWorktreeEditor(options: EditorOptions<CommentMetadata>) {
-  return new Editor<CommentMetadata>(options);
+function createWorktreeEditor<EType extends EditorType>(
+  editorType: EType,
+  options: EditorOptions<EType, CommentMetadata, undefined>,
+  editStateKey?: string
+) {
+  return new Editor(editorType, options, editStateKey);
 }
 
 function FileHeaderAction({ className, ...props }: ComponentProps<typeof Button>) {

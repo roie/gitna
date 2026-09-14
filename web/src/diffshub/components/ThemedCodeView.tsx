@@ -12,8 +12,8 @@ import { useWorkerDiffTheme } from './useWorkerDiffTheme';
 import type { DiffThemeInput } from '@/lib/theme/diffThemeProps';
 
 type ThemedCodeViewComponent = <LAnnotation = undefined>(
-  props: CodeViewProps<LAnnotation> & {
-    ref?: Ref<CodeViewHandle<LAnnotation>>;
+  props: CodeViewProps<LAnnotation, undefined> & {
+    ref?: Ref<CodeViewHandle<LAnnotation, undefined>>;
     theme?: DiffThemeInput;
   }
 ) => React.JSX.Element;
@@ -26,8 +26,8 @@ export const ThemedCodeView: ThemedCodeViewComponent = <
   ref,
   theme,
   ...props
-}: CodeViewProps<LAnnotation> & {
-  ref?: Ref<CodeViewHandle<LAnnotation>>;
+}: CodeViewProps<LAnnotation, undefined> & {
+  ref?: Ref<CodeViewHandle<LAnnotation, undefined>>;
   theme?: DiffThemeInput;
 }): React.JSX.Element => {
   const diffTheme = useDiffThemeProps(theme);
@@ -41,7 +41,7 @@ export const ThemedCodeView: ThemedCodeViewComponent = <
     [diffTheme, options]
   );
   return (
-    <CodeView<LAnnotation>
+    <CodeView<LAnnotation, undefined>
       {...props}
       ref={ref}
       disableWorkerPool={disableWorkerPool}

@@ -12,7 +12,7 @@ import type { ReviewIdentity, ReviewResponse } from './types'
 export type ReviewItemStatus = 'binary' | 'too-large'
 
 export interface ReviewItems {
-  items: CodeViewItem[]
+  items: CodeViewItem<undefined>[]
   pathToItemId: Map<string, string>
   statusByItemId: Map<string, ReviewItemStatus>
 }
@@ -36,7 +36,7 @@ function itemId(identity: ReviewIdentity, file: FileDiffMetadata): string {
 /** Converts the server's bounded patch response into Pierre's native CodeView
  * item model. Patch parsing and diff construction remain entirely in Pierre. */
 export function reviewToItems(review: ReviewResponse): ReviewItems {
-  const items: CodeViewItem[] = []
+  const items: CodeViewItem<undefined>[] = []
   const pathToItemId = new Map<string, string>()
   const statusByItemId = new Map<string, ReviewItemStatus>()
 

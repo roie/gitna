@@ -218,7 +218,7 @@ function renderFolderLoadingDocument(newTab: Window, path: string, colorMode: Co
 }
 
 function updateViewerItems(
-  viewer: CodeViewHandle<CommentMetadata>,
+  viewer: CodeViewHandle<CommentMetadata, undefined>,
   current: LoadedDiffsHubData,
   next: LoadedDiffsHubData,
 ): void {
@@ -410,7 +410,7 @@ function GitnaReviewUIInner() {
   const reviewRootRef = useRef<HTMLDivElement>(null)
   const homeButtonRef = useRef<HTMLButtonElement>(null)
   const restoreHomeFocusRef = useRef(false)
-  const viewerRef = useRef<CodeViewHandle<CommentMetadata> | null>(null)
+  const viewerRef = useRef<CodeViewHandle<CommentMetadata, undefined> | null>(null)
   const themeState = useThemeController(themeController)
 
   useEffect(() => {
