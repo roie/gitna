@@ -2,21 +2,13 @@ import { useEffect, useMemo, useState, type ComponentProps } from 'react'
 import ReactMarkdown, { type Components, type UrlTransform } from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 
-import { Button } from '../components/Button'
-import type { GitnaEditorActions } from '../components/DiffsHubViewer'
-
 export type MarkdownViewMode = 'editor' | 'preview' | 'split'
 
 interface MarkdownWorkbenchProps {
   path: string
   value: string | null
-  mode: MarkdownViewMode
-  onModeChange(mode: MarkdownViewMode): void
-  onChange(value: string): void
   error?: string | null
-  editorActions?: GitnaEditorActions
   onOpenPath(path: string): void
-  previewOnly?: boolean
 }
 
 const MAX_MARKDOWN_BYTES = 512 * 1024
@@ -41,7 +33,7 @@ function resolveRepositoryPath(source: string, documentPath: string): string | n
     return null
   }
   const base = source.startsWith('/') ? [] : documentPath.split('/').slice(0, -1)
-  const resolved: string[] = [...base]
+  const resolved = [...base]
   for (const part of source.split('/')) {
     if (part === '' || part === '.') continue
     if (part === '..') {
@@ -57,31 +49,13 @@ function resolveRepositoryPath(source: string, documentPath: string): string | n
 
 function resolveLocalResource(source: string, documentPath: string): string | null {
   const path = resolveRepositoryPath(source, documentPath)
-  if (path == null) return null
-  return `api/v1/content?path=${encodeURIComponent(path)}`
+  return path == null ? null : `api/v1/content?path=${encodeURIComponent(path)}`
 }
 
-export function MarkdownWorkbench({
-  path,
-  value,
-  mode,
-  onModeChange,
-  onChange,
-  error,
-  editorActions,
-  onOpenPath,
-  previewOnly = false,
-}: MarkdownWorkbenchProps) {
-  const [debouncedValue, setDebouncedValue] = useState(value ?? '')
-  useEffect(() => {
-    const timer = window.setTimeout(() => setDebouncedValue(value ?? ''), 120)
-    return () => window.clearTimeout(timer)
-  }, [value])
-
+export function MarkdownWorkbench({ path, value, error, onOpenPath }: MarkdownWorkbenchProps) {
+  const debouncedValue = useDebouncedValue(value)
   const tooLarge = new TextEncoder().encode(value ?? '').byteLength > MAX_MARKDOWN_BYTES
   const markdown = useMemo(() => (tooLarge ? '' : debouncedValue), [debouncedValue, tooLarge])
-  const showEditor = !previewOnly && mode !== 'preview'
-  const showPreview = true
   const safeUrlTransform: UrlTransform = (url) => (isSafeLink(url) ? url : '')
   const markdownComponents: Components = {
     a: ({ href, children, ...props }: ComponentProps<'a'>) => (
@@ -118,119 +92,42 @@ export function MarkdownWorkbench({
   }
 
   return (
-    <section className="flex h-full min-h-0 flex-col bg-background" aria-label="Markdown document">
-      {!previewOnly && (
-        <div className="flex min-h-8 shrink-0 items-center gap-1 border-b border-border px-2 py-1 text-xs">
-        <span className="mr-auto truncate font-medium" title={path}>
-          {path}
-        </span>
-        {editorActions != null && (
-          <>
-            {editorActions.changeScopes(path).length > 0 && (
-              <Button
-                onClick={() =>
-                  editorActions.onOpenChange(editorActions.changeScopes(path)[0]!, path)
-                }
-                size="xs"
-                type="button"
-                variant="ghost"
-              >
-                View Changes
-              </Button>
-            )}
-            {(editorActions.dirtyPaths.has(path) || editorActions.recentlySavedPath === path) && (
-              <Button
-                disabled={
-                  !editorActions.dirtyPaths.has(path) ||
-                  editorActions.saving ||
-                  editorActions.disabledReason != null
-                }
-                onClick={() => editorActions.onSave(path)}
-                size="xs"
-                title={editorActions.disabledReason ?? undefined}
-                type="button"
-                variant="ghost"
-              >
-                {editorActions.saving
-                  ? 'Saving…'
-                  : editorActions.dirtyPaths.has(path)
-                    ? 'Save'
-                    : 'Saved'}
-              </Button>
-            )}
-          </>
-        )}
-        <div
-          className="flex items-center rounded-md border bg-muted/30 p-0.5"
-          role="group"
-          aria-label="Markdown view mode"
-        >
-          {(['editor', 'preview', 'split'] as const).map((nextMode) => (
-            <Button
-              aria-pressed={mode === nextMode}
-              key={nextMode}
-              onClick={() => onModeChange(nextMode)}
-              size="xs"
-              type="button"
-              variant={mode === nextMode ? 'secondary' : 'ghost'}
-            >
-              {nextMode[0].toUpperCase() + nextMode.slice(1)}
-            </Button>
-          ))}
+    <section className="flex h-full min-h-0 flex-col bg-background" aria-label="Markdown preview">
+      {error == null ? value == null ? (
+        <div className="grid flex-1 place-items-center text-sm text-muted-foreground" role="status" aria-busy="true">
+          Loading Markdown…
         </div>
+      ) : tooLarge ? (
+        <div className="m-4 rounded border p-4 text-sm" role="alert">
+          Markdown preview is limited to 512 KiB. Open the file in the editor to continue working.
         </div>
-      )}
-      {error == null ? (
-        tooLarge && mode !== 'editor' ? (
-          <div className="m-4 rounded border p-4 text-sm" role="alert">
-            This Markdown file is larger than the 512 KiB preview limit. Use the editor or save a
-            smaller file.
-          </div>
-        ) : value == null ? (
-          <div
-            className="grid flex-1 place-items-center text-sm text-muted-foreground"
-            role="status"
-            aria-busy="true"
-          >
-            Loading Markdown…
-          </div>
-        ) : (
-          <div
-            className={`grid min-h-0 flex-1 ${mode === 'split' ? 'grid-cols-2 divide-x' : 'grid-cols-1'}`}
-          >
-            {showEditor && (
-              <textarea
-                aria-label="Markdown editor"
-                className="min-h-0 w-full resize-none overflow-auto border-0 bg-transparent p-6 font-mono text-sm leading-6 outline-none focus:ring-0"
-                onChange={(event) => onChange(event.target.value)}
-                spellCheck={false}
-                value={value}
-              />
-            )}
-            {showPreview && (
-              <article className="markdown-preview gitna-scrollbar min-h-0 overflow-auto px-4 py-5 text-sm sm:px-6">
-                <div className="mx-auto w-full max-w-3xl">
-                  <ReactMarkdown
-                    remarkPlugins={[remarkGfm]}
-                    skipHtml
-                    urlTransform={safeUrlTransform}
-                    components={markdownComponents}
-                  >
-                    {markdown}
-                  </ReactMarkdown>
-                </div>
-              </article>
-            )}
-          </div>
-        )
       ) : (
-        <div
-          className="m-4 rounded border border-destructive/40 p-4 text-sm text-destructive"
-          role="alert"
-        >
+        <article className="markdown-preview gitna-scrollbar min-h-0 flex-1 overflow-auto px-4 py-5 text-sm sm:px-6">
+          <div className="mx-auto w-full max-w-3xl">
+            <ReactMarkdown
+              remarkPlugins={[remarkGfm]}
+              skipHtml
+              urlTransform={safeUrlTransform}
+              components={markdownComponents}
+            >
+              {markdown}
+            </ReactMarkdown>
+          </div>
+        </article>
+      ) : (
+        <div className="m-4 rounded border border-destructive/40 p-4 text-sm text-destructive" role="alert">
           Unable to load this Markdown file: {error}
         </div>
       )}
     </section>
   )
+}
+
+function useDebouncedValue(value: string | null): string {
+  const [state, setState] = useState(value ?? '')
+  useEffect(() => {
+    const timer = window.setTimeout(() => setState(value ?? ''), 120)
+    return () => window.clearTimeout(timer)
+  }, [value])
+  return state
 }

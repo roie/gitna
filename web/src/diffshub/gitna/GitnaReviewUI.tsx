@@ -1317,18 +1317,6 @@ function GitnaReviewUIInner() {
       : (worktreeDrafts.get(markdownPath)?.contents ??
         worktreeFiles.get(markdownPath)?.content ??
         null)
-  const handleMarkdownChange = useCallback(
-    (contents: string) => {
-      if (markdownPath == null) return
-      handleWorktreeEditChange(markdownPath, {
-        name: markdownPath,
-        contents,
-        lang: 'markdown',
-        cacheKey: `markdown:${markdownPath}`,
-      })
-    },
-    [handleWorktreeEditChange, markdownPath],
-  )
   const gitnaEditorActions: GitnaEditorActions | undefined =
     target?.filePath != null && worktreeFiles.has(target.filePath)
       ? {
@@ -1349,7 +1337,6 @@ function GitnaReviewUIInner() {
           onChange: handleWorktreeEditChange,
           onOpenChange: (scope, path) => repository.select(scope, path),
           onSave: requestSave,
-          ...(markdownPath == null ? {} : { markdownMode, onMarkdownModeChange: setMarkdownMode }),
         }
       : undefined
 
@@ -1506,6 +1493,37 @@ function GitnaReviewUIInner() {
       },
     ]
 
+    if (markdownPath != null) {
+      commands.push(
+        {
+          id: 'markdown-preview',
+          icon: <IconDiffSplit />,
+          label: 'Markdown: Open Preview',
+          description: 'Show the rendered Markdown in the current pane',
+          keywords: 'markdown preview render',
+          run: () => setMarkdownMode('preview'),
+        },
+        {
+          id: 'markdown-preview-side',
+          icon: <IconDiffSplit />,
+          label: 'Markdown: Open Preview to the Side',
+          description: 'Keep the editor open beside the rendered preview',
+          keywords: 'markdown preview split side',
+          run: () => setMarkdownMode('split'),
+        },
+      )
+      if (markdownMode !== 'editor') {
+        commands.push({
+          id: 'markdown-close-preview',
+          icon: <IconX />,
+          label: 'Markdown: Close Preview',
+          description: 'Return to the Markdown editor',
+          keywords: 'markdown preview close editor',
+          run: () => setMarkdownMode('editor'),
+        })
+      }
+    }
+
     const currentPath =
       target?.filePath ??
       (target?.request?.scope === 'staged' || target?.request?.scope === 'unstaged'
@@ -1599,6 +1617,8 @@ function GitnaReviewUIInner() {
     colorMode,
     diffStyle,
     fileTreeOverlayOpen,
+    markdownMode,
+    markdownPath,
     mobileViewport,
     openHome,
     repository,
@@ -1763,9 +1783,6 @@ function GitnaReviewUIInner() {
                 ) : markdownMode === 'preview' ? (
                   <MarkdownWorkbench
                     error={loadState === 'error' ? (errorMessage ?? repository.error) : null}
-                    mode="preview"
-                    onChange={handleMarkdownChange}
-                    onModeChange={setMarkdownMode}
                     onOpenPath={(path) => {
                       void repository
                         .openRepositoryFile(path, true)
@@ -1776,7 +1793,6 @@ function GitnaReviewUIInner() {
                         )
                     }}
                     path={markdownPath}
-                    previewOnly
                     value={markdownValue}
                   />
                 ) : (
@@ -1805,9 +1821,6 @@ function GitnaReviewUIInner() {
                     />
                     <MarkdownWorkbench
                       error={loadState === 'error' ? (errorMessage ?? repository.error) : null}
-                      mode="preview"
-                      onChange={handleMarkdownChange}
-                      onModeChange={setMarkdownMode}
                       onOpenPath={(path) => {
                         void repository
                           .openRepositoryFile(path, true)
@@ -1818,7 +1831,6 @@ function GitnaReviewUIInner() {
                           )
                       }}
                       path={markdownPath}
-                      previewOnly
                       value={markdownValue}
                     />
                   </div>
