@@ -351,7 +351,7 @@ function GitnaReviewUIInner() {
   const [lineNumbers, setLineNumbers] = useState(true)
   const [markdownMode, setMarkdownMode] = useState<MarkdownViewMode>('split')
   const [themesHydrated, setThemesHydrated] = useState(false)
-  useEffect(() => setMarkdownMode('split'), [target?.filePath])
+  useEffect(() => setMarkdownMode('editor'), [target?.filePath])
   const [loadState, setLoadState] = useState<ViewerLoadState>('fetching')
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
   const [reviewData, setReviewData] = useState<LoadedDiffsHubData | null>(null)

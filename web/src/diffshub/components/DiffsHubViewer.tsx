@@ -22,7 +22,7 @@ import {
   type EditorType,
 } from '@pierre/diffs/edit';
 import { EditProvider, type CodeViewHandle, useStableCallback } from '@pierre/diffs/react';
-import { IconCheck, IconChevronSm, IconDiffSplit, IconEye } from '@pierre/icons';
+import { IconCheck, IconChevronSm, IconDiffSplit, IconEye, IconX } from '@pierre/icons';
 import {
   memo,
   type ComponentProps,
@@ -749,6 +749,16 @@ function WorktreeHeaderActions({
           >
             <IconDiffSplit className="size-3" />
           </FileHeaderAction>
+          {markdownMode !== 'editor' && (
+            <FileHeaderAction
+              type="button"
+              aria-label="Close Markdown preview"
+              title="Close Markdown preview"
+              onClick={() => actions.onMarkdownModeChange?.('editor')}
+            >
+              <IconX className="size-3" />
+            </FileHeaderAction>
+          )}
         </>
       )}
       {scopes.length === 1 && (

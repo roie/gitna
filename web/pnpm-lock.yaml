@@ -8,7 +8,7 @@ overrides:
   '@pierre/trees>@pierre/theming': 1.0.1
 
 patchedDependencies:
-  '@pierre/diffs@1.4.2': a3798e1eebd89ad6abafcbc73dad3e7ee7b5580d045ee22ae1fb3f9a966b63aa
+  '@pierre/diffs@1.4.2': f03604a67a22173b030e55501dfadbe2994e5d03e2360953b34034709d20f5ac
   '@pierre/trees@1.0.0-beta.6': c58f3ce64e029f0c9067624fdb6af4ab4ac972127ae4cf64e22ddbc020bba2e7
 
 importers:
@@ -17,7 +17,7 @@ importers:
     dependencies:
       '@pierre/diffs':
         specifier: 1.4.2
-        version: 1.4.2(patch_hash=a3798e1eebd89ad6abafcbc73dad3e7ee7b5580d045ee22ae1fb3f9a966b63aa)(@shikijs/themes@4.4.3)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
+        version: 1.4.2(patch_hash=f03604a67a22173b030e55501dfadbe2994e5d03e2360953b34034709d20f5ac)(@shikijs/themes@4.4.3)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
       '@pierre/icons':
         specifier: 0.7.1
         version: 0.7.1(react@19.3.0)
@@ -2226,7 +2226,7 @@ snapshots:
   '@oxlint/binding-win32-x64-msvc@1.82.0':
     optional: true
 
-  '@pierre/diffs@1.4.2(patch_hash=a3798e1eebd89ad6abafcbc73dad3e7ee7b5580d045ee22ae1fb3f9a966b63aa)(@shikijs/themes@4.4.3)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)':
+  '@pierre/diffs@1.4.2(patch_hash=f03604a67a22173b030e55501dfadbe2994e5d03e2360953b34034709d20f5ac)(@shikijs/themes@4.4.3)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)':
     dependencies:
       '@pierre/theme': 2.0.0
       '@pierre/theming': 1.0.1(@pierre/theme@2.0.0)(@shikijs/themes@4.4.3)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)(shiki@4.4.3)
