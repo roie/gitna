@@ -1349,6 +1349,9 @@ function GitnaReviewUIInner() {
           onChange: handleWorktreeEditChange,
           onOpenChange: (scope, path) => repository.select(scope, path),
           onSave: requestSave,
+          ...(markdownPath == null
+            ? {}
+            : { markdownMode, onMarkdownModeChange: setMarkdownMode }),
         }
       : undefined
 
@@ -1718,7 +1721,7 @@ function GitnaReviewUIInner() {
                 ) : scopeKnownEmpty ||
                   (loadState === 'ready' && reviewData != null && reviewData.items.length === 0) ? (
                   <GitnaEmptyState scope={target?.request?.scope} />
-                ) : markdownPath == null ? (
+                ) : markdownPath == null || markdownMode === 'editor' ? (
                   viewerAvailable && reviewData != null ? (
                     <DiffsHubViewer
                       className="code-view h-full"

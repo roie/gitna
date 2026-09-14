@@ -75,6 +75,8 @@ export interface GitnaEditorActions {
   onChange(path: string, file: FileContents): void;
   onOpenChange(scope: ChangeScope, path: string): void;
   onSave(path: string): void;
+  markdownMode?: 'editor' | 'preview' | 'split';
+  onMarkdownModeChange?(mode: 'editor' | 'preview' | 'split'): void;
 }
 
 export interface GitnaComparisonActions {
@@ -697,6 +699,21 @@ function WorktreeHeaderActions({
   const openChange = (scope: ChangeScope) => actions.onOpenChange(scope, path);
   return (
     <span className="inline-flex items-center gap-0.5">
+      {actions.markdownMode != null && actions.onMarkdownModeChange != null && (
+        <span className="inline-flex items-center gap-0.5 border-l border-border pl-1">
+          {(['editor', 'preview', 'split'] as const).map((mode) => (
+            <FileHeaderAction
+              key={mode}
+              aria-pressed={actions.markdownMode === mode}
+              className={actions.markdownMode === mode ? 'bg-accent text-foreground' : undefined}
+              type="button"
+              onClick={() => actions.onMarkdownModeChange?.(mode)}
+            >
+              {mode[0].toUpperCase() + mode.slice(1)}
+            </FileHeaderAction>
+          ))}
+        </span>
+      )}
       {scopes.length === 1 && (
         <FileHeaderAction
           type="button"
