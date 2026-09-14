@@ -468,3 +468,5 @@
 .markdown-preview :where(table) { width: 100%; border-collapse: collapse; }
 .markdown-preview :where(th, td) { border: 1px solid var(--border); padding: 0.45rem 0.65rem; text-align: left; }
 .markdown-preview :where(img) { max-width: 100%; height: auto; border-radius: 0.4rem; }
+.markdown-preview-shared-scroll { scrollbar-width: none; }
+.markdown-preview-shared-scroll::-webkit-scrollbar { display: none; }

@@ -410,6 +410,8 @@ function GitnaReviewUIInner() {
     paths: string[]
   } | null>(null)
   const scrollRef = useRef<HTMLDivElement>(null)
+  const markdownPreviewScrollRef = useRef<HTMLDivElement>(null)
+  const markdownScrollSyncingRef = useRef(false)
   const reviewRootRef = useRef<HTMLDivElement>(null)
   const homeButtonRef = useRef<HTMLButtonElement>(null)
   const restoreHomeFocusRef = useRef(false)
@@ -846,12 +848,40 @@ function GitnaReviewUIInner() {
     void loadMoreReview(selectedPath)
   }, [loadMoreReview, reviewData, target?.selectedPath])
 
-  const handleReviewScroll = useCallback(() => {
-    const scroller = scrollRef.current
-    if (scroller == null) return
-    const remaining = scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight
-    if (remaining <= scroller.clientHeight) void loadMoreReview()
-  }, [loadMoreReview])
+  const handleReviewScroll = useCallback(
+    (scrollTop: number) => {
+      const scroller = scrollRef.current
+      if (scroller == null) return
+      if (markdownMode === 'split' && markdownPreviewScrollRef.current != null) {
+        const preview = markdownPreviewScrollRef.current
+        const sourceMax = Math.max(1, scroller.scrollHeight - scroller.clientHeight)
+        const previewMax = Math.max(0, preview.scrollHeight - preview.clientHeight)
+        if (!markdownScrollSyncingRef.current) {
+          markdownScrollSyncingRef.current = true
+          preview.scrollTop = (scrollTop / sourceMax) * previewMax
+          window.requestAnimationFrame(() => {
+            markdownScrollSyncingRef.current = false
+          })
+        }
+      }
+      const remaining = scroller.scrollHeight - scrollTop - scroller.clientHeight
+      if (remaining <= scroller.clientHeight) void loadMoreReview()
+    },
+    [loadMoreReview, markdownMode],
+  )
+
+  const handleMarkdownPreviewScroll = useCallback((scrollTop: number) => {
+    const source = scrollRef.current
+    const preview = markdownPreviewScrollRef.current
+    if (source == null || preview == null || markdownScrollSyncingRef.current) return
+    const sourceMax = Math.max(0, source.scrollHeight - source.clientHeight)
+    const previewMax = Math.max(1, preview.scrollHeight - preview.clientHeight)
+    markdownScrollSyncingRef.current = true
+    source.scrollTop = (scrollTop / previewMax) * sourceMax
+    window.requestAnimationFrame(() => {
+      markdownScrollSyncingRef.current = false
+    })
+  }, [])
 
   const selectedImageRequest = useMemo(
     () => imageDiffRequest(target, repository.snapshot?.repository === true),
@@ -1337,9 +1367,7 @@ function GitnaReviewUIInner() {
           onChange: handleWorktreeEditChange,
           onOpenChange: (scope, path) => repository.select(scope, path),
           onSave: requestSave,
-          ...(markdownPath == null
-            ? {}
-            : { markdownMode, onMarkdownModeChange: setMarkdownMode }),
+          ...(markdownPath == null ? {} : { markdownMode, onMarkdownModeChange: setMarkdownMode }),
         }
       : undefined
 
@@ -1797,7 +1825,9 @@ function GitnaReviewUIInner() {
                           ),
                         )
                     }}
+                    onScroll={handleMarkdownPreviewScroll}
                     path={markdownPath}
+                    scrollRef={markdownPreviewScrollRef}
                     value={markdownValue}
                   />
                 ) : (
@@ -1837,7 +1867,10 @@ function GitnaReviewUIInner() {
                             ),
                           )
                       }}
+                      onScroll={handleMarkdownPreviewScroll}
                       path={markdownPath}
+                      scrollRef={markdownPreviewScrollRef}
+                      sharedScroll
                       value={markdownValue}
                     />
                   </div>

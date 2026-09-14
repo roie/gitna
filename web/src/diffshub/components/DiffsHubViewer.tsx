@@ -149,7 +149,7 @@ interface DiffsHubViewerProps {
   initialItems: CodeViewItem<CommentMetadata>[];
   loadDiffFiles?: FileDiffContentsLoader;
   onLineLinkChange(selection: CodeViewLineSelection | null): void;
-  onScroll?(): void;
+  onScroll?(scrollTop: number): void;
   onViewerReady(): void;
   gitnaActions?: GitnaViewerActions;
   gitnaComparisonActions?: GitnaComparisonActions;
@@ -650,7 +650,7 @@ export const DiffsHubViewer = memo(function DiffsHubViewer({
       getEditStateKey={(item) => `worktree:${item.id}`}
       onItemEditChange={gitnaEditorActions == null ? undefined : handleItemEditChange}
       onItemEditComplete={() => 'accept'}
-      onScroll={onScroll}
+      onScroll={(scrollTop) => onScroll?.(scrollTop)}
       style={annotationThemeStyle}
       selectedLines={commentsEnabled ? selectedLines : null}
       onSelectedLinesChange={handleSetSelection}

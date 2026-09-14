@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type ComponentProps } from 'react'
+import { useEffect, useMemo, useState, type ComponentProps, type RefObject } from 'react'
 import ReactMarkdown, { type Components, type UrlTransform } from 'react-markdown'
 import { IconDiffSplit, IconEye, IconX } from '@pierre/icons'
 import remarkGfm from 'remark-gfm'
@@ -14,6 +14,9 @@ interface MarkdownWorkbenchProps {
   markdownMode: MarkdownViewMode
   onMarkdownModeChange(mode: MarkdownViewMode): void
   onOpenPath(path: string): void
+  onScroll?(scrollTop: number): void
+  scrollRef?: RefObject<HTMLDivElement | null>
+  sharedScroll?: boolean
 }
 
 const MAX_MARKDOWN_BYTES = 512 * 1024
@@ -64,6 +67,9 @@ export function MarkdownWorkbench({
   markdownMode,
   onMarkdownModeChange,
   onOpenPath,
+  onScroll,
+  scrollRef,
+  sharedScroll = false,
 }: MarkdownWorkbenchProps) {
   const debouncedValue = useDebouncedValue(value)
   const tooLarge = new TextEncoder().encode(value ?? '').byteLength > MAX_MARKDOWN_BYTES
@@ -149,7 +155,11 @@ export function MarkdownWorkbench({
             Markdown preview is limited to 512 KiB. Open the file in the editor to continue working.
           </div>
         ) : (
-          <article className="markdown-preview gitna-scrollbar min-h-0 flex-1 overflow-auto px-4 py-5 text-sm sm:px-6">
+          <article
+            ref={scrollRef}
+            onScroll={(event) => onScroll?.(event.currentTarget.scrollTop)}
+            className={`markdown-preview gitna-scrollbar min-h-0 flex-1 overflow-auto px-4 py-5 text-sm sm:px-6 ${sharedScroll ? 'markdown-preview-shared-scroll' : ''}`}
+          >
             <div className="mx-auto w-full max-w-3xl">
               <ReactMarkdown
                 remarkPlugins={[remarkGfm]}
