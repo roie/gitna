@@ -22,7 +22,7 @@ import {
   type EditorType,
 } from '@pierre/diffs/edit';
 import { EditProvider, type CodeViewHandle, useStableCallback } from '@pierre/diffs/react';
-import { IconCheck, IconChevronSm, IconDiffSplit, IconEye, IconX } from '@pierre/icons';
+import { IconCheck, IconChevronSm, IconDiffSplit, IconEye } from '@pierre/icons';
 import {
   memo,
   type ComponentProps,
@@ -735,7 +735,9 @@ function WorktreeHeaderActions({
             title="Open Markdown preview"
             aria-pressed={markdownMode === 'preview'}
             className={markdownMode === 'preview' ? 'bg-accent text-foreground' : undefined}
-            onClick={() => actions.onMarkdownModeChange?.('preview')}
+            onClick={() =>
+              actions.onMarkdownModeChange?.(markdownMode === 'preview' ? 'editor' : 'preview')
+            }
           >
             <IconEye className="size-3" />
           </FileHeaderAction>
@@ -745,20 +747,12 @@ function WorktreeHeaderActions({
             title="Open Markdown preview to the side"
             aria-pressed={markdownMode === 'split'}
             className={markdownMode === 'split' ? 'bg-accent text-foreground' : undefined}
-            onClick={() => actions.onMarkdownModeChange?.('split')}
+            onClick={() =>
+              actions.onMarkdownModeChange?.(markdownMode === 'split' ? 'editor' : 'split')
+            }
           >
             <IconDiffSplit className="size-3" />
           </FileHeaderAction>
-          {markdownMode !== 'editor' && (
-            <FileHeaderAction
-              type="button"
-              aria-label="Close Markdown preview"
-              title="Close Markdown preview"
-              onClick={() => actions.onMarkdownModeChange?.('editor')}
-            >
-              <IconX className="size-3" />
-            </FileHeaderAction>
-          )}
         </>
       )}
       {scopes.length === 1 && (

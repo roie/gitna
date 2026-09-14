@@ -88,7 +88,7 @@ index 7a69625d34ac5d20d514e8d6fe661a6421bc2879..75b03d06cdf0e59a911e5c54f72f742e
  			this.applyBuffers(pre, nextRenderRange);
  			this.injectUnsafeCSS();
  			this.renderAnnotations();
-@@ -600,6 +605,44 @@ var File = class {
+@@ -600,6 +605,62 @@ var File = class {
  		this.mounted = true;
  		onPostRender?.(fileContainer, this, phase);
  	}
@@ -100,6 +100,8 @@ index 7a69625d34ac5d20d514e8d6fe661a6421bc2879..75b03d06cdf0e59a911e5c54f72f742e
 +		const shadowRoot = fileContainer.shadowRoot;
 +		if (shadowRoot == null) return;
 +		if (this.customBodyWrapper == null || this.customBodySlot == null) {
++			const layout = document.createElement("div");
++			layout.dataset.customBodyLayout = "";
 +			const wrapper = document.createElement("div");
 +			wrapper.dataset.customBody = "";
 +			wrapper.hidden = true;
@@ -109,26 +111,42 @@ index 7a69625d34ac5d20d514e8d6fe661a6421bc2879..75b03d06cdf0e59a911e5c54f72f742e
 +			slot.name = "diffs-custom-body";
 +			slot.addEventListener("slotchange", () => this.updateCustomBodyVisibility());
 +			wrapper.appendChild(slot);
-+			this.customBodyWrapper = wrapper; this.customBodyContainer = fileContainer;
++			this.customBodyLayout = layout;
++			this.customBodyWrapper = wrapper;
 +			this.customBodySlot = slot;
 +		}
-+		if (this.customBodyWrapper.parentNode !== shadowRoot) {
-+			if (this.pre?.parentNode === shadowRoot) shadowRoot.insertBefore(this.customBodyWrapper, this.pre);
-+			else shadowRoot.appendChild(this.customBodyWrapper);
++		if (this.customBodyLayout.parentNode !== shadowRoot) {
++			shadowRoot.insertBefore(this.customBodyLayout, this.pre);
 +		}
++		if (this.pre.parentNode !== this.customBodyLayout) this.customBodyLayout.append(this.pre);
++		if (this.customBodyWrapper.parentNode !== this.customBodyLayout) this.customBodyLayout.append(this.customBodyWrapper);
 +		queueMicrotask(() => this.updateCustomBodyVisibility());
 +	}
 +	updateCustomBodyVisibility() {
-+		if (this.customBodyWrapper == null || this.customBodySlot == null) return;
-+		const assigned = this.customBodySlot.assignedElements({ flatten: true }); const visible = assigned.length > 0; const layoutElement = assigned[0]?.matches("[data-diffs-body-layout]") ? assigned[0] : assigned[0]?.querySelector("[data-diffs-body-layout]"); const side = layoutElement?.getAttribute("data-diffs-body-layout") === "side"; const layout = side ? "side" : visible ? "replace" : "hidden"; const layoutChanged = this.customBodyWrapper.dataset.bodyLayout !== layout; this.customBodyWrapper.dataset.bodyLayout = layout;
-+		this.customBodyWrapper.hidden = !visible; this.customBodyWrapper.style.position = side ? "absolute" : ""; this.customBodyWrapper.style.inset = side ? "0 0 0 50%" : ""; this.customBodyWrapper.style.width = side ? "50%" : ""; this.customBodyWrapper.style.height = side ? "100%" : ""; this.customBodyWrapper.style.overflow = side ? "visible" : ""; this.customBodyWrapper.style.borderLeft = side ? "1px solid var(--diffs-bg-separator)" : ""; this.customBodyContainer.style.height = side ? `${Math.max(this.pre?.scrollHeight ?? 0, this.customBodyWrapper.scrollHeight)}px` : "";
-+		if (this.pre != null) { this.pre.style.display = visible && !side ? "none" : ""; this.pre.style.width = side ? "50%" : ""; } if (!side) this.customBodyContainer.style.height = ""; if (layoutChanged) queueMicrotask(() => this.rerender());
++		if (this.customBodyLayout == null || this.customBodyWrapper == null || this.customBodySlot == null) return;
++		const assigned = this.customBodySlot.assignedElements({ flatten: true });
++		const visible = assigned.length > 0;
++		const layoutElement = assigned[0]?.matches("[data-diffs-body-layout]") ? assigned[0] : assigned[0]?.querySelector("[data-diffs-body-layout]");
++		const side = layoutElement?.getAttribute("data-diffs-body-layout") === "side";
++		this.customBodyWrapper.hidden = !visible;
++		this.customBodyLayout.style.display = side ? "grid" : "block";
++		this.customBodyLayout.style.gridTemplateColumns = side ? "minmax(0, 1fr) minmax(0, 1fr)" : "";
++		this.customBodyLayout.style.alignItems = side ? "start" : "";
++		this.customBodyWrapper.style.borderLeft = side ? "1px solid var(--diffs-bg-separator)" : "";
++		if (this.pre != null) { this.pre.style.gridColumn = side ? "1" : ""; this.pre.style.gridRow = side ? "1" : ""; }
++		this.customBodyWrapper.style.gridColumn = side ? "2" : "";
++		this.customBodyWrapper.style.gridRow = side ? "1" : "";
++		if (this.pre != null) this.pre.style.display = visible && !side ? "none" : "";
 +	}
 +	removeCustomBody() {
-+		this.customBodyWrapper?.remove();
++		if (this.customBodyLayout != null && this.pre != null && this.customBodyLayout.parentNode != null) {
++			this.customBodyLayout.parentNode.insertBefore(this.pre, this.customBodyLayout);
++		}
++		this.customBodyLayout?.remove();
++		this.customBodyLayout = void 0;
 +		this.customBodyWrapper = void 0;
 +		this.customBodySlot = void 0;
-+		if (this.pre != null) { this.pre.style.display = ""; this.pre.style.width = ""; } if (this.customBodyContainer != null) this.customBodyContainer.style.height = "";
++		if (this.pre != null) this.pre.style.display = "";
 +	}
  	removeRenderedCode() {
  		this.resizeManager.cleanUp();
@@ -173,7 +191,7 @@ index 04ce7b9a931c95f3cc1528219b2572eddf0ee889..62408a31e82b8fd4c1982797553796e3
  			if (this.refreshViewTimeout != null) {
  				clearTimeout(this.refreshViewTimeout);
  				this.refreshViewTimeout = void 0;
-@@ -1092,6 +1098,44 @@ var FileDiff = class {
+@@ -1092,6 +1098,62 @@ var FileDiff = class {
  		this.rerender();
  		this.flushDeferredLineState();
  	};
@@ -185,6 +203,8 @@ index 04ce7b9a931c95f3cc1528219b2572eddf0ee889..62408a31e82b8fd4c1982797553796e3
 +		const shadowRoot = fileContainer.shadowRoot;
 +		if (shadowRoot == null) return;
 +		if (this.customBodyWrapper == null || this.customBodySlot == null) {
++			const layout = document.createElement("div");
++			layout.dataset.customBodyLayout = "";
 +			const wrapper = document.createElement("div");
 +			wrapper.dataset.customBody = "";
 +			wrapper.hidden = true;
@@ -194,26 +214,42 @@ index 04ce7b9a931c95f3cc1528219b2572eddf0ee889..62408a31e82b8fd4c1982797553796e3
 +			slot.name = "diffs-custom-body";
 +			slot.addEventListener("slotchange", () => this.updateCustomBodyVisibility());
 +			wrapper.appendChild(slot);
-+			this.customBodyWrapper = wrapper; this.customBodyContainer = fileContainer;
++			this.customBodyLayout = layout;
++			this.customBodyWrapper = wrapper;
 +			this.customBodySlot = slot;
 +		}
-+		if (this.customBodyWrapper.parentNode !== shadowRoot) {
-+			if (this.pre?.parentNode === shadowRoot) shadowRoot.insertBefore(this.customBodyWrapper, this.pre);
-+			else shadowRoot.appendChild(this.customBodyWrapper);
++		if (this.customBodyLayout.parentNode !== shadowRoot) {
++			shadowRoot.insertBefore(this.customBodyLayout, this.pre);
 +		}
++		if (this.pre.parentNode !== this.customBodyLayout) this.customBodyLayout.append(this.pre);
++		if (this.customBodyWrapper.parentNode !== this.customBodyLayout) this.customBodyLayout.append(this.customBodyWrapper);
 +		queueMicrotask(() => this.updateCustomBodyVisibility());
 +	}
 +	updateCustomBodyVisibility() {
-+		if (this.customBodyWrapper == null || this.customBodySlot == null) return;
-+		const assigned = this.customBodySlot.assignedElements({ flatten: true }); const visible = assigned.length > 0; const layoutElement = assigned[0]?.matches("[data-diffs-body-layout]") ? assigned[0] : assigned[0]?.querySelector("[data-diffs-body-layout]"); const side = layoutElement?.getAttribute("data-diffs-body-layout") === "side"; const layout = side ? "side" : visible ? "replace" : "hidden"; const layoutChanged = this.customBodyWrapper.dataset.bodyLayout !== layout; this.customBodyWrapper.dataset.bodyLayout = layout;
-+		this.customBodyWrapper.hidden = !visible; this.customBodyWrapper.style.position = side ? "absolute" : ""; this.customBodyWrapper.style.inset = side ? "0 0 0 50%" : ""; this.customBodyWrapper.style.width = side ? "50%" : ""; this.customBodyWrapper.style.height = side ? "100%" : ""; this.customBodyWrapper.style.overflow = side ? "visible" : ""; this.customBodyWrapper.style.borderLeft = side ? "1px solid var(--diffs-bg-separator)" : ""; this.customBodyContainer.style.height = side ? `${Math.max(this.pre?.scrollHeight ?? 0, this.customBodyWrapper.scrollHeight)}px` : "";
-+		if (this.pre != null) { this.pre.style.display = visible && !side ? "none" : ""; this.pre.style.width = side ? "50%" : ""; } if (!side) this.customBodyContainer.style.height = ""; if (layoutChanged) queueMicrotask(() => this.rerender());
++		if (this.customBodyLayout == null || this.customBodyWrapper == null || this.customBodySlot == null) return;
++		const assigned = this.customBodySlot.assignedElements({ flatten: true });
++		const visible = assigned.length > 0;
++		const layoutElement = assigned[0]?.matches("[data-diffs-body-layout]") ? assigned[0] : assigned[0]?.querySelector("[data-diffs-body-layout]");
++		const side = layoutElement?.getAttribute("data-diffs-body-layout") === "side";
++		this.customBodyWrapper.hidden = !visible;
++		this.customBodyLayout.style.display = side ? "grid" : "block";
++		this.customBodyLayout.style.gridTemplateColumns = side ? "minmax(0, 1fr) minmax(0, 1fr)" : "";
++		this.customBodyLayout.style.alignItems = side ? "start" : "";
++		this.customBodyWrapper.style.borderLeft = side ? "1px solid var(--diffs-bg-separator)" : "";
++		if (this.pre != null) { this.pre.style.gridColumn = side ? "1" : ""; this.pre.style.gridRow = side ? "1" : ""; }
++		this.customBodyWrapper.style.gridColumn = side ? "2" : "";
++		this.customBodyWrapper.style.gridRow = side ? "1" : "";
++		if (this.pre != null) this.pre.style.display = visible && !side ? "none" : "";
 +	}
 +	removeCustomBody() {
-+		this.customBodyWrapper?.remove();
++		if (this.customBodyLayout != null && this.pre != null && this.customBodyLayout.parentNode != null) {
++			this.customBodyLayout.parentNode.insertBefore(this.pre, this.customBodyLayout);
++		}
++		this.customBodyLayout?.remove();
++		this.customBodyLayout = void 0;
 +		this.customBodyWrapper = void 0;
 +		this.customBodySlot = void 0;
-+		if (this.pre != null) { this.pre.style.display = ""; this.pre.style.width = ""; } if (this.customBodyContainer != null) this.customBodyContainer.style.height = "";
++		if (this.pre != null) this.pre.style.display = "";
 +	}
  	removeRenderedCode() {
  		this.resizeManager.cleanUp();
