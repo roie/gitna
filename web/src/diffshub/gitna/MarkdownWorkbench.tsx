@@ -1,6 +1,9 @@
 import { useEffect, useMemo, useState, type ComponentProps } from 'react'
 import ReactMarkdown, { type Components, type UrlTransform } from 'react-markdown'
+import { IconDiffSplit, IconEye, IconX } from '@pierre/icons'
 import remarkGfm from 'remark-gfm'
+
+import { FileHeaderAction } from '../components/DiffsHubViewer'
 
 export type MarkdownViewMode = 'editor' | 'preview' | 'split'
 
@@ -8,6 +11,8 @@ interface MarkdownWorkbenchProps {
   path: string
   value: string | null
   error?: string | null
+  markdownMode: MarkdownViewMode
+  onMarkdownModeChange(mode: MarkdownViewMode): void
   onOpenPath(path: string): void
 }
 
@@ -52,7 +57,14 @@ function resolveLocalResource(source: string, documentPath: string): string | nu
   return path == null ? null : `api/v1/content?path=${encodeURIComponent(path)}`
 }
 
-export function MarkdownWorkbench({ path, value, error, onOpenPath }: MarkdownWorkbenchProps) {
+export function MarkdownWorkbench({
+  path,
+  value,
+  error,
+  markdownMode,
+  onMarkdownModeChange,
+  onOpenPath,
+}: MarkdownWorkbenchProps) {
   const debouncedValue = useDebouncedValue(value)
   const tooLarge = new TextEncoder().encode(value ?? '').byteLength > MAX_MARKDOWN_BYTES
   const markdown = useMemo(() => (tooLarge ? '' : debouncedValue), [debouncedValue, tooLarge])
@@ -93,29 +105,68 @@ export function MarkdownWorkbench({ path, value, error, onOpenPath }: MarkdownWo
 
   return (
     <section className="flex h-full min-h-0 flex-col bg-background" aria-label="Markdown preview">
-      {error == null ? value == null ? (
-        <div className="grid flex-1 place-items-center text-sm text-muted-foreground" role="status" aria-busy="true">
-          Loading Markdown…
-        </div>
-      ) : tooLarge ? (
-        <div className="m-4 rounded border p-4 text-sm" role="alert">
-          Markdown preview is limited to 512 KiB. Open the file in the editor to continue working.
-        </div>
-      ) : (
-        <article className="markdown-preview gitna-scrollbar min-h-0 flex-1 overflow-auto px-4 py-5 text-sm sm:px-6">
-          <div className="mx-auto w-full max-w-3xl">
-            <ReactMarkdown
-              remarkPlugins={[remarkGfm]}
-              skipHtml
-              urlTransform={safeUrlTransform}
-              components={markdownComponents}
-            >
-              {markdown}
-            </ReactMarkdown>
+      <header className="flex min-h-8 shrink-0 items-center gap-0.5 border-b border-border px-2 py-1">
+        <span className="mr-auto truncate text-xs font-medium" title={path}>
+          {path}
+        </span>
+        <FileHeaderAction
+          type="button"
+          aria-label="Open Markdown preview to the side"
+          title="Open Markdown preview to the side"
+          aria-pressed={markdownMode === 'split'}
+          onClick={() => onMarkdownModeChange('split')}
+        >
+          <IconDiffSplit className="size-3" />
+        </FileHeaderAction>
+        <FileHeaderAction
+          type="button"
+          aria-label="Return to Markdown editor"
+          title="Return to Markdown editor"
+          onClick={() => onMarkdownModeChange('editor')}
+        >
+          <IconEye className="size-3" />
+        </FileHeaderAction>
+        <FileHeaderAction
+          type="button"
+          aria-label="Close Markdown preview"
+          title="Close Markdown preview"
+          onClick={() => onMarkdownModeChange('editor')}
+        >
+          <IconX className="size-3" />
+        </FileHeaderAction>
+      </header>
+      {error == null ? (
+        value == null ? (
+          <div
+            className="grid flex-1 place-items-center text-sm text-muted-foreground"
+            role="status"
+            aria-busy="true"
+          >
+            Loading Markdown…
           </div>
-        </article>
+        ) : tooLarge ? (
+          <div className="m-4 rounded border p-4 text-sm" role="alert">
+            Markdown preview is limited to 512 KiB. Open the file in the editor to continue working.
+          </div>
+        ) : (
+          <article className="markdown-preview gitna-scrollbar min-h-0 flex-1 overflow-auto px-4 py-5 text-sm sm:px-6">
+            <div className="mx-auto w-full max-w-3xl">
+              <ReactMarkdown
+                remarkPlugins={[remarkGfm]}
+                skipHtml
+                urlTransform={safeUrlTransform}
+                components={markdownComponents}
+              >
+                {markdown}
+              </ReactMarkdown>
+            </div>
+          </article>
+        )
       ) : (
-        <div className="m-4 rounded border border-destructive/40 p-4 text-sm text-destructive" role="alert">
+        <div
+          className="m-4 rounded border border-destructive/40 p-4 text-sm text-destructive"
+          role="alert"
+        >
           Unable to load this Markdown file: {error}
         </div>
       )}

@@ -1337,6 +1337,9 @@ function GitnaReviewUIInner() {
           onChange: handleWorktreeEditChange,
           onOpenChange: (scope, path) => repository.select(scope, path),
           onSave: requestSave,
+          ...(markdownPath == null
+            ? {}
+            : { markdownMode, onMarkdownModeChange: setMarkdownMode }),
         }
       : undefined
 
@@ -1783,6 +1786,8 @@ function GitnaReviewUIInner() {
                 ) : markdownMode === 'preview' ? (
                   <MarkdownWorkbench
                     error={loadState === 'error' ? (errorMessage ?? repository.error) : null}
+                    markdownMode={markdownMode}
+                    onMarkdownModeChange={setMarkdownMode}
                     onOpenPath={(path) => {
                       void repository
                         .openRepositoryFile(path, true)
@@ -1821,6 +1826,8 @@ function GitnaReviewUIInner() {
                     />
                     <MarkdownWorkbench
                       error={loadState === 'error' ? (errorMessage ?? repository.error) : null}
+                      markdownMode={markdownMode}
+                      onMarkdownModeChange={setMarkdownMode}
                       onOpenPath={(path) => {
                         void repository
                           .openRepositoryFile(path, true)
