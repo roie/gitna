@@ -155,6 +155,9 @@ interface DiffsHubViewerProps {
   gitnaComparisonActions?: GitnaComparisonActions;
   gitnaEditorActions?: GitnaEditorActions;
   gitnaOpenFileAction?: GitnaOpenFileAction;
+  markdownPreview?: ReactNode;
+  markdownPreviewPath?: string;
+  markdownPreviewLayout?: 'replace' | 'side';
 }
 
 export const DiffsHubViewer = memo(function DiffsHubViewer({
@@ -179,6 +182,9 @@ export const DiffsHubViewer = memo(function DiffsHubViewer({
   gitnaComparisonActions,
   gitnaEditorActions,
   gitnaOpenFileAction,
+  markdownPreview,
+  markdownPreviewPath,
+  markdownPreviewLayout = 'replace',
 }: DiffsHubViewerProps) {
   const nextCommentKeyRef = useRef(0);
   const activeDraftRef = useRef<ActiveDraftComment | null>(null);
@@ -492,7 +498,17 @@ export const DiffsHubViewer = memo(function DiffsHubViewer({
         : []
     );
     if (images == null || images.length === 0) {
-      return null;
+      if (item.type !== 'file' || markdownPreview == null || item.file.name !== markdownPreviewPath) {
+        return null;
+      }
+      return (
+        <div
+          className="h-full min-h-0"
+          data-diffs-body-layout={markdownPreviewLayout}
+        >
+          {markdownPreview}
+        </div>
+      );
     }
     const split = images.length > 1;
     const framed = item.type === 'diff';

@@ -1,9 +1,6 @@
-import { useEffect, useMemo, useState, type ComponentProps, type RefObject } from 'react'
+import { useEffect, useMemo, useState, type ComponentProps } from 'react'
 import ReactMarkdown, { type Components, type UrlTransform } from 'react-markdown'
-import { IconDiffSplit, IconEye, IconX } from '@pierre/icons'
 import remarkGfm from 'remark-gfm'
-
-import { FileHeaderAction } from '../components/DiffsHubViewer'
 
 export type MarkdownViewMode = 'editor' | 'preview' | 'split'
 
@@ -11,13 +8,8 @@ interface MarkdownWorkbenchProps {
   path: string
   value: string | null
   error?: string | null
-  markdownMode: MarkdownViewMode
-  onMarkdownModeChange(mode: MarkdownViewMode): void
   onOpenPath(path: string): void
-  showHeader?: boolean
-  onScroll?(scrollTop: number): void
-  scrollRef?: RefObject<HTMLDivElement | null>
-  sharedScroll?: boolean
+  embedded?: boolean
 }
 
 const MAX_MARKDOWN_BYTES = 512 * 1024
@@ -65,13 +57,8 @@ export function MarkdownWorkbench({
   path,
   value,
   error,
-  markdownMode,
-  onMarkdownModeChange,
   onOpenPath,
-  showHeader = true,
-  onScroll,
-  scrollRef,
-  sharedScroll = false,
+  embedded = false,
 }: MarkdownWorkbenchProps) {
   const debouncedValue = useDebouncedValue(value)
   const tooLarge = new TextEncoder().encode(value ?? '').byteLength > MAX_MARKDOWN_BYTES
@@ -113,38 +100,6 @@ export function MarkdownWorkbench({
 
   return (
     <section className="flex h-full min-h-0 flex-col bg-background" aria-label="Markdown preview">
-      {showHeader && (
-        <header className="flex min-h-8 shrink-0 items-center gap-0.5 border-b border-border px-2 py-1">
-        <span className="mr-auto truncate text-xs font-medium" title={path}>
-          {path}
-        </span>
-        <FileHeaderAction
-          type="button"
-          aria-label="Open Markdown preview to the side"
-          title="Open Markdown preview to the side"
-          aria-pressed={markdownMode === 'split'}
-          onClick={() => onMarkdownModeChange('split')}
-        >
-          <IconDiffSplit className="size-3" />
-        </FileHeaderAction>
-        <FileHeaderAction
-          type="button"
-          aria-label="Return to Markdown editor"
-          title="Return to Markdown editor"
-          onClick={() => onMarkdownModeChange('editor')}
-        >
-          <IconEye className="size-3" />
-        </FileHeaderAction>
-        <FileHeaderAction
-          type="button"
-          aria-label="Close Markdown preview"
-          title="Close Markdown preview"
-          onClick={() => onMarkdownModeChange('editor')}
-        >
-          <IconX className="size-3" />
-        </FileHeaderAction>
-        </header>
-      )}
       {error == null ? (
         value == null ? (
           <div
@@ -160,9 +115,7 @@ export function MarkdownWorkbench({
           </div>
         ) : (
           <article
-            ref={scrollRef}
-            onScroll={(event) => onScroll?.(event.currentTarget.scrollTop)}
-            className={`markdown-preview gitna-scrollbar min-h-0 flex-1 overflow-auto px-4 py-5 text-sm sm:px-6 ${sharedScroll ? 'markdown-preview-shared-scroll' : ''}`}
+            className={`markdown-preview min-h-0 flex-1 px-4 py-5 text-sm sm:px-6 ${embedded ? 'overflow-visible' : 'gitna-scrollbar overflow-auto'}`}
           >
             <div className="mx-auto w-full max-w-3xl">
               <ReactMarkdown

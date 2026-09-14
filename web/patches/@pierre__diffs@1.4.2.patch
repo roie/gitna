@@ -120,15 +120,15 @@ index 7a69625d34ac5d20d514e8d6fe661a6421bc2879..75b03d06cdf0e59a911e5c54f72f742e
 +	}
 +	updateCustomBodyVisibility() {
 +		if (this.customBodyWrapper == null || this.customBodySlot == null) return;
-+		const visible = this.customBodySlot.assignedElements({ flatten: true }).length > 0;
-+		this.customBodyWrapper.hidden = !visible;
-+		if (this.pre != null) this.pre.style.display = visible ? "none" : "";
++		const assigned = this.customBodySlot.assignedElements({ flatten: true }); const visible = assigned.length > 0; const side = assigned[0]?.getAttribute("data-diffs-body-layout") === "side";
++		this.customBodyWrapper.hidden = !visible; this.customBodyWrapper.style.position = side ? "absolute" : ""; this.customBodyWrapper.style.inset = side ? "0 0 0 50%" : ""; this.customBodyWrapper.style.width = side ? "50%" : ""; this.customBodyWrapper.style.height = side ? "100%" : ""; this.customBodyWrapper.style.overflow = side ? "visible" : ""; this.customBodyWrapper.style.borderLeft = side ? "1px solid var(--diffs-bg-separator)" : "";
++		if (this.pre != null) { this.pre.style.display = visible && !side ? "none" : ""; this.pre.style.width = side ? "50%" : ""; }
 +	}
 +	removeCustomBody() {
 +		this.customBodyWrapper?.remove();
 +		this.customBodyWrapper = void 0;
 +		this.customBodySlot = void 0;
-+		if (this.pre != null) this.pre.style.display = "";
++		if (this.pre != null) { this.pre.style.display = ""; this.pre.style.width = ""; }
 +	}
  	removeRenderedCode() {
  		this.resizeManager.cleanUp();
@@ -205,15 +205,15 @@ index 04ce7b9a931c95f3cc1528219b2572eddf0ee889..62408a31e82b8fd4c1982797553796e3
 +	}
 +	updateCustomBodyVisibility() {
 +		if (this.customBodyWrapper == null || this.customBodySlot == null) return;
-+		const visible = this.customBodySlot.assignedElements({ flatten: true }).length > 0;
-+		this.customBodyWrapper.hidden = !visible;
-+		if (this.pre != null) this.pre.style.display = visible ? "none" : "";
++		const assigned = this.customBodySlot.assignedElements({ flatten: true }); const visible = assigned.length > 0; const side = assigned[0]?.getAttribute("data-diffs-body-layout") === "side";
++		this.customBodyWrapper.hidden = !visible; this.customBodyWrapper.style.position = side ? "absolute" : ""; this.customBodyWrapper.style.inset = side ? "0 0 0 50%" : ""; this.customBodyWrapper.style.width = side ? "50%" : ""; this.customBodyWrapper.style.height = side ? "100%" : ""; this.customBodyWrapper.style.overflow = side ? "visible" : ""; this.customBodyWrapper.style.borderLeft = side ? "1px solid var(--diffs-bg-separator)" : "";
++		if (this.pre != null) { this.pre.style.display = visible && !side ? "none" : ""; this.pre.style.width = side ? "50%" : ""; }
 +	}
 +	removeCustomBody() {
 +		this.customBodyWrapper?.remove();
 +		this.customBodyWrapper = void 0;
 +		this.customBodySlot = void 0;
-+		if (this.pre != null) this.pre.style.display = "";
++		if (this.pre != null) { this.pre.style.display = ""; this.pre.style.width = ""; }
 +	}
  	removeRenderedCode() {
  		this.resizeManager.cleanUp();

@@ -410,8 +410,6 @@ function GitnaReviewUIInner() {
     paths: string[]
   } | null>(null)
   const scrollRef = useRef<HTMLDivElement>(null)
-  const markdownPreviewScrollRef = useRef<HTMLDivElement>(null)
-  const markdownScrollSyncingRef = useRef(false)
   const reviewRootRef = useRef<HTMLDivElement>(null)
   const homeButtonRef = useRef<HTMLButtonElement>(null)
   const restoreHomeFocusRef = useRef(false)
@@ -852,36 +850,11 @@ function GitnaReviewUIInner() {
     (scrollTop: number) => {
       const scroller = scrollRef.current
       if (scroller == null) return
-      if (markdownMode === 'split' && markdownPreviewScrollRef.current != null) {
-        const preview = markdownPreviewScrollRef.current
-        const sourceMax = Math.max(1, scroller.scrollHeight - scroller.clientHeight)
-        const previewMax = Math.max(0, preview.scrollHeight - preview.clientHeight)
-        if (!markdownScrollSyncingRef.current) {
-          markdownScrollSyncingRef.current = true
-          preview.scrollTop = (scrollTop / sourceMax) * previewMax
-          window.requestAnimationFrame(() => {
-            markdownScrollSyncingRef.current = false
-          })
-        }
-      }
       const remaining = scroller.scrollHeight - scrollTop - scroller.clientHeight
       if (remaining <= scroller.clientHeight) void loadMoreReview()
     },
-    [loadMoreReview, markdownMode],
+    [loadMoreReview],
   )
-
-  const handleMarkdownPreviewScroll = useCallback((scrollTop: number) => {
-    const source = scrollRef.current
-    const preview = markdownPreviewScrollRef.current
-    if (source == null || preview == null || markdownScrollSyncingRef.current) return
-    const sourceMax = Math.max(0, source.scrollHeight - source.clientHeight)
-    const previewMax = Math.max(1, preview.scrollHeight - preview.clientHeight)
-    markdownScrollSyncingRef.current = true
-    source.scrollTop = (scrollTop / previewMax) * sourceMax
-    window.requestAnimationFrame(() => {
-      markdownScrollSyncingRef.current = false
-    })
-  }, [])
 
   const selectedImageRequest = useMemo(
     () => imageDiffRequest(target, repository.snapshot?.repository === true),
@@ -1811,68 +1784,62 @@ function GitnaReviewUIInner() {
                       />
                     </div>
                   )
-                ) : markdownMode === 'preview' ? (
-                  <MarkdownWorkbench
-                    error={loadState === 'error' ? (errorMessage ?? repository.error) : null}
-                    markdownMode={markdownMode}
-                    onMarkdownModeChange={setMarkdownMode}
-                    onOpenPath={(path) => {
-                      void repository
-                        .openRepositoryFile(path, true)
-                        .catch((error: unknown) =>
-                          setReviewActionError(
-                            error instanceof Error ? error.message : String(error),
-                          ),
-                        )
-                    }}
-                    onScroll={handleMarkdownPreviewScroll}
-                    path={markdownPath}
-                    scrollRef={markdownPreviewScrollRef}
-                    value={markdownValue}
+                ) : viewerAvailable && reviewData != null ? (
+                  <DiffsHubViewer
+                    className="code-view h-full"
+                    commentsEnabled={false}
+                    diffStyle={diffStyle}
+                    overflow={overflow}
+                    showBackgrounds={showBackgrounds}
+                    diffIndicators={diffIndicators}
+                    lineNumbers={lineNumbers}
+                    scrollRef={scrollRef}
+                    themeType={colorMode}
+                    viewerRef={viewerRef}
+                    initialItems={reviewData.items}
+                    gitnaActions={gitnaActions}
+                    gitnaComparisonActions={gitnaComparisonActions}
+                    gitnaEditorActions={gitnaEditorActions}
+                    gitnaOpenFileAction={gitnaOpenFileAction}
+                    markdownPreview={
+                      <MarkdownWorkbench
+                        error={null}
+                        embedded
+                        onOpenPath={(path) => {
+                          void repository
+                            .openRepositoryFile(path, true)
+                            .catch((error: unknown) =>
+                              setReviewActionError(
+                                error instanceof Error ? error.message : String(error),
+                              ),
+                            )
+                        }}
+                        path={markdownPath}
+                        value={markdownValue}
+                      />
+                    }
+                    markdownPreviewLayout={markdownMode === 'split' ? 'side' : 'replace'}
+                    markdownPreviewPath={markdownPath}
+                    onCommentDeleted={() => {}}
+                    onCommentSaved={() => {}}
+                    onLineLinkChange={handleLineLinkChange}
+                    onScroll={handleReviewScroll}
+                    onViewerReady={handleViewerReady}
                   />
                 ) : (
-                  <div className="grid h-full min-h-0 grid-cols-1 divide-x md:grid-cols-2">
-                    <DiffsHubViewer
-                      className="code-view h-full min-w-0"
-                      commentsEnabled={false}
-                      diffStyle={diffStyle}
-                      overflow={overflow}
-                      showBackgrounds={showBackgrounds}
-                      diffIndicators={diffIndicators}
-                      lineNumbers={lineNumbers}
-                      scrollRef={scrollRef}
-                      themeType={colorMode}
-                      viewerRef={viewerRef}
-                      initialItems={reviewData?.items ?? []}
-                      gitnaActions={gitnaActions}
-                      gitnaComparisonActions={gitnaComparisonActions}
-                      gitnaEditorActions={gitnaEditorActions}
-                      gitnaOpenFileAction={gitnaOpenFileAction}
-                      onCommentDeleted={() => {}}
-                      onCommentSaved={() => {}}
-                      onLineLinkChange={handleLineLinkChange}
-                      onScroll={handleReviewScroll}
-                      onViewerReady={handleViewerReady}
-                    />
-                    <MarkdownWorkbench
-                      error={loadState === 'error' ? (errorMessage ?? repository.error) : null}
-                      markdownMode={markdownMode}
-                      onMarkdownModeChange={setMarkdownMode}
-                      onOpenPath={(path) => {
-                        void repository
-                          .openRepositoryFile(path, true)
-                          .catch((error: unknown) =>
-                            setReviewActionError(
-                              error instanceof Error ? error.message : String(error),
-                            ),
-                          )
-                      }}
-                      onScroll={handleMarkdownPreviewScroll}
-                      path={markdownPath}
-                      scrollRef={markdownPreviewScrollRef}
-                      sharedScroll
-                      showHeader={false}
-                      value={markdownValue}
+                  <div className="grid h-full min-h-0 [&>*]:h-full">
+                    <DiffsHubStatusPanel
+                      contentKind="file"
+                      errorMessage={errorMessage ?? repository.error}
+                      localRepository
+                      onRetry={() => setReviewAttempt((attempt) => attempt + 1)}
+                      suppressError={
+                        loadState === 'error' &&
+                        (repository.connectionState !== 'connected' ||
+                          errorMessage === 'Failed to fetch' ||
+                          repository.error === 'Failed to fetch')
+                      }
+                      state={loadState}
                     />
                   </div>
                 )}
