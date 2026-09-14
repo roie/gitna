@@ -1871,6 +1871,7 @@ function GitnaReviewUIInner() {
                       path={markdownPath}
                       scrollRef={markdownPreviewScrollRef}
                       sharedScroll
+                      showHeader={false}
                       value={markdownValue}
                     />
                   </div>

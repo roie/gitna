@@ -14,6 +14,7 @@ interface MarkdownWorkbenchProps {
   markdownMode: MarkdownViewMode
   onMarkdownModeChange(mode: MarkdownViewMode): void
   onOpenPath(path: string): void
+  showHeader?: boolean
   onScroll?(scrollTop: number): void
   scrollRef?: RefObject<HTMLDivElement | null>
   sharedScroll?: boolean
@@ -67,6 +68,7 @@ export function MarkdownWorkbench({
   markdownMode,
   onMarkdownModeChange,
   onOpenPath,
+  showHeader = true,
   onScroll,
   scrollRef,
   sharedScroll = false,
@@ -111,7 +113,8 @@ export function MarkdownWorkbench({
 
   return (
     <section className="flex h-full min-h-0 flex-col bg-background" aria-label="Markdown preview">
-      <header className="flex min-h-8 shrink-0 items-center gap-0.5 border-b border-border px-2 py-1">
+      {showHeader && (
+        <header className="flex min-h-8 shrink-0 items-center gap-0.5 border-b border-border px-2 py-1">
         <span className="mr-auto truncate text-xs font-medium" title={path}>
           {path}
         </span>
@@ -140,7 +143,8 @@ export function MarkdownWorkbench({
         >
           <IconX className="size-3" />
         </FileHeaderAction>
-      </header>
+        </header>
+      )}
       {error == null ? (
         value == null ? (
           <div
