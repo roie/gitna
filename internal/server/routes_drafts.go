@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"io/fs"
 	"net/http"
 	"strconv"
 
@@ -92,6 +93,8 @@ func decodeDraftRequest(w http.ResponseWriter, r *http.Request, target any) erro
 
 func writeDraftError(w http.ResponseWriter, err error) {
 	switch {
+	case errors.Is(err, fs.ErrNotExist):
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": "draft not found"})
 	case errors.Is(err, drafts.ErrStaleRevision):
 		writeJSON(w, http.StatusConflict, map[string]string{"error": err.Error(), "code": "stale-draft"})
 	case errors.Is(err, drafts.ErrQuota):

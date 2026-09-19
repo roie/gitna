@@ -404,7 +404,7 @@ func TestWatcherReportsChangesInNewDirectories(t *testing.T) {
 	}
 }
 
-func TestWatcherIgnoresLockFiles(t *testing.T) {
+func TestWatcherIgnoresGitLockFilesButReportsWorktreeLockFiles(t *testing.T) {
 	root := trackedRepo(t)
 	w := startWatcher(t, root, Options{Debounce: 30 * time.Millisecond, FallbackInterval: -1})
 	events := w.Events()
@@ -412,6 +412,11 @@ func TestWatcherIgnoresLockFiles(t *testing.T) {
 
 	writeFile(t, root, ".git/index.lock", "x")
 	expectNoEvent(t, events, 200*time.Millisecond)
+
+	writeFile(t, root, "Cargo.lock", "[package]\n")
+	if got := nextEvent(t, events); got != InvalidateFiles {
+		t.Fatalf("worktree lock file event = %q, want %q", got, InvalidateFiles)
+	}
 }
 
 func TestWatcherDebouncesBursts(t *testing.T) {

@@ -146,6 +146,26 @@ func TestSecurityOversizedBody(t *testing.T) {
 	}
 }
 
+func TestSecurityDraftAndWorktreeBodiesUseHandlerLimits(t *testing.T) {
+	h := newSecuredTestHandler()
+	for _, route := range []string{
+		"/g/" + testToken + "/api/v1/drafts",
+		"/g/" + testToken + "/api/v1/worktree/file",
+		"/g/" + testToken + "/api/v1/worktree/entry",
+	} {
+		req := httptest.NewRequest(http.MethodPost, route, strings.NewReader("{}"))
+		req.Host = testHost
+		req.ContentLength = MaxRequestBody + 1
+		req.Header.Set("Origin", "http://"+testHost)
+		req.Header.Set("Content-Type", "application/json")
+		rec := httptest.NewRecorder()
+		h.ServeHTTP(rec, req)
+		if rec.Code != http.StatusOK {
+			t.Fatalf("%s body above ordinary limit status = %d, want 200", route, rec.Code)
+		}
+	}
+}
+
 func TestSecurityPatchBodyUsesPatchLimit(t *testing.T) {
 	h := newSecuredTestHandler()
 	request := func(route string, contentLength int64) *httptest.ResponseRecorder {

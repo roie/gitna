@@ -66,10 +66,7 @@ func (s Security) Wrap(next http.Handler) http.Handler {
 				http.Error(w, "unsupported media type", http.StatusUnsupportedMediaType)
 				return
 			}
-			bodyLimit := MaxRequestBody
-			if isOperationsRequestPath(r.URL.Path, prefix) {
-				bodyLimit = operationRequestBodyLimit(r.URL.Query().Get("op"))
-			}
+			bodyLimit := mutationRequestBodyLimit(r.URL.Path, prefix, r.URL.Query().Get("op"))
 			if r.ContentLength > bodyLimit {
 				http.Error(w, "request body too large", http.StatusRequestEntityTooLarge)
 				return
@@ -79,6 +76,21 @@ func (s Security) Wrap(next http.Handler) http.Handler {
 
 		http.StripPrefix(prefix, next).ServeHTTP(w, r)
 	})
+}
+
+func mutationRequestBodyLimit(requestPath, capabilityPrefix, operation string) int64 {
+	relative := strings.TrimPrefix(requestPath, capabilityPrefix)
+	switch relative {
+	case "/api/v1/drafts", "/api/v1/worktree/file", "/api/v1/worktree/entry":
+		if relative == "/api/v1/drafts" {
+			return draftRequestBodyLimit
+		}
+		return worktreeRequestBodyLimit
+	}
+	if isOperationsRequestPath(requestPath, capabilityPrefix) {
+		return operationRequestBodyLimit(operation)
+	}
+	return MaxRequestBody
 }
 
 func isOperationsRequestPath(requestPath, capabilityPrefix string) bool {

@@ -499,7 +499,10 @@ func Run(ctx context.Context, path, version string) error {
 		folder.OpenDefault(),
 		basePath,
 		repo,
-		folderRegistryOptions{drafts: draftJournal},
+		folderRegistryOptions{
+			dormancyGrace: defaultFolderDormancyGrace,
+			drafts:        draftJournal,
+		},
 	)
 	if err != nil {
 		return fmt.Errorf("app: create folder registry: %w", err)

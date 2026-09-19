@@ -49,6 +49,26 @@ func TestDraftRoutesPersistAndRejectStaleRevisions(t *testing.T) {
 	}
 }
 
+func TestDraftRoutesDeleteMissingRecordReturnsNotFound(t *testing.T) {
+	journal, err := drafts.Open(t.TempDir(), drafts.Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	srv, err := New(newTestFS(), Options{
+		Version: "test-version",
+		Token:   testToken,
+		Host:    testHost,
+		Drafts:  journal,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	rec := worktreeRequest(t, srv.Handler(), http.MethodDelete, "/drafts?documentId=missing-document&revision=1", "")
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("missing delete status = %d, body = %s", rec.Code, rec.Body.String())
+	}
+}
+
 func TestDraftRoutesScopeRecordsToFolder(t *testing.T) {
 	journal, err := drafts.Open(t.TempDir(), drafts.Options{})
 	if err != nil {

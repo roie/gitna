@@ -577,7 +577,7 @@ func (w *Repository) loop(ctx context.Context) {
 // classify maps a filesystem event to the invalidation kinds it implies.
 func (w *Repository) classify(ev fsnotify.Event) []InvalidationKind {
 	name := filepath.Clean(ev.Name)
-	if strings.HasSuffix(name, ".lock") {
+	if strings.HasSuffix(name, ".lock") && w.isGitDirPath(name) {
 		return nil
 	}
 	if w.isGitDirPath(name) {
