@@ -185,7 +185,7 @@ func (r Repository) diff(ctx context.Context, runner Runner, scope protocol.Diff
 // empty or oversized output returns an empty patch (hunk operations
 // unavailable) rather than shipping megabytes to the browser.
 func (r Repository) diffPatch(ctx context.Context, runner Runner, cached bool, path string) (string, error) {
-	args := []string{"-c", "diff.color=never", "diff", "--no-ext-diff", "--no-textconv"}
+	args := []string{"--literal-pathspecs", "-c", "diff.color=never", "diff", "--no-ext-diff", "--no-textconv"}
 	if cached {
 		args = append(args, "--cached")
 	}

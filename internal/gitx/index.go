@@ -52,7 +52,7 @@ func (r Repository) Stage(ctx context.Context, runner Runner, paths []string) er
 	if err := validatePaths(paths); err != nil {
 		return err
 	}
-	return r.runIndex(ctx, runner, append([]string{"add", "--"}, paths...)...)
+	return r.runIndex(ctx, runner, append([]string{"--literal-pathspecs", "add", "--"}, paths...)...)
 }
 
 // Unstage removes the given paths from the index, leaving the worktree intact.
@@ -60,7 +60,13 @@ func (r Repository) Unstage(ctx context.Context, runner Runner, paths []string) 
 	if err := validatePaths(paths); err != nil {
 		return err
 	}
-	return r.runIndex(ctx, runner, append([]string{"restore", "--staged", "--"}, paths...)...)
+	args := []string{"--literal-pathspecs", "restore", "--staged", "--"}
+	if res, err := runner.Run(ctx, r.Root, "rev-parse", "--verify", "HEAD"); err != nil {
+		return err
+	} else if res.ExitCode != 0 {
+		args = []string{"--literal-pathspecs", "rm", "--cached", "-r", "--"}
+	}
+	return r.runIndex(ctx, runner, append(args, paths...)...)
 }
 
 // DiscardTracked restores the given tracked paths in the worktree from the
@@ -69,7 +75,7 @@ func (r Repository) DiscardTracked(ctx context.Context, runner Runner, paths []s
 	if err := validatePaths(paths); err != nil {
 		return err
 	}
-	return r.runIndex(ctx, runner, append([]string{"restore", "--worktree", "--"}, paths...)...)
+	return r.runIndex(ctx, runner, append([]string{"--literal-pathspecs", "restore", "--worktree", "--"}, paths...)...)
 }
 
 // DeleteUntracked removes selected untracked filesystem entries. Regular files

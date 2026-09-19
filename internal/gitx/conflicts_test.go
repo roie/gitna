@@ -179,6 +179,39 @@ func TestResolveConflictBoth(t *testing.T) {
 	}
 }
 
+func TestResolveConflictSideTheirsDeletion(t *testing.T) {
+	root := initTestRepo(t)
+	runner := &ExecRunner{}
+	repo, err := Discover(context.Background(), runner, root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, filepath.Join(root, "a.txt"), "base\n")
+	runGit(t, root, "add", "a.txt")
+	runGit(t, root, "commit", "-qm", "base")
+	runGit(t, root, "checkout", "-qb", "delete")
+	if err := os.Remove(filepath.Join(root, "a.txt")); err != nil {
+		t.Fatal(err)
+	}
+	runGit(t, root, "commit", "-qam", "delete")
+	runGit(t, root, "checkout", "-q", "main")
+	writeFile(t, filepath.Join(root, "a.txt"), "changed\n")
+	runGit(t, root, "add", "a.txt")
+	runGit(t, root, "commit", "-qm", "change")
+	runGitErr(t, root, "merge", "delete")
+
+	if err := repo.ResolveConflictSide(context.Background(), runner, "a.txt", true); err != nil {
+		t.Fatalf("ResolveConflictSide deletion: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(root, "a.txt")); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("a.txt exists after selecting deletion: %v", err)
+	}
+	conflicts, err := repo.ListConflicts(context.Background(), runner)
+	if err != nil || len(conflicts) != 0 {
+		t.Fatalf("conflicts after deletion resolution = %+v, %v", conflicts, err)
+	}
+}
+
 func TestResolveConflictSideTheirs(t *testing.T) {
 	root, repo, runner := mergeFixture(t)
 

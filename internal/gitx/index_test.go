@@ -76,6 +76,38 @@ func TestStagePreservesWorktree(t *testing.T) {
 	}
 }
 
+func TestStageTreatsWildcardFilenamesLiterally(t *testing.T) {
+	root := initTestRepo(t)
+	writeFile(t, filepath.Join(root, "a*.txt"), "selected\n")
+	writeFile(t, filepath.Join(root, "another.txt"), "unselected\n")
+	repo, err := Discover(context.Background(), &ExecRunner{}, root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := repo.Stage(context.Background(), &ExecRunner{}, []string{"a*.txt"}); err != nil {
+		t.Fatalf("Stage: %v", err)
+	}
+	if got := runIndexAssert(t, root, "status", "--porcelain"); got != "A  a*.txt\n?? another.txt\n" {
+		t.Fatalf("status = %q, want only literal path staged", got)
+	}
+}
+
+func TestUnstageBeforeInitialCommitPreservesWorktree(t *testing.T) {
+	root := initTestRepo(t)
+	writeFile(t, filepath.Join(root, "file.txt"), "new\n")
+	runGit(t, root, "add", "file.txt")
+	repo, err := Discover(context.Background(), &ExecRunner{}, root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := repo.Unstage(context.Background(), &ExecRunner{}, []string{"file.txt"}); err != nil {
+		t.Fatalf("Unstage: %v", err)
+	}
+	if got := runIndexAssert(t, root, "status", "--porcelain"); got != "?? file.txt\n" {
+		t.Fatalf("status = %q, want untracked file", got)
+	}
+}
+
 func TestUnstagePreservesWorktree(t *testing.T) {
 	root := initTestRepo(t)
 	writeFile(t, filepath.Join(root, "file.txt"), "base\n")

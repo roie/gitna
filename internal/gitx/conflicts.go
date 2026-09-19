@@ -137,8 +137,36 @@ func (r Repository) ResolveConflictSide(ctx context.Context, runner Runner, path
 	if theirs {
 		side = "theirs"
 	}
+	entries, err := r.ListConflicts(ctx, runner)
+	if err != nil {
+		return err
+	}
+	var conflict *protocol.ConflictEntry
+	for i := range entries {
+		if entries[i].Path == path {
+			conflict = &entries[i]
+			break
+		}
+	}
+	if conflict == nil {
+		return fmt.Errorf("gitx: conflict %q not found", path)
+	}
+	selectedOID := conflict.OursOID
+	if theirs {
+		selectedOID = conflict.TheirsOID
+	}
+	if selectedOID == "" {
+		res, err := runner.Run(ctx, r.Root, "--literal-pathspecs", "rm", "--", path)
+		if err != nil {
+			return err
+		}
+		if res.ExitCode != 0 {
+			return opError("resolve conflict "+side+" as deletion", res)
+		}
+		return nil
+	}
 	// checkout --<side> writes the resolved content to the worktree.
-	res, err := runner.Run(ctx, r.Root, "checkout", "--"+side, "--", path)
+	res, err := runner.Run(ctx, r.Root, "--literal-pathspecs", "checkout", "--"+side, "--", path)
 	if err != nil {
 		return err
 	}
@@ -146,7 +174,7 @@ func (r Repository) ResolveConflictSide(ctx context.Context, runner Runner, path
 		return opError("resolve conflict "+side, res)
 	}
 	// Stage the resolved file.
-	res, err = runner.Run(ctx, r.Root, "add", "--", path)
+	res, err = runner.Run(ctx, r.Root, "--literal-pathspecs", "add", "--", path)
 	if err != nil {
 		return err
 	}
@@ -233,7 +261,7 @@ func (r Repository) ResolveConflictBoth(ctx context.Context, runner Runner, path
 	if updated.ExitCode != 0 {
 		return opError("index merged conflict", updated)
 	}
-	checkedOut, err := runner.Run(ctx, r.Root, "checkout-index", "-f", "--", path)
+	checkedOut, err := runner.Run(ctx, r.Root, "--literal-pathspecs", "checkout-index", "-f", "--", path)
 	if err != nil {
 		return err
 	}
