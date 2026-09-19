@@ -451,45 +451,44 @@ function GitnaReviewUIInner() {
     )
   }, [repository.repositoryFilePath])
 
-  const activeUntitledDocument =
-    target?.filePath == null ? null : repository.untitledDocument(target.filePath)
+  const untitledDocuments = repository.untitledDocuments()
+  const untitledDraftKey = untitledDocuments
+    .map((document) => `${document.id}:${document.revision}:${document.dirty}`)
+    .join('|')
 
   useEffect(() => {
-    const draft = activeUntitledDocument
     const putDraft = repository.api.putDraft
-    if (draft == null || !draft.dirty || putDraft == null) return
+    if (putDraft == null) return
     if (draftClientIdRef.current == null) {
       draftClientIdRef.current =
         typeof crypto.randomUUID === 'function'
           ? crypto.randomUUID()
           : `client-${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`
     }
-    const timer = window.setTimeout(() => {
-      void putDraft({
-        schema: 1,
-        documentId: draft.id,
-        clientId: draftClientIdRef.current!,
-        folderKey: draft.folderKey,
-        path: draft.path,
-        label: draft.label,
-        revision: draft.revision,
-        contents: draft.contents,
-        baselineHash: draft.baselineHash,
-        updatedAt: new Date().toISOString(),
-      }).catch((error: unknown) => {
-        setReviewActionError(
-          `Could not back up ${draft.label}: ${error instanceof Error ? error.message : String(error)}`,
-        )
-      })
-    }, 500)
-    return () => window.clearTimeout(timer)
-  }, [
-    activeUntitledDocument?.contents,
-    activeUntitledDocument?.dirty,
-    activeUntitledDocument?.revision,
-    repository.api,
-    target?.filePath,
-  ])
+    const timers = untitledDocuments
+      .filter((draft) => draft.dirty)
+      .map((draft) =>
+        window.setTimeout(() => {
+          void putDraft({
+            schema: 1,
+            documentId: draft.id,
+            clientId: draftClientIdRef.current!,
+            folderKey: draft.folderKey,
+            path: draft.path,
+            label: draft.label,
+            revision: draft.revision,
+            contents: draft.contents,
+            baselineHash: draft.baselineHash,
+            updatedAt: new Date().toISOString(),
+          }).catch((error: unknown) => {
+            setReviewActionError(
+              `Could not back up ${draft.label}: ${error instanceof Error ? error.message : String(error)}`,
+            )
+          })
+        }, 500),
+      )
+    return () => timers.forEach((timer) => window.clearTimeout(timer))
+  }, [repository.api, untitledDraftKey])
 
   useEffect(() => {
     const root = repository.snapshot?.root

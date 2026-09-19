@@ -861,6 +861,10 @@ export class GitnaRepository {
     return this.documents.get(path.slice('untitled:'.length))
   }
 
+  untitledDocuments(): readonly DocumentSnapshot[] {
+    return this.documents.list().filter((document) => document.path == null)
+  }
+
   documentForPath(path: string): DocumentSnapshot | null {
     return this.documents.findByPath(path)
   }
@@ -941,14 +945,34 @@ export class GitnaRepository {
     const saved = await this.runWorktreeOperation('save-file', () =>
       this.api.createWorktreeFile(destination, submittedContents),
     )
-    this.documents.acknowledgeSave(document.id, submittedRevision, submittedContents, {
-      path: destination,
-      baselineHash: saved.hash,
-    })
+    const acknowledged = this.documents.acknowledgeSave(
+      document.id,
+      submittedRevision,
+      submittedContents,
+      {
+        path: destination,
+        baselineHash: saved.hash,
+      },
+    )
     const recoverySource = this.recoverySources.get(document.id)
-    if (recoverySource != null && this.api.deleteDraft != null) {
+    if (!acknowledged.dirty && this.api.deleteDraft != null) {
+      const backups = [
+        {
+          documentId: recoverySource?.documentId ?? document.id,
+          revision: recoverySource?.revision ?? submittedRevision,
+        },
+      ]
+      if (recoverySource != null && recoverySource.documentId !== document.id) {
+        backups.push({ documentId: document.id, revision: submittedRevision })
+      }
       try {
-        await this.api.deleteDraft(recoverySource.documentId, recoverySource.revision)
+        for (const backup of backups) {
+          try {
+            await this.api.deleteDraft(backup.documentId, backup.revision)
+          } catch (error) {
+            if (!(error instanceof ApiError && error.status === 404)) throw error
+          }
+        }
         this.recoverySources.delete(document.id)
       } catch (error) {
         this.mutationError = `Saved ${destination}, but could not remove its recovery backup: ${error instanceof Error ? error.message : String(error)}`
