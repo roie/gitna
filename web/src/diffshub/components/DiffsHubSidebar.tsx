@@ -27,6 +27,7 @@ interface DiffsHubSidebarProps {
   mobileOverlayOpen?: boolean
   onMobileClose(): void
   scrollRef: RefObject<HTMLDivElement | null>
+  ariaLabel?: string
 }
 
 export const DiffsHubSidebar = memo(function DiffsHubSidebar({
@@ -35,6 +36,7 @@ export const DiffsHubSidebar = memo(function DiffsHubSidebar({
   mobileOverlayOpen = false,
   onMobileClose,
   scrollRef,
+  ariaLabel = 'Source Control',
 }: DiffsHubSidebarProps) {
   const [mobileViewport, setMobileViewport] = useState(
     () => window.matchMedia(MOBILE_MEDIA_QUERY).matches,
@@ -77,7 +79,7 @@ export const DiffsHubSidebar = memo(function DiffsHubSidebar({
       <button
         type="button"
         aria-hidden={!mobileOverlayOpen}
-        aria-label="Close Source Control"
+        aria-label={`Close ${ariaLabel}`}
         tabIndex={mobileOverlayOpen ? 0 : -1}
         className={cn(
           'z-20 cursor-default bg-background/60 backdrop-blur-xs transition-opacity [grid-column:1/-1] [grid-row:1/-1] md:hidden',
@@ -90,13 +92,14 @@ export const DiffsHubSidebar = memo(function DiffsHubSidebar({
         mobileHidden={mobileViewport && !mobileOverlayOpen}
         mobileOverlayOpen={mobileOverlayOpen}
         themeStyle={sidebarStyle}
+        ariaLabel={ariaLabel}
       >
         <div className="flex h-10 shrink-0 items-center justify-end px-4 md:hidden">
           <Button
             variant="ghost"
             size="icon-only"
             className={CHROME_ICON_BUTTON_CLASS}
-            aria-label="Close Source Control"
+            aria-label={`Close ${ariaLabel}`}
             onClick={onMobileClose}
           >
             <IconXSquircle className="size-4" />
@@ -114,6 +117,7 @@ interface SidebarWrapperProps {
   mobileHidden: boolean
   mobileOverlayOpen: boolean
   themeStyle?: CSSProperties
+  ariaLabel: string
 }
 
 function SidebarWrapper({
@@ -122,11 +126,12 @@ function SidebarWrapper({
   mobileHidden,
   mobileOverlayOpen,
   themeStyle,
+  ariaLabel,
 }: SidebarWrapperProps) {
   return (
     <aside
       aria-hidden={mobileHidden || undefined}
-      aria-label="Source Control"
+      aria-label={ariaLabel}
       inert={mobileHidden || undefined}
       className={cn(
         className,

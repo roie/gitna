@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"regexp/syntax"
 	"strconv"
 	"strings"
 
@@ -38,6 +39,8 @@ func (s *Server) apiRoutes() http.Handler {
 			s.handleDirectoryEntries(w, r)
 		case r.Method == http.MethodGet && p == "/files/search":
 			s.handleFileSearch(w, r)
+		case r.Method == http.MethodGet && p == "/search/content":
+			s.handleContentSearch(w, r)
 		case r.Method == http.MethodGet && p == "/worktree/file":
 			s.handleReadWorktreeFile(w, r)
 		case r.Method == http.MethodGet && p == "/worktree/compare":
@@ -496,6 +499,56 @@ func (s *Server) handleFileSearch(w http.ResponseWriter, r *http.Request) {
 		"error": "folder changed while file search was loading",
 		"code":  "search-invalidated",
 	})
+}
+
+type contentSearchRepo interface {
+	SearchContent(context.Context, string, bool, bool, bool, bool, string, string, int) (protocol.ContentSearchResults, error)
+}
+
+const contentSearchMatchLimit = 2_000
+
+func (s *Server) handleContentSearch(w http.ResponseWriter, r *http.Request) {
+	repo, ok := s.repo.(contentSearchRepo)
+	if !ok {
+		writeJSON(w, http.StatusNotImplemented, map[string]string{"error": "content search unavailable"})
+		return
+	}
+	query := r.URL.Query().Get("q")
+	if len(query) == 0 || len(query) > 1<<10 {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "content search query must be between 1 and 1024 bytes"})
+		return
+	}
+	include, exclude := r.URL.Query().Get("include"), r.URL.Query().Get("exclude")
+	if len(include)+len(exclude) > 8<<10 {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "content search filters are too long"})
+		return
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), ContentSearchTimeout)
+	defer cancel()
+	for range 3 {
+		generation := s.gen.Load()
+		results, err := repo.SearchContent(ctx, query, r.URL.Query().Get("case") == "1", r.URL.Query().Get("includeIgnored") == "1", r.URL.Query().Get("regex") == "1", r.URL.Query().Get("word") == "1", include, exclude, contentSearchMatchLimit)
+		if err != nil {
+			var patternError *syntax.Error
+			if errors.As(err, &patternError) {
+				writeJSON(w, http.StatusBadRequest, map[string]string{"error": "Invalid regular expression: " + patternError.Error()})
+				return
+			}
+			if timeoutReached(ctx, err) {
+				writeJSON(w, http.StatusGatewayTimeout, map[string]string{"error": "content search timed out"})
+				return
+			}
+			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+			return
+		}
+		if generation != s.gen.Load() {
+			continue
+		}
+		results.Generation = generation
+		writeJSON(w, http.StatusOK, results)
+		return
+	}
+	writeJSON(w, http.StatusConflict, map[string]string{"error": "folder changed while content search was loading", "code": "search-invalidated"})
 }
 
 // graphPageSize bounds a single history page; the frontend appends pages until

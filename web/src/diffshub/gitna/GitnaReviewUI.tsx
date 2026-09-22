@@ -10,6 +10,7 @@ import {
   IconMinus,
   IconPlus,
   IconRefresh,
+  IconSearch,
   IconSidebar,
   IconThemes,
   IconX,
@@ -40,7 +41,7 @@ import { ThemeSourceProvider } from '../components/ThemeSourceProvider'
 import { docsThemeCatalog, themeController } from '../components/themeController'
 import type { CommentMetadata, ViewerLoadState } from '../lib/types'
 import { ApiError, type DiffRequest, type DraftRecord, type ReviewRequest } from '../../lib/api'
-import type { FileDiff, WorktreeFile } from '../../lib/types'
+import type { ContentSearchFile, FileDiff, WorktreeFile } from '../../lib/types'
 import type { DarkThemeName, LightThemeName } from '../lib/themeNames'
 import type { LoadedDiffsHubData } from '../lib/diffsHubDataAccumulator'
 import { cn } from '../lib/cn'
@@ -48,6 +49,7 @@ import { GitnaCommandPalette, type GitnaPaletteCommand } from './GitnaCommandPal
 import { GlobalToastHost } from './ConnectionStatus'
 import { FolderLoadingScreen, folderDisplayName } from './FolderLoadingScreen'
 import { GitnaHome } from './GitnaHome'
+import { FindInFilesPanel } from './FindInFilesPanel'
 import { GitnaSourceControl } from './SourceControlWorkflow'
 import { Confirm } from './Modal'
 import { UntitledSaveAsModal } from './UntitledSaveAsModal'
@@ -341,6 +343,19 @@ function GitnaReviewUIInner() {
   const [fileTreeOverlayOpen, setFileTreeOverlayOpen] = useState(false)
   const [mobileViewport, setMobileViewport] = useState(false)
   const [sidebarVisible, setSidebarVisible] = useState(true)
+  const [sidebarMode, setSidebarMode] = useState<'source' | 'search'>('source')
+  const [searchFocusRequest, setSearchFocusRequest] = useState(0)
+  const [searchResults, setSearchResults] = useState<ContentSearchFile[]>([])
+  const [activeSearchMatch, setActiveSearchMatch] = useState<{
+    path: string
+    line: number
+    column: number
+  }>()
+  const [pendingSearchReveal, setPendingSearchReveal] = useState<{
+    path: string
+    line: number
+    column: number
+  } | null>(null)
   const [commandPaletteOpen, setCommandPaletteOpen] = useState(false)
   const [commandPaletteInitialQuery, setCommandPaletteInitialQuery] = useState('')
   const [recentFilePaths, setRecentFilePaths] = useState<readonly string[]>([])
@@ -571,6 +586,26 @@ function GitnaReviewUIInner() {
     window.addEventListener('keydown', handleKeyDown)
     return () => window.removeEventListener('keydown', handleKeyDown)
   }, [repository, repository.generation, target?.key, target?.selectedPath])
+
+  useEffect(() => {
+    const openSearch = (event: KeyboardEvent) => {
+      if (
+        !(event.ctrlKey || event.metaKey) ||
+        !event.shiftKey ||
+        event.altKey ||
+        event.key.toLowerCase() !== 'f'
+      )
+        return
+      event.preventDefault()
+      setSearchFocusRequest((value) => value + 1)
+      setCommandPaletteOpen(false)
+      setSidebarMode('search')
+      if (window.matchMedia('(max-width: 767px)').matches) setFileTreeOverlayOpen(true)
+      else setSidebarVisible(true)
+    }
+    window.addEventListener('keydown', openSearch)
+    return () => window.removeEventListener('keydown', openSearch)
+  }, [])
 
   useEffect(() => {
     const openPalette = (event: KeyboardEvent) => {
@@ -911,8 +946,36 @@ function GitnaReviewUIInner() {
     applyCollapseMode(next)
   }, [applyCollapseMode, collapseMode])
 
+  const goToLine = useCallback(
+    (line: number, column = 0) => {
+      const path = target?.filePath
+      const viewer = viewerRef.current
+      if (path == null || viewer == null) return false
+      const item = viewer.getItem(path)
+      if (item?.type !== 'file') return false
+      const lineCount = item.file.contents.split('\n').length
+      const clampedLine = Math.max(1, Math.min(lineCount, line))
+      viewer.scrollTo({ type: 'line', id: path, lineNumber: clampedLine - 1, align: 'center' })
+      // SAFETY: Editable file items expose Pierre's Editor through the narrower DiffsEditor interface.
+      const editor = viewer.getEditor(path) as unknown as
+        | { focus(options: { lineNumber: number; character: number }): void }
+        | undefined
+      if (editor == null) return false
+      editor.focus({ lineNumber: clampedLine, character: column })
+      return true
+    },
+    [target?.filePath],
+  )
+
+  const handleEditorReady = useCallback(() => {
+    if (pendingSearchReveal != null && target?.filePath === pendingSearchReveal.path) {
+      if (goToLine(pendingSearchReveal.line, pendingSearchReveal.column))
+        setPendingSearchReveal(null)
+    }
+  }, [goToLine, pendingSearchReveal, target?.filePath])
+
   const handleViewerReady = useCallback(() => {
-    if (target?.selectedPath == null || reviewData == null) return
+    if (target?.filePath != null || target?.selectedPath == null || reviewData == null) return
     const itemId = reviewData.treeSource.pathToItemId.get(target.selectedPath)
     if (itemId == null) return
     queueMicrotask(() =>
@@ -923,7 +986,7 @@ function GitnaReviewUIInner() {
         behavior: 'smooth-auto',
       }),
     )
-  }, [reviewData, target?.selectedPath])
+  }, [reviewData, target?.filePath, target?.selectedPath])
 
   useEffect(() => {
     handleViewerReady()
@@ -1367,26 +1430,6 @@ function GitnaReviewUIInner() {
     [paletteFileHistory, repository],
   )
 
-  const goToLine = useCallback(
-    (line: number) => {
-      const path = target?.filePath
-      const viewer = viewerRef.current
-      if (path == null || viewer == null) return
-      const item = viewer.getItem(path)
-      if (item?.type !== 'file') return
-      const lineCount = item.file.contents.split('\n').length
-      const clampedLine = Math.max(1, Math.min(lineCount, line))
-      viewer.scrollTo({ type: 'line', id: path, lineNumber: clampedLine - 1, align: 'center' })
-      // SAFETY: Editable file items are created with Pierre's Editor instance;
-      // CodeView exposes it through the narrower DiffsEditor interface.
-      const editor = viewer.getEditor(path) as unknown as
-        | { focus(options: { lineNumber: number; character: number }): void }
-        | undefined
-      editor?.focus({ lineNumber: clampedLine, character: 0 })
-    },
-    [target?.filePath],
-  )
-
   useEffect(() => {
     const onGoToLine = (event: KeyboardEvent) => {
       if (!(event.ctrlKey || event.metaKey) || event.altKey || event.key.toLowerCase() !== 'g') {
@@ -1402,6 +1445,19 @@ function GitnaReviewUIInner() {
 
   const paletteCommands = useMemo<GitnaPaletteCommand[]>(() => {
     const commands: GitnaPaletteCommand[] = [
+      {
+        id: 'find-in-files',
+        icon: <IconSearch />,
+        label: 'Find in Files',
+        description: 'Search text across the current folder',
+        keywords: 'search workspace files content',
+        run: () => {
+          setSearchFocusRequest((value) => value + 1)
+          setSidebarMode('search')
+          if (window.matchMedia('(max-width: 767px)').matches) setFileTreeOverlayOpen(true)
+          else setSidebarVisible(true)
+        },
+      },
       {
         id: 'open-folder',
         icon: <IconFolderOpen />,
@@ -1441,6 +1497,14 @@ function GitnaReviewUIInner() {
         description: 'Create an untitled file in memory',
         keywords: 'untitled document buffer',
         run: () => repository.createUntitledDocument(),
+      },
+      {
+        id: 'show-source-control',
+        icon: <IconSidebar />,
+        label: 'Show Source Control',
+        description: 'Switch the sidebar back to Source Control',
+        keywords: 'source control changes git',
+        run: () => setSidebarMode('source'),
       },
       {
         id: 'toggle-sidebar',
@@ -1672,6 +1736,7 @@ function GitnaReviewUIInner() {
           >
             {themesHydrated && (
               <DiffsHubSidebar
+                ariaLabel={sidebarMode === 'search' ? 'Search' : 'Source Control'}
                 className={cn(
                   '[grid-area:viewer] md:[grid-area:tree]',
                   !sidebarVisible && 'md:hidden',
@@ -1680,7 +1745,28 @@ function GitnaReviewUIInner() {
                 onMobileClose={() => setFileTreeOverlayOpen(false)}
                 scrollRef={scrollRef}
               >
-                <GitnaSourceControl />
+                <FindInFilesPanel
+                  key={repository.snapshot?.root}
+                  active={sidebarMode === 'search'}
+                  focusRequest={searchFocusRequest}
+                  api={repository.api}
+                  folderLabel={
+                    folderDisplayName(repository.snapshot?.root ?? '') || 'current folder'
+                  }
+                  onBack={() => setSidebarMode('source')}
+                  onResultsChange={setSearchResults}
+                  onOpen={(path, line, column) => {
+                    setActiveSearchMatch({ path, line, column })
+                    setPendingSearchReveal(
+                      target?.filePath === path && goToLine(line, column)
+                        ? null
+                        : { path, line, column },
+                    )
+                    setFileTreeOverlayOpen(false)
+                    void repository.openRepositoryFile(path, true)
+                  }}
+                />
+                {sidebarMode === 'source' && <GitnaSourceControl />}
               </DiffsHubSidebar>
             )}
             <div className="flex min-h-0 flex-col [grid-area:viewer]">
@@ -1713,6 +1799,15 @@ function GitnaReviewUIInner() {
                     onLineLinkChange={handleLineLinkChange}
                     onScroll={handleReviewScroll}
                     onViewerReady={handleViewerReady}
+                    onEditorReady={handleEditorReady}
+                    searchMatches={
+                      sidebarMode === 'search'
+                        ? searchResults.find((file) => file.path === target?.filePath)?.matches
+                        : undefined
+                    }
+                    activeSearchMatch={
+                      activeSearchMatch?.path === target?.filePath ? activeSearchMatch : undefined
+                    }
                   />
                 ) : (
                   <div className="grid h-full min-h-0 [&>*]:h-full">

@@ -13,6 +13,9 @@ const ANNOTATION_THEME_STYLE_KEYS = [
   // Main scrollbar thumb + gutter tint; this element is the cv-scrollbar host.
   '--diffshub-scrollbar-thumb-bg',
   '--diffshub-scrollbar-track-bg',
+  '--gitna-search-match-bg',
+  '--gitna-search-match-fg',
+  '--gitna-search-active-match-bg',
 ] as const;
 
 export function buildAnnotationThemeStyle(

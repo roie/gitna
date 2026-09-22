@@ -28,6 +28,7 @@ import {
   type ComponentProps,
   type RefObject,
   useCallback,
+  useEffect,
   useMemo,
   useRef,
   useState,
@@ -62,7 +63,8 @@ import type {
 } from '@/lib/types';
 import type { MutateRequest } from '../../lib/api';
 import { splitHunkPatches } from '../../lib/hunk-patches';
-import type { ChangeKind, ChangeScope, FileDiff } from '../../lib/types';
+import type { ChangeKind, ChangeScope, FileDiff, ContentSearchMatch } from '../../lib/types';
+import { installSearchHighlights, type ActiveSearchMatch } from '../gitna/searchHighlights';
 
 export type GitnaFileAction = 'stage' | 'unstage' | 'discard' | 'delete';
 
@@ -148,6 +150,9 @@ interface DiffsHubViewerProps {
   onLineLinkChange(selection: CodeViewLineSelection | null): void;
   onScroll?(): void;
   onViewerReady(): void;
+  onEditorReady?(): void;
+  searchMatches?: readonly ContentSearchMatch[];
+  activeSearchMatch?: ActiveSearchMatch;
   gitnaActions?: GitnaViewerActions;
   gitnaComparisonActions?: GitnaComparisonActions;
   gitnaEditorActions?: GitnaEditorActions;
@@ -172,11 +177,24 @@ export const DiffsHubViewer = memo(function DiffsHubViewer({
   onLineLinkChange,
   onScroll,
   onViewerReady,
+  onEditorReady,
+  searchMatches,
+  activeSearchMatch,
   gitnaActions,
   gitnaComparisonActions,
   gitnaEditorActions,
   gitnaOpenFileAction,
 }: DiffsHubViewerProps) {
+  useEffect(() => {
+    const container = scrollRef.current;
+    if (container == null || searchMatches == null || searchMatches.length === 0) return;
+    return installSearchHighlights(container, searchMatches, activeSearchMatch);
+  }, [scrollRef, searchMatches, activeSearchMatch]);
+  const handleEditorReady = useStableCallback(() => onEditorReady?.());
+  const editorOptions = useMemo(
+    () => ({ onAttach: handleEditorReady }) satisfies EditorOptions<'file' | 'file-diff', CommentMetadata, undefined>,
+    [handleEditorReady]
+  );
   const nextCommentKeyRef = useRef(0);
   const activeDraftRef = useRef<ActiveDraftComment | null>(null);
   const [selectedLines, setSelectedLines] =
@@ -643,7 +661,7 @@ export const DiffsHubViewer = memo(function DiffsHubViewer({
         'cv-scrollbar relative h-full min-h-0 min-w-0 flex-1 overflow-y-auto overflow-x-clip overscroll-contain border-b border-border w-full [contain:strict] [overflow-anchor:none] [will-change:scroll-position] md:border-b-0 [&_diffs-container]:overflow-clip [&_diffs-container]:[contain:layout_paint_style]'
       )}
       options={options}
-      editorOptions={WORKTREE_EDITOR_OPTIONS}
+      editorOptions={editorOptions}
       getEditStateKey={(item) => `worktree:${item.id}`}
       onItemEditChange={gitnaEditorActions == null ? undefined : handleItemEditChange}
       onItemEditComplete={() => 'accept'}
@@ -660,7 +678,7 @@ export const DiffsHubViewer = memo(function DiffsHubViewer({
   );
 });
 
-const WORKTREE_EDITOR_OPTIONS = {} satisfies EditorOptions<'file' | 'file-diff', CommentMetadata, undefined>;
+
 
 function createWorktreeEditor<EType extends EditorType>(
   editorType: EType,

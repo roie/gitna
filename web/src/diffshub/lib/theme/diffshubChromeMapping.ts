@@ -95,6 +95,12 @@ export const diffshubChromeMapping: ChromeMapping = (chrome, theme) => {
   style['--primary'] = fg;
   style['--color-primary-foreground'] = chrome.background;
   style['--primary-foreground'] = chrome.background;
+  // Search uses the theme's find colors, not a tint of the neutral foreground.
+  style['--gitna-search-match-fg'] = 'light-dark(#1f1f1f, #ffffff)';
+  style['--gitna-search-match-bg'] = theme.colors?.['editor.findMatchHighlightBackground']
+    ?? 'light-dark(#ffe58a, #705600)';
+  style['--gitna-search-active-match-bg'] = theme.colors?.['editor.findMatchBackground']
+    ?? 'light-dark(#ffc34d, #996c00)';
   style['--color-ring'] = chrome.ring;
   style['--ring'] = chrome.ring;
   style['--diffshub-comment-add-fg'] = chrome.additionFg;

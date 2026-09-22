@@ -8,6 +8,16 @@ export const CODE_VIEW_LAYOUT: CodeViewLayout = {
 };
 
 export const CODE_VIEW_CUSTOM_CSS = `
+::highlight(gitna-search) {
+  background-color: var(--gitna-search-match-bg);
+  color: var(--gitna-search-match-fg);
+}
+::highlight(gitna-search-active) {
+  background-color: var(--gitna-search-active-match-bg);
+  color: var(--gitna-search-match-fg);
+  text-decoration: underline;
+}
+
 [data-diffs-header] {
   container-type: scroll-state;
   container-name: sticky-header;

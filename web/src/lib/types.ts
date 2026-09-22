@@ -154,6 +154,27 @@ export interface FileSearchResults {
   complete: boolean
 }
 
+export interface ContentSearchMatch {
+  line: number
+  column: number
+  length: number
+  excerpt: string
+  matchStart: number
+  matchEnd: number
+}
+
+export interface ContentSearchFile {
+  path: string
+  matches: ContentSearchMatch[]
+}
+
+export interface ContentSearchResults {
+  generation: number
+  results: ContentSearchFile[]
+  complete: boolean
+  truncated: boolean
+}
+
 export interface Folder {
   path: string
   name: string

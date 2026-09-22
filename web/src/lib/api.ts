@@ -2,6 +2,7 @@ import type {
   Branch,
   CommitFiles,
   ConflictEntry,
+  ContentSearchResults,
   DirectoryEntries,
   DiffScope,
   FileDiff,
@@ -148,6 +149,18 @@ export interface ApiClient {
       signal?: AbortSignal
     },
   ): Promise<FileSearchResults>
+  searchContent?(
+    query: string,
+    options?: {
+      caseSensitive?: boolean
+      regex?: boolean
+      wholeWord?: boolean
+      includeIgnored?: boolean
+      include?: string
+      exclude?: string
+      signal?: AbortSignal
+    },
+  ): Promise<ContentSearchResults>
   readWorktreeFile(path: string): Promise<WorktreeFile>
   compareWorktreeFiles(leftPath: string, rightPath: string, signal?: AbortSignal): Promise<FileDiff>
   writeWorktreeFile(path: string, content: string, expectedHash: string): Promise<WorktreeFile>
@@ -310,6 +323,35 @@ export function createApi(): ApiClient {
         }),
       )
       return (await res.json()) as FileSearchResults
+    },
+    async searchContent(
+      query: string,
+      options: {
+        caseSensitive?: boolean
+        regex?: boolean
+        wholeWord?: boolean
+        includeIgnored?: boolean
+        include?: string
+        exclude?: string
+        signal?: AbortSignal
+      } = {},
+    ): Promise<ContentSearchResults> {
+      const params = new URLSearchParams({ q: query })
+      if (options.caseSensitive === true) params.set('case', '1')
+      if (options.regex === true) params.set('regex', '1')
+      if (options.wholeWord === true) params.set('word', '1')
+      if (options.includeIgnored === true) params.set('includeIgnored', '1')
+      if (options.include) params.set('include', options.include)
+      if (options.exclude) params.set('exclude', options.exclude)
+      const res = await expectOK(
+        await fetch(`api/v1/search/content?${params.toString()}`, {
+          signal:
+            options.signal == null
+              ? AbortSignal.timeout(FETCH_TIMEOUT)
+              : AbortSignal.any([options.signal, AbortSignal.timeout(FETCH_TIMEOUT)]),
+        }),
+      )
+      return (await res.json()) as ContentSearchResults
     },
     async readWorktreeFile(path: string): Promise<WorktreeFile> {
       const res = await expectOK(
