@@ -1,6 +1,7 @@
 package server
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -66,6 +67,39 @@ func worktreeRequest(t *testing.T, h http.Handler, method, path, body string) *h
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, req)
 	return rec
+}
+
+type fakeResourceRepo struct {
+	*fakeRepo
+	data []byte
+	path string
+}
+
+func (f *fakeResourceRepo) ReadWorktreeResource(_ context.Context, path string) ([]byte, error) {
+	f.path = path
+	return f.data, nil
+}
+
+func TestWorktreeResourceOnlyServesDetectedRasterImages(t *testing.T) {
+	png := []byte("\x89PNG\r\n\x1a\n" + strings.Repeat("\x00", 32))
+	repo := &fakeResourceRepo{fakeRepo: &fakeRepo{}, data: png}
+	h := newSnapshotServer(repo)
+	for _, method := range []string{http.MethodGet, http.MethodHead} {
+		response := worktreeRequest(t, h, method, "/content?path=docs%2Fimage.png", "")
+		if response.Code != http.StatusOK || repo.path != "docs/image.png" || response.Header().Get("Content-Type") != "image/png" || response.Header().Get("X-Content-Type-Options") != "nosniff" {
+			t.Fatalf("%s: status = %d, headers = %v, path = %q", method, response.Code, response.Header(), repo.path)
+		}
+		if method == http.MethodHead && response.Body.Len() != 0 || method == http.MethodGet && !bytes.Equal(response.Body.Bytes(), png) {
+			t.Fatalf("%s: unexpected body", method)
+		}
+	}
+	for _, data := range [][]byte{[]byte("<svg xmlns='http://www.w3.org/2000/svg'></svg>"), []byte("<script>alert(1)</script>")} {
+		repo.data = data
+		response := worktreeRequest(t, h, http.MethodGet, "/content?path=docs%2Fimage.png", "")
+		if response.Code != http.StatusUnsupportedMediaType {
+			t.Fatalf("unsafe content status = %d", response.Code)
+		}
+	}
 }
 
 func TestWorktreeFileRoutesReadAndWrite(t *testing.T) {

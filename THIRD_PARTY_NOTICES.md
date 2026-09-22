@@ -52,6 +52,8 @@ distributed unmodified.
 | `@pierre/trees` | `1.0.0-beta.6` + Gitna row-actions patch | `web/node_modules/@pierre/trees/LICENSE.md`; package metadata declares `apache-2.0` | `LICENSES/Apache-2.0.txt`, `web/patches/@pierre__trees@1.0.0-beta.6.patch`, and the `@pierre/trees` notice below. |
 | `@pierre/theme` | `2.0.0` | `web/node_modules/@pierre/theme/LICENSE`; package metadata declares `apache-2.0` | `LICENSES/Apache-2.0.txt` and the `@pierre/theme` notice below. |
 | `@pierre/theming` | `1.0.1` | `web/node_modules/@pierre/theming/LICENSE.md`; package metadata declares `apache-2.0` | `LICENSES/Apache-2.0.txt`; the package contains no NOTICE file. |
+| `react-markdown` | `10.1.0` | `web/node_modules/react-markdown/license`; package metadata declares `MIT` | `LICENSES/MIT.txt`; the package contains no NOTICE file. |
+| `remark-gfm` | `4.0.1` | `web/node_modules/remark-gfm/license`; package metadata declares `MIT` | `LICENSES/MIT.txt`; the package contains no NOTICE file. |
 
 The Apache-2.0 text shipped by the pinned DiffsHub app, `@pierre/icons`, and all
 five installed Pierre packages is byte-identical, so Gitna keeps one verbatim

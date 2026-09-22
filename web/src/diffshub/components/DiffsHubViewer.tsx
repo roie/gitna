@@ -22,10 +22,11 @@ import {
   type EditorType,
 } from '@pierre/diffs/edit';
 import { EditProvider, type CodeViewHandle, useStableCallback } from '@pierre/diffs/react';
-import { IconCheck, IconChevronSm } from '@pierre/icons';
+import { IconCheck, IconChevronSm, IconDiffSplit, IconEye } from '@pierre/icons';
 import {
   memo,
   type ComponentProps,
+  type ReactNode,
   type RefObject,
   useCallback,
   useEffect,
@@ -77,6 +78,8 @@ export interface GitnaEditorActions {
   onChange(path: string, file: FileContents): void;
   onOpenChange(scope: ChangeScope, path: string): void;
   onSave(path: string): void;
+  markdownMode?: 'editor' | 'preview' | 'split';
+  onMarkdownModeChange?(mode: 'editor' | 'preview' | 'split'): void;
 }
 
 export interface GitnaComparisonActions {
@@ -148,7 +151,7 @@ interface DiffsHubViewerProps {
   initialItems: CodeViewItem<CommentMetadata>[];
   loadDiffFiles?: FileDiffContentsLoader;
   onLineLinkChange(selection: CodeViewLineSelection | null): void;
-  onScroll?(): void;
+  onScroll?(scrollTop: number): void;
   onViewerReady(): void;
   onEditorReady?(): void;
   searchMatches?: readonly ContentSearchMatch[];
@@ -506,9 +509,7 @@ export const DiffsHubViewer = memo(function DiffsHubViewer({
         ? [{ metadata: annotation.metadata, side: 'side' in annotation ? annotation.side : undefined }]
         : []
     );
-    if (images == null || images.length === 0) {
-      return null;
-    }
+    if (images == null || images.length === 0) return null;
     const split = images.length > 1;
     const framed = item.type === 'diff';
     return (
@@ -665,7 +666,7 @@ export const DiffsHubViewer = memo(function DiffsHubViewer({
       getEditStateKey={(item) => `worktree:${item.id}`}
       onItemEditChange={gitnaEditorActions == null ? undefined : handleItemEditChange}
       onItemEditComplete={() => 'accept'}
-      onScroll={onScroll}
+      onScroll={(scrollTop) => onScroll?.(scrollTop)}
       style={annotationThemeStyle}
       selectedLines={commentsEnabled ? selectedLines : null}
       onSelectedLinesChange={handleSetSelection}
@@ -688,7 +689,7 @@ function createWorktreeEditor<EType extends EditorType>(
   return new Editor(editorType, options, editStateKey);
 }
 
-function FileHeaderAction({ className, ...props }: ComponentProps<typeof Button>) {
+export function FileHeaderAction({ className, ...props }: ComponentProps<typeof Button>) {
   return (
     <Button
       variant="ghost"
@@ -711,10 +712,49 @@ function WorktreeHeaderActions({
 }) {
   const dirty = actions.dirtyPaths.has(path);
   const recentlySaved = actions.recentlySavedPath === path;
+  const markdownMode = actions.markdownMode;
   const scopes = actions.changeScopes(path);
   const openChange = (scope: ChangeScope) => actions.onOpenChange(scope, path);
+  let saveLabel: ReactNode = 'Save';
+  if (dirty && actions.saving) saveLabel = 'Saving…';
+  else if (!dirty && recentlySaved) {
+    saveLabel = (
+      <span className="flex items-center gap-1" role="status">
+        <IconCheck className="size-3" />
+        Saved
+      </span>
+    );
+  }
   return (
     <span className="inline-flex items-center gap-0.5">
+      {markdownMode != null && actions.onMarkdownModeChange != null && (
+        <>
+          <FileHeaderAction
+            type="button"
+            aria-label="Open Markdown preview"
+            title="Open Markdown preview"
+            aria-pressed={markdownMode === 'preview'}
+            className={markdownMode === 'preview' ? 'bg-accent text-foreground' : undefined}
+            onClick={() =>
+              actions.onMarkdownModeChange?.(markdownMode === 'preview' ? 'editor' : 'preview')
+            }
+          >
+            <IconEye className="size-3" />
+          </FileHeaderAction>
+          <FileHeaderAction
+            type="button"
+            aria-label="Open Markdown preview to the side"
+            title="Open Markdown preview to the side"
+            aria-pressed={markdownMode === 'split'}
+            className={markdownMode === 'split' ? 'bg-accent text-foreground' : undefined}
+            onClick={() =>
+              actions.onMarkdownModeChange?.(markdownMode === 'split' ? 'editor' : 'split')
+            }
+          >
+            <IconDiffSplit className="size-3" />
+          </FileHeaderAction>
+        </>
+      )}
       {scopes.length === 1 && (
         <FileHeaderAction
           type="button"
@@ -751,20 +791,7 @@ function WorktreeHeaderActions({
         title={dirty ? actions.disabledReason ?? `Save ${path}` : undefined}
         onClick={() => actions.onSave(path)}
       >
-        {dirty ? (
-          actions.saving ? (
-            'Saving…'
-          ) : (
-            'Save'
-          )
-        ) : recentlySaved ? (
-          <span className="flex items-center gap-1" role="status">
-            <IconCheck className="size-3" />
-            Saved
-          </span>
-        ) : (
-          'Save'
-        )}
+        {saveLabel}
       </FileHeaderAction>
       {dirty && actions.disabledReason != null && (
         <span
@@ -920,15 +947,15 @@ function CollapseDiffButton({
   collapsed = false,
   onToggle,
 }: CollapseDiffButtonProps) {
+  let ariaLabel: string | undefined;
+  if (!disabled) ariaLabel = collapsed ? 'Expand diff' : 'Collapse diff';
   return (
     <button
       type="button"
       disabled={disabled}
       aria-expanded={!disabled && !collapsed}
       aria-hidden={disabled}
-      aria-label={
-        disabled ? undefined : collapsed ? 'Expand diff' : 'Collapse diff'
-      }
+      aria-label={ariaLabel}
       className="text-muted-foreground hover:bg-muted hover:text-foreground ml-[-8px] inline-flex size-6 cursor-pointer items-center justify-center rounded-md transition disabled:pointer-events-none disabled:opacity-50"
       onClick={(event) => {
         event.preventDefault();

@@ -18,7 +18,18 @@ import {
 import type { ColorMode } from '@pierre/theming'
 import { createFileTreeIconResolver, getBuiltInSpriteSheet } from '@pierre/trees'
 import { useThemeController } from '@pierre/theming/react'
-import { type ReactNode, type Ref, useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import {
+  Suspense,
+  lazy,
+  type CSSProperties,
+  type ReactNode,
+  type Ref,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react'
 
 import { DiffsHubHeader } from '../components/DiffsHubHeader'
 import {
@@ -55,6 +66,12 @@ import { Confirm } from './Modal'
 import { UntitledSaveAsModal } from './UntitledSaveAsModal'
 import { DirtyTabCloseModal } from './DirtyTabCloseModal'
 import { DraftRecoveryModal } from './DraftRecoveryModal'
+import type { MarkdownViewMode } from './MarkdownWorkbench'
+import {
+  scrollPreviewToSourceLine,
+  sourceLineAtEditorTop,
+  sourceLineAtPreviewTop,
+} from './markdownScroll'
 import {
   adaptGitnaFile,
   appendGitnaReviewPage,
@@ -70,6 +87,10 @@ import {
   useRepository,
   type RepositoryFileComparison,
 } from './repository'
+
+const MarkdownWorkbench = lazy(() =>
+  import('./MarkdownWorkbench').then(({ MarkdownWorkbench }) => ({ default: MarkdownWorkbench })),
+)
 
 interface ReviewTarget {
   comparison?: RepositoryFileComparison
@@ -363,7 +384,10 @@ function GitnaReviewUIInner() {
   const [showBackgrounds, setShowBackgrounds] = useState(true)
   const [diffIndicators, setDiffIndicators] = useState<DiffIndicators>('bars')
   const [lineNumbers, setLineNumbers] = useState(true)
+  const [markdownMode, setMarkdownMode] = useState<MarkdownViewMode>('editor')
+  const [previewHeaderHeight, setPreviewHeaderHeight] = useState(44)
   const [themesHydrated, setThemesHydrated] = useState(false)
+  useEffect(() => setMarkdownMode('editor'), [target?.filePath])
   const [loadState, setLoadState] = useState<ViewerLoadState>('fetching')
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
   const [reviewData, setReviewData] = useState<LoadedDiffsHubData | null>(null)
@@ -422,6 +446,13 @@ function GitnaReviewUIInner() {
     paths: string[]
   } | null>(null)
   const scrollRef = useRef<HTMLDivElement>(null)
+  const previewScrollRef = useRef<HTMLElement | null>(null)
+  const scrollOriginRef = useRef<'editor' | 'preview' | null>(null)
+  const scrollGuardTimerRef = useRef<number | null>(null)
+  const previousMarkdownModeRef = useRef(markdownMode)
+  useEffect(() => {
+    previousMarkdownModeRef.current = markdownMode
+  }, [markdownMode])
   const reviewRootRef = useRef<HTMLDivElement>(null)
   const homeButtonRef = useRef<HTMLButtonElement>(null)
   const restoreHomeFocusRef = useRef(false)
@@ -693,6 +724,7 @@ function GitnaReviewUIInner() {
           error instanceof ApiError &&
           (error.code === 'binary-file' || error.code === 'file-too-large')
         if (!unavailableTextFile) throw error
+        if (/\.(md|markdown|mdown|mkdn)$/i.test(path)) throw error
         if (!repository.snapshot?.repository) {
           if (!rasterImagePattern.test(path)) throw error
           const diff = await repository.api.compareWorktreeFiles(
@@ -876,12 +908,76 @@ function GitnaReviewUIInner() {
     void loadMoreReview(selectedPath)
   }, [loadMoreReview, reviewData, target?.selectedPath])
 
-  const handleReviewScroll = useCallback(() => {
+  const guardScroll = useCallback((origin: 'editor' | 'preview') => {
+    scrollOriginRef.current = origin
+    if (scrollGuardTimerRef.current != null) window.clearTimeout(scrollGuardTimerRef.current)
+    scrollGuardTimerRef.current = window.setTimeout(() => {
+      scrollOriginRef.current = null
+      scrollGuardTimerRef.current = null
+    }, 120)
+  }, [])
+
+  const syncPreviewFromEditor = useCallback(() => {
     const scroller = scrollRef.current
-    if (scroller == null) return
-    const remaining = scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight
-    if (remaining <= scroller.clientHeight) void loadMoreReview()
-  }, [loadMoreReview])
+    const preview = previewScrollRef.current
+    if (scroller == null || preview == null || scrollOriginRef.current === 'preview') return
+    const line = sourceLineAtEditorTop(scroller)
+    if (line == null) return
+    const before = preview.scrollTop
+    scrollPreviewToSourceLine(preview, line)
+    if (Math.abs(preview.scrollTop - before) > 1) guardScroll('editor')
+  }, [guardScroll])
+
+  const handlePreviewMount = useCallback(
+    (element: HTMLElement | null) => {
+      previewScrollRef.current = element
+      if (element == null || markdownMode !== 'split') return
+      if (previousMarkdownModeRef.current === 'preview' && target?.filePath != null) {
+        guardScroll('preview')
+        viewerRef.current?.scrollTo({
+          type: 'line',
+          id: target.filePath,
+          lineNumber: sourceLineAtPreviewTop(element) - 1,
+          align: 'start',
+        })
+      } else {
+        requestAnimationFrame(syncPreviewFromEditor)
+      }
+    },
+    [guardScroll, markdownMode, syncPreviewFromEditor, target?.filePath],
+  )
+
+  const handlePreviewScroll = useCallback(
+    (element: HTMLElement) => {
+      if (
+        markdownMode !== 'split' ||
+        scrollOriginRef.current === 'editor' ||
+        target?.filePath == null
+      )
+        return
+      guardScroll('preview')
+      viewerRef.current?.scrollTo({
+        type: 'line',
+        id: target.filePath,
+        lineNumber: sourceLineAtPreviewTop(element) - 1,
+        align: 'start',
+      })
+    },
+    [guardScroll, markdownMode, target?.filePath],
+  )
+
+  const handleReviewScroll = useCallback(
+    (scrollTop: number) => {
+      const scroller = scrollRef.current
+      if (scroller == null) return
+      const remaining = scroller.scrollHeight - scrollTop - scroller.clientHeight
+      if (remaining <= scroller.clientHeight) void loadMoreReview()
+      if (markdownMode === 'split' && scrollOriginRef.current !== 'preview') {
+        requestAnimationFrame(syncPreviewFromEditor)
+      }
+    },
+    [loadMoreReview, markdownMode, syncPreviewFromEditor],
+  )
 
   const selectedImageRequest = useMemo(
     () => imageDiffRequest(target, repository.snapshot?.repository === true),
@@ -996,6 +1092,66 @@ function GitnaReviewUIInner() {
 
   const viewerAvailable =
     workerReady && themesHydrated && loadState === 'ready' && reviewData != null
+
+  useEffect(() => {
+    if (
+      !viewerAvailable ||
+      reviewData.items.length === 0 ||
+      markdownMode === 'editor' ||
+      target?.filePath == null
+    )
+      return
+    let frame = 0
+    let resizeObserver: ResizeObserver | null = null
+    let mutationObserver: MutationObserver | null = null
+    let scroller: HTMLDivElement | null = null
+    let root: ShadowRoot | null = null
+    let update: (() => void) | null = null
+    const attach = () => {
+      scroller = scrollRef.current
+      const header = scroller
+        ?.querySelector('diffs-container')
+        ?.shadowRoot?.querySelector<HTMLElement>('[data-diffs-header]')
+      if (header == null || scroller == null) {
+        frame = requestAnimationFrame(attach)
+        return
+      }
+      const viewport = scroller
+      const shadowRoot = header.getRootNode() as ShadowRoot
+      root = shadowRoot
+      update = () =>
+        setPreviewHeaderHeight(
+          Math.max(0, header.getBoundingClientRect().bottom - viewport.getBoundingClientRect().top),
+        )
+      update()
+      resizeObserver = new ResizeObserver(update)
+      resizeObserver.observe(header)
+      resizeObserver.observe(viewport)
+      viewport.addEventListener('scroll', update)
+      if (markdownMode === 'preview') {
+        const hideEditor = () => {
+          for (const pre of shadowRoot.querySelectorAll<HTMLElement>('pre')) {
+            pre.inert = true
+            pre.setAttribute('aria-hidden', 'true')
+          }
+        }
+        hideEditor()
+        mutationObserver = new MutationObserver(hideEditor)
+        mutationObserver.observe(shadowRoot, { childList: true, subtree: true })
+      }
+    }
+    attach()
+    return () => {
+      cancelAnimationFrame(frame)
+      resizeObserver?.disconnect()
+      mutationObserver?.disconnect()
+      if (update != null) scroller?.removeEventListener('scroll', update)
+      for (const pre of root?.querySelectorAll<HTMLElement>('pre') ?? []) {
+        pre.inert = false
+        pre.removeAttribute('aria-hidden')
+      }
+    }
+  }, [viewerAvailable, reviewData?.items.length, markdownMode, target?.filePath])
 
   useEffect(() => {
     if (!viewerAvailable || imageDiff == null || selectedImageRequest == null) return
@@ -1365,6 +1521,16 @@ function GitnaReviewUIInner() {
     },
     [repository, saveWorktreeFile],
   )
+  const markdownPath =
+    target?.filePath != null && /\.(md|markdown|mdown|mkdn)$/i.test(target.filePath)
+      ? target.filePath
+      : null
+  const markdownValue =
+    markdownPath == null
+      ? null
+      : (worktreeDrafts.get(markdownPath)?.contents ??
+        worktreeFiles.get(markdownPath)?.content ??
+        null)
   const gitnaEditorActions: GitnaEditorActions | undefined =
     target?.filePath != null && worktreeFiles.has(target.filePath)
       ? {
@@ -1385,6 +1551,7 @@ function GitnaReviewUIInner() {
           onChange: handleWorktreeEditChange,
           onOpenChange: (scope, path) => repository.select(scope, path),
           onSave: requestSave,
+          ...(markdownPath == null ? {} : { markdownMode, onMarkdownModeChange: setMarkdownMode }),
         }
       : undefined
 
@@ -1542,6 +1709,37 @@ function GitnaReviewUIInner() {
       },
     ]
 
+    if (markdownPath != null) {
+      commands.push(
+        {
+          id: 'markdown-preview',
+          icon: <IconDiffSplit />,
+          label: 'Markdown: Open Preview',
+          description: 'Show the rendered Markdown in the current pane',
+          keywords: 'markdown preview render',
+          run: () => setMarkdownMode('preview'),
+        },
+        {
+          id: 'markdown-preview-side',
+          icon: <IconDiffSplit />,
+          label: 'Markdown: Open Preview to the Side',
+          description: 'Keep the editor open beside the rendered preview',
+          keywords: 'markdown preview split side',
+          run: () => setMarkdownMode('split'),
+        },
+      )
+      if (markdownMode !== 'editor') {
+        commands.push({
+          id: 'markdown-close-preview',
+          icon: <IconX />,
+          label: 'Markdown: Close Preview',
+          description: 'Return to the Markdown editor',
+          keywords: 'markdown preview close editor',
+          run: () => setMarkdownMode('editor'),
+        })
+      }
+    }
+
     const currentPath =
       target?.filePath ??
       (target?.request?.scope === 'staged' || target?.request?.scope === 'unstaged'
@@ -1635,6 +1833,8 @@ function GitnaReviewUIInner() {
     colorMode,
     diffStyle,
     fileTreeOverlayOpen,
+    markdownMode,
+    markdownPath,
     mobileViewport,
     openHome,
     repository,
@@ -1778,37 +1978,103 @@ function GitnaReviewUIInner() {
                   (loadState === 'ready' && reviewData != null && reviewData.items.length === 0) ? (
                   <GitnaEmptyState scope={target?.request?.scope} />
                 ) : viewerAvailable && reviewData != null ? (
-                  <DiffsHubViewer
-                    className="code-view h-full"
-                    commentsEnabled={false}
-                    diffStyle={diffStyle}
-                    overflow={overflow}
-                    showBackgrounds={showBackgrounds}
-                    diffIndicators={diffIndicators}
-                    lineNumbers={lineNumbers}
-                    scrollRef={scrollRef}
-                    themeType={colorMode}
-                    viewerRef={viewerRef}
-                    initialItems={reviewData.items}
-                    gitnaActions={gitnaActions}
-                    gitnaComparisonActions={gitnaComparisonActions}
-                    gitnaEditorActions={gitnaEditorActions}
-                    gitnaOpenFileAction={gitnaOpenFileAction}
-                    onCommentDeleted={() => {}}
-                    onCommentSaved={() => {}}
-                    onLineLinkChange={handleLineLinkChange}
-                    onScroll={handleReviewScroll}
-                    onViewerReady={handleViewerReady}
-                    onEditorReady={handleEditorReady}
-                    searchMatches={
-                      sidebarMode === 'search'
-                        ? searchResults.find((file) => file.path === target?.filePath)?.matches
-                        : undefined
+                  <div
+                    className={cn(
+                      'relative h-full min-h-0',
+                      markdownPath != null && 'markdown-file-view',
+                      markdownPath != null && markdownMode === 'preview' && 'markdown-preview-open',
+                      markdownPath != null &&
+                        markdownMode === 'split' &&
+                        'markdown-split-view grid grid-cols-2 max-[700px]:grid-cols-1 max-[700px]:grid-rows-2',
+                    )}
+                    style={
+                      { '--markdown-header-height': `${previewHeaderHeight}px` } as CSSProperties
                     }
-                    activeSearchMatch={
-                      activeSearchMatch?.path === target?.filePath ? activeSearchMatch : undefined
-                    }
-                  />
+                  >
+                    <div className="h-full min-h-0">
+                      <DiffsHubViewer
+                        className="code-view h-full"
+                        commentsEnabled={false}
+                        diffStyle={diffStyle}
+                        overflow={overflow}
+                        showBackgrounds={showBackgrounds}
+                        diffIndicators={diffIndicators}
+                        lineNumbers={lineNumbers}
+                        scrollRef={scrollRef}
+                        themeType={colorMode}
+                        viewerRef={viewerRef}
+                        initialItems={reviewData.items}
+                        gitnaActions={gitnaActions}
+                        gitnaComparisonActions={gitnaComparisonActions}
+                        gitnaEditorActions={gitnaEditorActions}
+                        gitnaOpenFileAction={gitnaOpenFileAction}
+                        onCommentDeleted={() => {}}
+                        onCommentSaved={() => {}}
+                        onLineLinkChange={handleLineLinkChange}
+                        onScroll={handleReviewScroll}
+                        onViewerReady={handleViewerReady}
+                        onEditorReady={handleEditorReady}
+                        searchMatches={
+                          sidebarMode === 'search'
+                            ? searchResults.find((file) => file.path === target?.filePath)?.matches
+                            : undefined
+                        }
+                        activeSearchMatch={
+                          activeSearchMatch?.path === target?.filePath
+                            ? activeSearchMatch
+                            : undefined
+                        }
+                      />
+                    </div>
+                    {markdownPath != null && markdownMode !== 'editor' && (
+                      <div
+                        className={cn(
+                          'flex min-h-0 flex-col bg-background',
+                          markdownMode === 'preview'
+                            ? 'absolute inset-x-0 bottom-0 z-10'
+                            : 'h-full border-l border-border max-[700px]:border-l-0 max-[700px]:border-t',
+                        )}
+                        style={
+                          markdownMode === 'preview' ? { top: previewHeaderHeight } : undefined
+                        }
+                      >
+                        {markdownMode === 'split' && (
+                          <div
+                            className="flex shrink-0 items-center border-b border-border px-4 text-xs text-muted-foreground"
+                            style={{ height: previewHeaderHeight }}
+                          >
+                            Preview
+                          </div>
+                        )}
+                        <div className="min-h-0 flex-1">
+                          <Suspense
+                            fallback={
+                              <div className="p-4 text-sm" role="status">
+                                Loading preview…
+                              </div>
+                            }
+                          >
+                            <MarkdownWorkbench
+                              key={markdownPath}
+                              scrollRef={handlePreviewMount}
+                              onScroll={handlePreviewScroll}
+                              onOpenPath={(path) => {
+                                void repository
+                                  .openRepositoryFile(path, true)
+                                  .catch((error: unknown) =>
+                                    setReviewActionError(
+                                      error instanceof Error ? error.message : String(error),
+                                    ),
+                                  )
+                              }}
+                              path={markdownPath}
+                              value={markdownValue}
+                            />
+                          </Suspense>
+                        </div>
+                      </div>
+                    )}
+                  </div>
                 ) : (
                   <div className="grid h-full min-h-0 [&>*]:h-full">
                     <DiffsHubStatusPanel

@@ -11,6 +11,31 @@ import (
 	"github.com/roie/gitna/internal/protocol"
 )
 
+func TestReadWorktreeResourceStaysInsideRepository(t *testing.T) {
+	root := initTestRepo(t)
+	repo := Repository{Root: root}
+	image := []byte("\x89PNG\r\n\x1a\nimage")
+	if err := os.WriteFile(filepath.Join(root, "picture.png"), image, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	outside := filepath.Join(t.TempDir(), "secret.png")
+	if err := os.WriteFile(outside, image, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(outside, filepath.Join(root, "link.png")); err != nil {
+		t.Fatal(err)
+	}
+	data, err := repo.ReadWorktreeResource(context.Background(), "picture.png")
+	if err != nil || string(data) != string(image) {
+		t.Fatalf("image = %q, error = %v", data, err)
+	}
+	for _, path := range []string{"../secret.png", ".git/config", "link.png"} {
+		if _, err := repo.ReadWorktreeResource(context.Background(), path); !errors.Is(err, protocol.ErrInvalidPath) {
+			t.Fatalf("%q: error = %v, want ErrInvalidPath", path, err)
+		}
+	}
+}
+
 func TestWorktreeFileReadWriteAndConflict(t *testing.T) {
 	root := initTestRepo(t)
 	path := filepath.Join(root, "notes.txt")

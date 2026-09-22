@@ -296,6 +296,22 @@
   height: 12px;
 }
 
+/* The Markdown file header is outside the document scroll area in every mode. */
+.markdown-file-view .code-view.cv-scrollbar::-webkit-scrollbar-track {
+  margin-top: var(--markdown-header-height, 44px);
+}
+
+/* Preview owns the one visible track in Preview and Split; the editor stays scrollable. */
+.markdown-preview-open .code-view.cv-scrollbar,
+.markdown-split-view .code-view.cv-scrollbar {
+  scrollbar-width: none;
+}
+
+.markdown-preview-open .code-view.cv-scrollbar::-webkit-scrollbar,
+.markdown-split-view .code-view.cv-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+
 .cv-scrollbar::-webkit-scrollbar-track {
   /* Themed editor surface so the gutter isn't a dark band beside the diff;
      transparent fallback keeps default behavior. */
@@ -441,3 +457,31 @@
   @apply md:p-0 md:opacity-100 md:transition-none;
   @apply md:sticky md:top-22 md:max-h-[calc(100vh_-_112px)];
 }
+
+.markdown-preview {
+  color: var(--foreground);
+  line-height: 1.7;
+  overflow-wrap: anywhere;
+}
+
+.markdown-preview :where(h1, h2, h3, h4) {
+  margin: 1.5rem 0 0.65rem;
+  font-weight: 650;
+  line-height: 1.25;
+}
+
+.markdown-preview :where(h1) { font-size: 1.8rem; }
+.markdown-preview :where(h2) { font-size: 1.4rem; }
+.markdown-preview :where(h3) { font-size: 1.15rem; }
+.markdown-preview :where(p, ul, ol, blockquote, pre, table) { margin: 0.8rem 0; }
+.markdown-preview :where(ul, ol) { padding-left: 1.5rem; }
+.markdown-preview :where(ul) { list-style: disc; }
+.markdown-preview :where(ol) { list-style: decimal; }
+.markdown-preview :where(a) { color: var(--primary); text-decoration: underline; text-underline-offset: 2px; }
+.markdown-preview :where(code) { border-radius: 0.25rem; background: var(--muted); padding: 0.1rem 0.3rem; font-family: var(--font-geist-mono); font-size: 0.9em; }
+.markdown-preview :where(pre) { overflow: auto; border: 1px solid var(--border); border-radius: 0.5rem; padding: 1rem; background: var(--muted); }
+.markdown-preview :where(pre code) { padding: 0; background: transparent; }
+.markdown-preview :where(blockquote) { margin-inline: 0; padding: 0.6rem 1rem; border-radius: 0.35rem; background: var(--muted); color: var(--muted-foreground); }
+.markdown-preview :where(table) { width: 100%; border-collapse: collapse; }
+.markdown-preview :where(th, td) { border: 1px solid var(--border); padding: 0.45rem 0.65rem; text-align: left; }
+.markdown-preview :where(img) { max-width: 100%; height: auto; border-radius: 0.4rem; }
