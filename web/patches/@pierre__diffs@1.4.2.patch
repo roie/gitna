@@ -275,6 +275,9 @@ diff --git a/dist/react/CodeView.js b/dist/react/CodeView.js
 index 84c7915d9bd1f9664010966370f60649a7a5d67e..d13e9e78fd344f36da874d7ee64b72455ae4d57e 100644
 --- a/dist/react/CodeView.js
 +++ b/dist/react/CodeView.js
+@@ -27,1 +27,1 @@ function CodeViewInner(props, ref) {
+-	const { className, containerRef, disableWorkerPool = false, editorOptions, getEditStateKey, initialItems, items: controlledItems, onItemEditChange, onItemEditComplete, onScroll, onSelectedLinesChange, options, renderAnnotation, renderCodeViewFooter, renderCodeViewHeader, renderCustomHeader, renderGutterUtility, renderHeaderFilenameSuffix, renderHeaderMetadata, renderHeaderPrefix, selectedLines, style } = props;
++	const { className, containerRef, disableWorkerPool = false, editorOptions, getEditStateKey, initialItems, items: controlledItems, onItemEditChange, onItemEditComplete, onScroll, onSelectedLinesChange, options, renderAnnotation, renderBody, renderCodeViewFooter, renderCodeViewHeader, renderCustomHeader, renderGutterUtility, renderHeaderFilenameSuffix, renderHeaderMetadata, renderHeaderPrefix, selectedLines, style } = props;
 @@ -31,6 +31,7 @@ function CodeViewInner(props, ref) {
  	const cachedDataRef = useRef(createDefaultCache(controlled));
  	const hasCustomHeader = renderCustomHeader != null;
