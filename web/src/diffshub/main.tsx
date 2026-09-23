@@ -1,11 +1,15 @@
+import { lazy, Suspense } from 'react'
 import { createRoot } from 'react-dom/client'
 
 import { PreloadHighlighter } from './components/PreloadHighlighter'
 import { ScrollbarGutterVariables } from './components/ScrollbarGutterVariables'
 import { ThemeProvider } from './components/ThemeProvider'
 import { WorkerPoolContext } from './components/WorkerPoolContext'
-import { GitnaReviewUI } from './gitna/GitnaReviewUI'
 import { RepositoryProvider } from './gitna/repository'
+
+const GitnaReviewUI = lazy(() =>
+  import('./gitna/GitnaReviewUI').then(({ GitnaReviewUI }) => ({ default: GitnaReviewUI })),
+)
 import './vite/fonts.css'
 import './globals.css'
 
@@ -16,7 +20,9 @@ function App() {
       <WorkerPoolContext>
         <ThemeProvider attribute="class">
           <RepositoryProvider>
-            <GitnaReviewUI />
+            <Suspense fallback={null}>
+              <GitnaReviewUI />
+            </Suspense>
           </RepositoryProvider>
           <div id="dark-mode-portal-container" className="dark" data-theme="dark" />
           <div id="light-mode-portal-container" className="light" data-theme="light" />
