@@ -22,5 +22,9 @@ export default defineConfig({
   build: {
     outDir: '../internal/webui/dist',
     emptyOutDir: true,
+    // Pierre's Shiki runtime and its dedicated worker are intentionally
+    // shipped as self-contained chunks; splitting them would add runtime
+    // requests without reducing the initial review payload.
+    chunkSizeWarningLimit: 2000,
   },
 })
