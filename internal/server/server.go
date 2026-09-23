@@ -82,6 +82,8 @@ type Options struct {
 	Host string
 	// Repo supplies repository state. When nil, snapshot routes return 503.
 	Repo Repo
+	// PDFPreviews serves file-scoped PDFs on a separate, unprivileged origin.
+	PDFPreviews *PDFPreviews
 	// Drafts stores bounded local recovery records. When nil, draft routes return 503.
 	Drafts *drafts.Journal
 	// DraftFolderKey scopes draft records to the active folder capability.
@@ -112,6 +114,7 @@ type Server struct {
 	api                http.Handler
 	security           Security
 	repo               Repo
+	pdfPreviews        *PDFPreviews
 	drafts             *drafts.Journal
 	draftFolderKey     string
 	hub                *eventsHub
@@ -137,6 +140,7 @@ func New(staticFS fs.FS, opts Options) (*Server, error) {
 		static:             staticFS,
 		version:            version,
 		repo:               opts.Repo,
+		pdfPreviews:        opts.PDFPreviews,
 		drafts:             opts.Drafts,
 		draftFolderKey:     opts.DraftFolderKey,
 		openFolder:         opts.OpenFolder,
@@ -147,6 +151,9 @@ func New(staticFS fs.FS, opts Options) (*Server, error) {
 			Token: opts.Token,
 			Host:  opts.Host,
 		},
+	}
+	if opts.PDFPreviews != nil {
+		s.security.PDFOrigin = opts.PDFPreviews.Origin()
 	}
 	// Generation identifies known repository state. Reads keep it stable;
 	// successful mutations and watcher invalidations advance it.

@@ -11,6 +11,7 @@ test('long Markdown scrolls in preview and editor after switching modes', async 
     ).join('\n'),
   )
   await page.goto(app.url)
+  await expect(page.getByRole('button', { name: 'Open command palette' })).toBeVisible()
   await page.keyboard.press('Control+Shift+f')
   const search = page.getByRole('region', { name: 'Find in Files' })
   await search.getByRole('textbox', { name: 'Search files', exact: true }).fill('ScrollSection0')
@@ -149,6 +150,7 @@ test('Markdown preview follows the live editor and keeps its undo state across m
     ),
   )
   await page.goto(app.url)
+  await expect(page.getByRole('button', { name: 'Open command palette' })).toBeVisible()
   await page.keyboard.press('Control+Shift+f')
   const search = page.getByRole('region', { name: 'Find in Files' })
   await search

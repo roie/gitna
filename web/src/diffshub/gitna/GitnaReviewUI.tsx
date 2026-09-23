@@ -67,6 +67,7 @@ import { UntitledSaveAsModal } from './UntitledSaveAsModal'
 import { DirtyTabCloseModal } from './DirtyTabCloseModal'
 import { DraftRecoveryModal } from './DraftRecoveryModal'
 import type { MarkdownViewMode } from './MarkdownWorkbench'
+import { NativeMediaPreview, nativeMediaKind } from './NativeMediaPreview'
 import {
   scrollPreviewToSourceLine,
   sourceLineAtEditorTop,
@@ -670,6 +671,15 @@ function GitnaReviewUIInner() {
       setReviewData(null)
       setErrorMessage(null)
       setLoadState(repository.snapshot?.repository === false ? 'ready' : 'fetching')
+      return
+    }
+    if (target.filePath != null && nativeMediaKind(target.filePath) != null) {
+      reviewDataRef.current = null
+      renderedTargetKeyRef.current = null
+      reviewPagingRef.current = null
+      setReviewData(null)
+      setErrorMessage(null)
+      setLoadState('ready')
       return
     }
     let active = true
@@ -1972,7 +1982,12 @@ function GitnaReviewUIInner() {
             <div className="flex min-h-0 flex-col [grid-area:viewer]">
               <RepositoryFileTabs dirtyPaths={dirtyPaths} onClose={closeRepositoryFiles} />
               <div className="min-h-0 flex-1">
-                {repository.snapshot?.repository === false && target == null ? (
+                {target?.filePath != null && nativeMediaKind(target.filePath) != null ? (
+                  <NativeMediaPreview
+                    key={`${repository.snapshot?.root}:${target.filePath}`}
+                    path={target.filePath}
+                  />
+                ) : repository.snapshot?.repository === false && target == null ? (
                   <FolderEmptyState />
                 ) : scopeKnownEmpty ||
                   (loadState === 'ready' && reviewData != null && reviewData.items.length === 0) ? (

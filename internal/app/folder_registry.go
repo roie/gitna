@@ -32,6 +32,7 @@ type folderRegistryOptions struct {
 	openFolder    func(context.Context, string) (gitx.Repository, error)
 	newWatcher    folderWatcherFactory
 	drafts        *drafts.Journal
+	pdfPreviews   *server.PDFPreviews
 }
 
 type folderRoute struct {
@@ -70,6 +71,7 @@ type folderRegistry struct {
 	resolveFolder func(context.Context, string) (gitx.Repository, error)
 	newWatcher    folderWatcherFactory
 	drafts        *drafts.Journal
+	pdfPreviews   *server.PDFPreviews
 	closing       atomic.Bool
 	closeOnce     sync.Once
 	closeErr      error
@@ -115,6 +117,7 @@ func newFolderRegistry(
 		if options[0].drafts != nil {
 			config.drafts = options[0].drafts
 		}
+		config.pdfPreviews = options[0].pdfPreviews
 	}
 	staticServer, err := server.New(static, server.Options{Version: version})
 	if err != nil {
@@ -133,6 +136,7 @@ func newFolderRegistry(
 		resolveFolder: config.openFolder,
 		newWatcher:    config.newWatcher,
 		drafts:        config.drafts,
+		pdfPreviews:   config.pdfPreviews,
 		byRoot:        make(map[string]string),
 		byRoute:       make(map[string]*folderRoute),
 	}
@@ -262,6 +266,7 @@ func (r *folderRegistry) createBackend(
 	srv, err := server.New(r.static, server.Options{
 		Version:                   r.version,
 		Repo:                      session.adapter,
+		PDFPreviews:               r.pdfPreviews,
 		Drafts:                    r.drafts,
 		DraftFolderKey:            repo.Root,
 		Events:                    session.events,

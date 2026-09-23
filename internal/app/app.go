@@ -120,6 +120,10 @@ func (a *repoAdapter) SearchFiles(
 	return a.searchFiles(ctx, query, recentPaths, includeIgnored, limit)
 }
 
+func (a *repoAdapter) OpenWorktreeMedia(ctx context.Context, path string) (*os.File, error) {
+	return a.current().OpenWorktreeMedia(ctx, path)
+}
+
 func (a *repoAdapter) ReadWorktreeResource(ctx context.Context, path string) ([]byte, error) {
 	return a.current().ReadWorktreeResource(ctx, path)
 }
@@ -469,6 +473,7 @@ func Run(ctx context.Context, path, version string) error {
 		return fmt.Errorf("app: listen: %w", err)
 	}
 
+	defer ln.Close()
 	tcpAddr, ok := ln.Addr().(*net.TCPAddr)
 	if !ok {
 		return fmt.Errorf("app: unexpected listener address %T", ln.Addr())
@@ -479,6 +484,13 @@ func Run(ctx context.Context, path, version string) error {
 		return fmt.Errorf("app: %w", err)
 	}
 	host := fmt.Sprintf("127.0.0.1:%d", tcpAddr.Port)
+	pdfListener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		return fmt.Errorf("app: PDF listener: %w", err)
+	}
+	defer pdfListener.Close()
+	pdfPreviews := server.NewPDFPreviews(pdfListener.Addr().String(), "http://"+host)
+	defer pdfPreviews.Close()
 
 	staticFS, err := webui.Assets()
 	if err != nil {
@@ -506,6 +518,7 @@ func Run(ctx context.Context, path, version string) error {
 		folderRegistryOptions{
 			dormancyGrace: defaultFolderDormancyGrace,
 			drafts:        draftJournal,
+			pdfPreviews:   pdfPreviews,
 		},
 	)
 	if err != nil {
@@ -516,8 +529,9 @@ func Run(ctx context.Context, path, version string) error {
 	url := fmt.Sprintf("http://%s%s", host, registry.initialHref())
 	httpSrv := &http.Server{
 		Handler: server.Security{
-			Token: token,
-			Host:  host,
+			Token:     token,
+			Host:      host,
+			PDFOrigin: pdfPreviews.Origin(),
 		}.Wrap(registry),
 		ReadHeaderTimeout: 5 * time.Second,
 		ReadTimeout:       30 * time.Second,
@@ -525,8 +539,18 @@ func Run(ctx context.Context, path, version string) error {
 		MaxHeaderBytes:    16 << 10,
 	}
 
-	errCh := make(chan error, 1)
+	defer httpSrv.Close()
+	pdfHTTP := &http.Server{
+		Handler:           pdfPreviews,
+		ReadHeaderTimeout: 5 * time.Second,
+		ReadTimeout:       30 * time.Second,
+		IdleTimeout:       2 * time.Minute,
+		MaxHeaderBytes:    16 << 10,
+	}
+	defer pdfHTTP.Close()
+	errCh := make(chan error, 2)
 	go func() { errCh <- httpSrv.Serve(ln) }()
+	go func() { errCh <- pdfHTTP.Serve(pdfListener) }()
 
 	fmt.Printf("Gitna %s\n", version)
 	fmt.Printf("Folder      %s\n", repo.Root)
@@ -544,7 +568,8 @@ func Run(ctx context.Context, path, version string) error {
 	case err := <-errCh:
 		return fmt.Errorf("app: server: %w", err)
 	case <-ctx.Done():
+		pdfPreviews.Close()
 		registryErr := registry.close()
-		return errors.Join(registryErr, shutdownServer(httpSrv, 5*time.Second))
+		return errors.Join(registryErr, shutdownServer(httpSrv, 5*time.Second), shutdownServer(pdfHTTP, 5*time.Second))
 	}
 }

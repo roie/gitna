@@ -24,6 +24,8 @@ type Security struct {
 	// Host is the only permitted Host header value, derived from the loopback
 	// listener address, e.g. "127.0.0.1:PORT".
 	Host string
+	// PDFOrigin is the process-owned, PDF-only loopback origin.
+	PDFOrigin string
 }
 
 // Wrap returns a handler that enforces the security model around next. next
@@ -31,6 +33,9 @@ type Security struct {
 func (s Security) Wrap(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		setSecurityHeaders(w)
+		if s.PDFOrigin != "" {
+			w.Header().Set("Content-Security-Policy", w.Header().Get("Content-Security-Policy")+"; frame-src 'self' "+s.PDFOrigin)
+		}
 
 		if s.Token == "" {
 			http.NotFound(w, r)

@@ -53,6 +53,7 @@ Folders backed by Git automatically gain source control, history, branches, stas
 - Press `Cmd/Ctrl+K` to search every indexed file, or type `>` to run commands from the unified command palette
 - Review staged and unstaged changes with Pierre-powered split or unified diffs
 - Preview PNG, JPEG, WebP, and GIF changes alongside text diffs
+- Preview PDFs and play supported audio and video with browser-native controls and a download fallback
 - Browse and edit working-tree files in repository tabs
 - Select two Explorer files with `Cmd/Ctrl`-click, then right-click and choose **Compare Selected**
 - Stage and unstage files, folders, or individual hunks
@@ -61,6 +62,8 @@ Folders backed by Git automatically gain source control, history, branches, stas
 - Browse branches, tags, stashes, and commit history
 - Fetch, pull, push, compare, merge, rebase, cherry-pick, and revert
 - Resolve conflicts with explicit ours, theirs, or combined content
+
+PDF previews retain the browser's normal document scripts and forms. Preview support depends on your browser; downloading remains available.
 
 ## Install
 

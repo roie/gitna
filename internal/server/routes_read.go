@@ -41,6 +41,10 @@ func (s *Server) apiRoutes() http.Handler {
 			s.handleFileSearch(w, r)
 		case r.Method == http.MethodGet && p == "/search/content":
 			s.handleContentSearch(w, r)
+		case p == "/pdf-preview":
+			s.handlePDFPreview(w, r)
+		case (r.Method == http.MethodGet || r.Method == http.MethodHead) && p == "/media":
+			s.handleWorktreeMedia(w, r)
 		case (r.Method == http.MethodGet || r.Method == http.MethodHead) && p == "/content":
 			s.handleReadWorktreeResource(w, r)
 		case r.Method == http.MethodGet && p == "/worktree/file":
