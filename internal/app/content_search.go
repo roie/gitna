@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+	"sync"
 	"unicode"
 	"unicode/utf8"
 
@@ -28,6 +29,12 @@ func (a *repoAdapter) SearchContent(ctx context.Context, query string, caseSensi
 	}
 	if limit <= 0 || limit > contentSearchMatchLimit {
 		limit = contentSearchMatchLimit
+	}
+	// ASCII literals can cheaply reject ASCII lines before Unicode-aware matching.
+	// Non-ASCII lines still use regexp's SimpleFold semantics (for example ſ/s).
+	foldedLiteral := ""
+	if !useRegex && !caseSensitive && isASCII(query) {
+		foldedLiteral = strings.ToLower(query)
 	}
 	pattern := query
 	if !useRegex {
@@ -57,31 +64,26 @@ func (a *repoAdapter) SearchContent(ctx context.Context, query string, caseSensi
 	defer root.Close()
 	include = strings.TrimSpace(include)
 	exclude = strings.TrimSpace(exclude)
-	results := make([]protocol.ContentSearchFile, 0, 32)
-	matchCount := 0
-	err = scanFolderSearchIndex(ctx, indexPath, publishedSize, func(path string, ignored bool) error {
-		if ignored && !includeIgnored || !matchesSearchPath(path, include, exclude) {
-			return nil
-		}
+	scanFile := func(path string, reader *bufio.Reader) ([]protocol.ContentSearchMatch, error) {
 		local, err := filepath.Localize(path)
 		if err != nil {
-			return nil
+			return nil, nil
 		}
 		file, err := root.Open(local)
 		if err != nil {
-			return nil
+			return nil, nil
 		}
 		defer file.Close()
 		info, err := file.Stat()
 		if err != nil || info.IsDir() || info.Size() > contentSearchFileLimit {
-			return nil
+			return nil, nil
 		}
-		reader := bufio.NewReaderSize(file, 32<<10)
+		reader.Reset(file)
 		lineNumber := 0
-		fileMatches := make([]protocol.ContentSearchMatch, 0, 4)
+		var matches []protocol.ContentSearchMatch
 		for {
 			if err := ctx.Err(); err != nil {
-				return err
+				return nil, err
 			}
 			line, readErr := reader.ReadString('\n')
 			lineNumber++
@@ -93,33 +95,102 @@ func (a *repoAdapter) SearchContent(ctx context.Context, query string, caseSensi
 				continue
 			}
 			if strings.IndexByte(line, 0) >= 0 || !utf8.ValidString(line) {
-				return nil
+				return nil, nil
 			}
-			for _, match := range expression.FindAllStringIndex(line, -1) {
-				if wholeWord && !contentSearchWordBoundary(line, match[0], match[1]) {
-					continue
+			mayMatch := useRegex || !caseSensitive || strings.Contains(line, query)
+			if foldedLiteral != "" && isASCII(line) {
+				mayMatch = strings.Contains(strings.ToLower(line), foldedLiteral)
+			}
+			if mayMatch {
+				for _, match := range expression.FindAllStringIndex(line, -1) {
+					if wholeWord && !contentSearchWordBoundary(line, match[0], match[1]) {
+						continue
+					}
+					matches = append(matches, contentSearchExcerpt(line, lineNumber, match[0], match[1]))
+					if len(matches) >= limit {
+						break
+					}
 				}
-				fileMatches = append(fileMatches, contentSearchExcerpt(line, lineNumber, match[0], match[1]))
-				matchCount++
-				if matchCount >= limit {
-					break
-				}
 			}
-			if matchCount >= limit {
-				break
-			}
-			if errors.Is(readErr, os.ErrClosed) || readErr != nil {
+			if len(matches) >= limit || readErr != nil {
 				break
 			}
 		}
-		if len(fileMatches) > 0 {
-			results = append(results, protocol.ContentSearchFile{Path: path, Matches: fileMatches})
+		return matches, nil
+	}
+
+	// Keep only four files in flight and collect in index order, so parallel I/O
+	// does not change which matches survive the global result limit.
+	type fileResult struct {
+		matches []protocol.ContentSearchMatch
+		err     error
+	}
+	type fileJob struct {
+		path  string
+		reply chan fileResult
+	}
+	ctx, cancel := context.WithCancel(ctx)
+	jobs := make(chan fileJob, 4)
+	var workers sync.WaitGroup
+	for range 4 {
+		workers.Go(func() {
+			reader := bufio.NewReaderSize(nil, 32<<10)
+			for job := range jobs {
+				matches, err := scanFile(job.path, reader)
+				job.reply <- fileResult{matches: matches, err: err}
+			}
+		})
+	}
+	defer func() {
+		cancel()
+		close(jobs)
+		workers.Wait()
+	}()
+
+	results := make([]protocol.ContentSearchFile, 0, 32)
+	matchCount := 0
+	pending := make([]fileJob, 0, 4)
+	collect := func() error {
+		job := pending[0]
+		pending = pending[1:]
+		var result fileResult
+		select {
+		case result = <-job.reply:
+		case <-ctx.Done():
+			return ctx.Err()
+		}
+		if result.err != nil {
+			return result.err
+		}
+		matches := result.matches[:min(len(result.matches), limit-matchCount)]
+		if len(matches) > 0 {
+			results = append(results, protocol.ContentSearchFile{Path: job.path, Matches: matches})
+			matchCount += len(matches)
 		}
 		if matchCount >= limit {
 			return errSearchLimit
 		}
 		return nil
+	}
+	err = scanFolderSearchIndex(ctx, indexPath, publishedSize, func(path string, ignored bool) error {
+		if ignored && !includeIgnored || !matchesSearchPath(path, include, exclude) {
+			return nil
+		}
+		job := fileJob{path: path, reply: make(chan fileResult, 1)}
+		select {
+		case jobs <- job:
+		case <-ctx.Done():
+			return ctx.Err()
+		}
+		pending = append(pending, job)
+		if len(pending) == 4 {
+			return collect()
+		}
+		return nil
 	})
+	for err == nil && len(pending) > 0 {
+		err = collect()
+	}
 	truncated := errors.Is(err, errSearchLimit)
 	if err != nil && !truncated {
 		return protocol.ContentSearchResults{}, err
@@ -128,6 +199,15 @@ func (a *repoAdapter) SearchContent(ctx context.Context, query string, caseSensi
 }
 
 var errSearchLimit = errors.New("content search limit reached")
+
+func isASCII(value string) bool {
+	for i := range len(value) {
+		if value[i] >= utf8.RuneSelf {
+			return false
+		}
+	}
+	return true
+}
 
 func contentSearchExcerpt(line string, number, begin, end int) protocol.ContentSearchMatch {
 	// Keep the actual hit visible, even on long lines, without splitting UTF-8.

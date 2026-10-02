@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -60,6 +61,67 @@ func TestContentSearch(t *testing.T) {
 	limited, err := adapter.SearchContent(t.Context(), "needle", false, false, false, false, "", "", 2)
 	if err != nil || !limited.Truncated || len(limited.Results[0].Matches) != 2 {
 		t.Fatalf("limit = %#v, %v", limited, err)
+	}
+}
+
+func TestContentSearchLiteralPrefilterPreservesUnicodeFolding(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "fold.txt"), []byte("NEEDLE needle\nK ſ\nabsent\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	adapter := &repoAdapter{ctx: ctx, repo: gitx.Repository{Root: root}, queue: gitx.NewMutationQueue()}
+	waitForFolderSearch(t, adapter, "", nil, 100)
+	for _, tc := range []struct {
+		query string
+		count int
+	}{
+		{"needle", 2},
+		{"k", 1},
+		{"s", 2},
+		{"missing", 0},
+	} {
+		result, err := adapter.SearchContent(t.Context(), tc.query, false, false, false, false, "", "", 100)
+		if err != nil {
+			t.Fatal(err)
+		}
+		count := 0
+		for _, file := range result.Results {
+			count += len(file.Matches)
+		}
+		if count != tc.count || !result.Complete {
+			t.Fatalf("query %q = %#v, want %d matches", tc.query, result, tc.count)
+		}
+	}
+}
+
+func TestContentSearchPreservesOrderAndGlobalLimit(t *testing.T) {
+	root := t.TempDir()
+	for _, name := range []string{"a.txt", "b.txt", "c.txt", "d.txt", "e.txt"} {
+		if err := os.WriteFile(filepath.Join(root, name), []byte("needle\nneedle\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	adapter := &repoAdapter{ctx: ctx, repo: gitx.Repository{Root: root}, queue: gitx.NewMutationQueue()}
+	waitForFolderSearch(t, adapter, "", nil, 100)
+	result, err := adapter.SearchContent(t.Context(), "needle", false, false, false, false, "", "", 3)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !result.Truncated || len(result.Results) != 2 || result.Results[0].Path != "a.txt" || len(result.Results[0].Matches) != 2 || result.Results[1].Path != "b.txt" || len(result.Results[1].Matches) != 1 {
+		t.Fatalf("ordered global limit = %#v", result)
+	}
+	result, err = adapter.SearchContent(t.Context(), "needle", false, false, false, false, "", "a.txt", 100)
+	if err != nil || result.Truncated || len(result.Results) != 4 || result.Results[0].Path != "b.txt" || result.Results[3].Path != "e.txt" {
+		t.Fatalf("filtered complete results = %#v, %v", result, err)
+	}
+	canceled, stop := context.WithCancel(t.Context())
+	stop()
+	if _, err := adapter.SearchContent(canceled, "needle", false, false, false, false, "", "", 3); !errors.Is(err, context.Canceled) {
+		t.Fatalf("canceled search = %v", err)
 	}
 }
 
