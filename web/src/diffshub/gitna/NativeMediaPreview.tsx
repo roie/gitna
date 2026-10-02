@@ -18,6 +18,7 @@ export function NativeMediaPreview({ path }: { path: string }) {
   const [attempt, setAttempt] = useState(0)
 
   useEffect(() => {
+    if (kind === 'pdf') return
     const controller = new AbortController()
     setState('loading')
     void fetch(source, {
@@ -40,7 +41,7 @@ export function NativeMediaPreview({ path }: { path: string }) {
         if (!controller.signal.aborted) setState('error')
       })
     return () => controller.abort()
-  }, [source, attempt])
+  }, [source, attempt, kind])
 
   useEffect(() => {
     const media = mediaRef.current
@@ -51,6 +52,14 @@ export function NativeMediaPreview({ path }: { path: string }) {
       media?.load()
     }
   }, [source, state, attempt])
+
+  if (kind === 'pdf') {
+    return (
+      <section className="flex h-full min-h-0 flex-col bg-background" aria-label="Media preview">
+        <PDFPreview path={path} />
+      </section>
+    )
+  }
 
   const failed = state === 'error' || state === 'missing'
   return (
@@ -67,13 +76,7 @@ export function NativeMediaPreview({ path }: { path: string }) {
           </a>
         )}
       </header>
-      <div
-        className={
-          kind === 'pdf' && state === 'ready'
-            ? 'min-h-0 flex-1'
-            : 'flex min-h-0 flex-1 flex-col items-center justify-center gap-4 overflow-auto p-4'
-        }
-      >
+      <div className="flex min-h-0 flex-1 flex-col items-center justify-center gap-4 overflow-auto p-4">
         {state === 'loading' ? (
           <p role="status" className="text-sm text-muted-foreground">
             Loading media…
@@ -86,8 +89,6 @@ export function NativeMediaPreview({ path }: { path: string }) {
                 : 'Could not load this file. It may have changed or the connection was lost.'}
             </p>
           </>
-        ) : kind === 'pdf' ? (
-          <PDFPreview path={path} />
         ) : state === 'unsupported' ? (
           <p role="status" className="max-w-lg text-center text-sm text-muted-foreground">
             This browser cannot play this file, or the file is damaged. Download it to open it in

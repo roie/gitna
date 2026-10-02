@@ -6,10 +6,14 @@ interface PDFLease {
   expiresAt: string
 }
 
-export function PDFPreview({ path }: { path: string }) {
+export function PDFPreview({ path, standalone = false }: { path: string; standalone?: boolean }) {
   const [attempt, setAttempt] = useState(0)
   const [url, setURL] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
+
+  useEffect(() => {
+    if (standalone) document.title = `${path.split('/').pop()} — Gitna`
+  }, [path, standalone])
 
   useEffect(() => {
     setURL(null)
@@ -140,7 +144,25 @@ export function PDFPreview({ path }: { path: string }) {
         />
       )}
       <div className="flex shrink-0 flex-wrap items-center justify-between gap-2 border-t border-border px-4 py-2 text-xs text-muted-foreground">
-        <span>If the PDF does not appear, download it or reload the preview.</span>
+        {!standalone && (
+          <a
+            className="inline-flex min-h-8 items-center underline underline-offset-4"
+            href={`?pdf=${encodeURIComponent(path)}`}
+            target="_blank"
+            rel="noopener noreferrer"
+          >
+            Open PDF in new tab ↗
+          </a>
+        )}
+        {(url == null || error != null) && (
+          <a
+            className="inline-flex min-h-8 items-center underline underline-offset-4"
+            href={`api/v1/media?path=${encodeURIComponent(path)}&download=1`}
+            download
+          >
+            Download file
+          </a>
+        )}
         <button
           className="min-h-8 shrink-0 underline underline-offset-4"
           onClick={() => setAttempt((value) => value + 1)}

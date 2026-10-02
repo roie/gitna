@@ -10,10 +10,25 @@ import { RepositoryProvider } from './gitna/repository'
 const GitnaReviewUI = lazy(() =>
   import('./gitna/GitnaReviewUI').then(({ GitnaReviewUI }) => ({ default: GitnaReviewUI })),
 )
+const StandalonePDF = lazy(() =>
+  import('./gitna/PDFPreview').then(({ PDFPreview }) => ({ default: PDFPreview })),
+)
 import './vite/fonts.css'
 import './globals.css'
 
 function App() {
+  const pdfPath = new URLSearchParams(window.location.search).get('pdf')
+  if (pdfPath != null) {
+    return (
+      <ThemeProvider attribute="class">
+        <section className="flex h-full min-h-0 flex-col bg-background" aria-label="Media preview">
+          <Suspense fallback={null}>
+            <StandalonePDF path={pdfPath} standalone />
+          </Suspense>
+        </section>
+      </ThemeProvider>
+    )
+  }
   return (
     <>
       <ScrollbarGutterVariables />

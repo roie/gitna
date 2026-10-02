@@ -91,9 +91,41 @@ test('native PDF renders on a file-only origin without exposing app authority', 
     data: { path: 'forbidden.txt', content: 'no' },
   })
   expect(attemptedMutation.status()).toBe(403)
-  const download = page.waitForEvent('download')
-  await page.getByRole('link', { name: 'Download file' }).click()
-  expect((await download).suggestedFilename()).toBe('sample.pdf')
+  const preview = page.getByRole('region', { name: 'Media preview' })
+  await expect(preview.locator('header')).toHaveCount(0)
+  await expect(preview.getByRole('link', { name: 'Download file' })).toHaveCount(0)
+  await expect(preview.getByRole('link', { name: 'Open PDF in new tab' })).toBeVisible()
+  await expect(preview.getByText('If the PDF does not appear', { exact: false })).toHaveCount(0)
+})
+
+test('PDF opens in an independent tab that outlives its original tab', async ({ page, app }) => {
+  writeFileSync(join(app.repo, 'sample.pdf'), pdfFixture())
+  await page.goto(app.url)
+  const original = await openPDF(page)
+  const originalURL = (await original.getAttribute('src'))!
+  const opened = page.waitForEvent('popup')
+  await page.getByRole('link', { name: 'Open PDF in new tab' }).click()
+  const popup = await opened
+  await expect(popup).toHaveTitle('sample.pdf — Gitna')
+  await expectNativePage(popup)
+  expect(await popup.evaluate(() => window.opener)).toBeNull()
+  expect(await popup.evaluate(() => document.referrer)).toBe('')
+  await expect(popup.getByRole('link', { name: 'Open PDF in new tab' })).toHaveCount(0)
+  const independentURL = (await popup
+    .getByTitle('PDF preview: sample.pdf', { exact: true })
+    .getAttribute('src'))!
+  expect(independentURL).not.toBe(originalURL)
+  expect(new URL(independentURL).origin).not.toBe(app.origin)
+  expect(independentURL).not.toContain(app.token)
+  await page.getByRole('button', { name: 'Close sample.pdf', exact: true }).click()
+  await expect.poll(async () => (await popup.request.get(originalURL)).status()).toBe(404)
+  await page.close()
+  expect(
+    (await popup.request.get(independentURL, { headers: { Range: 'bytes=0-7' } })).status(),
+  ).toBe(206)
+  await popup.goto('about:blank')
+  await expect.poll(async () => (await popup.request.get(independentURL)).status()).toBe(404)
+  await popup.close()
 })
 
 test('PDF leases renew, reload, close, and revoke on folder navigation', async ({ page, app }) => {
