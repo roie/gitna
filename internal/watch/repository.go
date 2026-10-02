@@ -72,7 +72,8 @@ type Options struct {
 	// Zero means 250ms.
 	Debounce time.Duration
 	// FallbackInterval is how often the repository fingerprint is re-checked.
-	// Zero means 10s; a negative value disables the fallback.
+	// Zero means at least 10s, with backoff for expensive fingerprints to bound
+	// idle CPU. A positive value fixes the interval; a negative value disables it.
 	FallbackInterval time.Duration
 	// OnError receives non-fatal watcher errors. Zero means errors are
 	// silently dropped.
@@ -705,41 +706,34 @@ func (w *Repository) fallback(ctx context.Context, runner gitx.Runner) {
 	if interval < 0 {
 		return
 	}
-	ticker := time.NewTicker(interval)
-	defer ticker.Stop()
-
-	if w.opts.Fingerprint != nil {
-		last, initialErr := w.opts.Fingerprint(ctx)
-		haveLast := initialErr == nil
-		for {
-			select {
-			case <-ctx.Done():
-				return
-			case <-w.closedCh:
-				return
-			case <-ticker.C:
-				current, err := w.opts.Fingerprint(ctx)
-				if err != nil {
-					continue
-				}
-				if haveLast && current != last {
-					w.emit(InvalidateFiles)
-				}
-				last, haveLast = current, true
-			}
+	read := func() (repositoryStateFingerprint, error) {
+		if w.opts.Fingerprint != nil {
+			value, err := w.opts.Fingerprint(ctx)
+			return repositoryStateFingerprint{worktree: value}, err
 		}
+		return repositoryFingerprint(ctx, runner, w.git.Root)
 	}
-
-	last, initialErr := repositoryFingerprint(ctx, runner, w.git.Root)
+	started := time.Now()
+	last, initialErr := read()
 	haveLast := initialErr == nil
+	delay := func(cost time.Duration) time.Duration {
+		if w.opts.FallbackInterval != 0 {
+			return interval
+		}
+		return defaultFallbackDelay(cost)
+	}
+	timer := time.NewTimer(delay(time.Since(started)))
+	defer timer.Stop()
 	for {
 		select {
 		case <-ctx.Done():
 			return
 		case <-w.closedCh:
 			return
-		case <-ticker.C:
-			current, err := repositoryFingerprint(ctx, runner, w.git.Root)
+		case <-timer.C:
+			started = time.Now()
+			current, err := read()
+			timer.Reset(delay(time.Since(started)))
 			if err != nil {
 				continue
 			}
@@ -753,6 +747,12 @@ func (w *Repository) fallback(ctx context.Context, runner gitx.Runner) {
 			last, haveLast = current, true
 		}
 	}
+}
+
+func defaultFallbackDelay(cost time.Duration) time.Duration {
+	// Filesystem notifications remain immediate. The recovery scan gets half
+	// the 1% idle CPU budget; elapsed time also includes Git child processes.
+	return max(10*time.Second, 200*cost)
 }
 
 type repositoryStateFingerprint struct {
@@ -789,7 +789,9 @@ func repositoryFingerprint(ctx context.Context, runner gitx.Runner, root string)
 }
 
 func fingerprint(ctx context.Context, runner gitx.Runner, root string) (string, error) {
-	res, err := runner.Run(ctx, root, "status", "--porcelain=v2", "-z")
+	// Keep background index work single-threaded so elapsed scan time bounds
+	// its CPU cost; parallel preload can spend several CPU seconds per wall second.
+	res, err := runner.Run(ctx, root, "-c", "core.preloadIndex=false", "-c", "index.threads=1", "status", "--porcelain=v2", "-z")
 	if err != nil {
 		return "", err
 	}
