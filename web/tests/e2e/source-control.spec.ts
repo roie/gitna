@@ -1,7 +1,7 @@
 import { execFileSync } from 'node:child_process'
 import { existsSync, mkdirSync, readFileSync, rmSync, unlinkSync, writeFileSync } from 'node:fs'
 import { basename, dirname, join } from 'node:path'
-import type { APIRequestContext, Locator, Page } from '@playwright/test'
+import type { APIRequestContext, Locator, Page, Route } from '@playwright/test'
 import { test, expect } from './fixtures.js'
 
 interface ReviewResponse {
@@ -2379,10 +2379,55 @@ test('repository files can be edited, created in folders, and renamed', async ({
     timeout: 20_000,
   })
   await expect(newSave).toBeEnabled({ timeout: 20_000 })
-  await page.keyboard.press('Control+s')
-  await expect
-    .poll(() => readFileSync(join(app.repo, 'notes/new.txt'), 'utf8'))
-    .toBe('new file from Gitna')
+  let saveRequests = 0
+  page.on('request', (request) => {
+    if (request.method() === 'PUT' && request.url().endsWith('/api/v1/worktree/file')) {
+      saveRequests += 1
+    }
+  })
+  let releaseSnapshot!: () => void
+  const snapshotGate = new Promise<void>((resolve) => {
+    releaseSnapshot = resolve
+  })
+  let snapshotStarted!: () => void
+  const snapshotRequest = new Promise<void>((resolve) => {
+    snapshotStarted = resolve
+  })
+  const holdSnapshot = async (route: Route) => {
+    snapshotStarted()
+    await snapshotGate
+    await route.continue()
+  }
+  await page.route('**/api/v1/snapshot', holdSnapshot)
+  try {
+    writeFileSync(join(app.repo, 'save-refresh-trigger.txt'), 'refresh before save\n')
+    await snapshotRequest
+    await expect(newSave).toBeDisabled()
+    await newEditor.focus()
+    await page.keyboard.press('Control+s')
+    await expect(page.getByLabel('Notifications').getByRole('alert')).toContainText(
+      'Refreshing backend state',
+    )
+    await expect(newEditor).toHaveText('new file from Gitna')
+    await expect(page.getByRole('tab', { name: /new\.txt Unsaved changes/ })).toBeVisible()
+    expect(readFileSync(join(app.repo, 'notes/new.txt'), 'utf8')).toBe('')
+    expect(saveRequests).toBe(0)
+  } finally {
+    releaseSnapshot()
+  }
+  // Readiness can change between this assertion and the keyboard event. Retry
+  // refused input, but stop as soon as the real file has the submitted draft.
+  await expect(async () => {
+    if (readFileSync(join(app.repo, 'notes/new.txt'), 'utf8') === 'new file from Gitna') return
+    await expect(newSave).toBeEnabled({ timeout: 1_000 })
+    await newEditor.focus()
+    await page.keyboard.press('Control+s')
+    await expect
+      .poll(() => readFileSync(join(app.repo, 'notes/new.txt'), 'utf8'), { timeout: 1_000 })
+      .toBe('new file from Gitna')
+  }).toPass({ timeout: 10_000 })
+  expect(saveRequests).toBe(1)
+  await page.unroute('**/api/v1/snapshot', holdSnapshot)
 
   await repositoryActions.click()
   await page.getByRole('menuitem', { name: 'Rename' }).click()
