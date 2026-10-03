@@ -949,6 +949,20 @@ function GitnaReviewUIInner({ searchRequest }: { searchRequest: number }) {
     }, 120)
   }, [])
 
+  const claimScroll = useCallback(
+    (origin: 'editor' | 'preview', key?: string) => {
+      if (markdownMode !== 'split') return
+      if (
+        key != null &&
+        !['ArrowUp', 'ArrowDown', 'PageUp', 'PageDown', 'Home', 'End', ' '].includes(key)
+      )
+        return
+      // User input takes over immediately, even inside the feedback guard.
+      guardScroll(origin)
+    },
+    [guardScroll, markdownMode],
+  )
+
   const syncPreviewFromEditor = useCallback(() => {
     const scroller = scrollRef.current
     const preview = previewScrollRef.current
@@ -2036,7 +2050,12 @@ function GitnaReviewUIInner({ searchRequest }: { searchRequest: number }) {
                       { '--markdown-header-height': `${previewHeaderHeight}px` } as CSSProperties
                     }
                   >
-                    <div className="h-full min-h-0">
+                    <div
+                      className="h-full min-h-0"
+                      onWheelCapture={() => claimScroll('editor')}
+                      onTouchMoveCapture={() => claimScroll('editor')}
+                      onKeyDownCapture={(event) => claimScroll('editor', event.key)}
+                    >
                       <DiffsHubViewer
                         className="code-view h-full"
                         commentsEnabled={false}
@@ -2087,6 +2106,9 @@ function GitnaReviewUIInner({ searchRequest }: { searchRequest: number }) {
                           )}
                           aria-hidden={markdownMode === 'editor' || undefined}
                           inert={markdownMode === 'editor'}
+                          onWheelCapture={() => claimScroll('preview')}
+                          onTouchMoveCapture={() => claimScroll('preview')}
+                          onKeyDownCapture={(event) => claimScroll('preview', event.key)}
                           style={
                             markdownLayoutMode === 'preview'
                               ? { top: previewHeaderHeight }
