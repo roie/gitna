@@ -1878,6 +1878,7 @@ export class GitnaRepository {
         : [...snapshot.staged, ...snapshot.unstaged].filter((change) => change.path === path)
     if (changes.some((change) => change.kind !== 'deleted')) return true
     if (changes.some((change) => change.kind === 'deleted')) return false
+    if (this.commitDiff?.path === path && this.commitDiff.kind !== 'deleted') return true
     return this.repositoryPaths.includes(path)
   }
 

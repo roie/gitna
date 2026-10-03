@@ -1886,28 +1886,13 @@ test('Astra refresh updates already-rendered headers without remounting the edit
     await page.keyboard.type(' while reconciling')
     // Establish the range through real keyboard input, not a programmatic DOM
     // Range: this exercises Pierre's native selection ownership.
-    const lastCharacter = editor.locator('[data-char]').last()
-    await lastCharacter.scrollIntoViewIfNeeded()
-    await expect
-      .poll(async () => (await lastCharacter.boundingBox()) != null, {
-        message: 'Pierre did not render the selected editor characters',
-      })
-      .toBe(true)
-    const lastCharacterBox = await lastCharacter.boundingBox()
-    expect(lastCharacterBox).not.toBeNull()
-    await page.mouse.move(
-      lastCharacterBox!.x + lastCharacterBox!.width,
-      lastCharacterBox!.y + lastCharacterBox!.height / 2,
-    )
-    await page.mouse.down()
-    await page.mouse.move(
-      lastCharacterBox!.x + 0.5,
-      lastCharacterBox!.y + lastCharacterBox!.height / 2,
-    )
-    await page.mouse.up()
-    await expect.poll(async () => (await readEditorState()).selection?.visible).toBe(true)
+    await page.keyboard.press('Shift+ArrowLeft')
+    // Pierre renders its semantic range separately from Chromium's collapsed
+    // native caret. Check that range, then prove its contents by replacement.
+    const selectionRange = page.locator('[data-selection-range]')
+    await expect(selectionRange).toBeVisible()
     stateDuringRefresh = await readEditorState()
-    expect(stateDuringRefresh.selection?.text.length ?? 0).toBeGreaterThan(0)
+    expect(stateDuringRefresh.value.endsWith('reconciling')).toBe(true)
     await expect(save).toBeDisabled()
     await expect(saveReason).toBeVisible()
     await expect(saveReason).toHaveText(expectedReason)
@@ -1930,8 +1915,8 @@ test('Astra refresh updates already-rendered headers without remounting the edit
   // before any later explicit focus used for undo/redo.
   await expect(editor).toBeFocused()
   const stateAfterRefresh = await readEditorState()
-  const selectedTextAfterRefresh = stateDuringRefresh.selection?.text
-  expect(selectedTextAfterRefresh?.length ?? 0).toBeGreaterThan(0)
+  await expect(page.locator('[data-selection-range]')).toBeVisible()
+  const selectedTextAfterRefresh = 'g'
   // This black-box replacement is deliberately performed before any refocus:
   // if Pierre retained the semantic user range, it replaces that exact range.
   await page.keyboard.type('X')
@@ -1945,10 +1930,7 @@ test('Astra refresh updates already-rendered headers without remounting the edit
     value: stateDuringRefresh.value,
     focused: true,
   })
-  // Preserve the observed native-selection diagnostic without mistaking it
-  // for Pierre's semantic selection: Chromium reports a collapsed DOM range
-  // after recovery, while the replacement above proves the internal range.
-  expect(stateAfterRefresh.selection?.visible).toBe(false)
+  expect(stateAfterRefresh.selection).toEqual(stateDuringRefresh.selection)
   expect(
     await editorHandle!.evaluate(
       (element) => (window as Window & { __astraEditor?: Element }).__astraEditor === element,
@@ -2011,59 +1993,26 @@ test('Astra refresh updates already-rendered headers without remounting the edit
     await expect(fileAction).toBeDisabled()
     await expect(hunkAction).toBeDisabled()
     await expect(renderedFile.getByRole('note')).toContainText(expectedReason)
-    const statusSummary = connection.locator('summary')
-    await statusSummary.focus()
-    await expect(statusSummary).toBeFocused()
+    const themeSettings = page.getByRole('button', { name: 'Theme settings', exact: true })
+    await themeSettings.focus()
+    await expect(themeSettings).toBeFocused()
+    await expect(page.getByLabel('Notifications')).toHaveCount(0)
   } finally {
     releaseHunkSnapshot()
   }
   await expect(connection).toHaveAttribute('data-connection-state', 'connected', {
     timeout: 20_000,
   })
-  await expect(connection.locator('summary')).toBeFocused()
+  await expect(page.getByRole('button', { name: 'Theme settings', exact: true })).toBeFocused()
   await page.keyboard.press('Tab')
-  await page.keyboard.press('Tab')
-  await expect(connection.locator('summary')).toHaveCount(0)
   await expect(page.locator(':focus')).toHaveCount(1)
   await expect(fileAction).toBeEnabled({ timeout: 20_000 })
   await expect(hunkAction).toBeEnabled({ timeout: 20_000 })
   await expect(renderedFile.getByRole('note')).toHaveCount(0)
 
-  let releaseRetrySnapshot!: () => void
-  let markRetrySnapshotRequested!: () => void
-  const retrySnapshotGate = new Promise<void>((resolve) => {
-    releaseRetrySnapshot = resolve
-  })
-  const retrySnapshotRequested = new Promise<void>((resolve) => {
-    markRetrySnapshotRequested = resolve
-  })
-  let retrySnapshotHeld = false
-  await page.route('**/api/v1/snapshot', async (route) => {
-    if (!retrySnapshotHeld && route.request().method() === 'GET') {
-      retrySnapshotHeld = true
-      markRetrySnapshotRequested()
-      await retrySnapshotGate
-    }
-    await route.continue()
-  })
-  writeFileSync(join(app.repo, 'astra-trigger-3.txt'), 'trigger third native SSE\\n')
-  try {
-    await retrySnapshotRequested
-    await expect(connection).toHaveAttribute('data-connection-state', 'reconciling')
-    const retry = connection.getByRole('button', { name: 'Retry', exact: true })
-    await retry.focus()
-    await expect(retry).toBeFocused()
-  } finally {
-    releaseRetrySnapshot()
-  }
-  await expect(connection).toHaveAttribute('data-connection-state', 'connected', {
-    timeout: 20_000,
-  })
-  const completedRetry = connection.getByRole('button', { name: 'Retry', exact: true })
-  await expect(completedRetry).toBeFocused()
-  await page.keyboard.press('Tab')
-  await expect(completedRetry).toHaveCount(0)
-  await expect(page.locator(':focus')).toHaveCount(1)
+  // Background reconciliation stays silent. Outage Retry and focus behavior
+  // are exercised by the native transport tests against the notification UI.
+  await expect(page.getByLabel('Notifications')).toHaveCount(0)
 })
 
 test('mobile command palette describes the active Source Control overlay', async ({

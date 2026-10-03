@@ -34,7 +34,9 @@ test('native SSE severing preserves dirty editor and recovers through the same r
 
     const writesBeforeOutage = proxy.mutations
     proxy.setOutage(true)
-    await expect(page.locator('[role="status"][data-connection-state="unreachable"]')).toBeVisible({
+    await expect(
+      page.locator('span[role="status"][data-connection-state="unreachable"]'),
+    ).toBeVisible({
       timeout: 16_000,
     })
     const blockedFile = page
@@ -255,14 +257,18 @@ test('authoritative file-count catch-up gates readiness after native recovery', 
       timeout: 20_000,
     })
     proxy.setOutage(true)
-    await expect(page.locator('[role="status"][data-connection-state="unreachable"]')).toBeVisible({
+    await expect(
+      page.locator('span[role="status"][data-connection-state="unreachable"]'),
+    ).toBeVisible({
       timeout: 16_000,
     })
     const held = proxy.holdNextFileCount()
     proxy.setOutage(false)
-    await page.getByRole('status').getByRole('button', { name: 'Retry' }).click()
+    await page.getByLabel('Notifications').getByRole('button', { name: 'Retry' }).click()
     await held.requested
-    await expect(page.locator('[role="status"][data-connection-state="reconciling"]')).toBeVisible()
+    await expect(
+      page.locator('span[role="status"][data-connection-state="reconciling"]'),
+    ).toBeVisible()
     await expect(page.getByRole('region', { name: 'Review' })).toHaveAttribute(
       'data-connection-state',
       'reconciling',
@@ -290,13 +296,17 @@ test('failed authoritative directory refresh keeps the session non-ready', async
       timeout: 20_000,
     })
     proxy.setOutage(true)
-    await expect(page.locator('[role="status"][data-connection-state="unreachable"]')).toBeVisible({
+    await expect(
+      page.locator('span[role="status"][data-connection-state="unreachable"]'),
+    ).toBeVisible({
       timeout: 20_000,
     })
     proxy.failNextDirectory(503, 'authoritative directory unavailable')
     proxy.setOutage(false)
-    await page.getByRole('status').getByRole('button', { name: 'Retry' }).click()
-    await expect(page.locator('[role="status"][data-connection-state="reconciling"]')).toBeVisible({
+    await page.getByLabel('Notifications').getByRole('button', { name: 'Retry' }).click()
+    await expect(
+      page.locator('span[role="status"][data-connection-state="reconciling"]'),
+    ).toBeVisible({
       timeout: 20_000,
     })
     await expect(page.getByRole('region', { name: 'Review' })).toHaveAttribute(
@@ -324,13 +334,15 @@ test('repeated Retry joins one native recovery and does not dispatch mutations',
     })
     const writesBefore = proxy.mutations
     proxy.setOutage(true)
-    await expect(page.locator('[role="status"][data-connection-state="unreachable"]')).toBeVisible({
+    await expect(
+      page.locator('span[role="status"][data-connection-state="unreachable"]'),
+    ).toBeVisible({
       timeout: 16_000,
     })
 
     const held = proxy.holdNextSnapshot()
     proxy.setOutage(false)
-    const retry = page.getByRole('status').getByRole('button', {
+    const retry = page.getByLabel('Notifications').getByRole('button', {
       name: 'Retry',
       exact: true,
     })
@@ -340,7 +352,9 @@ test('repeated Retry joins one native recovery and does not dispatch mutations',
       page.getByLabel('Notifications').getByRole('button', { name: 'Retrying…' }),
     ).toBeDisabled()
     await held.requested
-    await expect(page.locator('[role="status"][data-connection-state="reconciling"]')).toBeVisible()
+    await expect(
+      page.locator('span[role="status"][data-connection-state="reconciling"]'),
+    ).toBeVisible()
     expect(proxy.activeStreamCount).toBeLessThanOrEqual(1)
     held.release()
     await expect(page.getByRole('region', { name: 'Review' })).toBeVisible({

@@ -15,11 +15,15 @@ export function DirtyTabCloseModal({
   onSave,
 }: DirtyTabCloseModalProps) {
   const count = dirtyPaths.length
+  const isUntitled = count === 1 && dirtyPaths[0].startsWith('untitled:')
+  const title = isUntitled
+    ? 'Save changes before closing?'
+    : count === 1
+      ? `Discard unsaved changes to ${dirtyPaths[0]}?`
+      : 'Discard unsaved changes to these files?'
+
   return (
-    <Modal
-      title={count === 1 ? 'Save changes before closing?' : 'Save changes before closing?'}
-      onClose={onCancel}
-    >
+    <Modal title={title} role={isUntitled ? 'dialog' : 'alertdialog'} onClose={onCancel}>
       <p className="text-sm text-muted-foreground">
         {count === 1
           ? `Save changes to ${dirtyPaths[0]} before closing this tab?`
@@ -30,10 +34,10 @@ export function DirtyTabCloseModal({
           Cancel
         </Button>
         <Button type="button" variant="outline" size="sm" onClick={onDiscard}>
-          Don&apos;t Save
+          {isUntitled ? "Don't Save" : 'Discard changes'}
         </Button>
         <Button type="button" size="sm" onClick={onSave}>
-          Save
+          {isUntitled ? 'Save' : 'Save changes'}
         </Button>
       </div>
     </Modal>

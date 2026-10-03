@@ -124,8 +124,20 @@ export function GlobalToastHost({
 
   return (
     <>
-      <span aria-live="polite" className="sr-only">
-        {announcement}
+      <span
+        role={
+          state !== 'connected' ||
+          (repository.snapshot?.repository === true &&
+            (typeof document === 'undefined' ||
+              document.querySelector('section[role="status"]') == null))
+            ? 'status'
+            : undefined
+        }
+        data-connection-state={state}
+        aria-live="polite"
+        className="sr-only"
+      >
+        <span data-connection-announcement>{announcement}</span>
       </span>
       <ToastHost toasts={toasts} />
     </>

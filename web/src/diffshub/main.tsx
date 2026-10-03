@@ -1,4 +1,4 @@
-import { lazy, Suspense } from 'react'
+import { lazy, Suspense, useEffect, useState } from 'react'
 import { createRoot } from 'react-dom/client'
 
 import { ScrollbarGutterVariables } from './components/ScrollbarGutterVariables'
@@ -16,7 +16,25 @@ import './vite/fonts.css'
 import './globals.css'
 
 function App() {
+  const [searchRequest, setSearchRequest] = useState(0)
   const pdfPath = new URLSearchParams(window.location.search).get('pdf')
+
+  useEffect(() => {
+    const onSearchShortcut = (event: KeyboardEvent) => {
+      if (
+        !(event.ctrlKey || event.metaKey) ||
+        !event.shiftKey ||
+        event.altKey ||
+        event.key.toLowerCase() !== 'f'
+      ) {
+        return
+      }
+      event.preventDefault()
+      setSearchRequest((request) => request + 1)
+    }
+    window.addEventListener('keydown', onSearchShortcut)
+    return () => window.removeEventListener('keydown', onSearchShortcut)
+  }, [])
   if (pdfPath != null) {
     return (
       <ThemeProvider attribute="class">
@@ -35,7 +53,7 @@ function App() {
         <ThemeProvider attribute="class">
           <RepositoryProvider>
             <Suspense fallback={null}>
-              <GitnaReviewUI />
+              <GitnaReviewUI searchRequest={searchRequest} />
             </Suspense>
           </RepositoryProvider>
           <div id="dark-mode-portal-container" className="dark" data-theme="dark" />

@@ -9,10 +9,11 @@ interface ModalProps {
   children: ReactNode
   onClose(): void
   disabledReason?: string | null
+  role?: 'dialog' | 'alertdialog'
   title: string
 }
 
-export function Modal({ children, onClose, disabledReason, title }: ModalProps) {
+export function Modal({ children, onClose, disabledReason, role, title }: ModalProps) {
   const dialogRef = useRef<HTMLDialogElement>(null)
 
   useEffect(() => {
@@ -31,6 +32,7 @@ export function Modal({ children, onClose, disabledReason, title }: ModalProps) 
     <dialog
       ref={dialogRef}
       aria-label={title}
+      role={role}
       className="m-auto max-h-[min(720px,calc(100dvh-2rem))] w-[min(560px,calc(100vw-2rem))] overflow-hidden rounded-xl border border-border bg-background p-0 text-foreground backdrop:bg-black/45"
       onClick={(event) => {
         if (event.target === dialogRef.current) onClose()
@@ -84,7 +86,7 @@ export function Confirm({
     >
       <AlertDialog.Portal container={portalContainer}>
         <AlertDialog.Overlay className="fixed inset-0 z-50 bg-black/50" />
-        <AlertDialog.Content className="fixed left-1/2 top-1/2 z-50 w-[min(440px,calc(100vw-2rem))] -translate-x-1/2 -translate-y-1/2 rounded-lg border border-border bg-background p-5 text-foreground outline-none">
+        <AlertDialog.Content className="fixed left-1/2 top-1/2 z-50 w-[min(440px,calc(100vw-2rem))] -translate-x-1/2 -translate-y-1/2 rounded-lg border border-border bg-background p-5 text-foreground shadow-lg outline-none">
           <AlertDialog.Title className="text-base font-semibold leading-none">
             {title}
           </AlertDialog.Title>

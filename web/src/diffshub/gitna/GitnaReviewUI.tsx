@@ -1,4 +1,5 @@
 import type { CodeViewLineSelection, DiffIndicators, FileContents } from '@pierre/diffs'
+import { type EditorViewState } from '@pierre/diffs/edit'
 import { type CodeViewHandle, useWorkerPool } from '@pierre/diffs/react'
 import {
   IconBranch,
@@ -256,20 +257,31 @@ function updateViewerItems(
     viewer.getInstance()?.setItems(next.items)
     return
   }
-  const sameItemKinds = next.items.length === current.items.length && sharedItemsMatch
+  const sameItemKinds =
+    next.items.length === current.items.length &&
+    current.items.every((item, index) => {
+      const nextItem = next.items[index]
+      return item.id === nextItem?.id && item.type === nextItem.type
+    })
   if (!sameItemKinds) {
+    // Complete edits before reusing an ID for a different item kind. Pierre's
+    // completion callback must still see the file item that owns the session.
+    for (const item of current.items) {
+      const existing = viewer.getItem(item.id)
+      const replacement = next.items.find((candidate) => candidate.id === item.id)
+      if (existing?.edit && replacement?.type !== existing.type) {
+        viewer.updateItem({ ...existing, edit: false, version: (existing.version ?? 0) + 1 })
+      }
+    }
     viewer.getInstance()?.setItems(next.items)
     return
   }
   for (const item of next.items) {
     const existing = viewer.getItem(item.id)
-    if (
-      existing?.type === 'file' &&
-      item.type === 'file' &&
-      existing.edit === true &&
-      item.edit === true &&
-      existing.file.contents === item.file.contents
-    ) {
+    if (existing?.type === 'file' && item.type === 'file' && existing.edit === true) {
+      // The live editor owns the draft, undo history, focus, and selection.
+      // Refresh updates the surrounding review metadata, but must not replace
+      // the item while a local edit session is active.
       continue
     }
     viewer.updateItem(item)
@@ -345,15 +357,15 @@ function useReviewTarget(): ReviewTarget | null {
   return { key: scope, request: { scope } }
 }
 
-export function GitnaReviewUI() {
+export function GitnaReviewUI({ searchRequest = 0 }: { searchRequest?: number }) {
   return (
     <ThemeSourceProvider controller={themeController}>
-      <GitnaReviewUIInner />
+      <GitnaReviewUIInner searchRequest={searchRequest} />
     </ThemeSourceProvider>
   )
 }
 
-function GitnaReviewUIInner() {
+function GitnaReviewUIInner({ searchRequest }: { searchRequest: number }) {
   const repository = useRepository()
   const target = useReviewTarget()
   const scopeKnownEmpty =
@@ -367,6 +379,15 @@ function GitnaReviewUIInner() {
   const [sidebarVisible, setSidebarVisible] = useState(true)
   const [sidebarMode, setSidebarMode] = useState<'source' | 'search'>('source')
   const [searchFocusRequest, setSearchFocusRequest] = useState(0)
+
+  useEffect(() => {
+    if (searchRequest === 0) return
+    setSearchFocusRequest((request) => request + 1)
+    setCommandPaletteOpen(false)
+    setSidebarMode('search')
+    if (window.matchMedia('(max-width: 767px)').matches) setFileTreeOverlayOpen(true)
+    else setSidebarVisible(true)
+  }, [searchRequest])
   const [searchResults, setSearchResults] = useState<ContentSearchFile[]>([])
   const [activeSearchMatch, setActiveSearchMatch] = useState<{
     path: string
@@ -447,6 +468,7 @@ function GitnaReviewUIInner() {
   const savingPathRef = useRef<string | null>(null)
   const worktreeFilesRef = useRef(worktreeFiles)
   const worktreeDraftsRef = useRef(worktreeDrafts)
+  const editorViewStatesRef = useRef(new Map<string, EditorViewState>())
   const allowFolderNavigationRef = useRef(false)
   worktreeFilesRef.current = worktreeFiles
   worktreeDraftsRef.current = worktreeDrafts
@@ -629,26 +651,6 @@ function GitnaReviewUIInner() {
   }, [repository, repository.generation, target?.key, target?.selectedPath])
 
   useEffect(() => {
-    const openSearch = (event: KeyboardEvent) => {
-      if (
-        !(event.ctrlKey || event.metaKey) ||
-        !event.shiftKey ||
-        event.altKey ||
-        event.key.toLowerCase() !== 'f'
-      )
-        return
-      event.preventDefault()
-      setSearchFocusRequest((value) => value + 1)
-      setCommandPaletteOpen(false)
-      setSidebarMode('search')
-      if (window.matchMedia('(max-width: 767px)').matches) setFileTreeOverlayOpen(true)
-      else setSidebarVisible(true)
-    }
-    window.addEventListener('keydown', openSearch)
-    return () => window.removeEventListener('keydown', openSearch)
-  }, [])
-
-  useEffect(() => {
     const openPalette = (event: KeyboardEvent) => {
       if (
         homeOpen ||
@@ -675,6 +677,11 @@ function GitnaReviewUIInner() {
 
   useEffect(() => {
     if (target == null) {
+      if (repository.connectionState === 'reconciling' && reviewDataRef.current != null) {
+        setErrorMessage(null)
+        setLoadState('ready')
+        return
+      }
       reviewDataRef.current = null
       renderedTargetKeyRef.current = null
       setReviewData(null)
@@ -700,7 +707,12 @@ function GitnaReviewUIInner() {
       renderedTargetKeyRef.current === target.key &&
       reviewDataRef.current != null &&
       viewerRef.current != null
-    if (!refreshingVisibleReview) {
+    const preserveVisibleEditor =
+      refreshingVisibleReview &&
+      repository.connectionState === 'reconciling' &&
+      target.filePath != null &&
+      editorViewStatesRef.current.has(target.filePath)
+    if (!refreshingVisibleReview && reviewDataRef.current == null) {
       renderedTargetKeyRef.current = null
       setReviewData(null)
       setLoadState('fetching')
@@ -829,9 +841,10 @@ function GitnaReviewUIInner() {
     dataPromise
       .then((data) => {
         if (!active) return
-        if (!refreshingVisibleReview) setLoadState('parsing')
+        if (!refreshingVisibleReview && !preserveVisibleEditor) setLoadState('parsing')
         renderedTargetKeyRef.current = target.key
-        setReviewData(data)
+        const preserveLiveEditor = preserveVisibleEditor
+        if (!preserveLiveEditor) setReviewData(data)
         setLoadState('ready')
       })
       .catch((error: unknown) => {
@@ -842,7 +855,7 @@ function GitnaReviewUIInner() {
               ? error.message
               : String(error)
             : repositoryFileErrorMessage(error)
-        if (refreshingVisibleReview) {
+        if (refreshingVisibleReview || preserveVisibleEditor) {
           setReviewActionError(`Could not refresh review: ${nextError}`)
           setLoadState('ready')
         } else {
@@ -1440,7 +1453,9 @@ function GitnaReviewUIInner() {
         repository.repositoryOpenPaths.includes(path),
       )
       if (uniquePaths.length === 0) return
-      const dirty = uniquePaths.filter((path) => dirtyPaths.has(path))
+      const dirty = uniquePaths.filter(
+        (path) => dirtyPaths.has(path) || worktreeDraftsRef.current.has(path),
+      )
       if (dirty.length > 0) {
         setPendingTabClose({ paths: uniquePaths, dirtyPaths: dirty })
         return
@@ -1449,16 +1464,20 @@ function GitnaReviewUIInner() {
     },
     [dirtyPaths, repository],
   )
-  const handleWorktreeEditChange = useCallback((path: string, file: FileContents) => {
-    repository.updateUntitledContent(path, file.contents)
-    setRecentlySavedPath((current) => (current === path ? null : current))
-    const next = new Map(worktreeDraftsRef.current)
-    const baseline = worktreeFilesRef.current.get(path)
-    if (baseline != null && baseline.content === file.contents) next.delete(path)
-    else next.set(path, file)
-    worktreeDraftsRef.current = next
-    setWorktreeDrafts(next)
-  }, [])
+  const handleWorktreeEditChange = useCallback(
+    (path: string, file: FileContents, viewState: EditorViewState) => {
+      editorViewStatesRef.current.set(path, viewState)
+      repository.updateUntitledContent(path, file.contents)
+      setRecentlySavedPath((current) => (current === path ? null : current))
+      const next = new Map(worktreeDraftsRef.current)
+      const baseline = worktreeFilesRef.current.get(path)
+      if (baseline != null && baseline.content === file.contents) next.delete(path)
+      else next.set(path, file)
+      worktreeDraftsRef.current = next
+      setWorktreeDrafts(next)
+    },
+    [repository],
+  )
   const saveWorktreeFile = useCallback(
     async (path: string): Promise<boolean> => {
       const baseline = worktreeFilesRef.current.get(path)
@@ -1576,10 +1595,12 @@ function GitnaReviewUIInner() {
 
   useEffect(() => {
     const path = target?.filePath
-    const item = path == null ? null : viewerRef.current?.getItem(path)
-    if (item?.type !== 'file') return
+    const viewer = viewerRef.current
+    const item = path == null ? null : viewer?.getItem(path)
+    if (path == null || viewer == null || item?.type !== 'file' || viewer.getEditor(path) != null)
+      return
     item.version = typeof item.version === 'number' ? item.version + 1 : 1
-    viewerRef.current?.updateItem(item)
+    viewer.updateItem(item)
   }, [dirtyPaths, recentlySavedPath, savingPath, target?.filePath])
 
   useEffect(() => {
