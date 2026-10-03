@@ -3,13 +3,16 @@ package app
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 	"unicode/utf8"
 
 	"github.com/roie/gitna/internal/gitx"
+	"github.com/roie/gitna/internal/protocol"
 )
 
 func TestContentSearch(t *testing.T) {
@@ -122,6 +125,77 @@ func TestContentSearchPreservesOrderAndGlobalLimit(t *testing.T) {
 	stop()
 	if _, err := adapter.SearchContent(canceled, "needle", false, false, false, false, "", "", 3); !errors.Is(err, context.Canceled) {
 		t.Fatalf("canceled search = %v", err)
+	}
+}
+
+func TestContentSearchAcrossBatches(t *testing.T) {
+	root := t.TempDir()
+	for i := range 291 {
+		if err := os.WriteFile(filepath.Join(root, fmt.Sprintf("%03d.txt", i)), []byte("needle\nneedle\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	adapter := &repoAdapter{ctx: ctx, repo: gitx.Repository{Root: root}, queue: gitx.NewMutationQueue()}
+	waitForFolderSearch(t, adapter, "", nil, 400)
+	for _, limit := range []int{1000, 151} {
+		t.Run(fmt.Sprintf("limit_%d", limit), func(t *testing.T) {
+			result, err := adapter.SearchContent(t.Context(), "needle", false, false, false, false, "", "", limit)
+			if err != nil {
+				t.Fatal(err)
+			}
+			count := min(582, limit)
+			if !result.Complete || result.Truncated != (limit < 582) || len(result.Results) != (count+1)/2 {
+				t.Fatalf("complete/limited result = %#v", result)
+			}
+			for i, file := range result.Results {
+				if file.Path != fmt.Sprintf("%03d.txt", i) || len(file.Matches) != min(2, count-i*2) {
+					t.Fatalf("file %d = %#v", i, file)
+				}
+			}
+			var emitted []protocol.ContentSearchFile
+			streamed, err := adapter.SearchContentStream(t.Context(), "needle", false, false, false, false, "", "", limit, func(file protocol.ContentSearchFile) error {
+				emitted = append(emitted, file)
+				return nil
+			})
+			if err != nil || !reflect.DeepEqual(streamed, result) || !reflect.DeepEqual(emitted, result.Results) {
+				t.Fatalf("stream differs from complete results: %#v, %v", streamed, err)
+			}
+		})
+	}
+	stopped, stop := context.WithCancel(t.Context())
+	_, err := adapter.SearchContentStream(stopped, "needle", false, false, false, false, "", "", 1000, func(protocol.ContentSearchFile) error {
+		stop()
+		return stopped.Err()
+	})
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("cancel during emission = %v", err)
+	}
+}
+
+func TestContentSearchValidatesFilesBeforeTrimmingBatchMatches(t *testing.T) {
+	for _, invalid := range []string{"\x00", "\xff"} {
+		t.Run(fmt.Sprintf("invalid_%x", invalid), func(t *testing.T) {
+			root := t.TempDir()
+			for name, text := range map[string]string{
+				"a.txt": "needle\nneedle\n",
+				"b.txt": "needle\nneedle\n" + invalid,
+				"c.txt": "needle\n",
+			} {
+				if err := os.WriteFile(filepath.Join(root, name), []byte(text), 0o644); err != nil {
+					t.Fatal(err)
+				}
+			}
+			ctx, cancel := context.WithCancel(t.Context())
+			defer cancel()
+			adapter := &repoAdapter{ctx: ctx, repo: gitx.Repository{Root: root}, queue: gitx.NewMutationQueue()}
+			waitForFolderSearch(t, adapter, "", nil, 100)
+			result, err := adapter.SearchContent(t.Context(), "needle", false, false, false, false, "", "", 3)
+			if err != nil || !result.Truncated || len(result.Results) != 2 || result.Results[0].Path != "a.txt" || result.Results[1].Path != "c.txt" {
+				t.Fatalf("invalid file must not survive trimming: %#v, %v", result, err)
+			}
+		})
 	}
 }
 

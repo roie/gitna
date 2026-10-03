@@ -130,25 +130,43 @@ func (a *repoAdapter) searchContent(ctx context.Context, query string, caseSensi
 		return matches, nil
 	}
 
-	// Keep only four files in flight and collect in index order, so parallel I/O
-	// does not change which matches survive the global result limit.
+	// Batch small-file I/O to amortize channels and worker wakeups. Eight batches
+	// bound in-flight results; collecting in index order preserves the
+	// matches that survive the global limit regardless of worker completion order.
+	const (
+		batchSize   = 32
+		workerCount = 8
+	)
 	type fileResult struct {
+		path    string
 		matches []protocol.ContentSearchMatch
 		err     error
 	}
 	type fileJob struct {
-		path  string
-		reply chan fileResult
+		paths []string
+		reply chan []fileResult
 	}
 	ctx, cancel := context.WithCancel(ctx)
-	jobs := make(chan fileJob, 4)
+	jobs := make(chan fileJob, workerCount)
 	var workers sync.WaitGroup
-	for range 4 {
+	for range workerCount {
 		workers.Go(func() {
 			reader := bufio.NewReaderSize(nil, 32<<10)
 			for job := range jobs {
-				matches, err := scanFile(job.path, reader)
-				job.reply <- fileResult{matches: matches, err: err}
+				batch := make([]fileResult, 0, len(job.paths))
+				count := 0
+				for _, path := range job.paths {
+					matches, err := scanFile(path, reader)
+					// Validate each file with the original per-file limit before
+					// trimming retention to the remaining batch budget.
+					matches = matches[:min(len(matches), limit-count)]
+					batch = append(batch, fileResult{path: path, matches: matches, err: err})
+					count += len(matches)
+					if err != nil || count >= limit {
+						break
+					}
+				}
+				job.reply <- batch
 			}
 		})
 	}
@@ -160,32 +178,54 @@ func (a *repoAdapter) searchContent(ctx context.Context, query string, caseSensi
 
 	results := make([]protocol.ContentSearchFile, 0, 32)
 	matchCount := 0
-	pending := make([]fileJob, 0, 4)
+	pending := make([]fileJob, 0, workerCount)
 	collect := func() error {
 		job := pending[0]
 		pending = pending[1:]
-		var result fileResult
+		var batch []fileResult
 		select {
-		case result = <-job.reply:
+		case batch = <-job.reply:
 		case <-ctx.Done():
 			return ctx.Err()
 		}
-		if result.err != nil {
-			return result.err
-		}
-		matches := result.matches[:min(len(result.matches), limit-matchCount)]
-		if len(matches) > 0 {
-			file := protocol.ContentSearchFile{Path: job.path, Matches: matches}
-			results = append(results, file)
-			matchCount += len(matches)
-			if emit != nil {
-				if err := emit(file); err != nil {
-					return err
+		for _, result := range batch {
+			if result.err != nil {
+				return result.err
+			}
+			matches := result.matches[:min(len(result.matches), limit-matchCount)]
+			if len(matches) > 0 {
+				file := protocol.ContentSearchFile{Path: result.path, Matches: matches}
+				results = append(results, file)
+				matchCount += len(matches)
+				if emit != nil {
+					if err := emit(file); err != nil {
+						return err
+					}
 				}
 			}
+			if matchCount >= limit {
+				return errSearchLimit
+			}
 		}
-		if matchCount >= limit {
-			return errSearchLimit
+		return nil
+	}
+	var paths []string
+	submitted := 0
+	submit := func() error {
+		if len(paths) == 0 {
+			return nil
+		}
+		job := fileJob{paths: paths, reply: make(chan []fileResult, 1)}
+		select {
+		case jobs <- job:
+		case <-ctx.Done():
+			return ctx.Err()
+		}
+		pending = append(pending, job)
+		paths = nil
+		submitted++
+		if len(pending) == workerCount {
+			return collect()
 		}
 		return nil
 	}
@@ -193,18 +233,20 @@ func (a *repoAdapter) searchContent(ctx context.Context, query string, caseSensi
 		if ignored && !includeIgnored || !matchesSearchPath(path, include, exclude) {
 			return nil
 		}
-		job := fileJob{path: path, reply: make(chan fileResult, 1)}
-		select {
-		case jobs <- job:
-		case <-ctx.Done():
-			return ctx.Err()
+		paths = append(paths, path)
+		size := batchSize
+		// Let the initial streaming window emit without waiting for a batch.
+		if emit != nil && submitted < workerCount {
+			size = 1
 		}
-		pending = append(pending, job)
-		if len(pending) == 4 {
-			return collect()
+		if len(paths) == size {
+			return submit()
 		}
 		return nil
 	})
+	if err == nil {
+		err = submit()
+	}
 	for err == nil && len(pending) > 0 {
 		err = collect()
 	}
