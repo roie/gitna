@@ -2166,9 +2166,14 @@ test('global New File creates an in-memory untitled tab', async ({ page, app }) 
   await collisionSaveAs.getByRole('textbox', { name: 'Repository-relative path' }).fill('saved.txt')
   await collisionSaveAs.getByRole('button', { name: 'Save', exact: true }).click()
   await expect(
-    page.locator('[role="alert"]').filter({ hasText: /already exists|exists|entry/i }),
+    page
+      .getByLabel('Notifications')
+      .getByRole('alert')
+      .filter({ hasText: /already exists|exists|entry/i }),
   ).toBeVisible()
   await expect(collisionSaveAs).toBeVisible()
+  expect(readFileSync(join(app.repo, 'saved.txt'), 'utf8')).toBe('saved')
+  await expect(secondTab.getByLabel('Unsaved changes')).toBeVisible()
   await collisionSaveAs.getByRole('button', { name: 'Cancel', exact: true }).click()
 
   await page.getByRole('button', { name: 'Close untitled:' }).click()

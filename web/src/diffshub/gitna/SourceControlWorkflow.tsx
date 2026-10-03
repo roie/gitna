@@ -2502,7 +2502,17 @@ function ChangeSection({
         },
       ]
     },
-    [changes, changesByPath, discardChanges, disabledReason, onConfirm, onRun, repository, scope],
+    [
+      changes,
+      changesByPath,
+      discardChanges,
+      disabledReason,
+      onConfirm,
+      onRun,
+      repository,
+      repository.busy,
+      scope,
+    ],
   )
 
   const headerActions =

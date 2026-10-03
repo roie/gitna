@@ -496,6 +496,13 @@ export const DiffsHubFileTree = memo(function DiffsHubFileTree({
   }, [model, source]);
 
   useEffect(() => {
+    // The imperative tree does not subscribe to React callback changes. Redraw
+    // its mounted rows so action availability follows mutation/recovery state.
+    const fileTreeContainer = model.getFileTreeContainer();
+    if (fileTreeContainer != null) model.render({ fileTreeContainer });
+  }, [model, renderRowActions]);
+
+  useEffect(() => {
     onModelReady(model);
     return () => onModelReady(null);
   }, [model, onModelReady]);

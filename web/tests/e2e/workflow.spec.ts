@@ -99,11 +99,19 @@ test('staging loop preserves VS Code section order and visibility', async ({ pag
   for (const path of ['modified.txt', 'delete.txt', 'rename-new.txt', 'staged.txt']) {
     const row = stagedTree.getByRole('treeitem', { name: path, exact: true })
     await row.hover()
-    await stagedTree.getByRole('button', { name: `Unstage ${path}` }).click()
-    await expect(row).toHaveCount(0)
+    const unstage = stagedTree.getByRole('button', { name: `Unstage ${path}`, exact: true })
+    // Native SSE can disable a button between mouse-down and mouse-up, which
+    // cancels the click. Unstage is idempotent; retry that input until the real
+    // index update removes the row, without forcing past the safety gate.
+    await expect(async () => {
+      if ((await row.count()) === 0) return
+      await unstage.click({ timeout: 1_000 })
+      await expect(row).toHaveCount(0, { timeout: 1_000 })
+    }).toPass({ timeout: 10_000 })
   }
 
   await expect(staged).toHaveCount(0)
+  expect(git(app.repo, 'diff', '--cached', '--name-only')).toBe('')
   await expect(changes).toBeVisible()
   await expect(changes).toHaveAttribute('aria-expanded', 'true')
   await expect(graph).toBeVisible()
@@ -136,9 +144,13 @@ test('folder rows expose stage, unstage, and discard actions on hover', async ({
   const stagedFolder = stagedTree.getByRole('treeitem', { name: 'nested', exact: true })
   await expect(stagedFolder).toBeVisible()
   await stagedFolder.hover()
-  await stagedTree.getByRole('button', { name: 'Unstage nested' }).click()
-
-  await expect(changedFolder).toBeVisible()
+  await expect(async () => {
+    if (await changedFolder.isVisible()) return
+    await stagedTree
+      .getByRole('button', { name: 'Unstage nested', exact: true })
+      .click({ timeout: 1_000 })
+    await expect(changedFolder).toBeVisible({ timeout: 1_000 })
+  }).toPass({ timeout: 10_000 })
   await changedFolder.hover()
   await changesTree.getByRole('button', { name: 'Discard changes in nested' }).click()
   const confirmation = page.getByRole('alertdialog')
