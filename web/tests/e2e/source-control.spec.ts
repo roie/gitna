@@ -2170,16 +2170,18 @@ test('durable drafts recover after a backend restart on a new port', async ({ pa
   await search.press('Enter')
   const editor = page.locator('.code-view').locator('[contenteditable="true"], textarea').first()
   await editor.click()
-  const backupRequest = page.waitForRequest(
-    (request) => request.method() === 'POST' && request.url().endsWith('/api/v1/drafts'),
-  )
-  const backup = page.waitForResponse(
-    (response) =>
-      response.request().method() === 'POST' && response.url().endsWith('/api/v1/drafts'),
-  )
-  await page.keyboard.type('restart draft')
-  const backupResponse = await backup
-  const backupPayload = await backupRequest
+  const [backupResponse, backupPayload] = await Promise.all([
+    page.waitForResponse(
+      (response) =>
+        response.request().method() === 'POST' && response.url().endsWith('/api/v1/drafts'),
+      { timeout: 10_000 },
+    ),
+    page.waitForRequest(
+      (request) => request.method() === 'POST' && request.url().endsWith('/api/v1/drafts'),
+      { timeout: 10_000 },
+    ),
+    editor.pressSequentially('restart draft'),
+  ])
   expect(
     backupResponse.status(),
     `${await backupResponse.text()} request=${backupPayload.postData()}`,
@@ -2191,6 +2193,7 @@ test('durable drafts recover after a backend restart on a new port', async ({ pa
   await expect(recovery).toBeVisible()
   await recovery.getByRole('button', { name: 'Restore copy' }).click()
   await expect(page.getByRole('tab', { name: 'Untitled-1 (Recovered)' })).toBeVisible()
+  await expect(editor).toContainText('restart draft')
 })
 
 test('failed draft backup is visible without blocking local editing', async ({ page, app }) => {
