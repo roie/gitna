@@ -1,4 +1,13 @@
-import { useEffect, useMemo, useState, type ComponentProps } from 'react'
+import {
+  memo,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ComponentProps,
+} from 'react'
+import { useStableCallback } from '@pierre/diffs/react'
 import ReactMarkdown, { type Components, type UrlTransform } from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 
@@ -7,6 +16,7 @@ export type MarkdownViewMode = 'editor' | 'preview' | 'split'
 interface MarkdownWorkbenchProps {
   path: string
   value: string | null
+  active?: boolean
   error?: string | null
   onOpenPath(path: string): void
   onScroll?(element: HTMLElement): void
@@ -14,6 +24,9 @@ interface MarkdownWorkbenchProps {
 }
 
 const MAX_MARKDOWN_BYTES = 512 * 1024
+const CachedMarkdown = memo(ReactMarkdown)
+const remarkPlugins = [remarkGfm]
+const safeUrlTransform: UrlTransform = (url) => (isSafeLink(url) ? url : '')
 
 function isSafeLink(value: string): boolean {
   if (value.startsWith('#') || value.startsWith('//')) return !value.startsWith('//')
@@ -58,63 +71,70 @@ function resolveLocalResource(source: string, documentPath: string): string | nu
 export function MarkdownWorkbench({
   path,
   value,
+  active = true,
   error,
   onOpenPath,
   onScroll,
   scrollRef,
 }: MarkdownWorkbenchProps) {
-  const debouncedValue = useDebouncedValue(value)
-  const tooLarge = new TextEncoder().encode(value ?? '').byteLength > MAX_MARKDOWN_BYTES
+  const openPath = useStableCallback(onOpenPath)
+  const debouncedValue = useDebouncedValue(value, active)
+  const tooLarge = useMemo(
+    () => new TextEncoder().encode(value ?? '').byteLength > MAX_MARKDOWN_BYTES,
+    [value],
+  )
   const markdown = useMemo(() => (tooLarge ? '' : debouncedValue), [debouncedValue, tooLarge])
-  const safeUrlTransform: UrlTransform = (url) => (isSafeLink(url) ? url : '')
-  const markdownComponents: Components = {
-    h1: ({ node, ...props }) => <h1 {...props} data-source-line={node?.position?.start.line} />,
-    h2: ({ node, ...props }) => <h2 {...props} data-source-line={node?.position?.start.line} />,
-    h3: ({ node, ...props }) => <h3 {...props} data-source-line={node?.position?.start.line} />,
-    h4: ({ node, ...props }) => <h4 {...props} data-source-line={node?.position?.start.line} />,
-    h5: ({ node, ...props }) => <h5 {...props} data-source-line={node?.position?.start.line} />,
-    h6: ({ node, ...props }) => <h6 {...props} data-source-line={node?.position?.start.line} />,
-    p: ({ node, ...props }) => <p {...props} data-source-line={node?.position?.start.line} />,
-    li: ({ node, ...props }) => <li {...props} data-source-line={node?.position?.start.line} />,
-    pre: ({ node, ...props }) => <pre {...props} data-source-line={node?.position?.start.line} />,
-    blockquote: ({ node, ...props }) => (
-      <blockquote {...props} data-source-line={node?.position?.start.line} />
-    ),
-    table: ({ node, ...props }) => (
-      <table {...props} data-source-line={node?.position?.start.line} />
-    ),
-    a: ({ href, children, ...props }: ComponentProps<'a'>) => (
-      <a
-        {...props}
-        href={href && isSafeLink(href) ? href : undefined}
-        onClick={(event) => {
-          if (href == null || !isSafeLink(href)) {
-            event.preventDefault()
-            return
-          }
-          const localPath = resolveRepositoryPath(href, path)
-          if (localPath != null) {
-            event.preventDefault()
-            onOpenPath(localPath)
-          }
-        }}
-        rel={/^https?:/i.test(href ?? '') ? 'noreferrer noopener' : undefined}
-        target={/^https?:/i.test(href ?? '') ? '_blank' : undefined}
-      >
-        {children}
-      </a>
-    ),
-    img: ({ src, alt }: ComponentProps<'img'>) => {
-      const localSrc = src == null ? null : resolveLocalResource(src, path)
-      return localSrc == null ? (
-        <span className="rounded border px-2 py-1 text-xs text-muted-foreground">
-          Blocked image resource: {alt ?? 'unnamed'}
-        </span>
-      ) : (
-        <img alt={alt ?? ''} loading="lazy" src={localSrc} />
-      )
-    },
-  }
+  const markdownComponents = useMemo<Components>(
+    () => ({
+      h1: ({ node, ...props }) => <h1 {...props} data-source-line={node?.position?.start.line} />,
+      h2: ({ node, ...props }) => <h2 {...props} data-source-line={node?.position?.start.line} />,
+      h3: ({ node, ...props }) => <h3 {...props} data-source-line={node?.position?.start.line} />,
+      h4: ({ node, ...props }) => <h4 {...props} data-source-line={node?.position?.start.line} />,
+      h5: ({ node, ...props }) => <h5 {...props} data-source-line={node?.position?.start.line} />,
+      h6: ({ node, ...props }) => <h6 {...props} data-source-line={node?.position?.start.line} />,
+      p: ({ node, ...props }) => <p {...props} data-source-line={node?.position?.start.line} />,
+      li: ({ node, ...props }) => <li {...props} data-source-line={node?.position?.start.line} />,
+      pre: ({ node, ...props }) => <pre {...props} data-source-line={node?.position?.start.line} />,
+      blockquote: ({ node, ...props }) => (
+        <blockquote {...props} data-source-line={node?.position?.start.line} />
+      ),
+      table: ({ node, ...props }) => (
+        <table {...props} data-source-line={node?.position?.start.line} />
+      ),
+      a: ({ href, children, ...props }: ComponentProps<'a'>) => (
+        <a
+          {...props}
+          href={href && isSafeLink(href) ? href : undefined}
+          onClick={(event) => {
+            if (href == null || !isSafeLink(href)) {
+              event.preventDefault()
+              return
+            }
+            const localPath = resolveRepositoryPath(href, path)
+            if (localPath != null) {
+              event.preventDefault()
+              openPath(localPath)
+            }
+          }}
+          rel={/^https?:/i.test(href ?? '') ? 'noreferrer noopener' : undefined}
+          target={/^https?:/i.test(href ?? '') ? '_blank' : undefined}
+        >
+          {children}
+        </a>
+      ),
+      img: ({ src, alt }: ComponentProps<'img'>) => {
+        const localSrc = src == null ? null : resolveLocalResource(src, path)
+        return localSrc == null ? (
+          <span className="rounded border px-2 py-1 text-xs text-muted-foreground">
+            Blocked image resource: {alt ?? 'unnamed'}
+          </span>
+        ) : (
+          <img alt={alt ?? ''} loading="lazy" src={localSrc} />
+        )
+      },
+    }),
+    [path, openPath],
+  )
 
   return (
     <section className="flex h-full min-h-0 flex-col bg-background" aria-label="Markdown preview">
@@ -140,14 +160,14 @@ export function MarkdownWorkbench({
             className="markdown-preview cv-scrollbar min-h-0 flex-1 overflow-auto overscroll-contain px-4 py-5 text-sm sm:px-6"
           >
             <div className="mx-auto w-full max-w-3xl">
-              <ReactMarkdown
-                remarkPlugins={[remarkGfm]}
+              <CachedMarkdown
+                remarkPlugins={remarkPlugins}
                 skipHtml
                 urlTransform={safeUrlTransform}
                 components={markdownComponents}
               >
                 {markdown}
-              </ReactMarkdown>
+              </CachedMarkdown>
             </div>
           </article>
         )
@@ -163,11 +183,18 @@ export function MarkdownWorkbench({
   )
 }
 
-function useDebouncedValue(value: string | null): string {
+function useDebouncedValue(value: string | null, active: boolean): string {
   const [state, setState] = useState(value ?? '')
+  const wasActive = useRef(active)
+  useLayoutEffect(() => {
+    // Reopening must paint the current revision, not a hidden stale preview.
+    if (active && !wasActive.current) setState(value ?? '')
+    wasActive.current = active
+  }, [active, value])
   useEffect(() => {
+    if (!active) return
     const timer = window.setTimeout(() => setState(value ?? ''), 120)
     return () => window.clearTimeout(timer)
-  }, [value])
+  }, [value, active])
   return state
 }

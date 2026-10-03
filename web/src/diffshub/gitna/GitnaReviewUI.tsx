@@ -386,6 +386,15 @@ function GitnaReviewUIInner() {
   const [diffIndicators, setDiffIndicators] = useState<DiffIndicators>('bars')
   const [lineNumbers, setLineNumbers] = useState(true)
   const [markdownMode, setMarkdownMode] = useState<MarkdownViewMode>('editor')
+  const [cachedMarkdownPath, setCachedMarkdownPath] = useState<string | null>(null)
+  const [cachedMarkdownMode, setCachedMarkdownMode] = useState<'preview' | 'split'>('split')
+  const markdownLayoutMode = markdownMode === 'editor' ? cachedMarkdownMode : markdownMode
+  useEffect(() => {
+    if (markdownMode !== 'editor') {
+      setCachedMarkdownPath(target?.filePath ?? null)
+      setCachedMarkdownMode(markdownMode)
+    }
+  }, [markdownMode, target?.filePath])
   const [previewHeaderHeight, setPreviewHeaderHeight] = useState(44)
   const [themesHydrated, setThemesHydrated] = useState(false)
   useEffect(() => setMarkdownMode('editor'), [target?.filePath])
@@ -2041,54 +2050,65 @@ function GitnaReviewUIInner() {
                         }
                       />
                     </div>
-                    {markdownPath != null && markdownMode !== 'editor' && (
-                      <div
-                        className={cn(
-                          'flex min-h-0 flex-col bg-background',
-                          markdownMode === 'preview'
-                            ? 'absolute inset-x-0 bottom-0 z-10'
-                            : 'h-full border-l border-border max-[700px]:border-l-0 max-[700px]:border-t',
-                        )}
-                        style={
-                          markdownMode === 'preview' ? { top: previewHeaderHeight } : undefined
-                        }
-                      >
-                        {markdownMode === 'split' && (
-                          <div
-                            className="flex shrink-0 items-center border-b border-border px-4 text-xs text-muted-foreground"
-                            style={{ height: previewHeaderHeight }}
-                          >
-                            Preview
+                    {markdownPath != null &&
+                      (markdownMode !== 'editor' || cachedMarkdownPath === markdownPath) && (
+                        <div
+                          className={cn(
+                            'flex min-h-0 flex-col bg-background',
+                            markdownMode === 'editor' && 'invisible pointer-events-none',
+                            markdownLayoutMode === 'preview'
+                              ? 'absolute inset-x-0 bottom-0 z-10'
+                              : cn(
+                                  'h-full border-l border-border max-[700px]:border-l-0 max-[700px]:border-t',
+                                  markdownMode === 'editor' &&
+                                    'absolute right-0 top-0 w-1/2 max-[700px]:top-auto max-[700px]:bottom-0 max-[700px]:h-1/2 max-[700px]:w-full',
+                                ),
+                          )}
+                          aria-hidden={markdownMode === 'editor' || undefined}
+                          inert={markdownMode === 'editor'}
+                          style={
+                            markdownLayoutMode === 'preview'
+                              ? { top: previewHeaderHeight }
+                              : undefined
+                          }
+                        >
+                          {markdownLayoutMode === 'split' && (
+                            <div
+                              className="flex shrink-0 items-center border-b border-border px-4 text-xs text-muted-foreground"
+                              style={{ height: previewHeaderHeight }}
+                            >
+                              Preview
+                            </div>
+                          )}
+                          <div className="min-h-0 flex-1">
+                            <Suspense
+                              fallback={
+                                <div className="p-4 text-sm" role="status">
+                                  Loading preview…
+                                </div>
+                              }
+                            >
+                              <MarkdownWorkbench
+                                key={markdownPath}
+                                scrollRef={handlePreviewMount}
+                                onScroll={handlePreviewScroll}
+                                onOpenPath={(path) => {
+                                  void repository
+                                    .openRepositoryFile(path, true)
+                                    .catch((error: unknown) =>
+                                      setReviewActionError(
+                                        error instanceof Error ? error.message : String(error),
+                                      ),
+                                    )
+                                }}
+                                path={markdownPath}
+                                value={markdownValue}
+                                active={markdownMode !== 'editor'}
+                              />
+                            </Suspense>
                           </div>
-                        )}
-                        <div className="min-h-0 flex-1">
-                          <Suspense
-                            fallback={
-                              <div className="p-4 text-sm" role="status">
-                                Loading preview…
-                              </div>
-                            }
-                          >
-                            <MarkdownWorkbench
-                              key={markdownPath}
-                              scrollRef={handlePreviewMount}
-                              onScroll={handlePreviewScroll}
-                              onOpenPath={(path) => {
-                                void repository
-                                  .openRepositoryFile(path, true)
-                                  .catch((error: unknown) =>
-                                    setReviewActionError(
-                                      error instanceof Error ? error.message : String(error),
-                                    ),
-                                  )
-                              }}
-                              path={markdownPath}
-                              value={markdownValue}
-                            />
-                          </Suspense>
                         </div>
-                      </div>
-                    )}
+                      )}
                   </div>
                 ) : (
                   <div className="grid h-full min-h-0 [&>*]:h-full">
