@@ -3299,9 +3299,7 @@ test('repository tree keeps a bounded virtualized viewport for thousands of file
   await expect(virtualizedFolder).toHaveAttribute('aria-expanded', 'true')
   await expect
     .poll(() =>
-      repositoryVirtualScroll.evaluate(
-        (element) => element.scrollHeight / element.clientHeight,
-      ),
+      repositoryVirtualScroll.evaluate((element) => element.scrollHeight / element.clientHeight),
     )
     .toBeGreaterThan(10)
   await expect.poll(() => repositoryTree.getByRole('treeitem').count()).toBeLessThan(200)
