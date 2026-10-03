@@ -10,7 +10,7 @@ import {
   IconX,
 } from '@pierre/icons'
 
-import type { ApiClient } from '../../lib/api'
+import { ApiError, type ApiClient } from '../../lib/api'
 import type { ContentSearchFile, ContentSearchMatch } from '../../lib/types'
 import { Button } from '../components/Button'
 import { Input } from '../components/Input'
@@ -103,7 +103,11 @@ export function FindInFilesPanel({
     if (!query) return
     const controller = new AbortController()
     let timer: number
+    let batchTimer: number | undefined
+    let pendingFiles: ContentSearchFile[] = []
     const search = async () => {
+      let firstBatch = true
+      pendingFiles = []
       try {
         if (api.searchContent == null)
           throw new Error('Find in Files is unavailable for this session.')
@@ -115,8 +119,25 @@ export function FindInFilesPanel({
           include,
           exclude,
           signal: controller.signal,
+          onBatch: (batch) => {
+            if (controller.signal.aborted) return
+            pendingFiles = batch.results
+            if (firstBatch) {
+              firstBatch = false
+              setFiles(batch.results)
+              return
+            }
+            // Paint the first match immediately; coalesce later frames so
+            // sidebar/highlight updates do not rerender the whole workbench per file.
+            batchTimer ??= window.setTimeout(() => {
+              batchTimer = undefined
+              if (!controller.signal.aborted) setFiles(pendingFiles)
+            }, 100)
+          },
         })
         if (controller.signal.aborted) return
+        window.clearTimeout(batchTimer)
+        batchTimer = undefined
         setFiles(result.results)
         setTruncated(result.truncated)
         setLoading(!result.complete && !result.truncated)
@@ -124,14 +145,26 @@ export function FindInFilesPanel({
           timer = window.setTimeout(() => void search(), 350)
       } catch (reason) {
         if (controller.signal.aborted) return
-        setError(reason instanceof Error ? reason.message : String(reason))
-        setFiles([])
+        window.clearTimeout(batchTimer)
+        batchTimer = undefined
+        if (reason instanceof ApiError && reason.status === 504) {
+          setFiles(pendingFiles)
+          setError(
+            firstBatch
+              ? 'Search timed out. Narrow the search and try again.'
+              : 'Search timed out. Partial results are shown; narrow the search and try again.',
+          )
+        } else {
+          setError(reason instanceof Error ? reason.message : String(reason))
+          setFiles([])
+        }
         setLoading(false)
       }
     }
-    timer = window.setTimeout(() => void search(), 220)
+    timer = window.setTimeout(() => void search(), 100)
     return () => {
       window.clearTimeout(timer)
+      window.clearTimeout(batchTimer)
       controller.abort()
     }
   }, [

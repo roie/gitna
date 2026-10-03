@@ -24,6 +24,14 @@ const (
 )
 
 func (a *repoAdapter) SearchContent(ctx context.Context, query string, caseSensitive, includeIgnored, useRegex, wholeWord bool, include, exclude string, limit int) (protocol.ContentSearchResults, error) {
+	return a.searchContent(ctx, query, caseSensitive, includeIgnored, useRegex, wholeWord, include, exclude, limit, nil)
+}
+
+func (a *repoAdapter) SearchContentStream(ctx context.Context, query string, caseSensitive, includeIgnored, useRegex, wholeWord bool, include, exclude string, limit int, emit func(protocol.ContentSearchFile) error) (protocol.ContentSearchResults, error) {
+	return a.searchContent(ctx, query, caseSensitive, includeIgnored, useRegex, wholeWord, include, exclude, limit, emit)
+}
+
+func (a *repoAdapter) searchContent(ctx context.Context, query string, caseSensitive, includeIgnored, useRegex, wholeWord bool, include, exclude string, limit int, emit func(protocol.ContentSearchFile) error) (protocol.ContentSearchResults, error) {
 	if query == "" {
 		return protocol.ContentSearchResults{Results: []protocol.ContentSearchFile{}, Complete: true}, nil
 	}
@@ -65,6 +73,9 @@ func (a *repoAdapter) SearchContent(ctx context.Context, query string, caseSensi
 	include = strings.TrimSpace(include)
 	exclude = strings.TrimSpace(exclude)
 	scanFile := func(path string, reader *bufio.Reader) ([]protocol.ContentSearchMatch, error) {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
 		local, err := filepath.Localize(path)
 		if err != nil {
 			return nil, nil
@@ -164,8 +175,14 @@ func (a *repoAdapter) SearchContent(ctx context.Context, query string, caseSensi
 		}
 		matches := result.matches[:min(len(result.matches), limit-matchCount)]
 		if len(matches) > 0 {
-			results = append(results, protocol.ContentSearchFile{Path: job.path, Matches: matches})
+			file := protocol.ContentSearchFile{Path: job.path, Matches: matches}
+			results = append(results, file)
 			matchCount += len(matches)
+			if emit != nil {
+				if err := emit(file); err != nil {
+					return err
+				}
+			}
 		}
 		if matchCount >= limit {
 			return errSearchLimit

@@ -531,6 +531,10 @@ func (s *Server) handleContentSearch(w http.ResponseWriter, r *http.Request) {
 	}
 	ctx, cancel := context.WithTimeout(r.Context(), ContentSearchTimeout)
 	defer cancel()
+	if stream, ok := s.repo.(contentSearchStreamRepo); ok && r.Header.Get("Accept") == "application/x-ndjson" {
+		s.streamContentSearch(ctx, w, r, stream, query, include, exclude)
+		return
+	}
 	for range 3 {
 		generation := s.gen.Load()
 		results, err := repo.SearchContent(ctx, query, r.URL.Query().Get("case") == "1", r.URL.Query().Get("includeIgnored") == "1", r.URL.Query().Get("regex") == "1", r.URL.Query().Get("word") == "1", include, exclude, contentSearchMatchLimit)

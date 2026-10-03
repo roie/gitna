@@ -1,3 +1,4 @@
+import { readContentSearchStream } from './contentSearchStream'
 import type {
   Branch,
   CommitFiles,
@@ -152,6 +153,7 @@ export interface ApiClient {
   searchContent?(
     query: string,
     options?: {
+      onBatch?: (result: ContentSearchResults) => void
       caseSensitive?: boolean
       regex?: boolean
       wholeWord?: boolean
@@ -327,6 +329,7 @@ export function createApi(): ApiClient {
     async searchContent(
       query: string,
       options: {
+        onBatch?: (result: ContentSearchResults) => void
         caseSensitive?: boolean
         regex?: boolean
         wholeWord?: boolean
@@ -345,12 +348,19 @@ export function createApi(): ApiClient {
       if (options.exclude) params.set('exclude', options.exclude)
       const res = await expectOK(
         await fetch(`api/v1/search/content?${params.toString()}`, {
+          headers: options.onBatch == null ? undefined : { Accept: 'application/x-ndjson' },
           signal:
             options.signal == null
               ? AbortSignal.timeout(FETCH_TIMEOUT)
               : AbortSignal.any([options.signal, AbortSignal.timeout(FETCH_TIMEOUT)]),
         }),
       )
+      if (res.headers.get('content-type')?.includes('application/x-ndjson'))
+        return readContentSearchStream(
+          res,
+          options.onBatch,
+          (status, message, code) => new ApiError(status, message, code),
+        )
       return (await res.json()) as ContentSearchResults
     },
     async readWorktreeFile(path: string): Promise<WorktreeFile> {
