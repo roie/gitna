@@ -449,7 +449,7 @@ func TestWatcherDebouncesBursts(t *testing.T) {
 		closedCh: make(chan struct{}),
 	}
 	for i := 0; i < 10; i++ {
-		w.fsw.Events <- fsnotify.Event{Name: filepath.Join(root, "tracked.txt"), Op: fsnotify.Write}
+		w.fsw.Events <- fsnotify.Event{Name: filepath.Join(repo.Root, "tracked.txt"), Op: fsnotify.Write}
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan struct{})
@@ -562,7 +562,9 @@ func TestWatcherClassifiesSearchMetadataConservatively(t *testing.T) {
 	w := startWatcher(t, root, Options{FallbackInterval: -1})
 	for _, path := range []string{".git/index", ".gitignore", "nested/.gitignore"} {
 		for _, op := range []fsnotify.Op{fsnotify.Write, fsnotify.Create, fsnotify.Remove, fsnotify.Rename} {
-			kinds := w.classify(fsnotify.Event{Name: filepath.Join(root, path), Op: op})
+			// Native events use the installed watch's canonical path, not an
+			// alias such as macOS /var or Windows' short temporary directory.
+			kinds := w.classify(fsnotify.Event{Name: filepath.Join(w.git.Root, path), Op: op})
 			if len(kinds) != 1 || kinds[0] != InvalidateFiles {
 				t.Errorf("%s %s: %v, want files invalidation", path, op, kinds)
 			}

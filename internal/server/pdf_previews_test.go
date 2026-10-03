@@ -140,6 +140,11 @@ func TestPDFPreviewAuthorityBoundaries(t *testing.T) {
 func TestPDFPreviewLifecycle(t *testing.T) {
 	p, app, root := pdfTestApp(t)
 	lease := createPDFLease(t, app)
+	// Model elapsed lease time without relying on Windows' clock resolution.
+	p.mu.Lock()
+	lease.ExpiresAt = lease.ExpiresAt.Add(-time.Second)
+	p.grants[lease.Token].expires = lease.ExpiresAt
+	p.mu.Unlock()
 	renewed, ok := p.renew(root, lease.Token)
 	if !ok || renewed.URL != lease.URL || !renewed.ExpiresAt.After(lease.ExpiresAt) {
 		t.Fatal("renewal failed")
