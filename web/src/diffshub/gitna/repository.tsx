@@ -551,9 +551,12 @@ export class GitnaRepository {
   private async readRepositoryFiles(
     operationEpoch = this.repositoryEpoch,
   ): Promise<ReconciliationOutcome> {
+    // Defer the exact count only for the owned initial load. Recovery still
+    // waits for authoritative count/generation catch-up before enabling actions.
+    const count = this.refreshRepositoryFileCount()
     const [directories] = await Promise.all([
       this.refreshOrdinaryDirectories(operationEpoch),
-      this.refreshRepositoryFileCount(),
+      this.initialRefreshPromise != null ? undefined : count,
     ])
     if (operationEpoch !== this.repositoryEpoch) return reconciliationOutcome('obsolete')
     if (directories.result !== 'succeeded') return directories
@@ -1217,8 +1220,8 @@ export class GitnaRepository {
     const loadedGit = includeGit && this.snapshot?.repository === true
     const gitReads = () =>
       Promise.all([this.readGraph(), this.readBranches(), this.readStashes(), this.readTags()])
-    // Explorer and Git are independent after Snapshot. Counts remain auxiliary
-    // to success; Explorer retains its existing bounded count/generation work.
+    // Explorer and Git are independent after Snapshot. The initial count loads
+    // in the background; recovery retains bounded count/generation catch-up.
     const invalidatedGraph = this.graphInvalidation
     if (loadedGit) this.graphInvalidation = null
     const [explorer, git, graphInvalidation] = await Promise.all([

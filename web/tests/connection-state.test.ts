@@ -112,6 +112,77 @@ describe('GitnaRepository connection owner', () => {
     cleanup()
   })
 
+  it.each([false, true])(
+    'does not hold initial readiness behind an exact file count (%s)',
+    async (reject) => {
+      const count = deferred<Awaited<ReturnType<ApiClient['repositoryFileCount']>>>()
+      const api = apiFor(async () => snapshot())
+      api.repositoryFileCount = vi.fn().mockReturnValue(count.promise)
+      const repository = new GitnaRepository(api)
+      const loading = repository.refreshCurrentFolder()
+      const cleanup = repository.connectEvents()
+      TestEventSource.current!.dispatch('open')
+      await vi.advanceTimersByTimeAsync(0)
+
+      expect(repository.connectionReady).toBe(true)
+      expect(repository.repositoryFilesLoading).toBe(false)
+      expect(repository.generation).toBe(1)
+      expect(repository.repositoryFileCountLoading).toBe(true)
+      expect(repository.repositoryFileTotal).toBeNull()
+      await loading
+      if (reject) count.reject(new Error('count unavailable'))
+      else count.resolve({ generation: 1, total: 12 })
+      await vi.advanceTimersByTimeAsync(0)
+      expect(repository.repositoryFileCountLoading).toBe(false)
+      expect(repository.repositoryFileTotal).toBe(reject ? null : 12)
+      expect(repository.connectionReady).toBe(true)
+      cleanup()
+    },
+  )
+
+  it('keeps authoritative count catch-up on the recovery readiness path', async () => {
+    const count = deferred<Awaited<ReturnType<ApiClient['repositoryFileCount']>>>()
+    const api = apiFor(async () => snapshot())
+    const repository = new GitnaRepository(api)
+    const cleanup = repository.connectEvents()
+    TestEventSource.current!.dispatch('open')
+    await repository.refreshCurrentFolder()
+    expect(repository.connectionReady).toBe(true)
+
+    api.repositoryFileCount = vi.fn().mockReturnValue(count.promise)
+    TestEventSource.current!.dispatch('error')
+    TestEventSource.current!.dispatch('open')
+    await vi.advanceTimersByTimeAsync(150)
+    expect(api.repositoryFileCount).toHaveBeenCalled()
+    expect(repository.connectionState).toBe('reconciling')
+    expect(repository.connectionReady).toBe(false)
+    count.resolve({ generation: 1, total: 12 })
+    await vi.advanceTimersByTimeAsync(0)
+    expect(repository.connectionReady).toBe(true)
+    cleanup()
+  })
+
+  it.each([false, true])(
+    'ignores a late initial file count after teardown (%s)',
+    async (reject) => {
+      const count = deferred<Awaited<ReturnType<ApiClient['repositoryFileCount']>>>()
+      const api = apiFor(async () => snapshot())
+      api.repositoryFileCount = vi.fn().mockReturnValue(count.promise)
+      const repository = new GitnaRepository(api)
+      const cleanup = repository.connectEvents()
+      TestEventSource.current!.dispatch('open')
+      await repository.refreshCurrentFolder()
+      cleanup()
+      const version = repository.getVersion()
+      if (reject) count.reject(new ApiError(409, 'obsolete count'))
+      else count.resolve({ generation: 1, total: 12 })
+      await vi.advanceTimersByTimeAsync(0)
+      expect(repository.getVersion()).toBe(version)
+      expect(repository.repositoryFileTotal).toBeNull()
+      expect(api.snapshot).toHaveBeenCalledTimes(1)
+    },
+  )
+
   it('does not fan out reads after a failed Snapshot', async () => {
     const graph = vi.fn()
     const api = apiFor(async () => {
