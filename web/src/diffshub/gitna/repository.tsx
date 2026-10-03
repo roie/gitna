@@ -551,16 +551,12 @@ export class GitnaRepository {
   private async readRepositoryFiles(
     operationEpoch = this.repositoryEpoch,
   ): Promise<ReconciliationOutcome> {
-    const directories = await this.refreshOrdinaryDirectories(operationEpoch)
+    const [directories] = await Promise.all([
+      this.refreshOrdinaryDirectories(operationEpoch),
+      this.refreshRepositoryFileCount(),
+    ])
     if (operationEpoch !== this.repositoryEpoch) return reconciliationOutcome('obsolete')
     if (directories.result !== 'succeeded') return directories
-    if (this.snapshot?.repository === true) {
-      await this.refreshRepositoryFileCount()
-      if (operationEpoch !== this.repositoryEpoch) return reconciliationOutcome('obsolete')
-    } else {
-      this.repositoryFileTotal = null
-      this.repositoryFileTotalGeneration = 0
-    }
     return reconciliationOutcome('succeeded')
   }
 

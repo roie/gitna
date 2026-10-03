@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"sync"
 
 	"github.com/roie/gitna/internal/protocol"
 )
@@ -96,7 +97,7 @@ func (r Repository) RepositoryFileCount(ctx context.Context, runner Runner) (int
 		return 0, fmt.Errorf("gitx: repository file count requires a Git repository")
 	}
 	if streamer, ok := runner.(nulRecordRunner); ok {
-		return r.streamRepositoryFileCount(ctx, streamer)
+		return r.streamRepositoryFileCount(ctx, streamer, os.Lstat)
 	}
 	visible, err := r.listRepositoryFiles(ctx, runner, "--cached", "--others", "--exclude-standard", "--deduplicate")
 	if err != nil {
@@ -126,20 +127,73 @@ func (r Repository) RepositoryFileCount(ctx context.Context, runner Runner) (int
 	return len(paths), nil
 }
 
-func (r Repository) streamRepositoryFileCount(ctx context.Context, runner nulRecordRunner) (int, error) {
-	total := 0
-	visible, err := runner.RunNUL(ctx, r.Root, func(record []byte) error {
-		path := string(record)
-		if _, err := os.Lstat(filepath.Join(r.Root, filepath.FromSlash(path))); err != nil {
-			if os.IsNotExist(err) {
-				return nil
+func (r Repository) streamRepositoryFileCount(ctx context.Context, runner nulRecordRunner, lstat func(string) (os.FileInfo, error)) (int, error) {
+	const batchSize = 256
+	const workers = 4
+	type check struct {
+		start, end int
+	}
+	paths := make([]string, 0, batchSize)
+	errors := make([]error, batchSize)
+	jobs := make(chan check, workers)
+	var pending, running sync.WaitGroup
+	for range workers {
+		running.Add(1)
+		go func() {
+			defer running.Done()
+			for job := range jobs {
+				for index := job.start; index < job.end; index++ {
+					if err := ctx.Err(); err != nil {
+						errors[index] = err
+						continue
+					}
+					_, errors[index] = lstat(filepath.Join(r.Root, filepath.FromSlash(paths[index])))
+				}
+				pending.Done()
 			}
+		}()
+	}
+	defer func() {
+		close(jobs)
+		running.Wait()
+	}()
+	total := 0
+	flush := func() error {
+		// A bounded batch lets workers overlap filesystem calls while retaining
+		// record-order errors and never retaining the complete Git manifest.
+		for start := 0; start < len(paths); start += batchSize / workers {
+			pending.Add(1)
+			jobs <- check{start: start, end: min(start+batchSize/workers, len(paths))}
+		}
+		pending.Wait()
+		for index := range paths {
+			if err := errors[index]; err != nil {
+				if os.IsNotExist(err) {
+					continue
+				}
+				return err
+			}
+			total++
+		}
+		clear(paths)
+		paths = paths[:0]
+		return nil
+	}
+	visible, err := runner.RunNUL(ctx, r.Root, func(record []byte) error {
+		if err := ctx.Err(); err != nil {
 			return err
 		}
-		total++
+		// RunNUL may reuse its record buffer; string conversion owns this path.
+		paths = append(paths, string(record))
+		if len(paths) == batchSize {
+			return flush()
+		}
 		return nil
 	}, "ls-files", "-z", "--cached", "--others", "--exclude-standard", "--deduplicate")
 	if err != nil {
+		return 0, err
+	}
+	if err := flush(); err != nil {
 		return 0, err
 	}
 	if visible.ExitCode != 0 {

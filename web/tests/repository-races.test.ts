@@ -45,6 +45,42 @@ function graphPage(oid: string, generation = 1): GraphPage {
 }
 
 describe('GitnaRepository request sequencing', () => {
+  it.each(['directory', 'count'] as const)(
+    'awaits both Explorer reads when %s finishes first',
+    async (first) => {
+      const directory = deferred<DirectoryEntries>()
+      const count = deferred<{ generation: number; total: number }>()
+      const api = {
+        directoryEntries: vi.fn().mockReturnValue(directory.promise),
+        repositoryFileCount: vi.fn().mockReturnValue(count.promise),
+      } as unknown as ApiClient
+      const repository = new GitnaRepository(api)
+      repository.snapshot = snapshot('/repo', 2)
+      repository.generation = 2
+      let finished = false
+      const refresh = repository.refreshRepositoryFiles().then((result) => {
+        finished = true
+        return result
+      })
+      await vi.waitFor(() => {
+        expect(api.directoryEntries).toHaveBeenCalledTimes(1)
+        expect(api.repositoryFileCount).toHaveBeenCalledTimes(1)
+      })
+      const finishDirectory = () =>
+        directory.resolve({ directory: '', generation: 2, entries: [], truncated: false })
+      const finishCount = () => count.resolve({ generation: 2, total: 12 })
+      if (first === 'directory') finishDirectory()
+      else finishCount()
+      await Promise.resolve()
+      await Promise.resolve()
+      expect(finished).toBe(false)
+      if (first === 'directory') finishCount()
+      else finishDirectory()
+      expect(await refresh).toBe('succeeded')
+      expect(repository.repositoryFileTotal).toBe(12)
+    },
+  )
+
   it('keeps the newest graph when refreshes resolve out of order', async () => {
     const first = deferred<GraphPage>()
     const second = deferred<GraphPage>()
