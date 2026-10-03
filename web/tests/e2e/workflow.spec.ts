@@ -252,8 +252,16 @@ test('commit text survives hook failure and clears after authoritative success',
   writeFileSync(hook, '#!/bin/sh\necho policy rejects this commit >&2\nexit 1\n')
   chmodSync(hook, 0o755)
 
+  const originalHead = git(app.repo, 'rev-parse', 'HEAD')
+  let commitRequests = 0
+  page.on('request', (request) => {
+    if (request.method() === 'POST' && new URL(request.url()).pathname.endsWith('/operations')) {
+      commitRequests += 1
+    }
+  })
   await page.goto(app.url)
   const composer = page.getByPlaceholder('Commit message')
+  const commitButton = page.getByRole('button', { name: 'Commit', exact: true })
   await composer.fill('milestone commit')
   await page.getByRole('button', { name: 'Commit', exact: true }).click()
   await expect(
@@ -261,13 +269,46 @@ test('commit text survives hook failure and clears after authoritative success',
   ).toBeVisible()
   await expect(composer).toHaveValue('milestone commit')
 
-  rmSync(hook)
-  // The error is visible before post-operation refreshes release the composer.
-  await expect(composer).toBeEnabled()
+  // Editing readiness is not mutation readiness: a watcher refresh can keep
+  // the composer editable while Commit remains guarded by reconciliation.
+  await expect(commitButton).toBeEnabled()
   await page.keyboard.press('Control+Shift+C')
+  await expect(composer).toBeFocused()
+  let releaseSnapshot!: () => void
+  const snapshotGate = new Promise<void>((resolve) => {
+    releaseSnapshot = resolve
+  })
+  let snapshotStarted!: () => void
+  const snapshotRequest = new Promise<void>((resolve) => {
+    snapshotStarted = resolve
+  })
+  await page.route('**/api/v1/snapshot', async (route) => {
+    snapshotStarted()
+    await snapshotGate
+    await route.continue()
+  })
+  try {
+    rmSync(hook)
+    writeFileSync(join(app.repo, 'modified.txt'), 'watcher refresh during commit recovery\n')
+    await snapshotRequest
+    await expect(commitButton).toBeDisabled()
+    await expect(composer).toBeEnabled()
+    await composer.focus()
+    await expect(composer).toBeFocused()
+    await page.keyboard.press('Control+Enter')
+    await expect(composer).toHaveValue('milestone commit')
+    expect(commitRequests).toBe(1)
+    expect(git(app.repo, 'rev-parse', 'HEAD')).toBe(originalHead)
+  } finally {
+    releaseSnapshot()
+  }
+  await expect(commitButton).toBeEnabled()
   await expect(composer).toBeFocused()
   await page.keyboard.press('Control+Enter')
   await expect(composer).toHaveValue('')
+  expect(commitRequests).toBe(2)
+  expect(git(app.repo, 'rev-parse', 'HEAD^')).toBe(originalHead)
+  expect(git(app.repo, 'log', '-1', '--format=%s')).toBe('milestone commit')
   await page.locator('[data-section="graph"]').click()
   await expect(page.getByText('milestone commit', { exact: true })).toBeVisible()
 })
