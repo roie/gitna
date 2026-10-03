@@ -267,6 +267,12 @@ func TestWatcherReportsIndexAndCommitChanges(t *testing.T) {
 	drain(t, events, 100*time.Millisecond)
 
 	writeFile(t, root, "tracked.txt", "changed\n")
+	if got := nextEvent(t, events); got != InvalidateSnapshot {
+		t.Fatalf("content edit: got %q, want %q", got, InvalidateSnapshot)
+	}
+	drain(t, events, 100*time.Millisecond)
+	// A slow git add need not share a debounce window with the content edit.
+	// Check the index invalidation independently of that earlier notification.
 	runGit(t, root, "add", "tracked.txt")
 	if got := nextEvent(t, events); got != InvalidateFiles {
 		t.Fatalf("stage: got %q, want %q", got, InvalidateFiles)
@@ -274,14 +280,18 @@ func TestWatcherReportsIndexAndCommitChanges(t *testing.T) {
 	drain(t, events, 100*time.Millisecond)
 
 	runGit(t, root, "commit", "-q", "-m", "change")
-	// A commit updates both HEAD and refs/heads/main, so the debounced flush
-	// emits snapshot (possibly promoted to files by an index write) and graph
-	// invalidations together. Go map iteration order is random.
+	// Index, HEAD, and refs writes can span multiple debounce windows. Require
+	// both impacts, irrespective of notification order or duplicate snapshots.
 	seen := map[InvalidationKind]bool{}
-	seen[nextEvent(t, events)] = true
-	seen[nextEvent(t, events)] = true
-	if (!seen[InvalidateSnapshot] && !seen[InvalidateFiles]) || !seen[InvalidateGraph] {
-		t.Fatalf("commit: got %v, want snapshot/files and graph invalidations", seen)
+	deadline := time.NewTimer(10 * time.Second)
+	defer deadline.Stop()
+	for (!seen[InvalidateSnapshot] && !seen[InvalidateFiles]) || !seen[InvalidateGraph] {
+		select {
+		case kind := <-events:
+			seen[kind] = true
+		case <-deadline.C:
+			t.Fatalf("commit: got %v, want snapshot/files and graph invalidations", seen)
+		}
 	}
 	drain(t, events, 200*time.Millisecond)
 }
@@ -421,25 +431,37 @@ func TestWatcherIgnoresGitLockFilesButReportsWorktreeLockFiles(t *testing.T) {
 
 func TestWatcherDebouncesBursts(t *testing.T) {
 	root := trackedRepo(t)
-	// Keep the debounce window comfortably above the per-write race-detector
-	// overhead so this remains one logical burst under -race and CPU contention.
-	w := startWatcher(t, root, Options{Debounce: 250 * time.Millisecond, FallbackInterval: -1})
-	events := w.Events()
-	drain(t, events, 350*time.Millisecond)
-
-	for i := 0; i < 10; i++ {
-		writeFile(t, root, "tracked.txt", "line\n")
+	// Supply one event burst directly to the real classification/debounce loop.
+	// Repeated disk writes can span multiple legitimate windows under -race;
+	// native event delivery is covered by the surrounding integration tests.
+	repo, err := gitx.Discover(context.Background(), &gitx.ExecRunner{}, root)
+	if err != nil {
+		t.Fatal(err)
 	}
-	if got := nextEvent(t, events); got != InvalidateSnapshot {
+	w := &Repository{
+		git: repo,
+		fsw: &fsnotify.Watcher{
+			Events: make(chan fsnotify.Event, 10),
+			Errors: make(chan error),
+		},
+		opts:     Options{Debounce: 250 * time.Millisecond, FallbackInterval: -1},
+		events:   make(chan InvalidationKind, 32),
+		closedCh: make(chan struct{}),
+	}
+	for i := 0; i < 10; i++ {
+		w.fsw.Events <- fsnotify.Event{Name: filepath.Join(root, "tracked.txt"), Op: fsnotify.Write}
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		w.loop(ctx)
+	}()
+	t.Cleanup(func() { cancel(); <-done })
+	if got := nextEvent(t, w.Events()); got != InvalidateSnapshot {
 		t.Fatalf("burst: got %q, want %q", got, InvalidateSnapshot)
 	}
-	// A burst must not fan out into one event per write; at most a second
-	// debounce flush may follow.
-	select {
-	case <-events:
-	case <-time.After(200 * time.Millisecond):
-	}
-	expectNoEvent(t, events, 200*time.Millisecond)
+	expectNoEvent(t, w.Events(), 350*time.Millisecond)
 }
 
 func TestInvalidationQueuePreservesStructuralImpactWhenSaturated(t *testing.T) {
