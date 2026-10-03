@@ -272,13 +272,18 @@ index e78e713bdea30c46a548bc46dacf79aa8c184c3d..d1106ae6fc66f9876d929f15996fafb2
  }
  interface ControlledCodeViewProps<LAnnotation, Caret> extends CodeViewBaseProps<LAnnotation, Caret> {
 diff --git a/dist/react/CodeView.js b/dist/react/CodeView.js
-index 84c7915d9bd1f9664010966370f60649a7a5d67e..d13e9e78fd344f36da874d7ee64b72455ae4d57e 100644
+index 84c7915d9bd1f9664010966370f60649a7a5d67e..6bdcb6dc81f1e424fcbc4d834eeb6f56db747632 100644
 --- a/dist/react/CodeView.js
 +++ b/dist/react/CodeView.js
-@@ -27,1 +27,1 @@ function CodeViewInner(props, ref) {
+@@ -24,16 +24,17 @@ function createDefaultCache(controlled) {
+ 	};
+ }
+ function CodeViewInner(props, ref) {
 -	const { className, containerRef, disableWorkerPool = false, editorOptions, getEditStateKey, initialItems, items: controlledItems, onItemEditChange, onItemEditComplete, onScroll, onSelectedLinesChange, options, renderAnnotation, renderCodeViewFooter, renderCodeViewHeader, renderCustomHeader, renderGutterUtility, renderHeaderFilenameSuffix, renderHeaderMetadata, renderHeaderPrefix, selectedLines, style } = props;
 +	const { className, containerRef, disableWorkerPool = false, editorOptions, getEditStateKey, initialItems, items: controlledItems, onItemEditChange, onItemEditComplete, onScroll, onSelectedLinesChange, options, renderAnnotation, renderBody, renderCodeViewFooter, renderCodeViewHeader, renderCustomHeader, renderGutterUtility, renderHeaderFilenameSuffix, renderHeaderMetadata, renderHeaderPrefix, selectedLines, style } = props;
-@@ -31,6 +31,7 @@ function CodeViewInner(props, ref) {
+ 	const controlled = controlledItems !== void 0;
+ 	const contextCreateEditor = useCreateEditor();
+ 	const poolManager = useContext(WorkerPoolContext);
  	const cachedDataRef = useRef(createDefaultCache(controlled));
  	const hasCustomHeader = renderCustomHeader != null;
  	const hasAnnotationRenderer = renderAnnotation != null;
@@ -287,6 +292,9 @@ index 84c7915d9bd1f9664010966370f60649a7a5d67e..d13e9e78fd344f36da874d7ee64b7245
  	const hasHeaderRenderers = hasCustomHeader || renderHeaderPrefix != null || renderHeaderFilenameSuffix != null || renderHeaderMetadata != null;
 -	const hasRenderers = hasHeaderRenderers || hasAnnotationRenderer || hasGutterRenderer;
 +	const hasRenderers = hasHeaderRenderers || hasAnnotationRenderer || hasBodyRenderer || hasGutterRenderer;
+ 	const hasCodeViewHeader = renderCodeViewHeader != null;
+ 	const hasCodeViewFooter = renderCodeViewFooter != null;
+ 	const emitSelectedLinesChange = useStableCallback((selection) => {
 @@ -55,6 +56,7 @@ function CodeViewInner(props, ref) {
  	const managedOptions = useMemo(() => createManagedCodeViewOptions({
  		options,
@@ -406,3 +414,18 @@ index 84c7915d9bd1f9664010966370f60649a7a5d67e..d13e9e78fd344f36da874d7ee64b7245
  }
  function noopRender() {}
  //#endregion
+diff --git a/dist/renderers/FileRenderer.js b/dist/renderers/FileRenderer.js
+index b57de57a206be70a0dc4252733de4ce3feb575e3..c94fc53a8afb006babbd2ef8b8e6f53dcdfa9bcd 100644
+--- a/dist/renderers/FileRenderer.js
++++ b/dist/renderers/FileRenderer.js
+@@ -411,7 +411,9 @@ var FileRenderer = class {
+ 			const hasThemes = this.highlighter != null && areThemesAttached(options.theme);
+ 			const hasLangs = this.highlighter != null && areLanguagesAttached(this.computedLang);
+ 			const canHighlight = !forcePlainText && hasLangs;
+-			if (canRenderFile && this.highlighter != null && hasThemes && (forceHighlight || forcePlainText || !this.renderCache.highlighted && canHighlight || this.renderCache.result == null)) {
++			// Plain-text edit caches already cover the whole file and receive edit updates.
++			const reusePlainTextEditCache = this.editSessionActive && isFilePlainText(file) && !this.renderCache.highlighted && this.renderCache.renderRange == null;
++			if (canRenderFile && this.highlighter != null && hasThemes && (forceHighlight || forcePlainText && !reusePlainTextEditCache || !this.renderCache.highlighted && canHighlight || this.renderCache.result == null)) {
+ 				const { result, options } = this.renderFileWithHighlighter(file, this.highlighter, forcePlainText || !hasLangs);
+ 				this.renderCache = {
+ 					file,
