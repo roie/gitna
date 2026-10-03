@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"sort"
 	"strings"
 	"sync"
@@ -241,6 +242,11 @@ func (j *Journal) publish(path string, data []byte) error {
 		return err
 	}
 	cleanup = false
+	// The regular file was synced before replacement. Windows does not support
+	// flushing the read-only directory handle returned by os.Open.
+	if runtime.GOOS == "windows" {
+		return nil
+	}
 	directory, err := os.Open(j.dir)
 	if err != nil {
 		return err
