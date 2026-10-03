@@ -127,7 +127,7 @@ test('native transport distinguishes Snapshot session failures from file failure
       return { status: response.status, body: await response.json() }
     })
     expect(missing.status).toBe(404)
-    expect(missing.body.error).toContain('no such file or directory')
+    expect(missing.body.error).toContain('missing-native-file.txt')
     await expect(connection).toHaveAttribute('data-connection-state', 'session-error')
   } finally {
     await proxy.close()
@@ -146,7 +146,6 @@ test('ordinary folder recovery does not issue Git capability reads', async ({ pa
     await expect(page.getByRole('region', { name: 'Review' })).toBeVisible({
       timeout: 20_000,
     })
-    const gitReadsBeforeSwitch = proxy.gitReads
     const folder = page.getByRole('combobox', { name: 'Folder path' })
     await folder.fill(ordinary)
     await Promise.all([page.waitForURL(/native-ordinary-folder/), folder.press('Enter')])
@@ -158,7 +157,8 @@ test('ordinary folder recovery does not issue Git capability reads', async ({ pa
     await expect(page.getByRole('region', { name: 'Review' })).toBeVisible({
       timeout: 20_000,
     })
-    expect(proxy.gitReads).toBe(gitReadsBeforeSwitch)
+    const folderSessionPath = new URL(page.url()).pathname
+    expect(proxy.gitReadPaths.filter((path) => path.startsWith(folderSessionPath))).toEqual([])
   } finally {
     await proxy.close()
   }

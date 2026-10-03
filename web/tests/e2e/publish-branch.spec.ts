@@ -1,6 +1,11 @@
 import { execFileSync } from 'node:child_process'
 import { test, expect } from './fixtures.js'
 
+// Reconciliation may still be inside route.fetch() when the assertions finish.
+test.afterEach(async ({ page }) => {
+  await page.unrouteAll({ behavior: 'wait' })
+})
+
 for (const branch of ['', ' \t ']) {
   test(`publish refuses blank error branch ${JSON.stringify(branch)}`, async ({ page, app }) => {
     const submitted: unknown[] = []

@@ -34,7 +34,7 @@ export class NativeTransportProxy {
   private directoryFailure: { status: number; body: string } | null = null
   private mutationCount = 0
   private readCount = 0
-  private gitReadCount = 0
+  private readonly gitReadRequestPaths: string[] = []
   private activeReads = 0
   private maxConcurrentReads = 0
 
@@ -89,8 +89,8 @@ export class NativeTransportProxy {
     return this.maxConcurrentReads
   }
 
-  get gitReads(): number {
-    return this.gitReadCount
+  get gitReadPaths(): readonly string[] {
+    return this.gitReadRequestPaths
   }
 
   async waitForStream(timeout = 10_000): Promise<void> {
@@ -190,7 +190,7 @@ export class NativeTransportProxy {
     if (read) {
       this.readCount += 1
       if (/\/api\/v1\/(?:graph|branches|stashes|tags|conflicts)(?:\/|\?|$)/.test(target.pathname)) {
-        this.gitReadCount += 1
+        this.gitReadRequestPaths.push(target.pathname)
       }
       this.activeReads += 1
       this.maxConcurrentReads = Math.max(this.maxConcurrentReads, this.activeReads)

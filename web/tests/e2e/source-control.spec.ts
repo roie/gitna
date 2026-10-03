@@ -1010,7 +1010,9 @@ test('folder path switches the live session and remains fully editable', async (
   await expect(
     page.getByRole('region', { name: 'Source Control workflow' }).getByText('Working tree clean'),
   ).toHaveCount(0)
-  await expect(page.getByRole('status')).toContainText('Working tree clean')
+  await expect(page.getByRole('region', { name: 'Review' }).getByRole('status')).toContainText(
+    'Working tree clean',
+  )
   await expect(page.locator('[data-section="repository"]')).toContainText(
     'next-repository-with-a-long-location-name',
   )
@@ -2284,7 +2286,9 @@ test('repository files can be edited, created in folders, and renamed', async ({
   await expect(page.getByRole('button', { name: 'Close archive/feature.txt' })).toBeVisible({
     timeout: 30_000,
   })
-
+  // The tab updates before Explorer finishes replacing the old source row.
+  await expect(repositoryTree.locator('[data-item-path="feature.txt"]')).toHaveCount(0)
+  await expect(repositoryTree.locator('[data-item-path="archive/feature.txt"]')).toBeVisible()
   await mainTreeItem.click()
   const mainEditor = page.getByRole('textbox', { name: 'main.txt' })
   await expect(async () => {

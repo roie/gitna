@@ -133,9 +133,12 @@ test('clean repository renders a truthful empty review state', async ({ page, ap
   git(app.repo, 'clean', '-fd')
 
   await page.goto(app.url)
-  await expect(page.getByRole('status')).toContainText('Working tree clean', {
-    timeout: 30_000,
-  })
+  await expect(page.getByRole('region', { name: 'Review' }).getByRole('status')).toContainText(
+    'Working tree clean',
+    {
+      timeout: 30_000,
+    },
+  )
   await expect(page.getByPlaceholder('Commit message')).toBeVisible()
   await expect(page.locator('[data-section="workflow"] .section-count')).toHaveCount(0)
   await expect(
@@ -154,7 +157,10 @@ test('clean repository renders a truthful empty review state', async ({ page, ap
   expect(pageErrors).not.toContainEqual(expect.stringContaining('CodeView.addItem: duplicate id'))
 
   await page.reload()
-  await expect(page.getByRole('status')).toContainText('Working tree clean', { timeout: 30_000 })
+  await expect(page.getByRole('region', { name: 'Review' }).getByRole('status')).toContainText(
+    'Working tree clean',
+    { timeout: 30_000 },
+  )
   await expect(page.locator('diffs-container')).toHaveCount(0)
   await page.locator('[data-section="repository"]').click()
   await page
