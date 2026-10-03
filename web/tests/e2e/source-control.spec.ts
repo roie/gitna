@@ -2082,9 +2082,10 @@ test('global New File creates an in-memory untitled tab', async ({ page, app }) 
   await page.keyboard.press('Control+z')
   await expect(tab.getByLabel('Unsaved changes')).toHaveCount(0)
 
-  await page.keyboard.type('saved')
+  await editor.pressSequentially('saved')
   await expect(tab.getByLabel('Unsaved changes')).toBeVisible()
-  await page.keyboard.press('Control+s')
+  await expect(page.getByRole('button', { name: 'Save', exact: true })).toBeEnabled()
+  await editor.press('Control+s')
   const saveAs = page.getByRole('dialog', { name: 'Save As' })
   await expect(saveAs).toBeVisible()
   const savePath = saveAs.getByRole('textbox', { name: 'Repository-relative path' })
@@ -2111,8 +2112,10 @@ test('global New File creates an in-memory untitled tab', async ({ page, app }) 
     .locator('[contenteditable="true"], textarea')
     .first()
   await secondEditor.click()
-  await page.keyboard.type('collision')
-  await page.keyboard.press('Control+s')
+  await secondEditor.pressSequentially('collision')
+  await expect(secondTab.getByLabel('Unsaved changes')).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Save', exact: true })).toBeEnabled()
+  await secondEditor.press('Control+s')
   const collisionSaveAs = page.getByRole('dialog', { name: 'Save As' })
   await collisionSaveAs.getByRole('textbox', { name: 'Repository-relative path' }).fill('saved.txt')
   await collisionSaveAs.getByRole('button', { name: 'Save', exact: true }).click()
@@ -3268,10 +3271,12 @@ test('repository tree keeps a bounded virtualized viewport for thousands of file
   const changesTree = page.locator('#gitna-unstaged-tree__tree')
   const changesVirtualScroll = changesTree.locator('[data-file-tree-virtualized-scroll="true"]')
   await expect(changesVirtualScroll).toBeVisible()
+  await expect
+    .poll(() =>
+      changesVirtualScroll.evaluate((element) => element.scrollHeight / element.clientHeight),
+    )
+    .toBeGreaterThan(10)
   await expect.poll(() => changesTree.getByRole('treeitem').count()).toBeLessThan(200)
-  expect(
-    await changesVirtualScroll.evaluate((element) => element.scrollHeight / element.clientHeight),
-  ).toBeGreaterThan(10)
   const stagedSection = page
     .locator('[data-section="staged"]')
     .locator('xpath=ancestor::section[1]')
@@ -3292,12 +3297,14 @@ test('repository tree keeps a bounded virtualized viewport for thousands of file
   })
   await virtualizedFolder.click()
   await expect(virtualizedFolder).toHaveAttribute('aria-expanded', 'true')
+  await expect
+    .poll(() =>
+      repositoryVirtualScroll.evaluate(
+        (element) => element.scrollHeight / element.clientHeight,
+      ),
+    )
+    .toBeGreaterThan(10)
   await expect.poll(() => repositoryTree.getByRole('treeitem').count()).toBeLessThan(200)
-  expect(
-    await repositoryVirtualScroll.evaluate(
-      (element) => element.scrollHeight / element.clientHeight,
-    ),
-  ).toBeGreaterThan(10)
 
   await page.locator('[data-section="staged"]').click()
   await page.locator('[data-section="changes"]').click()
