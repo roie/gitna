@@ -1,13 +1,12 @@
 // Match rendered Markdown blocks to source lines; the two panes have different heights.
-function anchors(article: HTMLElement): { line: number; top: number }[] {
-  const origin = article.getBoundingClientRect().top
-  const result: { line: number; top: number }[] = [{ line: 1, top: 0 }]
+function anchors(article: HTMLElement): { line: number; element: HTMLElement }[] {
+  const result: { line: number; element: HTMLElement }[] = []
+  let previousLine = 1
   for (const element of article.querySelectorAll<HTMLElement>('[data-source-line]')) {
     const line = Number(element.dataset.sourceLine)
-    const top = element.getBoundingClientRect().top - origin + article.scrollTop
-    const last = result.at(-1)
-    if (last != null && line > last.line && top > last.top) {
-      result.push({ line, top })
+    if (line > previousLine) {
+      result.push({ line, element })
+      previousLine = line
     }
   }
   return result
@@ -17,31 +16,63 @@ function interpolate(value: number, from: number, to: number, start: number, end
   return start + ((value - from) / (to - from)) * (end - start)
 }
 
-export function scrollPreviewToSourceLine(article: HTMLElement, line: number): void {
-  const points = anchors(article)
-  const next = points.findIndex((point) => point.line >= line)
-  if (next === 0) {
-    article.scrollTop = 0
-  } else if (next > 0) {
-    const before = points[next - 1]
-    const after = points[next]
-    if (before != null && after != null) {
-      article.scrollTop = interpolate(line, before.line, after.line, before.top, after.top)
-    }
-  } else {
-    article.scrollTop = points.at(-1)?.top ?? 0
+// Source blocks appear in document order. Only measure the blocks bracketing
+// the requested position, rather than forcing layout for the whole preview.
+function lowerBound(length: number, atOrAfter: (index: number) => boolean): number {
+  let left = 0
+  let right = length
+  while (left < right) {
+    const middle = (left + right) >>> 1
+    if (atOrAfter(middle)) right = middle
+    else left = middle + 1
   }
+  return left
+}
+
+function anchorTop(article: HTMLElement, element: HTMLElement, origin: number): number {
+  return element.getBoundingClientRect().top - origin + article.scrollTop
+}
+
+export function scrollPreviewToSourceLine(article: HTMLElement, line: number): void {
+  if (line <= 1) {
+    article.scrollTop = 0
+    return
+  }
+  const points = anchors(article)
+  const origin = article.getBoundingClientRect().top
+  const next = lowerBound(points.length, (index) => points[index]!.line >= line)
+  const before = points[next - 1]
+  const after = points[next]
+  const beforeTop = before == null ? 0 : anchorTop(article, before.element, origin)
+  article.scrollTop =
+    after == null
+      ? beforeTop
+      : interpolate(
+          line,
+          before?.line ?? 1,
+          after.line,
+          beforeTop,
+          anchorTop(article, after.element, origin),
+        )
 }
 
 export function sourceLineAtPreviewTop(article: HTMLElement): number {
+  if (article.scrollTop <= 0) return 1
   const points = anchors(article)
-  const next = points.findIndex((point) => point.top >= article.scrollTop)
-  if (next < 0) return points.at(-1)?.line ?? 1
-  if (next === 0) return points[0]?.line ?? 1
+  const origin = article.getBoundingClientRect().top
+  const next = lowerBound(
+    points.length,
+    (index) => anchorTop(article, points[index]!.element, origin) >= article.scrollTop,
+  )
   const before = points[next - 1]
   const after = points[next]
-  if (before == null || after == null) return 1
-  return Math.round(interpolate(article.scrollTop, before.top, after.top, before.line, after.line))
+  if (after == null) return before?.line ?? 1
+  const beforeTop = before == null ? 0 : anchorTop(article, before.element, origin)
+  const afterTop = anchorTop(article, after.element, origin)
+  if (afterTop <= beforeTop) return after.line
+  return Math.round(
+    interpolate(article.scrollTop, beforeTop, afterTop, before?.line ?? 1, after.line),
+  )
 }
 
 export function sourceLineAtEditorTop(scroller: HTMLElement): number | null {
