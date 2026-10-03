@@ -1886,6 +1886,15 @@ test('Astra refresh updates already-rendered headers without remounting the edit
 
     await page.keyboard.press('Control+End')
     await page.keyboard.type(' while reconciling')
+    await expect(editor).toContainText(' while reconciling')
+    // Let the frame-based editor finish committing the last input before
+    // establishing a selection that must survive the backend refresh.
+    await editor.evaluate(
+      () =>
+        new Promise<void>((resolve) =>
+          requestAnimationFrame(() => requestAnimationFrame(() => resolve())),
+        ),
+    )
     // Establish the range through real keyboard input, not a programmatic DOM
     // Range: this exercises Pierre's native selection ownership.
     await page.keyboard.press('Shift+ArrowLeft')
@@ -2281,6 +2290,13 @@ test('repository files can be edited, created in folders, and renamed', async ({
   })
   await featureTreeItem.click()
   await expect(page.getByRole('tab', { name: 'feature.txt', exact: true })).toBeVisible()
+  await expect(page.getByRole('textbox', { name: 'feature.txt', exact: true })).toContainText(
+    'feature branch',
+  )
+  await expect(page.locator('span[data-connection-state]')).toHaveAttribute(
+    'data-connection-state',
+    'connected',
+  )
   await featureTreeItem.dragTo(
     repositoryTree.getByRole('treeitem', { name: 'archive', exact: true }),
   )
