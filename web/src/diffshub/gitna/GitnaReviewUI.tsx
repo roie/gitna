@@ -458,6 +458,7 @@ function GitnaReviewUIInner({ searchRequest }: { searchRequest: number }) {
     previousTitle: string
   } | null>(null)
   const nextFolderSwitchIDRef = useRef(0)
+  const folderSwitchRestoreFocusRef = useRef<HTMLElement | null>(null)
   const editorRepositoryRootRef = useRef<string | null>(null)
   const draftClientIdRef = useRef<string | null>(null)
   const reviewDataRef = useRef<LoadedDiffsHubData | null>(null)
@@ -1338,6 +1339,20 @@ function GitnaReviewUIInner({ searchRequest }: { searchRequest: number }) {
     restoreHomeFocusRef.current = false
     homeButtonRef.current?.focus()
   }, [homeOpen])
+  useEffect(() => {
+    if (folderSwitchTransition != null) {
+      folderSwitchRestoreFocusRef.current = null
+      return
+    }
+    const target = folderSwitchRestoreFocusRef.current
+    if (target == null) return
+    // Restore only after React has removed inertness from the old workbench.
+    const frame = requestAnimationFrame(() => {
+      folderSwitchRestoreFocusRef.current = null
+      target.focus()
+    })
+    return () => cancelAnimationFrame(frame)
+  }, [folderSwitchTransition])
   const performFolderSwitch = useCallback(
     async (path: string, returnHome: boolean, restoreFocus?: HTMLElement | null) => {
       const reason = repository.getActionDisabledReason('open-folder')
@@ -1390,6 +1405,7 @@ function GitnaReviewUIInner({ searchRequest }: { searchRequest: number }) {
         if (folderSwitchOperationRef.current?.id !== id) return
         allowFolderNavigationRef.current = false
         folderSwitchOperationRef.current = null
+        folderSwitchRestoreFocusRef.current = previousFocus
         setFolderSwitchTransition(null)
         if (traceStartup) {
           try {
@@ -1399,7 +1415,6 @@ function GitnaReviewUIInner({ searchRequest }: { searchRequest: number }) {
           }
         }
         document.title = previousTitle
-        requestAnimationFrame(() => previousFocus?.focus())
         const detail = error instanceof Error ? error.message : String(error)
         const message = `Could not open ${folderDisplayName(path)}: ${detail}`
         if (!returnHome) {
