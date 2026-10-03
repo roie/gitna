@@ -1,7 +1,6 @@
 import { lazy, Suspense } from 'react'
 import { createRoot } from 'react-dom/client'
 
-import { PreloadHighlighter } from './components/PreloadHighlighter'
 import { ScrollbarGutterVariables } from './components/ScrollbarGutterVariables'
 import { ThemeProvider } from './components/ThemeProvider'
 import { WorkerPoolContext } from './components/WorkerPoolContext'
@@ -43,7 +42,6 @@ function App() {
           <div id="light-mode-portal-container" className="light" data-theme="light" />
         </ThemeProvider>
       </WorkerPoolContext>
-      <PreloadHighlighter />
     </>
   )
 }
