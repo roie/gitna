@@ -618,6 +618,8 @@ export const DiffsHubViewer = memo(function DiffsHubViewer({
         enableLineSelection: commentsEnabled,
         enableGutterUtility: commentsEnabled,
         stickyHeaders: true,
+        // Avoid invalidating every rendered file's styles on each scroll event.
+        pointerEventsOnScroll: true,
         unsafeCSS: CODE_VIEW_CUSTOM_CSS,
         // FIXME(amadeus): Move all `onX` methods onto the react component maybe?
         onGutterUtilityClick: commentsEnabled
