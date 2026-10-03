@@ -196,9 +196,34 @@ test('Markdown preview follows the live editor and keeps its undo state across m
   await editor.focus()
   await page.keyboard.press('Control+End')
   await page.keyboard.insertText('\n\n# HiddenEditRevision\n')
+  await page.evaluate(() => {
+    const state = { stale: false }
+    Object.assign(window, { markdownReopenState: state })
+    const observer = new MutationObserver(() => {
+      const article = document.querySelector('[aria-label="Rendered Markdown"]')
+      if (
+        article != null &&
+        article.getAttribute('aria-busy') !== 'true' &&
+        !article.textContent?.includes('HiddenEditRevision')
+      )
+        state.stale = true
+    })
+    observer.observe(document.body, { subtree: true, childList: true, attributes: true })
+    Object.assign(window, { markdownReopenObserver: observer })
+  })
   await splitButton.click()
-  // Reopening must not expose the retained revision during the edit debounce.
-  expect(await preview.getByRole('heading', { name: 'HiddenEditRevision' }).count()).toBe(1)
+  // Parsing may be asynchronous, but reopening must never mark the retained revision ready.
+  await expect(preview.getByRole('heading', { name: 'HiddenEditRevision' })).toBeVisible()
+  expect(
+    await page.evaluate(() => {
+      const w = window as unknown as {
+        markdownReopenState: { stale: boolean }
+        markdownReopenObserver: MutationObserver
+      }
+      w.markdownReopenObserver.disconnect()
+      return w.markdownReopenState.stale
+    }),
+  ).toBe(false)
   await splitButton.click()
   await editor.focus()
   await page.keyboard.press('Control+z')
@@ -216,4 +241,23 @@ test('Markdown preview follows the live editor and keeps its undo state across m
   expect(headingBounds!.x + headingBounds!.width).toBeLessThanOrEqual(320)
   await preview.getByRole('link', { name: 'other note' }).click()
   await expect(page.getByRole('tab', { name: /other.txt/ })).toBeVisible()
+})
+
+test('Markdown worker failure leaves the editor usable and shows a render error', async ({
+  page,
+  app,
+}) => {
+  writeFileSync(join(app.repo, 'worker.md'), '# WorkerFailureTitle\n')
+  await page.route('**/assets/markdown.worker-*.js', (route) => route.abort())
+  await page.goto(app.url)
+  await page.getByRole('button', { name: 'Open command palette' }).click()
+  await page.locator('[aria-label="Search files and commands"]').fill('worker.md')
+  await page.getByRole('option').click()
+  await page.getByRole('button', { name: 'Open Markdown preview to the side' }).click()
+  await expect(page.getByRole('alert')).toContainText('Markdown parser worker failed')
+  const editor = page.getByRole('textbox', { name: 'worker.md', exact: true })
+  await editor.focus()
+  await page.keyboard.press('Control+End')
+  await page.keyboard.insertText('Editor still works')
+  await expect(editor).toContainText('Editor still works')
 })

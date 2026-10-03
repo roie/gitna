@@ -1,15 +1,10 @@
-import {
-  memo,
-  useEffect,
-  useLayoutEffect,
-  useMemo,
-  useRef,
-  useState,
-  type ComponentProps,
-} from 'react'
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ComponentProps } from 'react'
 import { useStableCallback } from '@pierre/diffs/react'
-import ReactMarkdown, { type Components, type UrlTransform } from 'react-markdown'
-import remarkGfm from 'remark-gfm'
+import type { Components } from 'react-markdown'
+import { toJsxRuntime } from 'hast-util-to-jsx-runtime'
+import { Fragment, jsx, jsxs } from 'react/jsx-runtime'
+import type { MarkdownTree } from './markdownParser'
+import { MarkdownWorkerClient } from './markdownWorkerClient'
 
 export type MarkdownViewMode = 'editor' | 'preview' | 'split'
 
@@ -24,9 +19,6 @@ interface MarkdownWorkbenchProps {
 }
 
 const MAX_MARKDOWN_BYTES = 512 * 1024
-const CachedMarkdown = memo(ReactMarkdown)
-const remarkPlugins = [remarkGfm]
-const safeUrlTransform: UrlTransform = (url) => (isSafeLink(url) ? url : '')
 
 function isSafeLink(value: string): boolean {
   if (value.startsWith('#') || value.startsWith('//')) return !value.startsWith('//')
@@ -83,7 +75,8 @@ export function MarkdownWorkbench({
     () => new TextEncoder().encode(value ?? '').byteLength > MAX_MARKDOWN_BYTES,
     [value],
   )
-  const markdown = useMemo(() => (tooLarge ? '' : debouncedValue), [debouncedValue, tooLarge])
+  const markdown = tooLarge ? '' : debouncedValue
+  const parsed = useParsedMarkdown(markdown, active && value != null && !tooLarge && error == null)
   const markdownComponents = useMemo<Components>(
     () => ({
       h1: ({ node, ...props }) => <h1 {...props} data-source-line={node?.position?.start.line} />,
@@ -136,6 +129,20 @@ export function MarkdownWorkbench({
     [path, openPath],
   )
 
+  const rendered = useMemo(
+    () =>
+      parsed.tree == null
+        ? null
+        : toJsxRuntime(parsed.tree, {
+            Fragment,
+            jsx,
+            jsxs,
+            components: markdownComponents,
+            passNode: true,
+          }),
+    [parsed.tree, markdownComponents],
+  )
+
   return (
     <section className="flex h-full min-h-0 flex-col bg-background" aria-label="Markdown preview">
       {error == null ? (
@@ -156,18 +163,18 @@ export function MarkdownWorkbench({
             ref={scrollRef}
             tabIndex={0}
             aria-label="Rendered Markdown"
+            aria-busy={parsed.loading}
             onScroll={(event) => onScroll?.(event.currentTarget)}
             className="markdown-preview cv-scrollbar min-h-0 flex-1 overflow-auto overscroll-contain px-4 py-5 text-sm sm:px-6"
           >
             <div className="mx-auto w-full max-w-3xl">
-              <CachedMarkdown
-                remarkPlugins={remarkPlugins}
-                skipHtml
-                urlTransform={safeUrlTransform}
-                components={markdownComponents}
-              >
-                {markdown}
-              </CachedMarkdown>
+              {parsed.error != null ? (
+                <div role="alert">Unable to render this Markdown file: {parsed.error}</div>
+              ) : parsed.loading ? (
+                <div role="status">Rendering Markdown…</div>
+              ) : (
+                rendered
+              )}
             </div>
           </article>
         )
@@ -181,6 +188,49 @@ export function MarkdownWorkbench({
       )}
     </section>
   )
+}
+
+function useParsedMarkdown(value: string, enabled: boolean) {
+  const client = useRef<MarkdownWorkerClient | null>(null)
+  const [state, setState] = useState<{
+    value: string | null
+    tree: MarkdownTree | null
+    error: string | null
+  }>({ value: null, tree: null, error: null })
+
+  useEffect(
+    () => () => {
+      client.current?.dispose()
+      client.current = null
+    },
+    [enabled],
+  )
+
+  useEffect(() => {
+    if (!enabled || state.value === value) return
+    let current = true
+    const fail = (error: unknown) => {
+      if (!current) return
+      setState({ value, tree: null, error: error instanceof Error ? error.message : String(error) })
+      client.current?.dispose()
+      client.current = null
+    }
+    try {
+      client.current ??= new MarkdownWorkerClient(
+        new Worker(new URL('./markdown.worker.ts', import.meta.url), { type: 'module' }),
+      )
+      void client.current.parse(value).then((tree) => {
+        if (current) setState({ value, tree, error: null })
+      }, fail)
+    } catch (error) {
+      fail(error)
+    }
+    return () => {
+      current = false
+    }
+  }, [value, enabled, state.value])
+
+  return { ...state, loading: state.value !== value }
 }
 
 function useDebouncedValue(value: string | null, active: boolean): string {
