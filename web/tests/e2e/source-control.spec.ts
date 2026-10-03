@@ -1768,7 +1768,7 @@ test('Astra refresh updates already-rendered headers without remounting the edit
   await repositoryTree.getByRole('treeitem', { name: 'main.txt', exact: true }).click()
   const editor = page.getByRole('textbox', { name: 'main.txt' })
   await expect(editor).toBeVisible()
-  const connection = page.getByRole('status')
+  const connection = page.locator('span[data-connection-state]')
   await expect(connection).toHaveAttribute('data-connection-state', 'connected', {
     timeout: 20_000,
   })
@@ -2070,7 +2070,7 @@ test('global New File creates an in-memory untitled tab', async ({ page, app }) 
   const draftBackup = page.waitForRequest(
     (request) => request.method() === 'POST' && request.url().endsWith('/api/v1/drafts'),
   )
-  await page.keyboard.type('draft')
+  await editor.pressSequentially('draft')
   await expect(tab.getByLabel('Unsaved changes')).toBeVisible()
   const backupRequest = await draftBackup
   const backupPayload = (await backupRequest.postDataJSON()) as {
@@ -2197,7 +2197,7 @@ test('failed draft backup is visible without blocking local editing', async ({ p
   await search.press('Enter')
   const editor = page.locator('.code-view').locator('[contenteditable="true"], textarea').first()
   await editor.click()
-  await page.keyboard.type('offline draft')
+  await editor.pressSequentially('offline draft')
   await expect(
     page.locator('[role="alert"]').filter({ hasText: /Could not back up/ }),
   ).toBeVisible()
@@ -2659,20 +2659,34 @@ test('ordinary folders open in Explorer and switch back to Git', async ({ page, 
 
   const moveSource = explorer.getByRole('treeitem', { name: 'move-me.txt', exact: true })
   const dropTarget = explorer.getByRole('treeitem', { name: 'drop-target', exact: true })
-  const dataTransfer = await page.evaluateHandle(() => new DataTransfer())
-  const targetBox = await dropTarget.boundingBox()
-  expect(targetBox).not.toBeNull()
-  const dragPoint = {
-    clientX: targetBox!.x + targetBox!.width / 2,
-    clientY: targetBox!.y + targetBox!.height / 2,
-    dataTransfer,
-  }
-  await moveSource.dispatchEvent('dragstart', { dataTransfer })
-  await dropTarget.dispatchEvent('dragenter', dragPoint)
-  await dropTarget.dispatchEvent('dragover', dragPoint)
-  await expect(dropTarget).toHaveAttribute('aria-expanded', 'true', { timeout: 2_000 })
-  await expect(explorer.getByRole('treeitem', { name: 'existing.txt', exact: true })).toBeVisible()
-  await moveSource.dispatchEvent('dragend', { dataTransfer })
+  // Fixture writes can temporarily refuse a drag while the watcher refreshes.
+  // Retry only the hover gesture; never dispatch a drop or move the file.
+  await expect(async () => {
+    await expect(page.locator('span[data-connection-state]')).toHaveAttribute(
+      'data-connection-state',
+      'connected',
+    )
+    const dataTransfer = await page.evaluateHandle(() => new DataTransfer())
+    try {
+      const targetBox = await dropTarget.boundingBox()
+      expect(targetBox).not.toBeNull()
+      const dragPoint = {
+        clientX: targetBox!.x + targetBox!.width / 2,
+        clientY: targetBox!.y + targetBox!.height / 2,
+        dataTransfer,
+      }
+      await moveSource.dispatchEvent('dragstart', { dataTransfer })
+      await dropTarget.dispatchEvent('dragenter', dragPoint)
+      await dropTarget.dispatchEvent('dragover', dragPoint)
+      await expect(dropTarget).toHaveAttribute('aria-expanded', 'true', { timeout: 2_000 })
+      await expect(
+        explorer.getByRole('treeitem', { name: 'existing.txt', exact: true }),
+      ).toBeVisible()
+    } finally {
+      await moveSource.dispatchEvent('dragend', { dataTransfer })
+      await dataTransfer.dispose()
+    }
+  }).toPass({ timeout: 20_000 })
   expect(existsSync(join(folder, 'move-me.txt'))).toBe(true)
   const closeMoveSource = page.getByRole('button', { name: 'Close move-me.txt' })
   if ((await closeMoveSource.count()) > 0) await closeMoveSource.click()
