@@ -196,6 +196,7 @@ test('Markdown preview follows the live editor and keeps its undo state across m
   await editor.focus()
   await page.keyboard.press('Control+End')
   await page.keyboard.insertText('\n\n# HiddenEditRevision\n')
+  await expect(page.getByLabel('Rendered Markdown')).toHaveAttribute('aria-busy', 'true')
   await page.evaluate(() => {
     const state = { stale: false }
     Object.assign(window, { markdownReopenState: state })

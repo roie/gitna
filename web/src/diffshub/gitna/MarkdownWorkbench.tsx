@@ -77,6 +77,8 @@ export function MarkdownWorkbench({
   )
   const markdown = tooLarge ? '' : debouncedValue
   const parsed = useParsedMarkdown(markdown, active && value != null && !tooLarge && error == null)
+  // Hidden previews and the debounce window can retain an older parsed revision.
+  const rendering = parsed.loading || parsed.value !== value
   const markdownComponents = useMemo<Components>(
     () => ({
       h1: ({ node, ...props }) => <h1 {...props} data-source-line={node?.position?.start.line} />,
@@ -163,14 +165,14 @@ export function MarkdownWorkbench({
             ref={scrollRef}
             tabIndex={0}
             aria-label="Rendered Markdown"
-            aria-busy={parsed.loading}
+            aria-busy={rendering}
             onScroll={(event) => onScroll?.(event.currentTarget)}
             className="markdown-preview cv-scrollbar min-h-0 flex-1 overflow-auto overscroll-contain px-4 py-5 text-sm sm:px-6"
           >
             <div className="mx-auto w-full max-w-3xl">
               {parsed.error != null ? (
                 <div role="alert">Unable to render this Markdown file: {parsed.error}</div>
-              ) : parsed.loading ? (
+              ) : rendering ? (
                 <div role="status">Rendering Markdown…</div>
               ) : (
                 rendered
