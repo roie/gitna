@@ -68,15 +68,16 @@ describe('worktree comparison adapter', () => {
 })
 
 describe('paged Gitna review adapter', () => {
-  it('appends pages with stable unique item ids', () => {
+  it('appends pages with stable unique item ids and a shared viewer version', () => {
     const first = page('a.txt', 7, 'next')
-    const assembly = createGitnaReviewAccumulator(first)
+    const assembly = createGitnaReviewAccumulator(first, 42)
     const firstResult = appendGitnaReviewPage(assembly, first)
     const secondResult = appendGitnaReviewPage(assembly, page('b.txt'))
 
     expect(firstResult.pendingItems.map((item) => item.id)).toEqual(['a.txt'])
     expect(secondResult.pendingItems.map((item) => item.id)).toEqual(['b.txt'])
     expect(secondResult.data.items.map((item) => item.id)).toEqual(['a.txt', 'b.txt'])
+    expect(secondResult.data.items.map((item) => item.version)).toEqual([42, 42])
     expect(secondResult.data.treeSource.paths).toEqual(['a.txt', 'b.txt'])
   })
 

@@ -490,6 +490,7 @@ function GitnaReviewUIInner({ searchRequest }: { searchRequest: number }) {
   const homeButtonRef = useRef<HTMLButtonElement>(null)
   const restoreHomeFocusRef = useRef(false)
   const viewerRef = useRef<CodeViewHandle<CommentMetadata, undefined> | null>(null)
+  const reviewItemVersionRef = useRef(0)
   const themeState = useThemeController(themeController)
 
   useEffect(() => {
@@ -810,7 +811,8 @@ function GitnaReviewUIInner({ searchRequest }: { searchRequest: number }) {
     const loadReview = async (): Promise<LoadedDiffsHubData> => {
       const request = { ...target.request!, signal: reviewAbortController.signal }
       let page = await repository.api.review(request)
-      const assembly = createGitnaReviewAccumulator(page)
+      // CodeView ignores new content for matching IDs and versions, even across commits.
+      const assembly = createGitnaReviewAccumulator(page, ++reviewItemVersionRef.current)
       let result = appendGitnaReviewPage(assembly, page)
       let loadedPages = 1
       while (

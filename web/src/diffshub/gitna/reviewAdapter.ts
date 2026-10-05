@@ -138,13 +138,18 @@ export interface GitnaReviewAccumulator {
   accumulator: DiffsHubDataAccumulator
   cacheKey: string
   generation: number
+  itemVersion: number
 }
 
-export function createGitnaReviewAccumulator(review: ReviewResponse): GitnaReviewAccumulator {
+export function createGitnaReviewAccumulator(
+  review: ReviewResponse,
+  itemVersion = review.generation,
+): GitnaReviewAccumulator {
   return {
     accumulator: createDiffsHubDataAccumulator(),
     cacheKey: `${reviewIdentityKey(review)}:${review.generation}`,
     generation: review.generation,
+    itemVersion,
   }
 }
 
@@ -194,7 +199,7 @@ export function appendGitnaReviewPage(
   }
 
   const pendingItems = takePendingDiffsHubItems(accumulator)
-  for (const item of pendingItems) item.version = review.generation
+  for (const item of pendingItems) item.version = assembly.itemVersion
   return { data: snapshotDiffsHubData(accumulator), pendingItems }
 }
 
