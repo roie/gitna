@@ -3097,6 +3097,8 @@ const GraphCommitRow = memo(function GraphCommitRow({
   const disabledReason = repository.getActionDisabledReason()
   const shortOid = row.commit.oid.slice(0, 8)
   const files = repository.commitFiles[row.commit.oid]
+  const filesLoading = repository.filesLoading[row.commit.oid] === true
+  const filesLoadingVisible = useDelayedRefreshIndicator(open && filesLoading)
   const stats = repository.commitStats[row.commit.oid]
   const source = useMemo(
     () =>
@@ -3327,7 +3329,7 @@ const GraphCommitRow = memo(function GraphCommitRow({
             marginLeft: graphColumnX(row.column) + 3,
           }}
         >
-          {repository.filesLoading[row.commit.oid] && (
+          {filesLoading && filesLoadingVisible && (
             <p className="px-3 py-2 text-xs text-muted-foreground">Loading…</p>
           )}
           {files != null && files.length > 0 && (
