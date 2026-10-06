@@ -1,9 +1,10 @@
 import { useEffect, useRef, useState, type ComponentProps } from 'react'
 import {
-  IconChevronSm,
+  IconEllipsis,
   IconCollapsedRow,
   IconRefresh,
   IconRegex,
+  IconSearch,
   IconSidebar,
   IconTypeWord,
   IconX,
@@ -13,6 +14,7 @@ import { ApiError, type ApiClient } from '../../lib/api'
 import type { ContentSearchFile } from '../../lib/types'
 import { Button } from '../components/Button'
 import { Input } from '../components/Input'
+import { StatusRow } from '../components/StatusRow'
 import { cn } from '../lib/cn'
 import { FileTypeIconSprite } from './FileTypeIcon'
 import { SearchResults } from './SearchResults'
@@ -34,7 +36,7 @@ function SearchButton({ children, className, ...props }: ComponentProps<typeof B
       variant="ghost"
       size="icon-sm"
       className={cn(
-        'size-7 text-xs text-muted-foreground hover:text-foreground aria-pressed:border-ring aria-pressed:bg-accent aria-pressed:text-foreground',
+        'size-6 text-xs text-muted-foreground hover:text-foreground aria-pressed:border-ring aria-pressed:bg-accent aria-pressed:text-foreground',
         className,
       )}
       {...props}
@@ -46,7 +48,6 @@ function SearchButton({ children, className, ...props }: ComponentProps<typeof B
 
 export function FindInFilesPanel({
   api,
-  folderLabel,
   active,
   focusRequest,
   onOpen,
@@ -184,14 +185,44 @@ export function FindInFilesPanel({
       aria-label="Find in Files"
     >
       <FileTypeIconSprite />
-      <div className="shrink-0 px-3 pb-2">
-        <div className="flex h-10 items-center justify-between gap-2">
-          <div className="flex min-w-0 items-baseline gap-2">
-            <h2 className="shrink-0 text-xs font-medium">Search</h2>
-            <span className="truncate text-xs text-muted-foreground" title={folderLabel}>
-              {folderLabel}
-            </span>
-          </div>
+      <StatusRow icon={IconSearch} className="shrink-0 text-sm">
+        <h2 className="section-title min-w-0 flex-1 truncate">Search</h2>
+        <div role="group" aria-label="Search actions" className="ml-auto flex items-center gap-0.5">
+          {query && (
+            <>
+              <SearchButton
+                aria-label="Refresh search"
+                title="Refresh search"
+                disabled={loading}
+                onClick={() => setSearchTick((tick) => tick + 1)}
+              >
+                <IconRefresh aria-hidden="true" className="size-3.5" />
+              </SearchButton>
+              <SearchButton
+                aria-label="Clear search"
+                title="Clear search"
+                onClick={() => {
+                  setQuery('')
+                  inputRef.current?.focus()
+                }}
+              >
+                <IconX aria-hidden="true" className="size-3.5" />
+              </SearchButton>
+            </>
+          )}
+          {files.length > 0 && (
+            <SearchButton
+              aria-label={allCollapsed ? 'Expand all results' : 'Collapse all results'}
+              title={allCollapsed ? 'Expand all results' : 'Collapse all results'}
+              onClick={() =>
+                setCollapsedFiles(
+                  allCollapsed ? new Set() : new Set(files.map((file) => file.path)),
+                )
+              }
+            >
+              <IconCollapsedRow aria-hidden="true" className="size-3.5" />
+            </SearchButton>
+          )}
           <SearchButton
             aria-label="Show Source Control"
             title="Show Source Control"
@@ -200,6 +231,8 @@ export function FindInFilesPanel({
             <IconSidebar aria-hidden="true" className="size-3.5" />
           </SearchButton>
         </div>
+      </StatusRow>
+      <div className="shrink-0 px-3 pb-2">
         <div className="relative">
           <Input
             ref={inputRef}
@@ -222,24 +255,13 @@ export function FindInFilesPanel({
             aria-describedby={error ? 'find-in-files-error' : undefined}
             autoComplete="off"
             spellCheck={false}
-            className={cn('bg-background text-base md:text-xs', query && 'pr-9')}
+            className="bg-background pr-20 text-base md:text-xs"
           />
-          {query && (
-            <SearchButton
-              className="absolute right-0.5 top-1/2 -translate-y-1/2"
-              aria-label="Clear search"
-              title="Clear search"
-              onClick={() => {
-                setQuery('')
-                inputRef.current?.focus()
-              }}
-            >
-              <IconX aria-hidden="true" className="size-3.5" />
-            </SearchButton>
-          )}
-        </div>
-        <div className="mt-1.5 flex items-center justify-between gap-2">
-          <div role="group" aria-label="Matching options" className="flex items-center gap-0.5">
+          <div
+            role="group"
+            aria-label="Matching options"
+            className="absolute inset-y-0 right-1 flex items-center gap-0.5"
+          >
             <SearchButton
               onClick={() => setCaseSensitive((value) => !value)}
               aria-pressed={caseSensitive}
@@ -265,28 +287,33 @@ export function FindInFilesPanel({
               <IconRegex aria-hidden="true" className="size-3.5" />
             </SearchButton>
           </div>
-          <Button
-            type="button"
-            variant="ghost"
-            size="xs"
-            className={cn(
-              'h-7 gap-1 px-1.5 text-muted-foreground hover:text-foreground',
-              detailsOpen && 'bg-accent text-foreground',
-              (include || exclude || includeIgnored) && 'text-foreground',
-            )}
+        </div>
+        <div className="mt-0.5 flex min-h-6 items-center gap-2">
+          <p role="status" className="min-w-0 flex-1 text-xs text-muted-foreground">
+            {!query || error
+              ? ''
+              : loading
+                ? 'Searching…'
+                : matchCount === 0
+                  ? 'No results found.'
+                  : `${matchCount} ${matchCount === 1 ? 'result' : 'results'} in ${files.length} ${files.length === 1 ? 'file' : 'files'}`}
+          </p>
+          <SearchButton
+            className={cn('relative', detailsOpen && 'bg-accent text-foreground')}
             onClick={() => setDetailsOpen((open) => !open)}
             aria-expanded={detailsOpen}
             aria-controls="find-in-files-details"
+            aria-label={include || exclude || includeIgnored ? 'Filters (active)' : 'Filters'}
+            title="File filters"
           >
-            Filters
+            <IconEllipsis aria-hidden="true" className="size-3.5" />
             {(include || exclude || includeIgnored) && (
-              <span className="size-1.5 rounded-full bg-primary" aria-label="Active filters" />
+              <span
+                className="absolute right-0.5 top-0.5 size-1 rounded-full bg-primary"
+                aria-hidden="true"
+              />
             )}
-            <IconChevronSm
-              aria-hidden="true"
-              className={cn('size-3', !detailsOpen && '-rotate-90')}
-            />
-          </Button>
+          </SearchButton>
         </div>
         {detailsOpen && (
           <div id="find-in-files-details" className="space-y-2 pt-2 pb-1">
@@ -321,40 +348,6 @@ export function FindInFilesPanel({
             </label>
           </div>
         )}
-        <div className={query ? 'mt-2 flex min-h-7 items-center gap-1' : 'sr-only'}>
-          <p role="status" className="min-w-0 flex-1 text-xs text-muted-foreground">
-            {!query || error
-              ? ''
-              : loading
-                ? 'Searching…'
-                : matchCount === 0
-                  ? 'No results found.'
-                  : `${matchCount} ${matchCount === 1 ? 'result' : 'results'} in ${files.length} ${files.length === 1 ? 'file' : 'files'}`}
-          </p>
-          {query && (
-            <SearchButton
-              aria-label="Refresh search"
-              title="Refresh search"
-              disabled={loading}
-              onClick={() => setSearchTick((tick) => tick + 1)}
-            >
-              <IconRefresh aria-hidden="true" className="size-3.5" />
-            </SearchButton>
-          )}
-          {files.length > 0 && (
-            <SearchButton
-              aria-label={allCollapsed ? 'Expand all results' : 'Collapse all results'}
-              title={allCollapsed ? 'Expand all results' : 'Collapse all results'}
-              onClick={() =>
-                setCollapsedFiles(
-                  allCollapsed ? new Set() : new Set(files.map((file) => file.path)),
-                )
-              }
-            >
-              <IconCollapsedRow aria-hidden="true" className="size-3.5" />
-            </SearchButton>
-          )}
-        </div>
         {error && (
           <p
             id="find-in-files-error"
