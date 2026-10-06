@@ -35,7 +35,8 @@ export interface ImageAnnotationMetadata {
 export type CommentMetadata =
   | SavedCommentMetadata
   | DraftCommentMetadata
-  | ImageAnnotationMetadata;
+  | ImageAnnotationMetadata
+  | { kind: 'preview'; key: string; message: string };
 
 export interface DiffsHubCommentSidebarFile {
   fileOrder: number;

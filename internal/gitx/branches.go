@@ -59,7 +59,7 @@ func (r Repository) ListRemotes(ctx context.Context, runner Runner) ([]string, e
 // Empty trailing fields are omitted by git, so each record has four or five
 // fields; the record terminator is a newline.
 func ParseForEachRef(raw []byte) ([]protocol.Branch, error) {
-	var branches []protocol.Branch
+	branches := make([]protocol.Branch, 0)
 	for _, rec := range bytes.Split(raw, []byte{'\n'}) {
 		if len(bytes.TrimSpace(rec)) == 0 {
 			continue

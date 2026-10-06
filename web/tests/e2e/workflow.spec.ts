@@ -184,8 +184,11 @@ test('tree navigation and Pierre header hunk actions preserve the other hunk', a
     .poll(async () => Math.round((await renderedFile.boundingBox())?.y ?? 999))
     .toBeLessThan(100)
 
-  await page.getByRole('button', { name: 'Show hunk actions for two-hunk.txt' }).click()
-  await page.getByRole('button', { name: 'Stage hunk 1 in two-hunk.txt' }).click()
+  await page.getByRole('button', { name: 'More actions for two-hunk.txt' }).click()
+  await page.getByRole('menuitem', { name: 'Show hunk actions for two-hunk.txt' }).click()
+  await expect(page.getByRole('button', { name: 'More actions for two-hunk.txt' })).toBeVisible()
+  await page.getByRole('button', { name: 'More actions for two-hunk.txt' }).click()
+  await page.getByRole('menuitem', { name: 'Stage hunk 1 in two-hunk.txt' }).click()
 
   await expect.poll(() => reviewPatch(page, 'staged')).toContain('+TWO')
   const stagedPatch = await reviewPatch(page, 'staged')

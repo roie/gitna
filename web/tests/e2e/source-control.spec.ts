@@ -1974,9 +1974,18 @@ test('Astra refresh updates already-rendered headers without remounting the edit
     .click()
   const renderedFile = page.locator('diffs-container').filter({ hasText: 'two-hunk.txt' })
   await expect(renderedFile).toBeVisible()
-  await page.getByRole('button', { name: 'Show hunk actions for two-hunk.txt' }).click()
-  const fileAction = page.getByRole('button', { name: 'Stage file two-hunk.txt' })
-  const hunkAction = page.getByRole('button', { name: 'Stage hunk 1 in two-hunk.txt' })
+  await page.getByRole('button', { name: 'More actions for two-hunk.txt' }).click()
+  await page.getByRole('menuitem', { name: 'Show hunk actions for two-hunk.txt' }).click()
+  await expect(page.getByRole('button', { name: 'More actions for two-hunk.txt' })).toBeVisible()
+  await page.getByRole('button', { name: 'More actions for two-hunk.txt' }).click()
+  const fileAction = page.getByRole('button', {
+    name: 'Stage file two-hunk.txt',
+    includeHidden: true,
+  })
+  const hunkAction = page.getByRole('menuitem', {
+    name: 'Stage hunk 1 in two-hunk.txt',
+    includeHidden: true,
+  })
   await expect(fileAction).toBeEnabled()
   await expect(hunkAction).toBeEnabled()
 
@@ -2003,7 +2012,10 @@ test('Astra refresh updates already-rendered headers without remounting the edit
     await expect(connection).toHaveAttribute('data-connection-state', 'reconciling')
     await expect(fileAction).toBeDisabled()
     await expect(hunkAction).toBeDisabled()
-    await expect(renderedFile.getByRole('note')).toContainText(expectedReason)
+    await expect(renderedFile.getByRole('note', { includeHidden: true })).toContainText(
+      expectedReason,
+    )
+    await page.keyboard.press('Escape')
     const themeSettings = page.getByRole('button', { name: 'Theme settings', exact: true })
     await themeSettings.focus()
     await expect(themeSettings).toBeFocused()
@@ -2018,7 +2030,9 @@ test('Astra refresh updates already-rendered headers without remounting the edit
   await page.keyboard.press('Tab')
   await expect(page.locator(':focus')).toHaveCount(1)
   await expect(fileAction).toBeEnabled({ timeout: 20_000 })
+  await page.getByRole('button', { name: 'More actions for two-hunk.txt' }).click()
   await expect(hunkAction).toBeEnabled({ timeout: 20_000 })
+  await page.keyboard.press('Escape')
   await expect(renderedFile.getByRole('note')).toHaveCount(0)
 
   // Background reconciliation stays silent. Outage Retry and focus behavior

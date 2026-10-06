@@ -1697,11 +1697,14 @@ function PaneSectionHeader({
   title,
 }: PaneSectionHeaderProps) {
   return (
-    <StatusRow icon={icon} className={cn('group/pane-header shrink-0 text-sm', className)}>
+    <StatusRow
+      icon={icon}
+      className={cn('group/pane-header shrink-0 flex-wrap text-sm', className)}
+    >
       <button
         ref={headerRef}
         type="button"
-        className="section-header text-muted-foreground hover:text-foreground flex min-w-0 flex-1 cursor-pointer items-center gap-2 text-left text-sm focus:outline-none"
+        className="section-header text-muted-foreground hover:text-foreground flex min-w-[min(100%,6rem)] flex-1 cursor-pointer items-center gap-2 text-left text-sm focus:outline-none"
         data-section={dataSection}
         aria-expanded={open}
         onClick={() => onOpenChange(!open)}
@@ -1711,14 +1714,18 @@ function PaneSectionHeader({
         </span>
         {count != null && (
           <span
-            className="section-count tabular-nums text-muted-foreground/75 text-xs"
+            className="section-count shrink-0 tabular-nums text-muted-foreground/75 text-xs"
             title={countTitle}
           >
             {count}
           </span>
         )}
       </button>
-      {actions != null && <div className="flex shrink-0 items-center gap-3">{actions}</div>}
+      {actions != null && (
+        <div className="ml-auto flex max-w-full shrink-0 flex-wrap items-center gap-1">
+          {actions}
+        </div>
+      )}
     </StatusRow>
   )
 }
@@ -3152,7 +3159,9 @@ const GraphCommitRow = memo(function GraphCommitRow({
               onFocus={() => onDisclosureFocus(index)}
             >
               <GraphLaneGutter laneCount={laneCount} open={open} row={row} />
-              <span className="min-w-0 flex-1 truncate font-medium">{row.commit.subject}</span>
+              <span className="min-w-0 flex-1 truncate font-medium">
+                {row.commit.subject.trim() || `No commit message (${row.commit.oid.slice(0, 7)})`}
+              </span>
               {visibleRefs.map((ref) => (
                 <span
                   key={`${ref.kind}:${ref.name}`}
@@ -3178,7 +3187,9 @@ const GraphCommitRow = memo(function GraphCommitRow({
                 {relativeCommitTime(row.commit.authorTime)} ({authorTime.toLocaleString()})
               </span>
             </div>
-            <p className="mt-2 font-medium">{row.commit.subject}</p>
+            <p className="mt-2 font-medium">
+              {row.commit.subject.trim() || `No commit message (${row.commit.oid.slice(0, 7)})`}
+            </p>
             {refs.length > 0 && (
               <div className="mt-2 flex flex-wrap gap-1">
                 {refs.map((ref) => (
@@ -3248,8 +3259,8 @@ const GraphCommitRow = memo(function GraphCommitRow({
               variant="ghost"
               size="icon-only"
               className="opacity-0 group-focus-within:opacity-100 group-hover:opacity-100"
-              aria-label={`Actions for ${row.commit.subject}`}
-              title={`Actions for ${row.commit.subject}`}
+              aria-label={`Actions for ${row.commit.subject.trim() || row.commit.oid.slice(0, 7)}`}
+              title={`Actions for ${row.commit.subject.trim() || row.commit.oid.slice(0, 7)}`}
             >
               <IconEllipsis className="size-3" />
             </Button>
@@ -3333,9 +3344,9 @@ const GraphCommitRow = memo(function GraphCommitRow({
             <p className="px-3 py-2 text-xs text-muted-foreground">Loading…</p>
           )}
           {files != null && files.length > 0 && (
-            <div className="min-h-0" style={{ height: treeHeight }}>
+            <div className="min-h-0" style={{ height: `min(${treeHeight}px, 50vh)` }}>
               <DiffsHubFileTree
-                className="overflow-visible md:ml-1"
+                className="md:ml-1"
                 modelId={`gitna-graph-${row.commit.oid}`}
                 onModelReady={setTreeModel}
                 onSelectItem={(path) => {

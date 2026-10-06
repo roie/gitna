@@ -23,6 +23,12 @@ export const CODE_VIEW_CUSTOM_CSS = `
   container-name: sticky-header;
 }
 
+/* Non-text bodies have unknown line counts, not zero changed lines. */
+[data-diffs-header]:has(~ [data-custom-body]:not([hidden])) [data-additions-count],
+[data-diffs-header]:has(~ [data-custom-body]:not([hidden])) [data-deletions-count] {
+  display: none;
+}
+
 [data-editor-widget] {
   box-shadow: var(--gitna-overlay-shadow, none) !important;
 }

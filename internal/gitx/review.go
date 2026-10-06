@@ -67,6 +67,7 @@ func (r Repository) Review(ctx context.Context, runner Runner, scope protocol.Di
 			if len(response.Supplements) > 0 {
 				break
 			}
+			supplement.Diff.Patch = ""
 			supplement.Diff.Before.Content = ""
 			supplement.Diff.After.Content = ""
 			supplement.Diff.Before.Image = nil

@@ -24,6 +24,16 @@ func initRemoteRepo(t *testing.T) (root, bare string) {
 	return root, bare
 }
 
+func TestListBranchesEmptyReturnsArray(t *testing.T) {
+	root := t.TempDir()
+	runGit(t, root, "init", "-q")
+	repo := Repository{Root: root, GitDir: filepath.Join(root, ".git")}
+	branches, err := repo.ListBranches(context.Background(), &ExecRunner{})
+	if err != nil || branches == nil || len(branches) != 0 {
+		t.Fatalf("empty branches = %#v, err = %v", branches, err)
+	}
+}
+
 func TestListBranchesLocalAndRemote(t *testing.T) {
 	root, _ := initRemoteRepo(t)
 	runGit(t, root, "push", "-u", "origin", "main")

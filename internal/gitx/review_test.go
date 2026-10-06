@@ -29,6 +29,9 @@ func TestReviewScopes(t *testing.T) {
 	if unstaged[0].Diff.Before.Content != "base\n" || unstaged[0].Diff.After.Content != "worktree\n" {
 		t.Fatalf("unstaged tracked diff = %+v", unstaged[0].Diff)
 	}
+	if !strings.Contains(unstaged[0].Diff.Patch, "+worktree") {
+		t.Fatalf("missing tracked patch: %+v", unstaged[0].Diff)
+	}
 	if unstaged[1].Kind != protocol.KindUntracked || unstaged[1].Diff.After.Content != "untracked\n" {
 		t.Fatalf("unstaged untracked diff = %+v", unstaged[1])
 	}
@@ -48,6 +51,29 @@ func TestReviewScopes(t *testing.T) {
 	compare := collectReview(t, repo, runner, protocol.DiffCompare, protocol.DiffOptions{CompareFrom: base, CompareTo: second})
 	if len(compare) != 1 || compare[0].Path != "a.txt" || compare[0].Diff.After.Content != "worktree\n" {
 		t.Fatalf("compare review = %+v", compare)
+	}
+}
+
+func TestReviewRootCommitAndRenamedUnicodeFile(t *testing.T) {
+	root := initTestRepo(t)
+	repo := Repository{Root: root, GitDir: filepath.Join(root, ".git")}
+	oldPath := "Q3 — original.md"
+	newPath := "Q3 — FINAL.md"
+	writeFile(t, filepath.Join(root, oldPath), "one\ntwo\nthree\n")
+	runGit(t, root, "add", "--", oldPath)
+	runGit(t, root, "commit", "-qm", "root")
+	oid := strings.TrimSpace(runGit(t, root, "rev-parse", "HEAD"))
+	files := collectReview(t, repo, &ExecRunner{}, protocol.DiffCommit, protocol.DiffOptions{Commit: oid})
+	if len(files) != 1 || !strings.Contains(files[0].Diff.Patch, "+one") {
+		t.Fatalf("root commit patch = %+v", files)
+	}
+	runGit(t, root, "mv", "--", oldPath, newPath)
+	writeFile(t, filepath.Join(root, newPath), "one\ntwo\nupdated\n")
+	runGit(t, root, "add", "--", newPath)
+	files = collectReview(t, repo, &ExecRunner{}, protocol.DiffStaged, protocol.DiffOptions{})
+	if len(files) != 1 || files[0].Path != newPath || files[0].Diff.Before.Path != oldPath ||
+		!strings.Contains(files[0].Diff.Patch, "+updated") {
+		t.Fatalf("rename patch = %+v", files)
 	}
 }
 

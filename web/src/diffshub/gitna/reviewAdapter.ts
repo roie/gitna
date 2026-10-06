@@ -1,6 +1,7 @@
 import {
   parseDiffFromFile,
   parsePatchFiles,
+  processFile,
   type DiffLineAnnotation,
   type FileContents,
   type LineAnnotation,
@@ -37,6 +38,17 @@ export function diffImageAnnotations(
   const after = imageMetadata(diff.after, `Image preview for ${path}`)
   if (before != null) annotations.push({ lineNumber: 0, side: 'deletions', metadata: before })
   if (after != null) annotations.push({ lineNumber: 0, side: 'additions', metadata: after })
+  if (annotations.length === 0 && (diff.binary || diff.tooLarge)) {
+    annotations.push({
+      lineNumber: 0,
+      side: 'additions',
+      metadata: {
+        kind: 'preview',
+        key: `preview:${path}`,
+        message: diff.tooLarge ? 'Too large to preview' : 'Binary file changed',
+      },
+    })
+  }
   return annotations
 }
 
@@ -191,7 +203,24 @@ export function appendGitnaReviewPage(
             lang: supplement.diff.before.language as FileContents['lang'],
             cacheKey: `${assembly.cacheKey}:${supplement.path}:before`,
           }
-    const fileDiff = parseDiffFromFile(before, after, undefined, true)
+    const fileDiff = supplement.diff.patch
+      ? processFile(supplement.diff.patch, {
+          oldFile: before ?? { name: '/dev/null', contents: '' },
+          newFile: after,
+          cacheKey: after.cacheKey,
+          throwOnError: true,
+        })
+      : parseDiffFromFile(before, after, undefined, true)
+    if (fileDiff == null) throw new Error(`Invalid review patch for ${supplement.path}`)
+    // Protocol paths, not quoted patch headers, are the operation identity.
+    fileDiff.name = supplement.path
+    fileDiff.prevName = supplement.kind === 'renamed' ? supplement.diff.before.path : undefined
+    if (supplement.kind === 'added' || supplement.kind === 'untracked') fileDiff.type = 'new'
+    if (supplement.kind === 'deleted') fileDiff.type = 'deleted'
+    if (supplement.kind === 'renamed') {
+      fileDiff.type = fileDiff.hunks.length > 0 ? 'rename-changed' : 'rename-pure'
+    }
+    fileDiff.lang = after.lang
     appendFileDiffToDiffsHubData(accumulator, fileDiff, undefined)
     const item = accumulator.items.at(-1)
     const annotations = diffImageAnnotations(supplement.diff, supplement.path)

@@ -37,7 +37,44 @@ func (r Repository) Diff(ctx context.Context, runner Runner, scope protocol.Diff
 }
 
 func (r Repository) reviewDiff(ctx context.Context, runner Runner, scope protocol.DiffScope, opts protocol.DiffOptions) (protocol.FileDiff, error) {
-	return r.diff(ctx, runner, scope, opts, false)
+	diff, err := r.diff(ctx, runner, scope, opts, false)
+	if err != nil || diff.Binary || diff.TooLarge {
+		return diff, err
+	}
+	// Parse Git's bounded patch instead of computing a second diff in the browser.
+	args := []string{"--literal-pathspecs", "-c", "diff.color=never"}
+	switch scope {
+	case protocol.DiffUnstaged:
+		args = append(args, "diff")
+	case protocol.DiffStaged:
+		args = append(args, "diff", "--cached")
+	case protocol.DiffCommit:
+		args = append(args, "show", "--format=", "--first-parent", "--diff-merges=first-parent", "--root", opts.Commit)
+	case protocol.DiffCompare:
+		args = append(args, "diff", opts.CompareFrom, opts.CompareTo)
+	default:
+		return diff, nil
+	}
+	args = append(args, "--no-ext-diff", "--no-textconv", "--find-renames", "--unified=3", "--")
+	if opts.OldPath != "" {
+		args = append(args, opts.OldPath)
+	}
+	args = append(args, opts.Path)
+	res, err := runner.Run(ctx, r.Root, args...)
+	if err != nil {
+		return protocol.FileDiff{}, err
+	}
+	if res.ExitCode != 0 {
+		return protocol.FileDiff{}, opError("review patch", res)
+	}
+	if len(res.Stdout) > 2*DefaultDiffBytes+65536 {
+		diff.Before.Content = ""
+		diff.After.Content = ""
+		diff.TooLarge = true
+	} else {
+		diff.Patch = string(res.Stdout)
+	}
+	return diff, nil
 }
 
 func (r Repository) diff(ctx context.Context, runner Runner, scope protocol.DiffScope, opts protocol.DiffOptions, includePatch bool) (protocol.FileDiff, error) {

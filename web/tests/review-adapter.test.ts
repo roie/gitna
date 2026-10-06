@@ -68,6 +68,48 @@ describe('worktree comparison adapter', () => {
 })
 
 describe('paged Gitna review adapter', () => {
+  it('parses the supplied Git hunk and preserves complete context and canonical paths', () => {
+    const path = 'Q3 — FINAL.md'
+    const input = page(path)
+    input.supplements[0]!.kind = 'modified'
+    input.supplements[0]!.diff.before.content = 'same\nsame\nsame\n'
+    input.supplements[0]!.diff.after.content = 'same\nsame\n'
+    input.supplements[0]!.diff.patch =
+      'diff --git a/escaped.md b/escaped.md\n--- a/escaped.md\n+++ b/escaped.md\n@@ -3 +2,0 @@\n-same\n'
+    const result = appendGitnaReviewPage(createGitnaReviewAccumulator(input), input)
+    const item = result.data.items[0]
+    expect(item?.type).toBe('diff')
+    if (item?.type !== 'diff') throw new Error('Expected a diff')
+    expect(item.fileDiff.name).toBe(path)
+    expect(item.fileDiff.isPartial).toBe(false)
+    expect(item.fileDiff.deletionLines).toHaveLength(3)
+    expect(item.fileDiff.additionLines).toHaveLength(2)
+    expect(item.fileDiff.hunks[0]?.deletionStart).toBe(3)
+    expect(result.data.treeSource.paths).toEqual([path])
+  })
+
+  it.each(['binary', 'tooLarge'] as const)('explains omitted %s previews', (flag) => {
+    const input = page('generated.dat')
+    input.supplements[0]!.kind = 'modified'
+    input.supplements[0]!.diff.after.content = ''
+    input.supplements[0]!.diff[flag] = true
+    const result = appendGitnaReviewPage(createGitnaReviewAccumulator(input), input)
+    expect(result.data.items[0]?.annotations?.[0]?.metadata).toMatchObject({
+      kind: 'preview',
+      message: flag === 'binary' ? 'Binary file changed' : 'Too large to preview',
+    })
+  })
+
+  it('keeps canonical unicode paths for content-derived untracked files', () => {
+    const path = 'Q3 — FINAL.md'
+    const input = page(path)
+    const result = appendGitnaReviewPage(createGitnaReviewAccumulator(input), input)
+    const item = result.data.items[0]
+    if (item?.type !== 'diff') throw new Error('Expected a diff')
+    expect(item.fileDiff.name).toBe(path)
+    expect(result.data.treeSource.paths).toEqual([path])
+  })
+
   it('appends pages with stable unique item ids and a shared viewer version', () => {
     const first = page('a.txt', 7, 'next')
     const assembly = createGitnaReviewAccumulator(first, 42)

@@ -477,7 +477,7 @@ export const DiffsHubViewer = memo(function DiffsHubViewer({
         | LineAnnotation<CommentMetadata>,
       item: CodeViewItem<CommentMetadata>
     ) => {
-      if (annotation.metadata.kind === 'image' || !commentsEnabled || !('side' in annotation) || item.type !== 'diff') {
+      if ((annotation.metadata.kind === 'image' || annotation.metadata.kind === 'preview') || !commentsEnabled || !('side' in annotation) || item.type !== 'diff') {
         return null;
       }
 
@@ -508,6 +508,10 @@ export const DiffsHubViewer = memo(function DiffsHubViewer({
   );
 
   const renderBody = useStableCallback((item: CodeViewItem<CommentMetadata>) => {
+    const preview = item.annotations?.find((annotation) => annotation.metadata.kind === 'preview')?.metadata;
+    if (preview?.kind === 'preview') {
+      return <p className="px-4 py-6 text-sm text-muted-foreground" role="note">{preview.message}</p>;
+    }
     const images = item.annotations?.flatMap((annotation) =>
       annotation.metadata.kind === 'image'
         ? [{ metadata: annotation.metadata, side: 'side' in annotation ? annotation.side : undefined }]
@@ -591,7 +595,7 @@ export const DiffsHubViewer = memo(function DiffsHubViewer({
       return (
         <CollapseDiffButton
           disabled={
-            !item.annotations?.some((annotation) => annotation.metadata.kind === 'image') &&
+            !item.annotations?.some((annotation) => annotation.metadata.kind === 'image' || annotation.metadata.kind === 'preview') &&
             item.fileDiff.splitLineCount === 0 &&
             item.fileDiff.unifiedLineCount === 0
           }
@@ -839,6 +843,7 @@ function GitnaHeaderActions({
     null
   );
   const [patchId, setPatchId] = useState<string | null>(null);
+  const [menuOpen, setMenuOpen] = useState(false);
   const [loading, setLoading] = useState(false);
   const path = item.fileDiff.name;
   const kind = actions.kindForPath(path) ?? inferGitnaKind(item);
@@ -862,16 +867,7 @@ function GitnaHeaderActions({
   };
 
   return (
-    <span className="inline-flex items-center gap-0.5">
-      {actions.canOpenFile(path) && (
-        <FileHeaderAction
-          type="button"
-          aria-label={`Open ${path} in Repository`}
-          onClick={() => actions.onOpenFile(path)}
-        >
-          Open File
-        </FileHeaderAction>
-      )}
+    <span className="inline-flex shrink-0 items-center gap-0.5">
       <FileHeaderAction
         type="button"
         disabled={actions.disabledReason != null}
@@ -881,58 +877,60 @@ function GitnaHeaderActions({
       >
         {primaryLabel}
       </FileHeaderAction>
-      {actions.scope === 'unstaged' && (
-        <FileHeaderAction
-          type="button"
-          disabled={actions.disabledReason != null}
-          aria-label={`${destructiveLabel} file ${path}${actions.disabledReason == null ? '' : `. ${actions.disabledReason}`}`}
-          title={actions.disabledReason ?? undefined}
-          onClick={() => actions.onFileAction(destructive, path, kind)}
+      <DropdownMenu open={menuOpen} onOpenChange={setMenuOpen}>
+        <DropdownMenuTrigger
+          asChild
+          onKeyDown={(event) => {
+            // Keep review navigation from also opening Radix's ArrowDown menu.
+            if (event.altKey && (event.key === 'ArrowDown' || event.key === 'ArrowUp')) {
+              event.preventDefault();
+            }
+          }}
         >
-          {destructiveLabel}
-        </FileHeaderAction>
-      )}
-      {item.fileDiff.hunks.length > 0 && kind === 'modified' && hunks == null && (
-        <FileHeaderAction
-          type="button"
-          disabled={loading}
-          aria-label={`Show hunk actions for ${path}`}
-          onClick={() => void loadHunks()}
-        >
-          {loading ? 'Loading…' : 'Hunks'}
-        </FileHeaderAction>
-      )}
-      {hunks?.map((hunk, index) => {
-        const verb = actions.scope === 'staged' ? 'Unstage' : 'Stage';
-        return (
-          <FileHeaderAction
-            key={hunk.range}
-            type="button"
-            disabled={patchId == null || actions.disabledReason != null}
-            aria-label={`${verb} hunk ${index + 1} in ${path}${actions.disabledReason == null ? '' : `. ${actions.disabledReason}`}`}
-            title={actions.disabledReason ?? hunk.range}
-            onClick={() => {
-              if (patchId == null) return;
-              void actions
-                .onPatch({
-                  op: 'patch',
-                  patch: hunk.patch,
-                  patchId,
-                  scope: actions.scope,
-                  path,
-                  reverse: actions.scope === 'staged',
-                })
-                .catch((error: unknown) =>
-                  actions.onError(
-                    error instanceof Error ? error.message : String(error)
-                  )
-                );
-            }}
-          >
-            {verb} {index + 1}
+          <FileHeaderAction type="button" aria-label={`More actions for ${path}`}>
+            More
           </FileHeaderAction>
-        );
-      })}
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="end" className="max-w-[calc(100vw-2rem)]">
+          <span className="block px-2 py-1 text-xs break-all text-muted-foreground">{path}</span>
+          {actions.canOpenFile(path) && (
+            <DropdownMenuItem aria-label={`Open ${path} in Repository`} onSelect={() => actions.onOpenFile(path)}>Open File</DropdownMenuItem>
+          )}
+          {actions.scope === 'unstaged' && (
+            <DropdownMenuItem
+              disabled={actions.disabledReason != null}
+              onSelect={() => actions.onFileAction(destructive, path, kind)}
+            >
+              {destructiveLabel}
+            </DropdownMenuItem>
+          )}
+          {item.fileDiff.hunks.length > 0 && kind === 'modified' && hunks == null && (
+            <DropdownMenuItem aria-label={`Show hunk actions for ${path}`} disabled={loading} onSelect={() => { setMenuOpen(false); void loadHunks(); }}>
+              {loading ? 'Loading…' : 'Show hunk actions'}
+            </DropdownMenuItem>
+          )}
+          {hunks?.map((hunk, index) => (
+            <DropdownMenuItem
+              key={hunk.range}
+              disabled={patchId == null || actions.disabledReason != null}
+              aria-label={`${primaryLabel} hunk ${index + 1} in ${path}${actions.disabledReason == null ? '' : `. ${actions.disabledReason}`}`}
+              title={actions.disabledReason ?? hunk.range}
+              onSelect={() => {
+                if (patchId == null) return;
+                setMenuOpen(false);
+                void actions.onPatch({
+                  op: 'patch', patch: hunk.patch, patchId,
+                  scope: actions.scope, path, reverse: actions.scope === 'staged',
+                }).catch((error: unknown) => actions.onError(
+                  error instanceof Error ? error.message : String(error)
+                ));
+              }}
+            >
+              {primaryLabel} hunk {index + 1}
+            </DropdownMenuItem>
+          ))}
+        </DropdownMenuContent>
+      </DropdownMenu>
       {actions.disabledReason != null && (
         <span className="sr-only" role="note">
           {actions.disabledReason}
