@@ -93,7 +93,7 @@ test('workspace searches large files and long lines and editor regex errors reco
   ).toBeVisible()
   await panel.getByRole('button', { name: 'Open longline.txt:1', exact: true }).click()
   await expect(page.getByRole('textbox', { name: 'longline.txt', exact: true })).toBeFocused()
-  await panel.getByRole('button', { name: 'Toggle Search Details' }).click()
+  await panel.getByRole('button', { name: /^Filters/ }).click()
   await panel.getByRole('textbox', { name: 'Files to include' }).fill('needle.txt')
   await query.fill('DefinitelyAbsentNeedle')
   await expect(panel.getByText('No results found.', { exact: true })).toBeVisible()
