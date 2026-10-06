@@ -66,13 +66,16 @@ test('workspace results stay bounded while keyboard navigation reaches unmounted
   await expect.poll(() => matches.count()).toBeLessThan(80)
 })
 
-test('skipped workspace content is disclosed and editor regex errors recover', async ({
+test('workspace searches large files and long lines and editor regex errors recover', async ({
   page,
   app,
 }) => {
   writeFileSync(join(app.repo, 'needle.txt'), 'CaseWord café\nCaseWord\n')
-  writeFileSync(join(app.repo, 'oversized.txt'), 'x'.repeat((512 << 10) + 1))
-  writeFileSync(join(app.repo, 'longline.txt'), 'x'.repeat((64 << 10) + 1))
+  writeFileSync(
+    join(app.repo, 'oversized.txt'),
+    'ordinary text\n'.repeat(50000) + 'BeyondOldLimitNeedle\n',
+  )
+  writeFileSync(join(app.repo, 'longline.txt'), 'x'.repeat(70000) + ' BeyondOldLimitNeedle')
   await page.goto(app.url)
   await expect(page.getByRole('region', { name: 'Review' })).toHaveAttribute(
     'data-connection-state',
@@ -82,16 +85,18 @@ test('skipped workspace content is disclosed and editor regex errors recover', a
   const panel = page.getByRole('region', { name: 'Find in Files' })
   const query = panel.getByRole('textbox', { name: 'Search files', exact: true })
   await query.fill('DefinitelyAbsentNeedle')
-  await expect(panel.getByText('No matches in searched text.', { exact: true })).toBeVisible()
+  await expect(panel.getByText('No results found.', { exact: true })).toBeVisible()
+  await query.fill('BeyondOldLimitNeedle')
+  await expect(panel.getByText('2 results in 2 files', { exact: true })).toBeVisible()
   await expect(
-    panel.getByText(
-      /Search coverage is incomplete. Skipped 2 files larger than 512 KiB and 1 line longer than 64 KiB/,
-    ),
+    panel.getByRole('button', { name: 'Open oversized.txt:50001', exact: true }),
   ).toBeVisible()
+  await panel.getByRole('button', { name: 'Open longline.txt:1', exact: true }).click()
+  await expect(page.getByRole('textbox', { name: 'longline.txt', exact: true })).toBeFocused()
   await panel.getByRole('button', { name: 'Toggle Search Details' }).click()
   await panel.getByRole('textbox', { name: 'Files to include' }).fill('needle.txt')
+  await query.fill('DefinitelyAbsentNeedle')
   await expect(panel.getByText('No results found.', { exact: true })).toBeVisible()
-  await expect(panel.getByText(/Search coverage is incomplete/)).toHaveCount(0)
   await query.fill('CaseWord')
   await panel.getByRole('button', { name: 'Open needle.txt:1', exact: true }).click()
   const editor = page.getByRole('textbox', { name: 'needle.txt', exact: true })

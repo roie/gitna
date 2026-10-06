@@ -47,8 +47,6 @@ export async function readContentSearchStream(
           results: results.slice(),
           complete: frame.complete,
           truncated: frame.truncated,
-          skippedLargeFiles: frame.skippedLargeFiles ?? 0,
-          skippedLongLines: frame.skippedLongLines ?? 0,
         }
         if (frame.done) return result
         onBatch?.(result)

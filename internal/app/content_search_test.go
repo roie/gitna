@@ -199,11 +199,11 @@ func TestContentSearchValidatesFilesBeforeTrimmingBatchMatches(t *testing.T) {
 	}
 }
 
-func TestContentSearchReportsSkippedContent(t *testing.T) {
+func TestContentSearchLargeFilesAndLongLines(t *testing.T) {
 	root := t.TempDir()
 	for path, text := range map[string]string{
-		"large.txt": strings.Repeat("x", contentSearchFileLimit+1),
-		"lines.txt": strings.Repeat("x", contentSearchLineLimit+1) + "\nneedle\n" + strings.Repeat("y", contentSearchLineLimit+1),
+		"large.txt": strings.Repeat("ordinary text\n", 100000) + "needle\n",
+		"lines.txt": strings.Repeat("😀", 20000) + " needle\r\nneedle\n" + strings.Repeat("y", 70000) + " needle",
 	} {
 		if err := os.WriteFile(filepath.Join(root, path), []byte(text), 0o644); err != nil {
 			t.Fatal(err)
@@ -215,20 +215,27 @@ func TestContentSearchReportsSkippedContent(t *testing.T) {
 	waitForFolderSearch(t, adapter, "", nil, 100)
 	for _, query := range []string{"needle", "absent"} {
 		result, err := adapter.SearchContent(t.Context(), query, false, false, false, false, "", "", 100)
-		if err != nil || !result.Complete || result.Truncated || result.SkippedLargeFiles != 1 || result.SkippedLongLines != 2 {
+		if err != nil || !result.Complete || result.Truncated {
 			t.Fatalf("coverage for %q = %#v, %v", query, result, err)
 		}
-		if query == "needle" && (len(result.Results) != 1 || result.Results[0].Matches[0].Line != 2) {
-			t.Fatalf("skipping a line must preserve searchable lines: %#v", result)
+		if query == "needle" {
+			if len(result.Results) != 2 || result.Results[0].Matches[0].Line != 100001 || len(result.Results[1].Matches) != 3 {
+				t.Fatalf("matches beyond the old size limits were lost: %#v", result)
+			}
+			for i, match := range result.Results[1].Matches {
+				if match.Line != i+1 || match.Column != []int{40001, 0, 70001}[i] || match.Length != 6 || !strings.Contains(match.Excerpt, "needle") || !utf8.ValidString(match.Excerpt) {
+					t.Fatalf("long-line match %d = %#v", i, match)
+				}
+			}
 		}
 		streamed, err := adapter.SearchContentStream(t.Context(), query, false, false, false, false, "", "", 100, func(protocol.ContentSearchFile) error { return nil })
 		if err != nil || !reflect.DeepEqual(streamed, result) {
 			t.Fatalf("stream coverage differs: %#v, %v", streamed, err)
 		}
 	}
-	filtered, err := adapter.SearchContent(t.Context(), "absent", false, false, false, false, "", "large.txt, lines.txt", 100)
-	if err != nil || filtered.SkippedLargeFiles != 0 || filtered.SkippedLongLines != 0 {
-		t.Fatalf("excluded files counted: %#v, %v", filtered, err)
+	filtered, err := adapter.SearchContent(t.Context(), "needle", false, false, false, false, "", "large.txt, lines.txt", 100)
+	if err != nil || len(filtered.Results) != 0 {
+		t.Fatalf("excluded files searched: %#v, %v", filtered, err)
 	}
 }
 

@@ -56,7 +56,7 @@ func TestContentSearchStreamFlushesBeforeCompletion(t *testing.T) {
 		if !recorder.Flushed || !strings.Contains(recorder.Body.String(), "a.txt") {
 			t.Fatal("first match was buffered until completion")
 		}
-		return protocol.ContentSearchResults{Results: []protocol.ContentSearchFile{file}, Complete: true, SkippedLargeFiles: 2, SkippedLongLines: 3}, nil
+		return protocol.ContentSearchResults{Results: []protocol.ContentSearchFile{file}, Complete: true}, nil
 	}}, "needle", "", "")
 	lines := strings.Split(strings.TrimSpace(recorder.Body.String()), "\n")
 	if len(lines) != 2 {
@@ -66,7 +66,7 @@ func TestContentSearchStreamFlushesBeforeCompletion(t *testing.T) {
 	if err := json.Unmarshal([]byte(lines[1]), &terminal); err != nil {
 		t.Fatal(err)
 	}
-	if !terminal.Done || !terminal.Complete || terminal.Generation != 7 || len(terminal.Results) != 0 || terminal.SkippedLargeFiles != 2 || terminal.SkippedLongLines != 3 {
+	if !terminal.Done || !terminal.Complete || terminal.Generation != 7 || len(terminal.Results) != 0 {
 		t.Fatalf("terminal = %#v", terminal)
 	}
 	if recorder.Header().Get("Content-Type") != "application/x-ndjson" {

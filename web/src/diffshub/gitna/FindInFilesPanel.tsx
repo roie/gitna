@@ -70,7 +70,6 @@ export function FindInFilesPanel({
   const [searchTick, setSearchTick] = useState(0)
   const inputRef = useRef<HTMLInputElement>(null)
   const [resultsFocusRequest, setResultsFocusRequest] = useState(0)
-  const [skipped, setSkipped] = useState({ largeFiles: 0, longLines: 0 })
 
   useEffect(() => {
     onResultsChange(active ? files : [])
@@ -87,7 +86,6 @@ export function FindInFilesPanel({
     setFiles([])
     setError(null)
     setTruncated(false)
-    setSkipped({ largeFiles: 0, longLines: 0 })
     setSelectedMatch(null)
     setLoading(query.length > 0)
     if (!query) return
@@ -130,10 +128,6 @@ export function FindInFilesPanel({
         batchTimer = undefined
         setFiles(result.results)
         setTruncated(result.truncated)
-        setSkipped({
-          largeFiles: result.skippedLargeFiles ?? 0,
-          longLines: result.skippedLongLines ?? 0,
-        })
         setLoading(!result.complete && !result.truncated)
         if (!result.complete && !result.truncated)
           timer = window.setTimeout(() => void search(), 350)
@@ -340,9 +334,7 @@ export function FindInFilesPanel({
               : loading
                 ? 'Searching…'
                 : matchCount === 0
-                  ? skipped.largeFiles > 0 || skipped.longLines > 0
-                    ? 'No matches in searched text.'
-                    : 'No results found.'
+                  ? 'No results found.'
                   : `${matchCount} ${matchCount === 1 ? 'result' : 'results'} in ${files.length} ${files.length === 1 ? 'file' : 'files'}`}
         </p>
         {error && (
@@ -355,13 +347,6 @@ export function FindInFilesPanel({
           </p>
         )}
       </div>
-      {(skipped.largeFiles > 0 || skipped.longLines > 0) && (
-        <p role="status" className="shrink-0 px-3 pb-2 text-xs text-muted-foreground">
-          Search coverage is incomplete. Skipped {skipped.largeFiles}{' '}
-          {skipped.largeFiles === 1 ? 'file' : 'files'} larger than 512 KiB and {skipped.longLines}{' '}
-          {skipped.longLines === 1 ? 'line' : 'lines'} longer than 64 KiB.
-        </p>
-      )}
       {truncated && (
         <p className="shrink-0 px-3 pb-2 text-xs text-muted-foreground">
           Showing the first {matchCount} results. Narrow your search to see more.
