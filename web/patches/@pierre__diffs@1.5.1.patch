@@ -1,8 +1,7 @@
 diff --git a/dist/components/CodeView.d.ts b/dist/components/CodeView.d.ts
-index fa61234402db478fdae134ffefb592f868423544..fb91237c910126f53e342c2f5b904756780ca92b 100644
 --- a/dist/components/CodeView.d.ts
 +++ b/dist/components/CodeView.d.ts
-@@ -75,6 +75,7 @@ interface CodeViewLineSelection {
+@@ -75,6 +75,7 @@
  interface CodeViewCoordinator<LAnnotation, Caret> {
    hasHeaderRenderers: boolean;
    hasAnnotationRenderer: boolean;
@@ -10,7 +9,7 @@ index fa61234402db478fdae134ffefb592f868423544..fb91237c910126f53e342c2f5b904756
    hasGutterRenderer: boolean;
    onSnapshotChange(snapshot: CodeViewSlotSnapshot<LAnnotation, Caret> | undefined): void;
  }
-@@ -113,6 +114,8 @@ interface CodeViewOptions<LAnnotation, Caret> extends CodeViewPassThroughOptions
+@@ -113,6 +114,8 @@
    pointerEventsOnScroll?: boolean;
    smoothScrollSettings?: SmoothScrollSettings;
    stickyHeaders?: boolean;
@@ -20,10 +19,9 @@ index fa61234402db478fdae134ffefb592f868423544..fb91237c910126f53e342c2f5b904756
    onSelectedLinesChange?(selection: CodeViewLineSelection | null): void;
    layout?: CodeViewLayout;
 diff --git a/dist/components/CodeView.js b/dist/components/CodeView.js
-index 2fd5213232a3c550d483dcdf61497ed40f070a9b..66669c56bb245db013b2af73768b7e88b0a91526 100644
 --- a/dist/components/CodeView.js
 +++ b/dist/components/CodeView.js
-@@ -1113,6 +1113,7 @@ var CodeView = class CodeView {
+@@ -1124,6 +1124,7 @@
  			if (state == null) return;
  			return (event) => this.completeFileItemEdit(state, event);
  		});
@@ -31,7 +29,7 @@ index 2fd5213232a3c550d483dcdf61497ed40f070a9b..66669c56bb245db013b2af73768b7e88
  		for (const key of CODE_VIEW_SHARED_CALLBACK_KEYS) this.defineItemSharedCallback(prototype, "file", key);
  		for (const key of CODE_VIEW_SELECTION_CALLBACK_KEYS) this.defineItemSelectionCallback(prototype, "file", key);
  		return prototype;
-@@ -1133,6 +1134,7 @@ var CodeView = class CodeView {
+@@ -1144,6 +1145,7 @@
  			if (state == null) return;
  			return (event) => this.completeDiffItemEdit(state, event);
  		});
@@ -39,7 +37,7 @@ index 2fd5213232a3c550d483dcdf61497ed40f070a9b..66669c56bb245db013b2af73768b7e88
  		for (const key of CODE_VIEW_SHARED_CALLBACK_KEYS) this.defineItemSharedCallback(prototype, "diff", key);
  		for (const key of CODE_VIEW_SELECTION_CALLBACK_KEYS) this.defineItemSelectionCallback(prototype, "diff", key);
  		return prototype;
-@@ -2124,9 +2126,9 @@ function syncRenderedItemOrder(container, element, prevElement) {
+@@ -2135,9 +2137,9 @@
  function hasAnnotations(item) {
  	return (item.annotations?.length ?? 0) > 0;
  }
@@ -52,10 +50,9 @@ index 2fd5213232a3c550d483dcdf61497ed40f070a9b..66669c56bb245db013b2af73768b7e88
  	const slotSnapshot = [];
  	for (const renderedItem of renderedItems) if (hasAnnotations(renderedItem.item)) slotSnapshot.push(renderedItem);
 diff --git a/dist/components/File.js b/dist/components/File.js
-index 7a69625d34ac5d20d514e8d6fe661a6421bc2879..75b03d06cdf0e59a911e5c54f72f742e2fe71057 100644
 --- a/dist/components/File.js
 +++ b/dist/components/File.js
-@@ -68,6 +68,8 @@ var File = class {
+@@ -68,6 +68,8 @@
  	headerPrefix;
  	headerFilenameSuffix;
  	headerMetadata;
@@ -64,7 +61,7 @@ index 7a69625d34ac5d20d514e8d6fe661a6421bc2879..75b03d06cdf0e59a911e5c54f72f742e
  	fileRenderer;
  	resizeManager;
  	interactionManager;
-@@ -504,6 +506,7 @@ var File = class {
+@@ -510,6 +512,7 @@
  		if (editSessionFile == null) throw new Error("File.updateRenderCache: requires an active edit session");
  		this.fileRenderer.beginEditSession(editSessionFile);
  		this.fileRenderer.updateRenderCache(dirtyLines, themeType, options?.lineCountChangeInFlight);
@@ -72,7 +69,7 @@ index 7a69625d34ac5d20d514e8d6fe661a6421bc2879..75b03d06cdf0e59a911e5c54f72f742e
  	}
  	render({ file, fileContainer, forceRender = false, preventEmit = false, containerWrapper, deferManagers = false, lineAnnotations, renderRange }) {
  		if (!this.enabled) throw new Error("File.render: attempting to call render after cleaned up");
-@@ -540,6 +543,7 @@ var File = class {
+@@ -546,6 +549,7 @@
  		this.applyCachedThemeState(themeType);
  		if (collapsed) {
  			this.removeRenderedCode();
@@ -80,7 +77,7 @@ index 7a69625d34ac5d20d514e8d6fe661a6421bc2879..75b03d06cdf0e59a911e5c54f72f742e
  			this.clearAuxiliaryNodes();
  			try {
  				const fileResult = this.fileRenderer.renderFile(latestFile, EMPTY_RENDER_RANGE);
-@@ -569,6 +573,7 @@ var File = class {
+@@ -575,6 +579,7 @@
  				this.applyFullRender(fileResult, pre);
  				this.renderedFile = fileResult.file;
  			}
@@ -88,10 +85,11 @@ index 7a69625d34ac5d20d514e8d6fe661a6421bc2879..75b03d06cdf0e59a911e5c54f72f742e
  			this.applyBuffers(pre, nextRenderRange);
  			this.injectUnsafeCSS();
  			this.renderAnnotations();
-@@ -600,6 +605,44 @@ var File = class {
+@@ -605,6 +610,44 @@
+ 		const phase = this.mounted ? "update" : "mount";
  		this.mounted = true;
  		onPostRender?.(fileContainer, this, phase);
- 	}
++	}
 +	renderCustomBody(fileContainer) {
 +		if (this.options.renderBody == null) {
 +			this.removeCustomBody();
@@ -129,15 +127,13 @@ index 7a69625d34ac5d20d514e8d6fe661a6421bc2879..75b03d06cdf0e59a911e5c54f72f742e
 +		this.customBodyWrapper = void 0;
 +		this.customBodySlot = void 0;
 +		if (this.pre != null) this.pre.style.display = "";
-+	}
+ 	}
  	removeRenderedCode() {
  		this.resizeManager.cleanUp();
- 		this.interactionManager.cleanUp();
 diff --git a/dist/components/FileDiff.js b/dist/components/FileDiff.js
-index 04ce7b9a931c95f3cc1528219b2572eddf0ee889..62408a31e82b8fd4c1982797553796e35d92c345 100644
 --- a/dist/components/FileDiff.js
 +++ b/dist/components/FileDiff.js
-@@ -98,6 +98,8 @@ var FileDiff = class {
+@@ -98,6 +98,8 @@
  	headerFilenameSuffix;
  	headerMetadata;
  	headerCustom;
@@ -146,7 +142,7 @@ index 04ce7b9a931c95f3cc1528219b2572eddf0ee889..62408a31e82b8fd4c1982797553796e3
  	separatorCache = /* @__PURE__ */ new Map();
  	errorWrapper;
  	placeHolder;
-@@ -662,6 +664,7 @@ var FileDiff = class {
+@@ -688,6 +690,7 @@
  		this.applyCachedThemeState(themeType);
  		if (collapsed) {
  			this.removeRenderedCode();
@@ -154,7 +150,7 @@ index 04ce7b9a931c95f3cc1528219b2572eddf0ee889..62408a31e82b8fd4c1982797553796e3
  			this.clearAuxiliaryNodes();
  			try {
  				const hunksResult = this.hunksRenderer.renderDiff(latestDiff, EMPTY_RENDER_RANGE);
-@@ -701,6 +704,7 @@ var FileDiff = class {
+@@ -727,6 +730,7 @@
  				this.renderSeparators(hunksResult.hunkData);
  				this.renderedDiff = hunksResult.fileDiff;
  			}
@@ -162,7 +158,7 @@ index 04ce7b9a931c95f3cc1528219b2572eddf0ee889..62408a31e82b8fd4c1982797553796e3
  			this.applyBuffers(pre, nextRenderRange);
  			this.injectUnsafeCSS();
  			this.renderAnnotations();
-@@ -995,7 +999,9 @@ var FileDiff = class {
+@@ -1027,7 +1031,9 @@
  		this.detachAdditionLines();
  		this.hunksRenderer.beginEditSession(editSessionDiff);
  		const { shouldRefreshDiffsView, lineCountChangeInFlight } = options;
@@ -173,7 +169,7 @@ index 04ce7b9a931c95f3cc1528219b2572eddf0ee889..62408a31e82b8fd4c1982797553796e3
  			if (this.refreshViewTimeout != null) {
  				clearTimeout(this.refreshViewTimeout);
  				this.refreshViewTimeout = void 0;
-@@ -1092,6 +1098,44 @@ var FileDiff = class {
+@@ -1124,6 +1130,44 @@
  		this.rerender();
  		this.flushDeferredLineState();
  	};
@@ -219,10 +215,9 @@ index 04ce7b9a931c95f3cc1528219b2572eddf0ee889..62408a31e82b8fd4c1982797553796e3
  		this.resizeManager.cleanUp();
  		this.scrollSyncManager.cleanUp();
 diff --git a/dist/components/VirtualizedFile.js b/dist/components/VirtualizedFile.js
-index 1cbbf9b9d96f0d73b779f019a5e8b091b36a4ae7..2adc716e42164b590524ed9bab1678f724b8ac8a 100644
 --- a/dist/components/VirtualizedFile.js
 +++ b/dist/components/VirtualizedFile.js
-@@ -121,6 +121,15 @@ var VirtualizedFile = class extends File {
+@@ -121,6 +121,15 @@
  		}
  		const { overflow = "scroll" } = this.options;
  		this.top = this.getVirtualizedTop();
@@ -237,12 +232,11 @@ index 1cbbf9b9d96f0d73b779f019a5e8b091b36a4ae7..2adc716e42164b590524ed9bab1678f7
 +		}
  		const ghostTextRows = this.editor?.__getGhostTextRows() ?? NO_GHOST_TEXT_ROWS;
  		hasHeightChange = this.applyGhostTextRows(ghostTextRows);
- 		if (overflow === "scroll" && this.getLatestAnnotations().length === 0 && !this.isResizeDebuggingEnabled()) {
+ 		const measureAllRows = overflow !== "scroll" || this.getLatestAnnotations().length > 0 || this.isResizeDebuggingEnabled();
 diff --git a/dist/components/VirtualizedFileDiff.js b/dist/components/VirtualizedFileDiff.js
-index c87e1200ceeb9e97a67d891635b062d03d8acbfa..300c0046fb86391ebf72efd51556cb702509c617 100644
 --- a/dist/components/VirtualizedFileDiff.js
 +++ b/dist/components/VirtualizedFileDiff.js
-@@ -165,6 +165,15 @@ var VirtualizedFileDiff = class extends FileDiff {
+@@ -165,6 +165,15 @@
  			return hasHeightChange;
  		}
  		this.top = this.getVirtualizedTop();
@@ -256,13 +250,12 @@ index c87e1200ceeb9e97a67d891635b062d03d8acbfa..300c0046fb86391ebf72efd51556cb70
 +			return false;
 +		}
  		hasHeightChange = this.applyGhostTextRows(fileDiff, this.editor?.__getGhostTextRows() ?? NO_GHOST_TEXT_ROWS);
- 		const lineAnnotations = this.getLatestAnnotations();
- 		if (overflow === "scroll" && lineAnnotations.length === 0 && !this.isResizeDebuggingEnabled()) {
+ 		const { ghostTextRowsByIndex } = this.cache;
+ 		const measureAllRows = overflow !== "scroll" || this.getLatestAnnotations().length > 0 || this.isResizeDebuggingEnabled();
 diff --git a/dist/react/CodeView.d.ts b/dist/react/CodeView.d.ts
-index e78e713bdea30c46a548bc46dacf79aa8c184c3d..d1106ae6fc66f9876d929f15996fafb22985100c 100644
 --- a/dist/react/CodeView.d.ts
 +++ b/dist/react/CodeView.d.ts
-@@ -61,6 +61,8 @@ interface CodeViewBaseProps<LAnnotation, Caret> {
+@@ -61,6 +61,8 @@
    renderHeaderFilenameSuffix?(item: CodeViewItem<LAnnotation>): ReactNode;
    renderHeaderMetadata?(item: CodeViewItem<LAnnotation>): ReactNode;
    renderAnnotation?(annotation: LineAnnotation<LAnnotation> | DiffLineAnnotation<LAnnotation>, item: CodeViewItem<LAnnotation>): ReactNode;
@@ -272,10 +265,9 @@ index e78e713bdea30c46a548bc46dacf79aa8c184c3d..d1106ae6fc66f9876d929f15996fafb2
  }
  interface ControlledCodeViewProps<LAnnotation, Caret> extends CodeViewBaseProps<LAnnotation, Caret> {
 diff --git a/dist/react/CodeView.js b/dist/react/CodeView.js
-index 84c7915d9bd1f9664010966370f60649a7a5d67e..6bdcb6dc81f1e424fcbc4d834eeb6f56db747632 100644
 --- a/dist/react/CodeView.js
 +++ b/dist/react/CodeView.js
-@@ -24,16 +24,17 @@ function createDefaultCache(controlled) {
+@@ -24,16 +24,17 @@
  	};
  }
  function CodeViewInner(props, ref) {
@@ -295,7 +287,7 @@ index 84c7915d9bd1f9664010966370f60649a7a5d67e..6bdcb6dc81f1e424fcbc4d834eeb6f56
  	const hasCodeViewHeader = renderCodeViewHeader != null;
  	const hasCodeViewFooter = renderCodeViewFooter != null;
  	const emitSelectedLinesChange = useStableCallback((selection) => {
-@@ -55,6 +56,7 @@ function CodeViewInner(props, ref) {
+@@ -55,6 +56,7 @@
  	const managedOptions = useMemo(() => createManagedCodeViewOptions({
  		options,
  		hasCustomHeader,
@@ -303,7 +295,7 @@ index 84c7915d9bd1f9664010966370f60649a7a5d67e..6bdcb6dc81f1e424fcbc4d834eeb6f56
  		hasGutterRenderer,
  		hasCodeViewHeader,
  		hasCodeViewFooter,
-@@ -74,6 +76,7 @@ function CodeViewInner(props, ref) {
+@@ -74,6 +76,7 @@
  		hasCodeViewFooter,
  		hasCodeViewHeader,
  		hasCustomHeader,
@@ -311,7 +303,7 @@ index 84c7915d9bd1f9664010966370f60649a7a5d67e..6bdcb6dc81f1e424fcbc4d834eeb6f56
  		hasGutterRenderer,
  		getEditStateKey,
  		onItemEditChange,
-@@ -102,16 +105,18 @@ function CodeViewInner(props, ref) {
+@@ -102,16 +105,18 @@
  		});
  	});
  	const slotCoordinator = useMemo(() => {
@@ -331,7 +323,7 @@ index 84c7915d9bd1f9664010966370f60649a7a5d67e..6bdcb6dc81f1e424fcbc4d834eeb6f56
  		hasGutterRenderer,
  		hasHeaderRenderers,
  		hasCodeViewHeader,
-@@ -261,6 +266,7 @@ function CodeViewInner(props, ref) {
+@@ -261,6 +266,7 @@
  		renderHeaderFilenameSuffix,
  		renderHeaderMetadata,
  		renderAnnotation,
@@ -339,7 +331,7 @@ index 84c7915d9bd1f9664010966370f60649a7a5d67e..6bdcb6dc81f1e424fcbc4d834eeb6f56
  		renderGutterUtility,
  		renderCodeViewHeader,
  		renderCodeViewFooter
-@@ -302,7 +308,7 @@ function createSlotContentStore() {
+@@ -302,7 +308,7 @@
  		}
  	};
  }
@@ -348,7 +340,7 @@ index 84c7915d9bd1f9664010966370f60649a7a5d67e..6bdcb6dc81f1e424fcbc4d834eeb6f56
  	const managedOptions = {
  		...options,
  		controlledSelection,
-@@ -313,12 +319,13 @@ function createManagedCodeViewOptions({ options, hasCustomHeader, hasGutterRende
+@@ -313,12 +319,13 @@
  	if (onItemEditChange != null) managedOptions.onItemEditChange = onItemEditChange;
  	if (onItemEditComplete != null) managedOptions.onItemEditComplete = onItemEditComplete;
  	if (hasCustomHeader) managedOptions.renderCustomHeader = noopRender;
@@ -363,7 +355,7 @@ index 84c7915d9bd1f9664010966370f60649a7a5d67e..6bdcb6dc81f1e424fcbc4d834eeb6f56
  	"use no memo";
  	const subscribe = useStableCallback((listener) => managedContentStore.subscribe(listener));
  	const getSnapshot = useStableCallback(() => managedContentStore.getSnapshot());
-@@ -333,6 +340,7 @@ const SlotPortals = memo(function SlotPortals({ managedContentStore, renderCusto
+@@ -333,6 +340,7 @@
  			renderHeaderFilenameSuffix,
  			renderHeaderMetadata,
  			renderAnnotation,
@@ -371,7 +363,7 @@ index 84c7915d9bd1f9664010966370f60649a7a5d67e..6bdcb6dc81f1e424fcbc4d834eeb6f56
  			renderGutterUtility
  		}), renderedItem.element, renderedItem.id));
  	}, [
-@@ -341,6 +349,7 @@ const SlotPortals = memo(function SlotPortals({ managedContentStore, renderCusto
+@@ -341,6 +349,7 @@
  		renderHeaderFilenameSuffix,
  		renderHeaderMetadata,
  		renderAnnotation,
@@ -379,7 +371,7 @@ index 84c7915d9bd1f9664010966370f60649a7a5d67e..6bdcb6dc81f1e424fcbc4d834eeb6f56
  		renderGutterUtility,
  		itemKeys
  	]);
-@@ -356,10 +365,11 @@ const SlotPortals = memo(function SlotPortals({ managedContentStore, renderCusto
+@@ -356,10 +365,11 @@
  		renderedFooter
  	] });
  });
@@ -393,7 +385,7 @@ index 84c7915d9bd1f9664010966370f60649a7a5d67e..6bdcb6dc81f1e424fcbc4d834eeb6f56
  			fileDiff: item.fileDiff,
  			renderCustomHeader: renderCustomHeader != null ? () => renderCustomHeader(item) : void 0,
  			renderHeaderPrefix: renderHeaderPrefix != null ? () => renderHeaderPrefix(item) : void 0,
-@@ -373,7 +383,7 @@ function renderCodeViewItemChildren({ renderedItem, renderCustomHeader, renderHe
+@@ -373,7 +383,7 @@
  		});
  	} else {
  		const { item, instance } = renderedItem;
@@ -402,7 +394,7 @@ index 84c7915d9bd1f9664010966370f60649a7a5d67e..6bdcb6dc81f1e424fcbc4d834eeb6f56
  			file: item.file,
  			renderCustomHeader: renderCustomHeader != null ? () => renderCustomHeader(item) : void 0,
  			renderHeaderPrefix: renderHeaderPrefix != null ? () => renderHeaderPrefix(item) : void 0,
-@@ -386,6 +396,11 @@ function renderCodeViewItemChildren({ renderedItem, renderCustomHeader, renderHe
+@@ -386,6 +396,11 @@
  			getAnnotationSlotName: instance.getAnnotationSlotName
  		});
  	}
@@ -415,10 +407,9 @@ index 84c7915d9bd1f9664010966370f60649a7a5d67e..6bdcb6dc81f1e424fcbc4d834eeb6f56
  function noopRender() {}
  //#endregion
 diff --git a/dist/renderers/FileRenderer.js b/dist/renderers/FileRenderer.js
-index b57de57a206be70a0dc4252733de4ce3feb575e3..c94fc53a8afb006babbd2ef8b8e6f53dcdfa9bcd 100644
 --- a/dist/renderers/FileRenderer.js
 +++ b/dist/renderers/FileRenderer.js
-@@ -411,7 +411,9 @@ var FileRenderer = class {
+@@ -430,7 +430,9 @@
  			const hasThemes = this.highlighter != null && areThemesAttached(options.theme);
  			const hasLangs = this.highlighter != null && areLanguagesAttached(this.computedLang);
  			const canHighlight = !forcePlainText && hasLangs;

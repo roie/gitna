@@ -134,7 +134,7 @@ ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
 SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 ================================================================================
-golang.org/x/sys@v0.47.0
+golang.org/x/sys@v0.48.0
 Source: https://golang.org/x/sys
 Declared license: BSD-3-Clause
 --------------------------------------------------------------------------------
@@ -271,7 +271,7 @@ IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
 CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 ================================================================================
-@pierre/diffs@1.4.2
+@pierre/diffs@1.5.1
 Source: npm package
 Declared license: apache-2.0
 --------------------------------------------------------------------------------
@@ -466,7 +466,7 @@ CONDITIONS OF ANY KIND, either express or implied. See the License for the
 specific language governing permissions and limitations under the License.
 
 ================================================================================
-@pierre/icons@0.7.1
+@pierre/icons@0.9.0
 Source: https://github.com/pierrecomputer/icons#readme
 Declared license: Apache-2.0
 --------------------------------------------------------------------------------
@@ -2334,7 +2334,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
 ================================================================================
-@tanstack/react-virtual@3.14.12
+@tanstack/react-virtual@3.14.13
 Source: https://tanstack.com/virtual
 Declared license: MIT
 --------------------------------------------------------------------------------
@@ -2361,7 +2361,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
 ================================================================================
-@tanstack/virtual-core@3.17.10
+@tanstack/virtual-core@3.17.11
 Source: https://tanstack.com/virtual
 Declared license: MIT
 --------------------------------------------------------------------------------
@@ -3742,7 +3742,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 
 ================================================================================
-lucide-react@1.45.0
+lucide-react@1.52.0
 Source: https://lucide.dev
 Declared license: ISC
 --------------------------------------------------------------------------------

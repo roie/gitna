@@ -47,17 +47,19 @@ distributed unmodified.
 
 | Package | Installed version | Package license evidence | Required distribution material |
 | --- | --- | --- | --- |
-| `@pierre/diffs` | `1.4.2` + Gitna raster/editing patch | `web/node_modules/@pierre/diffs/LICENSE.md`; package metadata declares `apache-2.0` | `LICENSES/Apache-2.0.txt`, `web/patches/@pierre__diffs@1.4.2.patch`; the package contains no NOTICE file. |
-| `@pierre/icons` | `0.7.1` | `web/node_modules/@pierre/icons/LICENSE.md`; package metadata declares `apache-2.0` | `LICENSES/Apache-2.0.txt`; the package contains no NOTICE file. |
+| `@pierre/diffs` | `1.5.1` + Gitna raster/editing patch | `web/node_modules/@pierre/diffs/LICENSE.md`; package metadata declares `apache-2.0` | `LICENSES/Apache-2.0.txt`, `web/patches/@pierre__diffs@1.5.1.patch`; the package contains no NOTICE file. |
+| `@pierre/icons` | `0.9.0` | `web/node_modules/@pierre/icons/LICENSE`; package metadata declares `Apache-2.0` | `LICENSES/pierre-icons-Apache-2.0.txt`; the package contains no NOTICE file. |
 | `@pierre/trees` | `1.0.0-beta.6` + Gitna row-actions patch | `web/node_modules/@pierre/trees/LICENSE.md`; package metadata declares `apache-2.0` | `LICENSES/Apache-2.0.txt`, `web/patches/@pierre__trees@1.0.0-beta.6.patch`, and the `@pierre/trees` notice below. |
 | `@pierre/theme` | `2.0.0` | `web/node_modules/@pierre/theme/LICENSE`; package metadata declares `apache-2.0` | `LICENSES/Apache-2.0.txt` and the `@pierre/theme` notice below. |
 | `@pierre/theming` | `1.0.1` | `web/node_modules/@pierre/theming/LICENSE.md`; package metadata declares `apache-2.0` | `LICENSES/Apache-2.0.txt`; the package contains no NOTICE file. |
 | `react-markdown` | `10.1.0` | `web/node_modules/react-markdown/license`; package metadata declares `MIT` | `LICENSES/MIT.txt`; the package contains no NOTICE file. |
 | `remark-gfm` | `4.0.1` | `web/node_modules/remark-gfm/license`; package metadata declares `MIT` | `LICENSES/MIT.txt`; the package contains no NOTICE file. |
 
-The Apache-2.0 text shipped by the pinned DiffsHub app, `@pierre/icons`, and all
-five installed Pierre packages is byte-identical, so Gitna keeps one verbatim
-shared copy at `LICENSES/Apache-2.0.txt`. The Trees and Theme notices are
+The Apache-2.0 text shipped by the pinned DiffsHub app and the other four
+installed Pierre packages is byte-identical, so Gitna keeps one verbatim shared
+copy at `LICENSES/Apache-2.0.txt`. Icons includes its own copyright attribution;
+its full license is kept at `LICENSES/pierre-icons-Apache-2.0.txt`.
+The Trees and Theme notices are
 reproduced verbatim below because they contain distinct upstream attribution.
 Their shared MIT license text is also available at `LICENSES/MIT.txt`.
 
