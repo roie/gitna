@@ -49,7 +49,7 @@ distributed unmodified.
 
 | Package | Installed version | Package license evidence | Required distribution material |
 | --- | --- | --- | --- |
-| `@pierre/diffs` | `1.5.1` + Gitna raster/editing patch | `web/node_modules/@pierre/diffs/LICENSE.md`; package metadata declares `apache-2.0` | `LICENSES/Apache-2.0.txt`, `web/patches/@pierre__diffs@1.5.1.patch`; the package contains no NOTICE file. |
+| `@pierre/diffs` | `1.5.2` + Gitna raster/editing patch | `web/node_modules/@pierre/diffs/LICENSE.md`; package metadata declares `apache-2.0` | `LICENSES/Apache-2.0.txt`, `web/patches/@pierre__diffs@1.5.2.patch`; the package contains no NOTICE file. |
 | `@pierre/icons` | `0.9.0` | `web/node_modules/@pierre/icons/LICENSE`; package metadata declares `Apache-2.0` | `LICENSES/pierre-icons-Apache-2.0.txt`; the package contains no NOTICE file. |
 | `@pierre/trees` | `1.0.0-beta.6` + Gitna row-actions patch | `web/node_modules/@pierre/trees/LICENSE.md`; package metadata declares `apache-2.0` | `LICENSES/Apache-2.0.txt`, `web/patches/@pierre__trees@1.0.0-beta.6.patch`, and the `@pierre/trees` notice below. |
 | `@pierre/theme` | `2.0.0` | `web/node_modules/@pierre/theme/LICENSE`; package metadata declares `apache-2.0` | `LICENSES/Apache-2.0.txt` and the `@pierre/theme` notice below. |
