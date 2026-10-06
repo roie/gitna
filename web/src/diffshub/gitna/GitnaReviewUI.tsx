@@ -490,6 +490,11 @@ function GitnaReviewUIInner({ searchRequest }: { searchRequest: number }) {
   const homeButtonRef = useRef<HTMLButtonElement>(null)
   const restoreHomeFocusRef = useRef(false)
   const viewerRef = useRef<CodeViewHandle<CommentMetadata, undefined> | null>(null)
+  const revealedReviewRef = useRef<{
+    viewer: ReturnType<CodeViewHandle<CommentMetadata, undefined>['getInstance']>
+    targetKey: string
+    path: string
+  } | null>(null)
   const reviewItemVersionRef = useRef(0)
   const themeState = useThemeController(themeController)
 
@@ -1120,18 +1125,35 @@ function GitnaReviewUIInner({ searchRequest }: { searchRequest: number }) {
   }, [goToLine, pendingSearchReveal, target?.filePath])
 
   const handleViewerReady = useCallback(() => {
-    if (target?.filePath != null || target?.selectedPath == null || reviewData == null) return
+    if (target?.filePath != null || target?.selectedPath == null) {
+      revealedReviewRef.current = null
+      return
+    }
+    if (reviewData == null || renderedTargetKeyRef.current !== target.key) return
+    const handle = viewerRef.current
+    const viewer = handle?.getInstance()
+    if (viewer == null) return
+    const previousReveal = revealedReviewRef.current
+    // A background refresh is not navigation; let CodeView preserve its reading anchor.
+    if (
+      previousReveal?.viewer === viewer &&
+      previousReveal.targetKey === target.key &&
+      previousReveal.path === target.selectedPath
+    )
+      return
     const itemId = reviewData.treeSource.pathToItemId.get(target.selectedPath)
-    if (itemId == null) return
-    queueMicrotask(() =>
-      viewerRef.current?.scrollTo({
+    if (itemId == null || handle?.getItem(itemId) == null) return
+    revealedReviewRef.current = { viewer, targetKey: target.key, path: target.selectedPath }
+    queueMicrotask(() => {
+      if (viewerRef.current?.getInstance() !== viewer) return
+      handle.scrollTo({
         type: 'item',
         id: itemId,
         align: 'start',
         behavior: 'smooth-auto',
-      }),
-    )
-  }, [reviewData, target?.filePath, target?.selectedPath])
+      })
+    })
+  }, [reviewData, target?.filePath, target?.key, target?.selectedPath])
 
   useEffect(() => {
     handleViewerReady()

@@ -212,6 +212,7 @@ export const DiffsHubFileTree = memo(function DiffsHubFileTree({
   const loadingMoreDirectoriesRef = useRef(new Set<string>());
   const syncingSelectionRef = useRef(false);
   const previousSourceRef = useRef(source);
+  const revealedSelectionRef = useRef<{ model: FileTreeModel; path: string } | null>(null);
   const [initialVisibleRowCount] = useState(getInitialBatchSize);
   sourceRef.current = source;
   dragAndDropRef.current = dragAndDrop;
@@ -523,10 +524,16 @@ export const DiffsHubFileTree = memo(function DiffsHubFileTree({
       selectedPath == null
         ? (modelPaths.at(-1) ?? null)
         : (source.itemIdToPath?.get(selectedPath) ?? selectedPath);
+    syncingSelectionRef.current = false;
     if (modelPath == null) {
-      syncingSelectionRef.current = false;
+      revealedSelectionRef.current = null;
       return;
     }
+    const previousReveal = revealedSelectionRef.current;
+    // Refresh selection state without pulling the reader back to the selected row.
+    if (previousReveal?.model === model && previousReveal.path === modelPath) return;
+    if (model.getItem(modelPath) == null) return;
+    syncingSelectionRef.current = true;
     const segments = modelPath.split('/');
     let directoryPath = '';
     for (const segment of segments.slice(0, -1)) {
@@ -535,7 +542,13 @@ export const DiffsHubFileTree = memo(function DiffsHubFileTree({
       if (item?.isDirectory()) (item as FileTreeDirectoryHandle).expand();
     }
     syncingSelectionRef.current = false;
-    queueMicrotask(() => model.scrollToPath(modelPath, { focus: false, offset: 'nearest' }));
+    let canceled = false;
+    queueMicrotask(() => {
+      if (canceled) return;
+      model.scrollToPath(modelPath, { focus: false, offset: 'nearest' });
+      revealedSelectionRef.current = { model, path: modelPath };
+    });
+    return () => { canceled = true; };
   }, [model, selectedPath, selectedPaths, source]);
 
   return (
