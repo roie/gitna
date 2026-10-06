@@ -3,6 +3,35 @@ import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { test, expect } from './fixtures.js'
 
+test('optional search tools are downloaded only when first opened', async ({ page, app }) => {
+  const downloadedTools = new Set<string>()
+  page.on('request', (request) => {
+    const match = new URL(request.url()).pathname.match(
+      /\/(GitnaCommandPalette|FindInFilesPanel)-[^/]+\.js$/,
+    )
+    if (match) downloadedTools.add(match[1]!)
+  })
+
+  await page.goto(app.url)
+  const paletteTrigger = page.getByRole('button', { name: 'Open command palette' })
+  await expect(paletteTrigger).toBeVisible()
+  expect([...downloadedTools]).toEqual([])
+
+  await paletteTrigger.click()
+  await expect(page.getByRole('dialog', { name: 'Command palette' })).toBeVisible()
+  expect([...downloadedTools]).toEqual(['GitnaCommandPalette'])
+
+  await page.keyboard.press('Escape')
+  await page.keyboard.press('Control+Shift+f')
+  await expect(
+    page.getByRole('region', { name: 'Find in Files' }).getByRole('textbox', {
+      name: 'Search files',
+      exact: true,
+    }),
+  ).toBeFocused()
+  expect([...downloadedTools]).toEqual(['GitnaCommandPalette', 'FindInFilesPanel'])
+})
+
 test('Find in Files keeps its query, focuses on shortcut, and opens matching lines', async ({
   page,
   app: gitna,

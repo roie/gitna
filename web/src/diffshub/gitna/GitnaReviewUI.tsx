@@ -57,11 +57,10 @@ import type { ContentSearchFile, FileDiff, WorktreeFile } from '../../lib/types'
 import type { DarkThemeName, LightThemeName } from '../lib/themeNames'
 import type { LoadedDiffsHubData } from '../lib/diffsHubDataAccumulator'
 import { cn } from '../lib/cn'
-import { GitnaCommandPalette, type GitnaPaletteCommand } from './GitnaCommandPalette'
+import type { GitnaPaletteCommand } from './GitnaCommandPalette'
 import { GlobalToastHost } from './ConnectionStatus'
 import { FolderLoadingScreen, folderDisplayName } from './FolderLoadingScreen'
 import { GitnaHome } from './GitnaHome'
-import { FindInFilesPanel } from './FindInFilesPanel'
 import { GitnaSourceControl } from './SourceControlWorkflow'
 import { Confirm } from './Modal'
 import { UntitledSaveAsModal } from './UntitledSaveAsModal'
@@ -90,6 +89,14 @@ import {
   type RepositoryFileComparison,
 } from './repository'
 
+const GitnaCommandPalette = lazy(() =>
+  import('./GitnaCommandPalette').then(({ GitnaCommandPalette }) => ({
+    default: GitnaCommandPalette,
+  })),
+)
+const FindInFilesPanel = lazy(() =>
+  import('./FindInFilesPanel').then(({ FindInFilesPanel }) => ({ default: FindInFilesPanel })),
+)
 const MarkdownWorkbench = lazy(() =>
   import('./MarkdownWorkbench').then(({ MarkdownWorkbench }) => ({ default: MarkdownWorkbench })),
 )
@@ -378,6 +385,7 @@ function GitnaReviewUIInner({ searchRequest }: { searchRequest: number }) {
   const [mobileViewport, setMobileViewport] = useState(false)
   const [sidebarVisible, setSidebarVisible] = useState(true)
   const [sidebarMode, setSidebarMode] = useState<'source' | 'search'>('source')
+  const [searchMounted, setSearchMounted] = useState(false)
   const [searchFocusRequest, setSearchFocusRequest] = useState(0)
 
   useEffect(() => {
@@ -400,6 +408,11 @@ function GitnaReviewUIInner({ searchRequest }: { searchRequest: number }) {
     column: number
   } | null>(null)
   const [commandPaletteOpen, setCommandPaletteOpen] = useState(false)
+  const [paletteMounted, setPaletteMounted] = useState(false)
+  useEffect(() => {
+    if (sidebarMode === 'search') setSearchMounted(true)
+    if (commandPaletteOpen) setPaletteMounted(true)
+  }, [commandPaletteOpen, sidebarMode])
   const [commandPaletteInitialQuery, setCommandPaletteInitialQuery] = useState('')
   const [recentFilePaths, setRecentFilePaths] = useState<readonly string[]>([])
   const [overflow, setOverflow] = useState<'wrap' | 'scroll'>('wrap')
@@ -2038,27 +2051,31 @@ function GitnaReviewUIInner({ searchRequest }: { searchRequest: number }) {
                 onMobileClose={() => setFileTreeOverlayOpen(false)}
                 scrollRef={scrollRef}
               >
-                <FindInFilesPanel
-                  key={repository.snapshot?.root}
-                  active={sidebarMode === 'search'}
-                  focusRequest={searchFocusRequest}
-                  api={repository.api}
-                  folderLabel={
-                    folderDisplayName(repository.snapshot?.root ?? '') || 'current folder'
-                  }
-                  onBack={() => setSidebarMode('source')}
-                  onResultsChange={setSearchResults}
-                  onOpen={(path, line, column) => {
-                    setActiveSearchMatch({ path, line, column })
-                    setPendingSearchReveal(
-                      target?.filePath === path && goToLine(line, column)
-                        ? null
-                        : { path, line, column },
-                    )
-                    setFileTreeOverlayOpen(false)
-                    void repository.openRepositoryFile(path, true)
-                  }}
-                />
+                {(searchMounted || sidebarMode === 'search') && (
+                  <Suspense fallback={<div role="status">Loading search…</div>}>
+                    <FindInFilesPanel
+                      key={repository.snapshot?.root}
+                      active={sidebarMode === 'search'}
+                      focusRequest={searchFocusRequest}
+                      api={repository.api}
+                      folderLabel={
+                        folderDisplayName(repository.snapshot?.root ?? '') || 'current folder'
+                      }
+                      onBack={() => setSidebarMode('source')}
+                      onResultsChange={setSearchResults}
+                      onOpen={(path, line, column) => {
+                        setActiveSearchMatch({ path, line, column })
+                        setPendingSearchReveal(
+                          target?.filePath === path && goToLine(line, column)
+                            ? null
+                            : { path, line, column },
+                        )
+                        setFileTreeOverlayOpen(false)
+                        void repository.openRepositoryFile(path, true)
+                      }}
+                    />
+                  </Suspense>
+                )}
                 {sidebarMode === 'source' && <GitnaSourceControl />}
               </DiffsHubSidebar>
             )}
@@ -2217,30 +2234,34 @@ function GitnaReviewUIInner({ searchRequest }: { searchRequest: number }) {
           actionError={reviewActionError}
           onDismissActionError={() => setReviewActionError(null)}
         />
-        <GitnaCommandPalette
-          commands={paletteCommands}
-          error={repository.ordinarySearchError}
-          externalFileResults={repository.ordinarySearchResults}
-          fileSearchComplete={repository.ordinarySearchComplete}
-          fileResultIncludeIgnored={repository.ordinarySearchResultIncludeIgnored}
-          fileResultQuery={repository.ordinarySearchResultQuery}
-          folderLabel={folderDisplayName(repository.snapshot?.root ?? '') || 'Folder'}
-          searching={repository.ordinarySearchLoading}
-          supportsIgnoredFiles={repository.snapshot?.repository ?? false}
-          open={commandPaletteOpen && !homeOpen}
-          initialQuery={commandPaletteInitialQuery}
-          onClose={() => {
-            setCommandPaletteOpen(false)
-            setCommandPaletteInitialQuery('')
-          }}
-          onError={setReviewActionError}
-          onFileQueryChange={searchOrdinaryPalette}
-          onGoToLine={goToLine}
-          onOpenFile={(path) => {
-            setHomeOpen(false)
-            return repository.openRepositoryFile(path, true)
-          }}
-        />
+        {(paletteMounted || commandPaletteOpen) && (
+          <Suspense fallback={null}>
+            <GitnaCommandPalette
+              commands={paletteCommands}
+              error={repository.ordinarySearchError}
+              externalFileResults={repository.ordinarySearchResults}
+              fileSearchComplete={repository.ordinarySearchComplete}
+              fileResultIncludeIgnored={repository.ordinarySearchResultIncludeIgnored}
+              fileResultQuery={repository.ordinarySearchResultQuery}
+              folderLabel={folderDisplayName(repository.snapshot?.root ?? '') || 'Folder'}
+              searching={repository.ordinarySearchLoading}
+              supportsIgnoredFiles={repository.snapshot?.repository ?? false}
+              open={commandPaletteOpen && !homeOpen}
+              initialQuery={commandPaletteInitialQuery}
+              onClose={() => {
+                setCommandPaletteOpen(false)
+                setCommandPaletteInitialQuery('')
+              }}
+              onError={setReviewActionError}
+              onFileQueryChange={searchOrdinaryPalette}
+              onGoToLine={goToLine}
+              onOpenFile={(path) => {
+                setHomeOpen(false)
+                return repository.openRepositoryFile(path, true)
+              }}
+            />
+          </Suspense>
+        )}
         {pendingFolderSwitch != null && (
           <Confirm
             title="Discard unsaved changes and switch folder?"
