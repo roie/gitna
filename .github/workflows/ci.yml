@@ -54,7 +54,9 @@ jobs:
       - name: Check release sources and npm launcher
         run: |
           web/node_modules/.bin/tsc -p tsconfig.json
-          web/node_modules/.bin/oxfmt --config web/.oxfmtrc.json --check scripts/generate-third-party-licenses.mjs scripts/package-npm.mjs npm/gitna
+          pnpm --dir web exec vp fmt --check \
+            "$PWD/scripts/generate-third-party-licenses.mjs" \
+            "$PWD/scripts/package-npm.mjs" "$PWD/npm/gitna"
           node --test npm/gitna/test/platform.test.mjs
           node scripts/package-npm.mjs 0.0.0 dist-npm
           test -f dist-npm/gitna-0.0.0.tgz

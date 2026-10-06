@@ -1,5 +1,5 @@
 import type { FileTree, FileTreeChildLoadAttempt } from '@pierre/trees'
-import { describe, expect, it, vi } from 'vitest'
+import { describe, expect, it, vi } from 'vite-plus/test'
 
 import {
   applyLazyDirectoryChildren,

@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it } from 'vite-plus/test'
 import { appendGraph, computeGraph, type GraphLane, type GraphRow } from '../src/lib/graph-lanes'
 import type { GraphCommit } from '../src/lib/types'
 

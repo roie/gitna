@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from 'vitest'
+import { describe, expect, it, vi } from 'vite-plus/test'
 import { shortcutAction, WorkbenchActions } from '../src/lib/workbench-actions'
 
 function key(

@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it } from 'vite-plus/test'
 import { readContentSearchStream } from '../src/lib/contentSearchStream'
 import { ApiError } from '../src/lib/api'
 

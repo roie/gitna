@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it } from 'vite-plus/test'
 import { reviewFileCount, reviewIdentityKey, reviewToItems } from '../src/lib/review-data'
 import type { ReviewResponse } from '../src/lib/types'
 

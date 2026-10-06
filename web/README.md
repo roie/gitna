@@ -1,7 +1,7 @@
 # Gitna frontend
 
-Gitna's frontend is a React 19/Vite application derived mechanically from the
-pinned DiffsHub `diffs-v1.3.5` source. Vite emits static assets to
+Gitna's frontend is a React 19 application built with Vite+, derived mechanically
+from the pinned DiffsHub `diffs-v1.3.5` source. Vite+ emits static assets to
 `../internal/webui/dist`; Go embeds that directory into the native executable.
 There is no production Node.js or Next.js runtime.
 
@@ -21,3 +21,11 @@ pnpm test
 pnpm build
 pnpm exec playwright test
 ```
+
+These scripts use the project-local Vite+ toolchain. You can also run
+`pnpm exec vp dev`, `pnpm exec vp check`, `pnpm exec vp test`, and
+`pnpm exec vp build`. `vp check` combines formatting, linting, and type checks;
+`pnpm check` retains the explicit TypeScript project checks.
+
+Node.js and pnpm versions are managed by the root `mise.toml`, not Vite+.
+Pierre versions, patches, and the worker decoder workaround remain unchanged.

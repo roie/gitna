@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it } from 'vite-plus/test'
 import type { RepoSnapshot } from '../src/lib/types'
 import { snapshotFixture } from './fixtures/snapshot'
 

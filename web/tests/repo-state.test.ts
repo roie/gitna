@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vite-plus/test'
 import { ApiError } from '../src/lib/api'
 import { coalesce, createRepoState, reconcileSelection } from '../src/diffshub/gitna/repository'
 import type { ApiClient } from '../src/lib/api'

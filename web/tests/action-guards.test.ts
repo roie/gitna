@@ -1,5 +1,5 @@
 import { readFileSync } from 'node:fs'
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vite-plus/test'
 
 import { ActionGuardError, GitnaRepository } from '../src/diffshub/gitna/repository'
 import type { ApiClient } from '../src/lib/api'

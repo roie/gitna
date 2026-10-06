@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it } from 'vite-plus/test'
 import { splitHunkPatches } from '../src/lib/hunk-patches'
 
 const header = `diff --git a/file.txt b/file.txt

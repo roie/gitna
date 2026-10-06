@@ -4,14 +4,14 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "vite",
-    "build": "vite build",
-    "preview": "vite preview",
+    "dev": "vp dev",
+    "build": "vp build",
+    "preview": "vp preview",
     "check": "tsc -p tsconfig.node.json && tsc -p tsconfig.react.json",
-    "lint": "oxlint src tests",
-    "format": "oxfmt --write src/diffshub/gitna src/diffshub/main.tsx src/diffshub/vite src/lib tests vite.config.ts playwright.config.ts postcss.config.mjs",
-    "format:check": "oxfmt --check src/diffshub/gitna src/diffshub/main.tsx src/diffshub/vite src/lib tests vite.config.ts playwright.config.ts postcss.config.mjs",
-    "test": "vitest run",
+    "lint": "vp lint src tests",
+    "format": "vp fmt --write src/diffshub/gitna src/diffshub/main.tsx src/diffshub/vite src/lib tests vite.config.ts playwright.config.ts postcss.config.mjs",
+    "format:check": "vp fmt --check src/diffshub/gitna src/diffshub/main.tsx src/diffshub/vite src/lib tests vite.config.ts playwright.config.ts postcss.config.mjs",
+    "test": "vp test run",
     "test:e2e": "playwright test"
   },
   "dependencies": {
@@ -47,13 +47,12 @@
     "@types/react": "19.3.0",
     "@types/react-dom": "19.3.0",
     "@vitejs/plugin-react": "6.1.1",
-    "oxfmt": "^0.71.0",
-    "oxlint": "^1.86.0",
     "postcss": "8.5.28",
     "postcss-import": "17.0.0",
     "tailwindcss": "4.3.3",
     "typescript": "~7.0.2",
-    "vite": "^8.3.2",
-    "vitest": "^5.0.3"
-  }
+    "vite": "catalog:",
+    "vite-plus": "catalog:"
+  },
+  "packageManager": "pnpm@11.24.0"
 }

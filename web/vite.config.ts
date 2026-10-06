@@ -2,13 +2,29 @@ import path from 'node:path'
 import { createRequire } from 'node:module'
 import { fileURLToPath } from 'node:url'
 import react from '@vitejs/plugin-react'
-import { configDefaults, defineConfig } from 'vitest/config'
+import { configDefaults, defineConfig, lazyPlugins } from 'vite-plus'
 
 const rootDir = path.dirname(fileURLToPath(import.meta.url))
 
 // https://vite.dev/config/
 export default defineConfig({
-  plugins: [react()],
+  lint: {
+    jsPlugins: [{ name: 'vite-plus', specifier: 'vite-plus/oxlint-plugin' }],
+    rules: { 'vite-plus/prefer-vite-plus-imports': 'error' },
+    options: { typeAware: true, typeCheck: true },
+  },
+  fmt: {
+    printWidth: 100,
+    singleQuote: true,
+    semi: false,
+    trailingComma: 'all',
+    ignorePatterns: [
+      'src/diffshub/components/**',
+      'src/diffshub/lib/**',
+      'src/diffshub/globals.css',
+    ],
+  },
+  plugins: lazyPlugins(() => [react()]),
   base: './',
   resolve: {
     alias: {
