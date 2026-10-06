@@ -1,3 +1,4 @@
+// Modified by Gitna: declare callbacks as receiver-independent function properties.
 'use client';
 
 import {
@@ -100,7 +101,7 @@ class AutoScrollTester<LAnnotation> {
 
 interface WorkerPoolStatusProps {
   expanded: boolean;
-  onToggle(): void;
+  onToggle: () => void;
   themeCycle: ThemeCycleControls;
   viewerRef: RefObject<CodeViewHandle<CommentMetadata, undefined> | null>;
 }
@@ -143,7 +144,7 @@ export const WorkerPoolStatus = memo(function WorkerPoolStatus({
 
 interface StatsDisplayProps {
   expanded: boolean;
-  onToggle(): void;
+  onToggle: () => void;
   stats: WorkerStats;
   themeCycle: ThemeCycleControls;
   viewerRef: RefObject<CodeViewHandle<CommentMetadata, undefined> | null>;

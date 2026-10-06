@@ -1,3 +1,4 @@
+// Modified by Gitna: declare callbacks as receiver-independent function properties.
 'use client';
 
 import type { AnnotationSide } from '@pierre/diffs';
@@ -14,8 +15,8 @@ import type {
 
 interface DiffsHubCommentsListProps {
   commentSections: readonly DiffsHubSavedCommentItem[];
-  onSelectComment?(comment: DiffsHubSavedCommentEntry): void;
-  onSelectItem?(itemId: string): void;
+  onSelectComment?: (comment: DiffsHubSavedCommentEntry) => void;
+  onSelectItem?: (itemId: string) => void;
 }
 
 function getCommentLineLabel(

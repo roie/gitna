@@ -84,7 +84,7 @@ export interface GitnaPaletteCommand {
   id: string
   keywords?: string
   label: string
-  run(): Promise<void> | void
+  run: () => Promise<void> | void
 }
 
 export interface GitnaPaletteFileResult {
@@ -104,11 +104,11 @@ interface GitnaCommandPaletteProps {
   error: string | null
   searching: boolean
   supportsIgnoredFiles: boolean
-  onClose(): void
-  onError(error: string): void
-  onFileQueryChange(query: string, includeIgnored: boolean): void
-  onGoToLine?(line: number): void
-  onOpenFile(path: string): void | Promise<void>
+  onClose: () => void
+  onError: (error: string) => void
+  onFileQueryChange: (query: string, includeIgnored: boolean) => void
+  onGoToLine?: (line: number) => void
+  onOpenFile: (path: string) => void | Promise<void>
   open: boolean
   initialQuery?: string
 }

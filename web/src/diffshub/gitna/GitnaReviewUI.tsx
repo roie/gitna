@@ -2391,7 +2391,7 @@ function RepositoryFileTabs({
   onClose,
 }: {
   dirtyPaths: ReadonlySet<string>
-  onClose(paths: readonly string[]): void
+  onClose: (paths: readonly string[]) => void
 }) {
   const repository = useRepository()
   const tablistRef = useRef<HTMLDivElement>(null)

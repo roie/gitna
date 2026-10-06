@@ -21,7 +21,9 @@ test('Find in Files keeps its query, focuses on shortcut, and opens matching lin
   await expect
     .poll(() =>
       page.evaluate(() =>
-        Array.from(CSS.highlights.get('gitna-search') ?? [], (range) => range.toString()),
+        Array.from(CSS.highlights.get('gitna-search') ?? [], (range) =>
+          range instanceof Range ? range.toString() : null,
+        ),
       ),
     )
     .toEqual(['FIFTY'])
@@ -67,7 +69,7 @@ test('Find in Files filters, regex highlights and ignore controls use the real b
   await search.getByRole('button', { name: 'Use regular expression', exact: true }).click()
   await expect(search.getByText('4 results in 1 file', { exact: true })).toBeVisible()
   await expect(search.locator('mark')).toHaveCount(4)
-  await search.getByRole('button', { name: 'Toggle Search Details' }).click()
+  await search.getByRole('button', { name: 'Filters', exact: true }).click()
   await search.getByLabel('Use ignore files').uncheck()
   await expect(search.getByText('5 results in 2 files', { exact: true })).toBeVisible()
   await search.getByRole('textbox', { name: 'Files to exclude' }).fill('**/ignored/**')
@@ -112,7 +114,9 @@ test('search uses file-type icons and highlights every editor match without chan
   await expect(page.getByRole('textbox', { name: 'matches.ts', exact: true })).toBeFocused()
   const highlightedText = () =>
     page.evaluate(() =>
-      Array.from(CSS.highlights.get('gitna-search') ?? [], (range) => range.toString()),
+      Array.from(CSS.highlights.get('gitna-search') ?? [], (range) =>
+        range instanceof Range ? range.toString() : null,
+      ),
     )
   await expect.poll(highlightedText).toEqual(['needle', 'needle', 'needle'])
   await expect

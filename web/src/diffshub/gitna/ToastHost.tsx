@@ -4,11 +4,11 @@ import type { ReactNode } from 'react'
 import { Button } from '../components/Button'
 
 export interface Toast {
-  action?: { disabled?: boolean; label: string; onClick(): void }
+  action?: { disabled?: boolean; label: string; onClick: () => void }
   dataState?: string
   description?: ReactNode
   id: string
-  onDismiss(): void
+  onDismiss: () => void
   severity: 'error' | 'info' | 'warning'
   title: string
 }

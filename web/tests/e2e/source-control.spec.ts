@@ -1128,8 +1128,8 @@ test('same-tab folder switching shows and restores a branded transition', async 
   const replacementTarget = join(dirname(app.repo), replacementName)
   await page.evaluate((path) => {
     const input = document.querySelector<HTMLInputElement>('[aria-label="Folder path"]')!
-    const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set
-    setter?.call(input, path)
+    const descriptor = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')
+    descriptor?.set?.call(input, path)
     input.dispatchEvent(new Event('input', { bubbles: true }))
   }, replacementTarget)
   await page.waitForTimeout(0)

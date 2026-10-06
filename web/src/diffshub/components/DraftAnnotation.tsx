@@ -1,3 +1,4 @@
+// Modified by Gitna: declare callbacks as receiver-independent function properties.
 import type { DiffLineAnnotation } from '@pierre/diffs';
 import { IconArrowRight } from '@pierre/icons';
 import { useEffect, useRef, useState } from 'react';
@@ -15,13 +16,13 @@ import type { DraftCommentMetadata } from '@/lib/types';
 interface DraftAnnotationProps {
   annotation: DiffLineAnnotation<DraftCommentMetadata>;
   itemId: string;
-  onCancel(itemId: string, key: string): void;
-  onSave(
+  onCancel: (itemId: string, key: string) => void;
+  onSave: (
     itemId: string,
     key: string,
     message: string,
     author: AvatarName
-  ): void;
+  ) => void;
 }
 
 export function DraftAnnotation({

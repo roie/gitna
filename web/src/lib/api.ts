@@ -136,12 +136,16 @@ export interface OperationResult {
 }
 
 export interface ApiClient {
-  snapshot(): Promise<RepoSnapshot>
-  folders(): Promise<FolderCatalog>
-  repositoryFiles(cursor?: string): Promise<RepositoryFiles>
-  repositoryFileCount(generation: number, signal?: AbortSignal): Promise<RepositoryFileCount>
-  directoryEntries(path: string, cursor?: string, signal?: AbortSignal): Promise<DirectoryEntries>
-  searchFiles(
+  snapshot: () => Promise<RepoSnapshot>
+  folders: () => Promise<FolderCatalog>
+  repositoryFiles: (cursor?: string) => Promise<RepositoryFiles>
+  repositoryFileCount: (generation: number, signal?: AbortSignal) => Promise<RepositoryFileCount>
+  directoryEntries: (
+    path: string,
+    cursor?: string,
+    signal?: AbortSignal,
+  ) => Promise<DirectoryEntries>
+  searchFiles: (
     query: string,
     options?: {
       includeIgnored?: boolean
@@ -149,8 +153,8 @@ export interface ApiClient {
       refresh?: boolean
       signal?: AbortSignal
     },
-  ): Promise<FileSearchResults>
-  searchContent?(
+  ) => Promise<FileSearchResults>
+  searchContent?: (
     query: string,
     options?: {
       onBatch?: (result: ContentSearchResults) => void
@@ -162,32 +166,36 @@ export interface ApiClient {
       exclude?: string
       signal?: AbortSignal
     },
-  ): Promise<ContentSearchResults>
-  readWorktreeFile(path: string): Promise<WorktreeFile>
-  compareWorktreeFiles(leftPath: string, rightPath: string, signal?: AbortSignal): Promise<FileDiff>
-  writeWorktreeFile(path: string, content: string, expectedHash: string): Promise<WorktreeFile>
-  createWorktreeFile(path: string, content: string): Promise<WorktreeFile>
-  createWorktreeEntry(path: string, directory: boolean): Promise<void>
-  renameWorktreeEntry(source: string, destination: string): Promise<void>
-  drafts?(): Promise<DraftRecord[]>
-  putDraft?(record: DraftRecord): Promise<DraftRecord>
-  deleteDraft?(documentId: string, revision: number): Promise<void>
-  diff(request: DiffRequest): Promise<FileDiff>
-  review(request: ReviewRequest): Promise<ReviewResponse>
-  mutate(request: MutateRequest): Promise<void>
-  commit(request: CommitRequest): Promise<OperationResult>
-  graph(skip?: number, tip?: string, signal?: AbortSignal): Promise<GraphPage>
-  graphCount(tip: string, generation: number, signal?: AbortSignal): Promise<GraphCount>
-  commitFiles(oid: string): Promise<CommitFiles>
-  branches(): Promise<Branch[]>
-  remotes(): Promise<string[]>
-  stashes(): Promise<StashEntry[]>
-  tags(): Promise<Tag[]>
-  compare(from: string, to: string): Promise<CommitFiles>
-  conflicts(): Promise<ConflictEntry[]>
-  openFolder(path: string, signal?: AbortSignal): Promise<OpenFolderResult>
-  removeRecentFolder(path: string): Promise<void>
-  revealFolder(): Promise<void>
+  ) => Promise<ContentSearchResults>
+  readWorktreeFile: (path: string) => Promise<WorktreeFile>
+  compareWorktreeFiles: (
+    leftPath: string,
+    rightPath: string,
+    signal?: AbortSignal,
+  ) => Promise<FileDiff>
+  writeWorktreeFile: (path: string, content: string, expectedHash: string) => Promise<WorktreeFile>
+  createWorktreeFile: (path: string, content: string) => Promise<WorktreeFile>
+  createWorktreeEntry: (path: string, directory: boolean) => Promise<void>
+  renameWorktreeEntry: (source: string, destination: string) => Promise<void>
+  drafts?: () => Promise<DraftRecord[]>
+  putDraft?: (record: DraftRecord) => Promise<DraftRecord>
+  deleteDraft?: (documentId: string, revision: number) => Promise<void>
+  diff: (request: DiffRequest) => Promise<FileDiff>
+  review: (request: ReviewRequest) => Promise<ReviewResponse>
+  mutate: (request: MutateRequest) => Promise<void>
+  commit: (request: CommitRequest) => Promise<OperationResult>
+  graph: (skip?: number, tip?: string, signal?: AbortSignal) => Promise<GraphPage>
+  graphCount: (tip: string, generation: number, signal?: AbortSignal) => Promise<GraphCount>
+  commitFiles: (oid: string) => Promise<CommitFiles>
+  branches: () => Promise<Branch[]>
+  remotes: () => Promise<string[]>
+  stashes: () => Promise<StashEntry[]>
+  tags: () => Promise<Tag[]>
+  compare: (from: string, to: string) => Promise<CommitFiles>
+  conflicts: () => Promise<ConflictEntry[]>
+  openFolder: (path: string, signal?: AbortSignal) => Promise<OpenFolderResult>
+  removeRecentFolder: (path: string) => Promise<void>
+  revealFolder: () => Promise<void>
 }
 
 /** Error carrying the HTTP status and server message so callers can react to

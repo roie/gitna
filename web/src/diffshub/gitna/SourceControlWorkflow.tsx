@@ -79,7 +79,7 @@ import { useRepository } from './repository'
 interface PendingConfirm {
   confirmLabel: string
   message: string
-  run(): Promise<void>
+  run: () => Promise<void>
   title: string
 }
 
@@ -393,8 +393,8 @@ function PaneResizeHandle({
 }: {
   disabled: boolean
   index: 0 | 1
-  onResize(index: 0 | 1, delta: number): void
-  onStart(index: 0 | 1, event: React.PointerEvent<HTMLElement>): void
+  onResize: (index: 0 | 1, delta: number) => void
+  onStart: (index: 0 | 1, event: React.PointerEvent<HTMLElement>) => void
   size: number
 }) {
   return (
@@ -1216,9 +1216,9 @@ export function GitnaSourceControl() {
 
 interface SourceControlHeaderActionsProps {
   moreTrigger: React.RefObject<HTMLButtonElement | null>
-  onConfirm(confirm: PendingConfirm): void
-  onError(error: string | null): void
-  onOpenDialog(dialog: Exclude<OperationDialog, null>): void
+  onConfirm: (confirm: PendingConfirm) => void
+  onError: (error: string | null) => void
+  onOpenDialog: (dialog: Exclude<OperationDialog, null>) => void
 }
 
 function SourceControlHeaderActions({
@@ -1638,7 +1638,7 @@ interface WorkflowSectionHeaderProps {
   dataSection: string
   headerRef?: React.Ref<HTMLButtonElement>
   icon: ReactNode
-  onOpenChange(open: boolean): void
+  onOpenChange: (open: boolean) => void
   open: boolean
   title: string
 }
@@ -1679,7 +1679,7 @@ interface PaneSectionHeaderProps {
   dataSection: string
   headerRef?: React.Ref<HTMLButtonElement>
   icon: ComponentType<{ className?: string }>
-  onOpenChange(open: boolean): void
+  onOpenChange: (open: boolean) => void
   open: boolean
   title: string
 }
@@ -1810,13 +1810,13 @@ function RepositoryContextMenu({
   compareSelected: boolean
   context: ContextMenuOpenContext
   item: ContextMenuItem
-  onCompareSelected(): void
-  onCopyPath(path: string): void
-  onCreate(kind: 'file' | 'folder', initialPath: string): void
-  onOpen(path: string): void
-  onOpenChange(scope: ChangeScope, path: string): void
-  onRefresh(): void
-  onRename(source: string): void
+  onCompareSelected: () => void
+  onCopyPath: (path: string) => void
+  onCreate: (kind: 'file' | 'folder', initialPath: string) => void
+  onOpen: (path: string) => void
+  onOpenChange: (scope: ChangeScope, path: string) => void
+  onRefresh: () => void
+  onRename: (source: string) => void
 }) {
   const repository = useRepository()
   const disabledReason = repository.getActionDisabledReason()
@@ -1934,7 +1934,7 @@ function ChangeContextMenu({
   canOpen: boolean
   context: ContextMenuOpenContext
   path: string
-  onOpen(path: string): void
+  onOpen: (path: string) => void
 }) {
   return (
     <DropdownMenu
@@ -1996,15 +1996,15 @@ function RepositoryHeaderActions({
   loading: boolean
   refreshing: boolean
   model: FileTree | null
-  onClearFilters(): void
-  onCreate(kind: 'file' | 'folder', initialPath: string): void
-  onIsolateFilter(status: GitStatus): void
-  onRefresh(): void
-  onRename(source: string): void
-  onShowHiddenFilesChange(show: boolean): void
-  onShowIgnoredFilesChange(show: boolean): void
-  onToggleFilter(status: GitStatus): void
-  onViewChange(view: RepositoryViewMode): void
+  onClearFilters: () => void
+  onCreate: (kind: 'file' | 'folder', initialPath: string) => void
+  onIsolateFilter: (status: GitStatus) => void
+  onRefresh: () => void
+  onRename: (source: string) => void
+  onShowHiddenFilesChange: (show: boolean) => void
+  onShowIgnoredFilesChange: (show: boolean) => void
+  onToggleFilter: (status: GitStatus) => void
+  onViewChange: (view: RepositoryViewMode) => void
   paths: readonly string[]
   selectedStatuses: ReadonlySet<GitStatus>
   showHiddenFiles: boolean
@@ -2196,11 +2196,11 @@ interface TreeSectionProps {
   lazyDirectories?: ReadonlySet<string>
   knownEmptyDirectories?: ReadonlySet<string>
   pagedDirectories?: ReadonlySet<string>
-  onLoadDirectory?(path: string): Promise<readonly string[] | null>
-  onLoadMoreDirectory?(path: string): Promise<readonly string[] | null>
-  onOpenChange(open: boolean): void
-  onSelectPath(path: string): void
-  onSelectPaths?(paths: readonly string[]): void
+  onLoadDirectory?: (path: string) => Promise<readonly string[] | null>
+  onLoadMoreDirectory?: (path: string) => Promise<readonly string[] | null>
+  onOpenChange: (open: boolean) => void
+  onSelectPath: (path: string) => void
+  onSelectPaths?: (paths: readonly string[]) => void
   open: boolean
   pane?: boolean
   paneIcon?: ComponentType<{ className?: string }>
@@ -2286,7 +2286,7 @@ function TreeSection({
           count={count ?? source.pathCount}
           countTitle={
             countTitle ??
-            `${count ?? source.pathCount} files in ${dataSection === 'repository' ? 'Repository' : title}`
+            `${typeof count === 'number' ? count : source.pathCount} files in ${dataSection === 'repository' ? 'Repository' : title}`
           }
           dataSection={dataSection}
           headerRef={headerRef}
@@ -2381,7 +2381,7 @@ function TreeSearchToggle({
   title,
 }: {
   model: FileTree
-  onOpenChange(open: boolean): void
+  onOpenChange: (open: boolean) => void
   title: string
 }) {
   const search = useFileTreeSearch(model)
@@ -2407,9 +2407,9 @@ interface ChangeSectionProps {
   changes: readonly TreeFile[]
   headerRef?: React.Ref<HTMLButtonElement>
   modelId: string
-  onConfirm(confirm: PendingConfirm): void
-  onOpenChange(open: boolean): void
-  onRun(action: () => Promise<void>): Promise<void>
+  onConfirm: (confirm: PendingConfirm) => void
+  onOpenChange: (open: boolean) => void
+  onRun: (action: () => Promise<void>) => Promise<void>
   open: boolean
   scope: ChangeScope
   source: DiffsHubFileTreeSource
@@ -2595,8 +2595,8 @@ function ChangeSection({
 interface GraphSectionProps {
   headerRef: React.RefObject<HTMLButtonElement | null>
   scrollRootRef: React.RefObject<HTMLDivElement | null>
-  onConfirm(confirm: PendingConfirm): void
-  onOpenChange(open: boolean): void
+  onConfirm: (confirm: PendingConfirm) => void
+  onOpenChange: (open: boolean) => void
   open: boolean
 }
 
@@ -3094,10 +3094,10 @@ const GraphCommitRow = memo(function GraphCommitRow({
   laneCount: number
   row: GraphRow
   view: RepositoryViewMode
-  onConfirm(confirm: PendingConfirm): void
-  onDisclosureFocus(index: number): void
-  onDisclosureKeyDown(index: number, event: ReactKeyboardEvent<HTMLElement>): void
-  onPinChange(oid: string, reason: GraphPinReason, pinned: boolean): void
+  onConfirm: (confirm: PendingConfirm) => void
+  onDisclosureFocus: (index: number) => void
+  onDisclosureKeyDown: (index: number, event: ReactKeyboardEvent<HTMLElement>) => void
+  onPinChange: (oid: string, reason: GraphPinReason, pinned: boolean) => void
 }) {
   const repository = useRepository()
   const open = repository.expanded[row.commit.oid] === true
@@ -3375,7 +3375,7 @@ const GraphCommitRow = memo(function GraphCommitRow({
   )
 })
 
-function ConflictPanel({ onError }: { onError(error: string | null): void }) {
+function ConflictPanel({ onError }: { onError: (error: string | null) => void }) {
   const repository = useRepository()
   const operation = repository.snapshot?.operation
   if (
@@ -3486,9 +3486,9 @@ function ConflictPanel({ onError }: { onError(error: string | null): void }) {
 
 interface OperationModalProps {
   kind: Exclude<OperationDialog, null>
-  onClose(): void
-  onConfirm(confirm: PendingConfirm): void
-  onError(error: string | null): void
+  onClose: () => void
+  onConfirm: (confirm: PendingConfirm) => void
+  onError: (error: string | null) => void
 }
 
 function OperationModal({ kind, onClose, onConfirm, onError }: OperationModalProps) {
@@ -3818,7 +3818,7 @@ function SelectField({
   values,
 }: {
   label: string
-  onChange(value: string): void
+  onChange: (value: string) => void
   placeholder?: string
   value: string
   values: string[]

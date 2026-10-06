@@ -52,7 +52,7 @@ export function GlobalToastHost({
   onDismissActionError,
 }: {
   actionError: string | null
-  onDismissActionError(): void
+  onDismissActionError: () => void
 }) {
   const repository = useRepository()
   const previousState = useRef(repository.connectionState)

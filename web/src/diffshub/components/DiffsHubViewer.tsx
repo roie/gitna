@@ -1,3 +1,4 @@
+// Modified by Gitna: declare callbacks as receiver-independent function properties.
 // Modified from the pinned DiffsHub donor: Gitna adds local file and hunk
 // mutation actions to the donor CodeView header metadata slot and can disable
 // the donor comment affordance when mounted in the Source Control-only shell.
@@ -76,11 +77,11 @@ export interface GitnaEditorActions {
   recentlySavedPath: string | null;
   saving: boolean;
   disabledReason?: string | null;
-  onChange(path: string, file: FileContents, viewState: EditorViewState): void;
-  onOpenChange(scope: ChangeScope, path: string): void;
-  onSave(path: string): void;
+  onChange: (path: string, file: FileContents, viewState: EditorViewState) => void;
+  onOpenChange: (scope: ChangeScope, path: string) => void;
+  onSave: (path: string) => void;
   markdownMode?: 'editor' | 'preview' | 'split';
-  onMarkdownModeChange?(mode: 'editor' | 'preview' | 'split'): void;
+  onMarkdownModeChange?: (mode: 'editor' | 'preview' | 'split') => void;
 }
 
 export interface GitnaComparisonActions {
@@ -88,23 +89,23 @@ export interface GitnaComparisonActions {
   leftPath: string;
   rightDirty: boolean;
   rightPath: string;
-  onSwap(): void;
+  onSwap: () => void;
 }
 
 export interface GitnaOpenFileAction {
   ariaLabel(path: string): string;
   canOpenFile(path: string): boolean;
-  onOpenFile(path: string): void;
+  onOpenFile: (path: string) => void;
 }
 
 export interface GitnaViewerActions {
   canOpenFile(path: string): boolean;
   kindForPath(path: string): ChangeKind | undefined;
   loadDiff(path: string): Promise<FileDiff>;
-  onFileAction(action: GitnaFileAction, path: string, kind: ChangeKind): void;
-  onOpenFile(path: string): void;
-  onPatch(request: MutateRequest): Promise<void>;
-  onError(error: string): void;
+  onFileAction: (action: GitnaFileAction, path: string, kind: ChangeKind) => void;
+  onOpenFile: (path: string) => void;
+  onPatch: (request: MutateRequest) => Promise<void>;
+  onError: (error: string) => void;
   disabledReason?: string | null;
   scope: 'staged' | 'unstaged';
 }
@@ -140,8 +141,8 @@ interface DiffsHubViewerProps {
   className?: string;
   commentsEnabled?: boolean;
   diffStyle: 'split' | 'unified';
-  onCommentDeleted(comment: DiffsHubDeletedCommentEvent): void;
-  onCommentSaved(comment: DiffsHubSavedCommentEvent): void;
+  onCommentDeleted: (comment: DiffsHubDeletedCommentEvent) => void;
+  onCommentSaved: (comment: DiffsHubSavedCommentEvent) => void;
   overflow: 'wrap' | 'scroll';
   showBackgrounds: boolean;
   diffIndicators: DiffIndicators;
@@ -151,10 +152,10 @@ interface DiffsHubViewerProps {
   viewerRef: RefObject<CodeViewHandle<CommentMetadata, undefined> | null>;
   initialItems: CodeViewItem<CommentMetadata>[];
   loadDiffFiles?: FileDiffContentsLoader;
-  onLineLinkChange(selection: CodeViewLineSelection | null): void;
-  onScroll?(scrollTop: number): void;
-  onViewerReady(): void;
-  onEditorReady?(): void;
+  onLineLinkChange: (selection: CodeViewLineSelection | null) => void;
+  onScroll?: (scrollTop: number) => void;
+  onViewerReady: () => void;
+  onEditorReady?: () => void;
   searchMatches?: readonly ContentSearchMatch[];
   activeSearchMatch?: ActiveSearchMatch;
   gitnaActions?: GitnaViewerActions;
@@ -943,7 +944,7 @@ function GitnaHeaderActions({
 interface CollapseDiffButtonProps {
   disabled?: boolean;
   collapsed?: boolean;
-  onToggle(): void;
+  onToggle: () => void;
 }
 
 function CollapseDiffButton({

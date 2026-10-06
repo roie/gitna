@@ -1,3 +1,4 @@
+// Modified by Gitna: declare callbacks as receiver-independent function properties.
 'use client'
 
 // Modified from the pinned DiffsHub donor: Gitna's only sidebar is the
@@ -25,7 +26,7 @@ interface DiffsHubSidebarProps {
   children: ReactNode
   className?: string
   mobileOverlayOpen?: boolean
-  onMobileClose(): void
+  onMobileClose: () => void
   scrollRef: RefObject<HTMLDivElement | null>
   ariaLabel?: string
 }

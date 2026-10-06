@@ -24,9 +24,9 @@ interface FindInFilesPanelProps {
   folderLabel: string
   active: boolean
   focusRequest: number
-  onOpen(path: string, line: number, column: number): void
-  onBack(): void
-  onResultsChange(files: ContentSearchFile[]): void
+  onOpen: (path: string, line: number, column: number) => void
+  onBack: () => void
+  onResultsChange: (files: ContentSearchFile[]) => void
 }
 
 function SearchButton({ children, className, ...props }: ComponentProps<typeof Button>) {

@@ -8,9 +8,9 @@ import { useRepository } from './repository'
 interface RepositoryEntryModalProps {
   initialPath: string
   kind: 'file' | 'folder' | 'rename'
-  onClose(): void
-  onCreatedFolder(path: string): void
-  onError(error: string): void
+  onClose: () => void
+  onCreatedFolder: (path: string) => void
+  onError: (error: string) => void
   source?: string
 }
 

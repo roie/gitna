@@ -7,7 +7,7 @@ import { Button } from '../components/Button'
 
 interface ModalProps {
   children: ReactNode
-  onClose(): void
+  onClose: () => void
   disabledReason?: string | null
   role?: 'dialog' | 'alertdialog'
   title: string
@@ -59,8 +59,8 @@ export function Modal({ children, onClose, disabledReason, role, title }: ModalP
 interface ConfirmProps {
   confirmLabel: string
   message: string
-  onCancel(): void
-  onConfirm(): void
+  onCancel: () => void
+  onConfirm: () => void
   disabledReason?: string | null
   title: string
 }

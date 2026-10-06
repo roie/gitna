@@ -1,3 +1,4 @@
+// Modified by Gitna: declare callbacks as receiver-independent function properties.
 'use client';
 
 import { IconBrandGithub } from '@pierre/icons';
@@ -16,8 +17,8 @@ export const CLASSIC_TOKEN_URL =
 interface GitHubTokenControlProps {
   active: boolean;
   className?: string;
-  onClear(): void;
-  onSave(token: string): void;
+  onClear: () => void;
+  onSave: (token: string) => void;
   title?: string;
 }
 

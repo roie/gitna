@@ -24,9 +24,9 @@ export function SearchResults({
   selectedMatch: string | null
   focusRequest: number
   active: boolean
-  onToggle(path: string, collapse: boolean): void
-  onOpen(key: string, path: string, line: number, column: number): void
-  onEscape(): void
+  onToggle: (path: string, collapse: boolean) => void
+  onOpen: (key: string, path: string, line: number, column: number) => void
+  onEscape: () => void
 }) {
   const scrollRef = useRef<HTMLDivElement>(null)
   const buttons = useRef(new Map<string, HTMLButtonElement>())

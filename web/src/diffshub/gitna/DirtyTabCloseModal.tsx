@@ -3,9 +3,9 @@ import { Button } from '../components/Button'
 
 interface DirtyTabCloseModalProps {
   dirtyPaths: readonly string[]
-  onCancel(): void
-  onDiscard(): void
-  onSave(): void
+  onCancel: () => void
+  onDiscard: () => void
+  onSave: () => void
 }
 
 export function DirtyTabCloseModal({

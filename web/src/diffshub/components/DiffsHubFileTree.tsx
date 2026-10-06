@@ -1,3 +1,4 @@
+// Modified by Gitna: declare callbacks as receiver-independent function properties.
 'use client';
 
 import { useStableCallback } from '@pierre/diffs/react';
@@ -161,19 +162,19 @@ interface DiffsHubFileTreeProps {
   lazyDirectories?: ReadonlySet<string>;
   knownEmptyDirectories?: ReadonlySet<string>;
   pagedDirectories?: ReadonlySet<string>;
-  onLoadDirectory?(path: string): Promise<readonly string[] | null>;
-  onLoadMoreDirectory?(path: string): Promise<readonly string[] | null>;
+  onLoadDirectory?: (path: string) => Promise<readonly string[] | null>;
+  onLoadMoreDirectory?: (path: string) => Promise<readonly string[] | null>;
   // Callback invoked with the underlying tree model once it's mounted, and
   // again with `null` on unmount. Lets parents drive imperative APIs like
   // search open/close without owning the model creation.
-  onModelReady(model: FileTreeModel | null): void;
-  onSelectItem(itemId: string): void;
-  onSelectPaths?(paths: readonly string[]): void;
-  renderContextMenu?(
+  onModelReady: (model: FileTreeModel | null) => void;
+  onSelectItem: (itemId: string) => void;
+  onSelectPaths?: (paths: readonly string[]) => void;
+  renderContextMenu?: (
     item: Parameters<NonNullable<FileTreeProps['renderContextMenu']>>[0],
     context: Parameters<NonNullable<FileTreeProps['renderContextMenu']>>[1],
     selectedPaths: readonly string[]
-  ): ReactNode;
+  ) => ReactNode;
   renderRowActions?: FileTreeOptions['renderRowActions'];
   selectedPath?: string | null;
   selectedPaths?: readonly string[];

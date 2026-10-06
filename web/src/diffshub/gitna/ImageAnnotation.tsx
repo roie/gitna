@@ -6,7 +6,7 @@ import { Button } from '../components/Button'
 import { cn } from '../lib/cn'
 import type { ImageAnnotationMetadata } from '../lib/types'
 
-function ImageLightbox({ alt, onClose, src }: { alt: string; onClose(): void; src: string }) {
+function ImageLightbox({ alt, onClose, src }: { alt: string; onClose: () => void; src: string }) {
   const dialogRef = useRef<HTMLDialogElement>(null)
 
   useEffect(() => {

@@ -1,3 +1,4 @@
+// Modified by Gitna: declare callbacks as receiver-independent function properties.
 'use client';
 
 import { IconSymbolDiffstatFill } from '@pierre/icons';
@@ -9,7 +10,7 @@ import type { DiffsHubDiffStats as DiffsHubDiffStatsData } from '@/lib/types';
 
 interface DiffsHubDiffStatsProps {
   expanded: boolean;
-  onToggle(): void;
+  onToggle: () => void;
   stats: DiffsHubDiffStatsData | null;
   streaming: boolean;
 }

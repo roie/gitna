@@ -1,3 +1,4 @@
+// Modified by Gitna: declare callbacks as receiver-independent function properties.
 // Modified from the pinned DiffsHub donor: localRepository adapts the URL
 // editor into explicit local folder open and reveal actions.
 import type { DiffIndicators } from '@pierre/diffs';
@@ -83,25 +84,25 @@ interface HeaderProps {
   lightThemeName: LightThemeName;
   lineNumbers: boolean;
   overflow: 'wrap' | 'scroll';
-  onClearGitHubToken(): void;
-  onOpenHome?(): void;
-  onOpenCommandPalette?(): void;
-  onSaveGitHubToken(token: string): void;
-  onOpenFolder?(path: string): Promise<void>;
-  onOpenFolderInNewTab?(path: string): Promise<void>;
-  onRemoveRecentFolder?(path: string): Promise<void>;
-  onRevealFolder?(): Promise<void>;
+  onClearGitHubToken: () => void;
+  onOpenHome?: () => void;
+  onOpenCommandPalette?: () => void;
+  onSaveGitHubToken: (token: string) => void;
+  onOpenFolder?: (path: string) => Promise<void>;
+  onOpenFolderInNewTab?: (path: string) => Promise<void>;
+  onRemoveRecentFolder?: (path: string) => Promise<void>;
+  onRevealFolder?: () => Promise<void>;
   backendDisabledReason?: string | null;
   connectionStatus?: ReactNode;
   openFolderDisabledReason?: string | null;
   recentFolders?: readonly Folder[];
-  onToggleCollapseMode(): void;
-  onToggleFileTreeOverlay(): void;
-  setColorMode(mode: ColorMode): void;
-  setDarkThemeName(name: DarkThemeName): void;
+  onToggleCollapseMode: () => void;
+  onToggleFileTreeOverlay: () => void;
+  setColorMode: (mode: ColorMode) => void;
+  setDarkThemeName: (name: DarkThemeName) => void;
   setDiffIndicators: Dispatch<SetStateAction<DiffIndicators>>;
   setDiffStyle: Dispatch<SetStateAction<'split' | 'unified'>>;
-  setLightThemeName(name: LightThemeName): void;
+  setLightThemeName: (name: LightThemeName) => void;
   setLineNumbers: Dispatch<SetStateAction<boolean>>;
   setOverflow: Dispatch<SetStateAction<'wrap' | 'scroll'>>;
   setShowBackgrounds: Dispatch<SetStateAction<boolean>>;
@@ -815,9 +816,9 @@ interface ThemeDropdownProps {
   colorMode: ColorMode;
   darkThemeName: DarkThemeName;
   lightThemeName: LightThemeName;
-  setColorMode(mode: ColorMode): void;
-  setDarkThemeName(name: DarkThemeName): void;
-  setLightThemeName(name: LightThemeName): void;
+  setColorMode: (mode: ColorMode) => void;
+  setDarkThemeName: (name: DarkThemeName) => void;
+  setLightThemeName: (name: LightThemeName) => void;
   themeDropdownStyle?: CSSProperties;
 }
 
@@ -972,9 +973,9 @@ interface ThemeListProps {
   view: 'light' | 'dark';
   currentLight: LightThemeName;
   currentDark: DarkThemeName;
-  onBack(): void;
-  onPickLight(theme: LightThemeName): void;
-  onPickDark(theme: DarkThemeName): void;
+  onBack: () => void;
+  onPickLight: (theme: LightThemeName) => void;
+  onPickDark: (theme: DarkThemeName) => void;
 }
 
 // Inline list of theme names shown after the user enters the light or dark

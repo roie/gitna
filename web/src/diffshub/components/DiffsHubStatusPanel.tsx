@@ -1,3 +1,4 @@
+// Modified by Gitna: declare callbacks as receiver-independent function properties.
 // Modified from the pinned DiffsHub donor: localRepository uses truthful
 // local-Git loading copy while retaining every donor state and layout.
 import { IconCiWarningFill, IconRefresh } from '@pierre/icons';
@@ -13,7 +14,7 @@ interface DiffsHubStatusPanelProps {
   errorMessage: string | null;
   localRepository?: boolean;
   suppressError?: boolean;
-  onRetry(): void;
+  onRetry: () => void;
   state: ViewerLoadState;
 }
 

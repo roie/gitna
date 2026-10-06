@@ -9,9 +9,9 @@ import { useRepository } from './repository'
 interface UntitledSaveAsModalProps {
   documentPath: string
   initialPath: string
-  onClose(): void
-  onError(error: string): void
-  onSaved(path: string, file: WorktreeFile): void
+  onClose: () => void
+  onError: (error: string) => void
+  onSaved: (path: string, file: WorktreeFile) => void
 }
 
 export function UntitledSaveAsModal({

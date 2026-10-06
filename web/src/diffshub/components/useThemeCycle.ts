@@ -1,3 +1,4 @@
+// Modified by Gitna: declare callbacks as receiver-independent function properties.
 'use client';
 
 import { type ColorMode } from '@pierre/theming';
@@ -17,8 +18,8 @@ export type ThemeCycleDurationSeconds =
 export interface ThemeCycleControls {
   cycling: boolean;
   stepSeconds: ThemeCycleDurationSeconds;
-  bumpDuration(): void;
-  toggleCycle(): void;
+  bumpDuration: () => void;
+  toggleCycle: () => void;
 }
 
 interface UseThemeCycleArgs {

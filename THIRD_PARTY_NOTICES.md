@@ -20,7 +20,8 @@ Relevant React components, CSS and frontend helpers from
 `apps/diffshub` are incorporated under `web/src/diffshub`. Most files remain
 byte-identical. Modified donor files carry a prominent explanation and are
 limited to standalone Vite, local-repository, strict-CSP and VS Code Source
-Control integration boundaries.
+Control integration boundaries, plus type-only callback declarations for
+receiver-independent functions under type-aware linting.
 
 | Exact upstream responsibility | Local destination | Current disposition |
 | --- | --- | --- |

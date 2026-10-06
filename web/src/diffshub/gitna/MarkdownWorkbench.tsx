@@ -13,8 +13,8 @@ interface MarkdownWorkbenchProps {
   value: string | null
   active?: boolean
   error?: string | null
-  onOpenPath(path: string): void
-  onScroll?(element: HTMLElement): void
+  onOpenPath: (path: string) => void
+  onScroll?: (element: HTMLElement) => void
   scrollRef?: (element: HTMLElement | null) => void
 }
 

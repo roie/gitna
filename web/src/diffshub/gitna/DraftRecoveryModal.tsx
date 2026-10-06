@@ -4,9 +4,9 @@ import { Modal } from './Modal'
 
 interface DraftRecoveryModalProps {
   drafts: readonly DraftRecord[]
-  onClose(): void
-  onDiscard(draft: DraftRecord): void
-  onRestore(draft: DraftRecord): void
+  onClose: () => void
+  onDiscard: (draft: DraftRecord) => void
+  onRestore: (draft: DraftRecord) => void
 }
 
 export function DraftRecoveryModal({

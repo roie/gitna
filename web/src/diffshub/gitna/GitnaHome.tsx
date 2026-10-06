@@ -24,12 +24,12 @@ interface GitnaHomeProps {
   loading: boolean
   opening: boolean
   switchError: string | null
-  onBack(): void
-  onClearSwitchError(): void
-  onOpenFolder(path: string): Promise<void>
-  onOpenFolderInNewTab(path: string): Promise<void>
-  onRefresh(): void
-  onRemoveRecentFolder(path: string): Promise<void>
+  onBack: () => void
+  onClearSwitchError: () => void
+  onOpenFolder: (path: string) => Promise<void>
+  onOpenFolderInNewTab: (path: string) => Promise<void>
+  onRefresh: () => void
+  onRemoveRecentFolder: (path: string) => Promise<void>
   backendDisabledReason?: string | null
   connectionStatus?: ReactNode
   openFolderDisabledReason?: string | null
@@ -46,8 +46,8 @@ function OpenFolderForm({
   error: string | null
   inputRef: RefObject<HTMLInputElement | null>
   opening: boolean
-  onClearError(): void
-  onOpenFolder(path: string): Promise<void>
+  onClearError: () => void
+  onOpenFolder: (path: string) => Promise<void>
   openFolderDisabledReason?: string | null
 }) {
   const [path, setPath] = useState('')
@@ -139,9 +139,9 @@ function FolderRow({
   action: 'new-tab' | 'remove' | null
   disabled?: boolean
   folder: Folder
-  onOpen(): void
-  onOpenInNewTab(): void
-  onRemove(): void
+  onOpen: () => void
+  onOpenInNewTab: () => void
+  onRemove: () => void
   openFolderDisabledReason?: string | null
   backendDisabledReason?: string | null
 }) {
