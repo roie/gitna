@@ -37,6 +37,22 @@ describe('content search streaming', () => {
     expect(result.results).toEqual([file])
     expect(result.complete).toBe(true)
   })
+  it('preserves skipped-content counts from the terminal frame', async () => {
+    const terminal =
+      JSON.stringify({
+        generation: 7,
+        results: [],
+        complete: true,
+        truncated: false,
+        done: true,
+        skippedLargeFiles: 2,
+        skippedLongLines: 3,
+      }) + '\n'
+    const result = await readContentSearchStream(response(frame([file]) + terminal))
+    expect(result.results).toEqual([file])
+    expect(result.skippedLargeFiles).toBe(2)
+    expect(result.skippedLongLines).toBe(3)
+  })
   it('decodes UTF-8 split inside a code point', async () => {
     const bytes = new TextEncoder().encode(frame([file]) + frame([], true))
     const emoji = bytes.indexOf(0xf0)

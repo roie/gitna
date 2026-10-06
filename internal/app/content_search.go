@@ -72,7 +72,7 @@ func (a *repoAdapter) searchContent(ctx context.Context, query string, caseSensi
 	defer root.Close()
 	include = strings.TrimSpace(include)
 	exclude = strings.TrimSpace(exclude)
-	scanFile := func(path string, reader *bufio.Reader) ([]protocol.ContentSearchMatch, error) {
+	scanFile := func(path string, reader *bufio.Reader, skipped *protocol.ContentSearchResults) ([]protocol.ContentSearchMatch, error) {
 		if err := ctx.Err(); err != nil {
 			return nil, err
 		}
@@ -86,7 +86,11 @@ func (a *repoAdapter) searchContent(ctx context.Context, query string, caseSensi
 		}
 		defer file.Close()
 		info, err := file.Stat()
-		if err != nil || info.IsDir() || info.Size() > contentSearchFileLimit {
+		if err != nil || info.IsDir() {
+			return nil, nil
+		}
+		if info.Size() > contentSearchFileLimit {
+			skipped.SkippedLargeFiles++
 			return nil, nil
 		}
 		reader.Reset(file)
@@ -100,6 +104,7 @@ func (a *repoAdapter) searchContent(ctx context.Context, query string, caseSensi
 			lineNumber++
 			line = strings.TrimSuffix(strings.TrimSuffix(line, "\n"), "\r")
 			if len(line) > contentSearchLineLimit {
+				skipped.SkippedLongLines++
 				if readErr != nil {
 					break
 				}
@@ -140,6 +145,7 @@ func (a *repoAdapter) searchContent(ctx context.Context, query string, caseSensi
 	type fileResult struct {
 		path    string
 		matches []protocol.ContentSearchMatch
+		skipped protocol.ContentSearchResults
 		err     error
 	}
 	type fileJob struct {
@@ -156,11 +162,12 @@ func (a *repoAdapter) searchContent(ctx context.Context, query string, caseSensi
 				batch := make([]fileResult, 0, len(job.paths))
 				count := 0
 				for _, path := range job.paths {
-					matches, err := scanFile(path, reader)
+					var skipped protocol.ContentSearchResults
+					matches, err := scanFile(path, reader, &skipped)
 					// Validate each file with the original per-file limit before
 					// trimming retention to the remaining batch budget.
 					matches = matches[:min(len(matches), limit-count)]
-					batch = append(batch, fileResult{path: path, matches: matches, err: err})
+					batch = append(batch, fileResult{path: path, matches: matches, skipped: skipped, err: err})
 					count += len(matches)
 					if err != nil || count >= limit {
 						break
@@ -178,6 +185,7 @@ func (a *repoAdapter) searchContent(ctx context.Context, query string, caseSensi
 
 	results := make([]protocol.ContentSearchFile, 0, 32)
 	matchCount := 0
+	skipped := protocol.ContentSearchResults{}
 	pending := make([]fileJob, 0, workerCount)
 	collect := func() error {
 		job := pending[0]
@@ -192,6 +200,8 @@ func (a *repoAdapter) searchContent(ctx context.Context, query string, caseSensi
 			if result.err != nil {
 				return result.err
 			}
+			skipped.SkippedLargeFiles += result.skipped.SkippedLargeFiles
+			skipped.SkippedLongLines += result.skipped.SkippedLongLines
 			matches := result.matches[:min(len(result.matches), limit-matchCount)]
 			if len(matches) > 0 {
 				file := protocol.ContentSearchFile{Path: result.path, Matches: matches}
@@ -254,7 +264,8 @@ func (a *repoAdapter) searchContent(ctx context.Context, query string, caseSensi
 	if err != nil && !truncated {
 		return protocol.ContentSearchResults{}, err
 	}
-	return protocol.ContentSearchResults{Results: results, Complete: complete, Truncated: truncated}, nil
+	return protocol.ContentSearchResults{Results: results, Complete: complete, Truncated: truncated,
+		SkippedLargeFiles: skipped.SkippedLargeFiles, SkippedLongLines: skipped.SkippedLongLines}, nil
 }
 
 var errSearchLimit = errors.New("content search limit reached")

@@ -173,6 +173,8 @@ export interface ContentSearchResults {
   results: ContentSearchFile[]
   complete: boolean
   truncated: boolean
+  skippedLargeFiles?: number
+  skippedLongLines?: number
 }
 
 export interface Folder {

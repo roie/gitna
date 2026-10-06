@@ -2,10 +2,12 @@ package protocol
 
 // ContentSearchResults is a bounded search response for the active folder.
 type ContentSearchResults struct {
-	Generation uint64              `json:"generation"`
-	Results    []ContentSearchFile `json:"results"`
-	Complete   bool                `json:"complete"`
-	Truncated  bool                `json:"truncated"`
+	Generation        uint64              `json:"generation"`
+	Results           []ContentSearchFile `json:"results"`
+	Complete          bool                `json:"complete"`
+	Truncated         bool                `json:"truncated"`
+	SkippedLargeFiles int                 `json:"skippedLargeFiles,omitempty"`
+	SkippedLongLines  int                 `json:"skippedLongLines,omitempty"`
 }
 
 type ContentSearchFile struct {

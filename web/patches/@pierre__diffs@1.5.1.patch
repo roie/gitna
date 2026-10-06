@@ -1,7 +1,8 @@
 diff --git a/dist/components/CodeView.d.ts b/dist/components/CodeView.d.ts
+index 9d526aca3fc1f01d8748347b0112a15bb4dbfca3..7730e37a83d08be7270de8ff3bc86dee4925e6e5 100644
 --- a/dist/components/CodeView.d.ts
 +++ b/dist/components/CodeView.d.ts
-@@ -75,6 +75,7 @@
+@@ -75,6 +75,7 @@ interface CodeViewLineSelection {
  interface CodeViewCoordinator<LAnnotation, Caret> {
    hasHeaderRenderers: boolean;
    hasAnnotationRenderer: boolean;
@@ -9,7 +10,7 @@ diff --git a/dist/components/CodeView.d.ts b/dist/components/CodeView.d.ts
    hasGutterRenderer: boolean;
    onSnapshotChange(snapshot: CodeViewSlotSnapshot<LAnnotation, Caret> | undefined): void;
  }
-@@ -113,6 +114,8 @@
+@@ -113,6 +114,8 @@ interface CodeViewOptions<LAnnotation, Caret> extends CodeViewPassThroughOptions
    pointerEventsOnScroll?: boolean;
    smoothScrollSettings?: SmoothScrollSettings;
    stickyHeaders?: boolean;
@@ -19,9 +20,10 @@ diff --git a/dist/components/CodeView.d.ts b/dist/components/CodeView.d.ts
    onSelectedLinesChange?(selection: CodeViewLineSelection | null): void;
    layout?: CodeViewLayout;
 diff --git a/dist/components/CodeView.js b/dist/components/CodeView.js
+index bc227a01f287522fe04dc09513d680563088153f..5d51bd599f42b59583b7e8a1dd070a137b48a661 100644
 --- a/dist/components/CodeView.js
 +++ b/dist/components/CodeView.js
-@@ -1124,6 +1124,7 @@
+@@ -1124,6 +1124,7 @@ var CodeView = class CodeView {
  			if (state == null) return;
  			return (event) => this.completeFileItemEdit(state, event);
  		});
@@ -29,7 +31,7 @@ diff --git a/dist/components/CodeView.js b/dist/components/CodeView.js
  		for (const key of CODE_VIEW_SHARED_CALLBACK_KEYS) this.defineItemSharedCallback(prototype, "file", key);
  		for (const key of CODE_VIEW_SELECTION_CALLBACK_KEYS) this.defineItemSelectionCallback(prototype, "file", key);
  		return prototype;
-@@ -1144,6 +1145,7 @@
+@@ -1144,6 +1145,7 @@ var CodeView = class CodeView {
  			if (state == null) return;
  			return (event) => this.completeDiffItemEdit(state, event);
  		});
@@ -37,7 +39,7 @@ diff --git a/dist/components/CodeView.js b/dist/components/CodeView.js
  		for (const key of CODE_VIEW_SHARED_CALLBACK_KEYS) this.defineItemSharedCallback(prototype, "diff", key);
  		for (const key of CODE_VIEW_SELECTION_CALLBACK_KEYS) this.defineItemSelectionCallback(prototype, "diff", key);
  		return prototype;
-@@ -2135,9 +2137,9 @@
+@@ -2135,9 +2137,9 @@ function syncRenderedItemOrder(container, element, prevElement) {
  function hasAnnotations(item) {
  	return (item.annotations?.length ?? 0) > 0;
  }
@@ -50,9 +52,10 @@ diff --git a/dist/components/CodeView.js b/dist/components/CodeView.js
  	const slotSnapshot = [];
  	for (const renderedItem of renderedItems) if (hasAnnotations(renderedItem.item)) slotSnapshot.push(renderedItem);
 diff --git a/dist/components/File.js b/dist/components/File.js
+index 9c9da1b4dac0365f872a53fa26040039fc574fae..ded13df714478439646255ebcd8cc894ee5ca5aa 100644
 --- a/dist/components/File.js
 +++ b/dist/components/File.js
-@@ -68,6 +68,8 @@
+@@ -68,6 +68,8 @@ var File = class {
  	headerPrefix;
  	headerFilenameSuffix;
  	headerMetadata;
@@ -61,7 +64,7 @@ diff --git a/dist/components/File.js b/dist/components/File.js
  	fileRenderer;
  	resizeManager;
  	interactionManager;
-@@ -510,6 +512,7 @@
+@@ -510,6 +512,7 @@ var File = class {
  		if (editSessionFile == null) throw new Error("File.updateRenderCache: requires an active edit session");
  		this.fileRenderer.beginEditSession(editSessionFile);
  		this.fileRenderer.updateRenderCache(dirtyLines, themeType, options?.lineCountChangeInFlight);
@@ -69,7 +72,7 @@ diff --git a/dist/components/File.js b/dist/components/File.js
  	}
  	render({ file, fileContainer, forceRender = false, preventEmit = false, containerWrapper, deferManagers = false, lineAnnotations, renderRange }) {
  		if (!this.enabled) throw new Error("File.render: attempting to call render after cleaned up");
-@@ -546,6 +549,7 @@
+@@ -546,6 +549,7 @@ var File = class {
  		this.applyCachedThemeState(themeType);
  		if (collapsed) {
  			this.removeRenderedCode();
@@ -77,7 +80,7 @@ diff --git a/dist/components/File.js b/dist/components/File.js
  			this.clearAuxiliaryNodes();
  			try {
  				const fileResult = this.fileRenderer.renderFile(latestFile, EMPTY_RENDER_RANGE);
-@@ -575,6 +579,7 @@
+@@ -575,6 +579,7 @@ var File = class {
  				this.applyFullRender(fileResult, pre);
  				this.renderedFile = fileResult.file;
  			}
@@ -85,11 +88,10 @@ diff --git a/dist/components/File.js b/dist/components/File.js
  			this.applyBuffers(pre, nextRenderRange);
  			this.injectUnsafeCSS();
  			this.renderAnnotations();
-@@ -605,6 +610,44 @@
- 		const phase = this.mounted ? "update" : "mount";
+@@ -606,6 +611,44 @@ var File = class {
  		this.mounted = true;
  		onPostRender?.(fileContainer, this, phase);
-+	}
+ 	}
 +	renderCustomBody(fileContainer) {
 +		if (this.options.renderBody == null) {
 +			this.removeCustomBody();
@@ -127,13 +129,15 @@ diff --git a/dist/components/File.js b/dist/components/File.js
 +		this.customBodyWrapper = void 0;
 +		this.customBodySlot = void 0;
 +		if (this.pre != null) this.pre.style.display = "";
- 	}
++	}
  	removeRenderedCode() {
  		this.resizeManager.cleanUp();
+ 		this.interactionManager.cleanUp();
 diff --git a/dist/components/FileDiff.js b/dist/components/FileDiff.js
+index 8d9ba31e097990b3163fd6644906144529561262..401f1dccd76929f4157d202a29b505eb74338938 100644
 --- a/dist/components/FileDiff.js
 +++ b/dist/components/FileDiff.js
-@@ -98,6 +98,8 @@
+@@ -98,6 +98,8 @@ var FileDiff = class {
  	headerFilenameSuffix;
  	headerMetadata;
  	headerCustom;
@@ -142,7 +146,7 @@ diff --git a/dist/components/FileDiff.js b/dist/components/FileDiff.js
  	separatorCache = /* @__PURE__ */ new Map();
  	errorWrapper;
  	placeHolder;
-@@ -688,6 +690,7 @@
+@@ -688,6 +690,7 @@ var FileDiff = class {
  		this.applyCachedThemeState(themeType);
  		if (collapsed) {
  			this.removeRenderedCode();
@@ -150,7 +154,7 @@ diff --git a/dist/components/FileDiff.js b/dist/components/FileDiff.js
  			this.clearAuxiliaryNodes();
  			try {
  				const hunksResult = this.hunksRenderer.renderDiff(latestDiff, EMPTY_RENDER_RANGE);
-@@ -727,6 +730,7 @@
+@@ -727,6 +730,7 @@ var FileDiff = class {
  				this.renderSeparators(hunksResult.hunkData);
  				this.renderedDiff = hunksResult.fileDiff;
  			}
@@ -158,7 +162,7 @@ diff --git a/dist/components/FileDiff.js b/dist/components/FileDiff.js
  			this.applyBuffers(pre, nextRenderRange);
  			this.injectUnsafeCSS();
  			this.renderAnnotations();
-@@ -1027,7 +1031,9 @@
+@@ -1027,7 +1031,9 @@ var FileDiff = class {
  		this.detachAdditionLines();
  		this.hunksRenderer.beginEditSession(editSessionDiff);
  		const { shouldRefreshDiffsView, lineCountChangeInFlight } = options;
@@ -169,7 +173,7 @@ diff --git a/dist/components/FileDiff.js b/dist/components/FileDiff.js
  			if (this.refreshViewTimeout != null) {
  				clearTimeout(this.refreshViewTimeout);
  				this.refreshViewTimeout = void 0;
-@@ -1124,6 +1130,44 @@
+@@ -1124,6 +1130,44 @@ var FileDiff = class {
  		this.rerender();
  		this.flushDeferredLineState();
  	};
@@ -215,9 +219,10 @@ diff --git a/dist/components/FileDiff.js b/dist/components/FileDiff.js
  		this.resizeManager.cleanUp();
  		this.scrollSyncManager.cleanUp();
 diff --git a/dist/components/VirtualizedFile.js b/dist/components/VirtualizedFile.js
+index 90d8a5e57f66cbe38f6b806285ecde5747bf2e16..060fe6dc1a4415605f426d995861a5d935a6b5de 100644
 --- a/dist/components/VirtualizedFile.js
 +++ b/dist/components/VirtualizedFile.js
-@@ -121,6 +121,15 @@
+@@ -121,6 +121,15 @@ var VirtualizedFile = class extends File {
  		}
  		const { overflow = "scroll" } = this.options;
  		this.top = this.getVirtualizedTop();
@@ -234,9 +239,10 @@ diff --git a/dist/components/VirtualizedFile.js b/dist/components/VirtualizedFil
  		hasHeightChange = this.applyGhostTextRows(ghostTextRows);
  		const measureAllRows = overflow !== "scroll" || this.getLatestAnnotations().length > 0 || this.isResizeDebuggingEnabled();
 diff --git a/dist/components/VirtualizedFileDiff.js b/dist/components/VirtualizedFileDiff.js
+index b142a5808f2418c5cc7c17313b9eb55dda2655cb..bb2db4d34fe879365229ce15560ddc0ea8f8e428 100644
 --- a/dist/components/VirtualizedFileDiff.js
 +++ b/dist/components/VirtualizedFileDiff.js
-@@ -165,6 +165,15 @@
+@@ -165,6 +165,15 @@ var VirtualizedFileDiff = class extends FileDiff {
  			return hasHeightChange;
  		}
  		this.top = this.getVirtualizedTop();
@@ -252,10 +258,52 @@ diff --git a/dist/components/VirtualizedFileDiff.js b/dist/components/Virtualize
  		hasHeightChange = this.applyGhostTextRows(fileDiff, this.editor?.__getGhostTextRows() ?? NO_GHOST_TEXT_ROWS);
  		const { ghostTextRowsByIndex } = this.cache;
  		const measureAllRows = overflow !== "scroll" || this.getLatestAnnotations().length > 0 || this.isResizeDebuggingEnabled();
+diff --git a/dist/editor/searchPanel.js b/dist/editor/searchPanel.js
+index df1ba637c2f7834f21f087eba7a416c802f4ac68..db85a80fbcdc2e599abac954246c64d739c41aba 100644
+--- a/dist/editor/searchPanel.js
++++ b/dist/editor/searchPanel.js
+@@ -25,6 +25,9 @@ var SearchPanelWidget = class {
+ 			current: void 0
+ 		};
+ 		const matchResultElement = h("div", {
++			id: "editor-search-status",
++			role: "status",
++			ariaLive: "polite",
+ 			dataset: {
+ 				matches: "",
+ 				noMatches: ""
+@@ -32,12 +35,24 @@ var SearchPanelWidget = class {
+ 			textContent: "No results"
+ 		});
+ 		const updateMatches = (options) => {
+-			matches.all = searchParams.text !== "" ? textDocument.search(searchParams) : [];
++			let patternError;
++			if (searchParams.regex && searchParams.text !== "") {
++				try {
++					new RegExp(searchParams.text, `g${searchParams.caseSensitive ? "" : "i"}m`);
++				} catch (error) {
++					patternError = error.message;
++				}
++			}
++			this.#inputElement.ariaInvalid = String(patternError != null);
++			if (patternError != null) this.#inputElement.setAttribute("aria-describedby", matchResultElement.id);
++			else this.#inputElement.removeAttribute("aria-describedby");
++			matchResultElement.title = patternError ?? "";
++			matches.all = patternError == null && searchParams.text !== "" ? textDocument.search(searchParams) : [];
+ 			const noMatches = matches.all.length === 0;
+ 			prevButton.disabled = noMatches;
+ 			nextButton.disabled = noMatches;
+ 			if (noMatches) {
+-				matchResultElement.textContent = "No results";
++				matchResultElement.textContent = patternError != null ? "Invalid regex" : "No results";
+ 				matchResultElement.dataset.noMatches = "";
+ 				matches.current = void 0;
+ 				onUpdate([]);
 diff --git a/dist/react/CodeView.d.ts b/dist/react/CodeView.d.ts
+index e78e713bdea30c46a548bc46dacf79aa8c184c3d..d1106ae6fc66f9876d929f15996fafb22985100c 100644
 --- a/dist/react/CodeView.d.ts
 +++ b/dist/react/CodeView.d.ts
-@@ -61,6 +61,8 @@
+@@ -61,6 +61,8 @@ interface CodeViewBaseProps<LAnnotation, Caret> {
    renderHeaderFilenameSuffix?(item: CodeViewItem<LAnnotation>): ReactNode;
    renderHeaderMetadata?(item: CodeViewItem<LAnnotation>): ReactNode;
    renderAnnotation?(annotation: LineAnnotation<LAnnotation> | DiffLineAnnotation<LAnnotation>, item: CodeViewItem<LAnnotation>): ReactNode;
@@ -265,9 +313,10 @@ diff --git a/dist/react/CodeView.d.ts b/dist/react/CodeView.d.ts
  }
  interface ControlledCodeViewProps<LAnnotation, Caret> extends CodeViewBaseProps<LAnnotation, Caret> {
 diff --git a/dist/react/CodeView.js b/dist/react/CodeView.js
+index 84c7915d9bd1f9664010966370f60649a7a5d67e..6bdcb6dc81f1e424fcbc4d834eeb6f56db747632 100644
 --- a/dist/react/CodeView.js
 +++ b/dist/react/CodeView.js
-@@ -24,16 +24,17 @@
+@@ -24,16 +24,17 @@ function createDefaultCache(controlled) {
  	};
  }
  function CodeViewInner(props, ref) {
@@ -287,7 +336,7 @@ diff --git a/dist/react/CodeView.js b/dist/react/CodeView.js
  	const hasCodeViewHeader = renderCodeViewHeader != null;
  	const hasCodeViewFooter = renderCodeViewFooter != null;
  	const emitSelectedLinesChange = useStableCallback((selection) => {
-@@ -55,6 +56,7 @@
+@@ -55,6 +56,7 @@ function CodeViewInner(props, ref) {
  	const managedOptions = useMemo(() => createManagedCodeViewOptions({
  		options,
  		hasCustomHeader,
@@ -295,7 +344,7 @@ diff --git a/dist/react/CodeView.js b/dist/react/CodeView.js
  		hasGutterRenderer,
  		hasCodeViewHeader,
  		hasCodeViewFooter,
-@@ -74,6 +76,7 @@
+@@ -74,6 +76,7 @@ function CodeViewInner(props, ref) {
  		hasCodeViewFooter,
  		hasCodeViewHeader,
  		hasCustomHeader,
@@ -303,7 +352,7 @@ diff --git a/dist/react/CodeView.js b/dist/react/CodeView.js
  		hasGutterRenderer,
  		getEditStateKey,
  		onItemEditChange,
-@@ -102,16 +105,18 @@
+@@ -102,16 +105,18 @@ function CodeViewInner(props, ref) {
  		});
  	});
  	const slotCoordinator = useMemo(() => {
@@ -323,7 +372,7 @@ diff --git a/dist/react/CodeView.js b/dist/react/CodeView.js
  		hasGutterRenderer,
  		hasHeaderRenderers,
  		hasCodeViewHeader,
-@@ -261,6 +266,7 @@
+@@ -261,6 +266,7 @@ function CodeViewInner(props, ref) {
  		renderHeaderFilenameSuffix,
  		renderHeaderMetadata,
  		renderAnnotation,
@@ -331,7 +380,7 @@ diff --git a/dist/react/CodeView.js b/dist/react/CodeView.js
  		renderGutterUtility,
  		renderCodeViewHeader,
  		renderCodeViewFooter
-@@ -302,7 +308,7 @@
+@@ -302,7 +308,7 @@ function createSlotContentStore() {
  		}
  	};
  }
@@ -340,7 +389,7 @@ diff --git a/dist/react/CodeView.js b/dist/react/CodeView.js
  	const managedOptions = {
  		...options,
  		controlledSelection,
-@@ -313,12 +319,13 @@
+@@ -313,12 +319,13 @@ function createManagedCodeViewOptions({ options, hasCustomHeader, hasGutterRende
  	if (onItemEditChange != null) managedOptions.onItemEditChange = onItemEditChange;
  	if (onItemEditComplete != null) managedOptions.onItemEditComplete = onItemEditComplete;
  	if (hasCustomHeader) managedOptions.renderCustomHeader = noopRender;
@@ -355,7 +404,7 @@ diff --git a/dist/react/CodeView.js b/dist/react/CodeView.js
  	"use no memo";
  	const subscribe = useStableCallback((listener) => managedContentStore.subscribe(listener));
  	const getSnapshot = useStableCallback(() => managedContentStore.getSnapshot());
-@@ -333,6 +340,7 @@
+@@ -333,6 +340,7 @@ const SlotPortals = memo(function SlotPortals({ managedContentStore, renderCusto
  			renderHeaderFilenameSuffix,
  			renderHeaderMetadata,
  			renderAnnotation,
@@ -363,7 +412,7 @@ diff --git a/dist/react/CodeView.js b/dist/react/CodeView.js
  			renderGutterUtility
  		}), renderedItem.element, renderedItem.id));
  	}, [
-@@ -341,6 +349,7 @@
+@@ -341,6 +349,7 @@ const SlotPortals = memo(function SlotPortals({ managedContentStore, renderCusto
  		renderHeaderFilenameSuffix,
  		renderHeaderMetadata,
  		renderAnnotation,
@@ -371,7 +420,7 @@ diff --git a/dist/react/CodeView.js b/dist/react/CodeView.js
  		renderGutterUtility,
  		itemKeys
  	]);
-@@ -356,10 +365,11 @@
+@@ -356,10 +365,11 @@ const SlotPortals = memo(function SlotPortals({ managedContentStore, renderCusto
  		renderedFooter
  	] });
  });
@@ -385,7 +434,7 @@ diff --git a/dist/react/CodeView.js b/dist/react/CodeView.js
  			fileDiff: item.fileDiff,
  			renderCustomHeader: renderCustomHeader != null ? () => renderCustomHeader(item) : void 0,
  			renderHeaderPrefix: renderHeaderPrefix != null ? () => renderHeaderPrefix(item) : void 0,
-@@ -373,7 +383,7 @@
+@@ -373,7 +383,7 @@ function renderCodeViewItemChildren({ renderedItem, renderCustomHeader, renderHe
  		});
  	} else {
  		const { item, instance } = renderedItem;
@@ -394,7 +443,7 @@ diff --git a/dist/react/CodeView.js b/dist/react/CodeView.js
  			file: item.file,
  			renderCustomHeader: renderCustomHeader != null ? () => renderCustomHeader(item) : void 0,
  			renderHeaderPrefix: renderHeaderPrefix != null ? () => renderHeaderPrefix(item) : void 0,
-@@ -386,6 +396,11 @@
+@@ -386,6 +396,11 @@ function renderCodeViewItemChildren({ renderedItem, renderCustomHeader, renderHe
  			getAnnotationSlotName: instance.getAnnotationSlotName
  		});
  	}
@@ -407,9 +456,10 @@ diff --git a/dist/react/CodeView.js b/dist/react/CodeView.js
  function noopRender() {}
  //#endregion
 diff --git a/dist/renderers/FileRenderer.js b/dist/renderers/FileRenderer.js
+index 1307ce741c50f75d823eccbbef5139a8b96dbd6a..8aab0b1c727bcd2dd1162f010f9d904dc4be7702 100644
 --- a/dist/renderers/FileRenderer.js
 +++ b/dist/renderers/FileRenderer.js
-@@ -430,7 +430,9 @@
+@@ -430,7 +430,9 @@ var FileRenderer = class {
  			const hasThemes = this.highlighter != null && areThemesAttached(options.theme);
  			const hasLangs = this.highlighter != null && areLanguagesAttached(this.computedLang);
  			const canHighlight = !forcePlainText && hasLangs;

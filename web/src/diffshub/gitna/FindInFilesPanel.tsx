@@ -1,6 +1,5 @@
 import { useEffect, useRef, useState, type ComponentProps } from 'react'
 import {
-  IconChevronSm,
   IconCollapsedRow,
   IconEllipsis,
   IconRefresh,
@@ -11,11 +10,12 @@ import {
 } from '@pierre/icons'
 
 import { ApiError, type ApiClient } from '../../lib/api'
-import type { ContentSearchFile, ContentSearchMatch } from '../../lib/types'
+import type { ContentSearchFile } from '../../lib/types'
 import { Button } from '../components/Button'
 import { Input } from '../components/Input'
 import { cn } from '../lib/cn'
-import { FileTypeIcon, FileTypeIconSprite } from './FileTypeIcon'
+import { FileTypeIconSprite } from './FileTypeIcon'
+import { SearchResults } from './SearchResults'
 
 interface FindInFilesPanelProps {
   api: ApiClient
@@ -44,18 +44,6 @@ function SearchButton({ children, className, ...props }: ComponentProps<typeof B
   )
 }
 
-function HighlightedExcerpt({ match }: { match: ContentSearchMatch }) {
-  return (
-    <>
-      {match.excerpt.slice(0, match.matchStart)}
-      <mark className="bg-[var(--gitna-search-match-bg)] text-[var(--gitna-search-match-fg)]">
-        {match.excerpt.slice(match.matchStart, match.matchEnd) || '\u200b'}
-      </mark>
-      {match.excerpt.slice(match.matchEnd)}
-    </>
-  )
-}
-
 export function FindInFilesPanel({
   api,
   folderLabel,
@@ -81,7 +69,8 @@ export function FindInFilesPanel({
   const [error, setError] = useState<string | null>(null)
   const [searchTick, setSearchTick] = useState(0)
   const inputRef = useRef<HTMLInputElement>(null)
-  const resultsRef = useRef<HTMLDivElement>(null)
+  const [resultsFocusRequest, setResultsFocusRequest] = useState(0)
+  const [skipped, setSkipped] = useState({ largeFiles: 0, longLines: 0 })
 
   useEffect(() => {
     onResultsChange(active ? files : [])
@@ -98,6 +87,7 @@ export function FindInFilesPanel({
     setFiles([])
     setError(null)
     setTruncated(false)
+    setSkipped({ largeFiles: 0, longLines: 0 })
     setSelectedMatch(null)
     setLoading(query.length > 0)
     if (!query) return
@@ -140,6 +130,10 @@ export function FindInFilesPanel({
         batchTimer = undefined
         setFiles(result.results)
         setTruncated(result.truncated)
+        setSkipped({
+          largeFiles: result.skippedLargeFiles ?? 0,
+          longLines: result.skippedLongLines ?? 0,
+        })
         setLoading(!result.complete && !result.truncated)
         if (!result.complete && !result.truncated)
           timer = window.setTimeout(() => void search(), 350)
@@ -253,7 +247,7 @@ export function FindInFilesPanel({
               }
               if (event.key === 'ArrowDown') {
                 event.preventDefault()
-                resultsRef.current?.querySelector<HTMLButtonElement>('button')?.focus()
+                setResultsFocusRequest((request) => request + 1)
               }
             }}
             placeholder="Search"
@@ -346,7 +340,9 @@ export function FindInFilesPanel({
               : loading
                 ? 'Searching…'
                 : matchCount === 0
-                  ? 'No results found.'
+                  ? skipped.largeFiles > 0 || skipped.longLines > 0
+                    ? 'No matches in searched text.'
+                    : 'No results found.'
                   : `${matchCount} ${matchCount === 1 ? 'result' : 'results'} in ${files.length} ${files.length === 1 ? 'file' : 'files'}`}
         </p>
         {error && (
@@ -359,99 +355,31 @@ export function FindInFilesPanel({
           </p>
         )}
       </div>
-      <div
-        ref={resultsRef}
-        className="gitna-scrollbar min-h-0 flex-1 overflow-y-auto overscroll-contain pb-2"
-        aria-label="Search results"
-        onKeyDown={(event) => {
-          const buttons = Array.from(
-            event.currentTarget.querySelectorAll<HTMLButtonElement>('button'),
-          )
-          const index = buttons.indexOf(event.target as HTMLButtonElement)
-          if (index < 0) return
-          let next: number | undefined
-          if (event.key === 'ArrowDown') next = Math.min(index + 1, buttons.length - 1)
-          if (event.key === 'ArrowUp') next = Math.max(index - 1, 0)
-          if (event.key === 'Home') next = 0
-          if (event.key === 'End') next = buttons.length - 1
-          if (next != null) {
-            event.preventDefault()
-            buttons[next]?.focus()
-          }
-          if (event.key === 'Escape') {
-            event.preventDefault()
-            inputRef.current?.focus()
-          }
+      {(skipped.largeFiles > 0 || skipped.longLines > 0) && (
+        <p role="status" className="shrink-0 px-3 pb-2 text-xs text-muted-foreground">
+          Search coverage is incomplete. Skipped {skipped.largeFiles}{' '}
+          {skipped.largeFiles === 1 ? 'file' : 'files'} larger than 512 KiB and {skipped.longLines}{' '}
+          {skipped.longLines === 1 ? 'line' : 'lines'} longer than 64 KiB.
+        </p>
+      )}
+      {truncated && (
+        <p className="shrink-0 px-3 pb-2 text-xs text-muted-foreground">
+          Showing the first {matchCount} results. Narrow your search to see more.
+        </p>
+      )}
+      <SearchResults
+        files={files}
+        collapsedFiles={collapsedFiles}
+        selectedMatch={selectedMatch}
+        active={active}
+        focusRequest={resultsFocusRequest}
+        onToggle={toggleFile}
+        onEscape={() => inputRef.current?.focus()}
+        onOpen={(key, path, line, column) => {
+          setSelectedMatch(key)
+          onOpen(path, line, column)
         }}
-      >
-        {files.map((file) => {
-          const collapsed = collapsedFiles.has(file.path)
-          const separator = file.path.lastIndexOf('/')
-          return (
-            <div key={file.path} className="text-xs">
-              <button
-                type="button"
-                aria-expanded={!collapsed}
-                onClick={() => toggleFile(file.path, !collapsed)}
-                onKeyDown={(event) => {
-                  if (event.key === 'ArrowLeft' || event.key === 'ArrowRight') {
-                    event.preventDefault()
-                    toggleFile(file.path, event.key === 'ArrowLeft')
-                  }
-                }}
-                className="flex h-7 w-full cursor-pointer items-center gap-1.5 px-3 text-left hover:bg-accent focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-ring"
-                title={file.path}
-              >
-                <IconChevronSm
-                  aria-hidden="true"
-                  className={cn('size-3 shrink-0 text-muted-foreground', collapsed && '-rotate-90')}
-                />
-                <FileTypeIcon path={file.path} />
-                <span className="truncate">{file.path.slice(separator + 1)}</span>
-                <span className="min-w-0 flex-1 truncate text-muted-foreground">
-                  {file.path.slice(0, Math.max(0, separator))}
-                </span>
-                <span className="shrink-0 text-muted-foreground tabular-nums">
-                  {file.matches.length}
-                </span>
-              </button>
-              {!collapsed &&
-                file.matches.map((match, index) => {
-                  const key = `${file.path}:${match.line}:${match.column}:${index}`
-                  return (
-                    <button
-                      key={key}
-                      type="button"
-                      aria-label={`Open ${file.path}:${match.line}`}
-                      aria-current={selectedMatch === key ? 'true' : undefined}
-                      onClick={() => {
-                        setSelectedMatch(key)
-                        onOpen(file.path, match.line, match.column)
-                      }}
-                      className={cn(
-                        'flex h-6 w-full cursor-pointer items-center gap-2 overflow-hidden pl-10 pr-3 text-left hover:bg-accent focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-ring',
-                        selectedMatch === key && 'bg-accent text-accent-foreground',
-                      )}
-                      title={`${file.path}:${match.line}:${match.column + 1} — ${match.excerpt}`}
-                    >
-                      <span className="w-5 shrink-0 text-right text-muted-foreground tabular-nums">
-                        {match.line}
-                      </span>
-                      <span className="min-w-0 truncate whitespace-pre font-mono text-xs">
-                        <HighlightedExcerpt match={match} />
-                      </span>
-                    </button>
-                  )
-                })}
-            </div>
-          )
-        })}
-        {truncated && (
-          <p className="px-3 pt-2 text-xs text-muted-foreground">
-            Showing the first {matchCount} results. Narrow your search to see more.
-          </p>
-        )}
-      </div>
+      />
     </section>
   )
 }

@@ -199,6 +199,39 @@ func TestContentSearchValidatesFilesBeforeTrimmingBatchMatches(t *testing.T) {
 	}
 }
 
+func TestContentSearchReportsSkippedContent(t *testing.T) {
+	root := t.TempDir()
+	for path, text := range map[string]string{
+		"large.txt": strings.Repeat("x", contentSearchFileLimit+1),
+		"lines.txt": strings.Repeat("x", contentSearchLineLimit+1) + "\nneedle\n" + strings.Repeat("y", contentSearchLineLimit+1),
+	} {
+		if err := os.WriteFile(filepath.Join(root, path), []byte(text), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	adapter := &repoAdapter{ctx: ctx, repo: gitx.Repository{Root: root}, queue: gitx.NewMutationQueue()}
+	waitForFolderSearch(t, adapter, "", nil, 100)
+	for _, query := range []string{"needle", "absent"} {
+		result, err := adapter.SearchContent(t.Context(), query, false, false, false, false, "", "", 100)
+		if err != nil || !result.Complete || result.Truncated || result.SkippedLargeFiles != 1 || result.SkippedLongLines != 2 {
+			t.Fatalf("coverage for %q = %#v, %v", query, result, err)
+		}
+		if query == "needle" && (len(result.Results) != 1 || result.Results[0].Matches[0].Line != 2) {
+			t.Fatalf("skipping a line must preserve searchable lines: %#v", result)
+		}
+		streamed, err := adapter.SearchContentStream(t.Context(), query, false, false, false, false, "", "", 100, func(protocol.ContentSearchFile) error { return nil })
+		if err != nil || !reflect.DeepEqual(streamed, result) {
+			t.Fatalf("stream coverage differs: %#v, %v", streamed, err)
+		}
+	}
+	filtered, err := adapter.SearchContent(t.Context(), "absent", false, false, false, false, "", "large.txt, lines.txt", 100)
+	if err != nil || filtered.SkippedLargeFiles != 0 || filtered.SkippedLongLines != 0 {
+		t.Fatalf("excluded files counted: %#v, %v", filtered, err)
+	}
+}
+
 func TestContentSearchExcerptPreservesFullMatchLength(t *testing.T) {
 	line := "before " + strings.Repeat("😀", 300)
 	match := contentSearchExcerpt(line, 1, len("before "), len(line))

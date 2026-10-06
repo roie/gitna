@@ -39,7 +39,8 @@ Control integration boundaries.
 These packages are consumed as npm dependencies and bundled into Gitna's
 embedded frontend. `@pierre/diffs` and `@pierre/trees` are modified under
 Apache-2.0 through reproducible pnpm patches in `web/patches/`. The Diffs patch
-adds bounded raster-image bodies and working-file editing hooks. The Trees patch
+adds bounded raster-image bodies, working-file editing hooks, and visible
+invalid-regex feedback in the built-in editor search. The Trees patch
 adds a generic public interactive row-action renderer, semantic action buttons,
 and hover/focus styling while preserving Pierre's row rendering, focus,
 selection and virtualization ownership. The other package renderers are
