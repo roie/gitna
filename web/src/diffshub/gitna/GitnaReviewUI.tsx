@@ -1976,12 +1976,19 @@ function GitnaReviewUIInner({ searchRequest }: { searchRequest: number }) {
     worktreeDrafts,
   ])
 
+  const startupLoading = repository.snapshot == null && repository.error == null
+  const loadingPath =
+    folderSwitchTransition?.path ??
+    (startupLoading
+      ? decodeURIComponent(window.location.pathname.split('/').filter(Boolean).at(-1) ?? 'folder')
+      : null)
+
   return (
     <>
       <div
-        aria-hidden={folderSwitchTransition != null || undefined}
+        aria-hidden={loadingPath != null || undefined}
         className="contents"
-        inert={folderSwitchTransition != null || undefined}
+        inert={loadingPath != null || undefined}
       >
         <ReviewGrid containerRef={reviewRootRef} sidebarVisible={sidebarVisible}>
           {!homeOpen && (
@@ -2390,7 +2397,7 @@ function GitnaReviewUIInner({ searchRequest }: { searchRequest: number }) {
           />
         )}
       </div>
-      {folderSwitchTransition != null && <FolderLoadingScreen path={folderSwitchTransition.path} />}
+      {loadingPath != null && <FolderLoadingScreen path={loadingPath} />}
     </>
   )
 }
@@ -2708,12 +2715,14 @@ function GitnaEmptyState({ scope }: { scope?: ReviewRequest['scope'] }) {
 
 function useIsWorkerPoolReadyOrDisabled(): boolean {
   const workerPool = useWorkerPool()
-  const [ready, setReady] = useState(() => workerPool?.isInitialized() ?? true)
+  const [ready, setReady] = useState(
+    () => workerPool == null || workerPool.isInitialized() || !workerPool.isWorkingPool(),
+  )
   const readyRef = useRef(ready)
   useEffect(
     () =>
       workerPool?.subscribeToStatChanges((stats) => {
-        const next = stats.managerState === 'initialized'
+        const next = stats.managerState === 'initialized' || stats.workersFailed
         if (next !== readyRef.current) {
           readyRef.current = next
           setReady(next)

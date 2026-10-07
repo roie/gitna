@@ -70,4 +70,15 @@ async function mountApp(root: HTMLElement): Promise<void> {
   createRoot(root).render(<App GitnaReviewUI={GitnaReviewUI} />)
 }
 
-void mountApp(root)
+void mountApp(root).catch((error: unknown) => {
+  console.error('Could not load Gitna', error)
+  const loading = document.querySelector('[data-startup-loading]')
+  loading?.setAttribute('aria-busy', 'false')
+  const status = document.getElementById('startup-status')
+  if (status != null) {
+    status.setAttribute('role', 'alert')
+    status.textContent = 'Could not load Gitna. Reload to try again.'
+  }
+  document.querySelector('.startup-spinner')?.remove()
+  document.getElementById('startup-retry')?.removeAttribute('hidden')
+})

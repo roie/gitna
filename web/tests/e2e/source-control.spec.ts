@@ -1069,6 +1069,71 @@ test('folder path switches the live session and remains fully editable', async (
   await expect(nextFolderOption).toHaveCount(0)
 })
 
+test('startup keeps themed feedback visible while the workbench loads', async ({ page, app }) => {
+  await page.addInitScript(() => localStorage.setItem('theme', 'dark'))
+  await page.emulateMedia({ colorScheme: 'light', reducedMotion: 'reduce' })
+  let release!: () => void
+  const pending = new Promise<void>((resolve) => {
+    release = resolve
+  })
+  await page.route('**/assets/GitnaReviewUI-*.js', async (route) => {
+    await pending
+    await route.continue()
+  })
+  try {
+    await page.goto(app.url, { waitUntil: 'domcontentloaded' })
+    const loading = page.locator('[data-startup-loading]')
+    await expect(loading).toBeVisible()
+    await expect(page.locator('html')).toHaveClass(/dark/)
+    await expect(loading.getByRole('heading')).toHaveText(`Opening ${basename(app.repo)}`)
+    await expect(loading.getByRole('status')).toHaveText('Preparing your folder…')
+    await expect(loading.locator('.startup-spinner')).toHaveCSS('animation-name', 'none')
+  } finally {
+    release()
+  }
+  await expect(page.locator('[data-startup-loading], [data-folder-loading]')).toHaveCount(0)
+  await expect(page.getByRole('region', { name: 'Review', exact: true })).toBeVisible()
+  await expect(page).toHaveTitle(`${basename(app.repo)} - Gitna`)
+})
+
+for (const failure of ['blocked', 'timed out'] as const) {
+  test(`diffs remain usable when the worker is ${failure}`, async ({ page, app }) => {
+    let release!: () => void
+    const pending = new Promise<void>((resolve) => {
+      release = resolve
+    })
+    await page.route('**/assets/worker-*.js', async (route) => {
+      if (failure === 'timed out') await pending
+      await route.abort().catch(() => undefined)
+    })
+    try {
+      await page.goto(app.url)
+      await expect(page.locator('[data-line]').filter({ hasText: 'unstaged change' })).toBeVisible({
+        timeout: 20_000,
+      })
+      await expect(
+        page.getByRole('button', { name: 'Stage file modified.txt', exact: true }),
+      ).toBeEnabled()
+      await expect(page.getByRole('heading', { name: 'Streaming diff' })).toHaveCount(0)
+    } finally {
+      release()
+    }
+  })
+}
+
+test('workbench load failure offers recovery instead of an empty screen', async ({ page, app }) => {
+  await page.route('**/assets/GitnaReviewUI-*.js', (route) => route.abort())
+  await page.goto(app.url)
+  const loading = page.locator('[data-startup-loading]')
+  await expect(loading).toBeVisible()
+  await expect(loading).toHaveAttribute('aria-busy', 'false')
+  await expect(loading.getByRole('alert')).toHaveText('Could not load Gitna. Reload to try again.')
+  await expect(loading.getByRole('link', { name: 'Reload Gitna' })).toBeVisible()
+  await page.unroute('**/assets/GitnaReviewUI-*.js')
+  await loading.getByRole('link', { name: 'Reload Gitna' }).click()
+  await expect(page.getByRole('region', { name: 'Review', exact: true })).toBeVisible()
+})
+
 test('same-tab folder switching shows and restores a branded transition', async ({ page, app }) => {
   await page.emulateMedia({ reducedMotion: 'reduce' })
   await page.goto(`${app.url}?trace-startup=1`)

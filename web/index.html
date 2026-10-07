@@ -19,10 +19,131 @@
     <link rel="apple-touch-icon" sizes="180x180" href="./apple-touch-icon.png" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Gitna</title>
+    <script src="./theme-bootstrap.js"></script>
+    <style>
+      html {
+        background: #fff;
+        color: #0a0a0a;
+      }
+      html.dark {
+        background: #0a0a0a;
+        color: #fafafa;
+        color-scheme: dark;
+      }
+      [data-startup-loading] {
+        position: fixed;
+        inset: 0;
+        display: grid;
+        place-items: center;
+        background: #fff;
+        color: #0a0a0a;
+        font-family: Geist, system-ui, sans-serif;
+        text-align: center;
+        padding: 24px;
+      }
+      .dark [data-startup-loading] {
+        background: #0a0a0a;
+        color: #fafafa;
+      }
+      .startup-content {
+        min-width: 0;
+        max-width: 100%;
+      }
+      .startup-brand {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 10px;
+        font-size: 16px;
+        font-weight: 600;
+      }
+      .startup-brand img {
+        width: 40px;
+        height: 40px;
+      }
+      .startup-dark {
+        display: none;
+      }
+      .dark .startup-dark {
+        display: block;
+      }
+      .dark .startup-light {
+        display: none;
+      }
+      #startup-title {
+        margin: 20px 0 0;
+        max-width: min(28rem, calc(100vw - 3rem));
+        overflow: hidden;
+        white-space: nowrap;
+        text-overflow: ellipsis;
+        font-size: 18px;
+        font-weight: 600;
+        line-height: 28px;
+      }
+      #startup-status {
+        margin: 6px 0 0;
+        font-size: 14px;
+        line-height: 20px;
+        opacity: 0.65;
+      }
+      .startup-spinner {
+        display: block;
+        box-sizing: border-box;
+        margin: 20px auto 0;
+        width: 18px;
+        height: 18px;
+        border: 2px solid #ddd;
+        border-top-color: currentColor;
+        border-radius: 50%;
+        animation: startup-spin 1s linear infinite;
+      }
+      .dark .startup-spinner {
+        border-color: #333;
+        border-top-color: currentColor;
+      }
+      @keyframes startup-spin {
+        to {
+          transform: rotate(360deg);
+        }
+      }
+      @media (prefers-reduced-motion: reduce) {
+        .startup-spinner {
+          animation: none;
+        }
+      }
+      @media (prefers-color-scheme: dark) {
+        html:not(.light) {
+          background: #0a0a0a;
+          color: #fafafa;
+        }
+      }
+      #startup-retry {
+        display: inline-block;
+        margin-top: 20px;
+        color: inherit;
+      }
+      #startup-retry[hidden] {
+        display: none;
+      }
+    </style>
   </head>
   <body class="diffshub">
-    <div id="diffshub-root"></div>
-    <script type="module" src="/src/lib/theme-bootstrap.ts"></script>
+    <div id="diffshub-root">
+      <main data-startup-loading aria-busy="true" aria-labelledby="startup-title">
+        <div class="startup-content">
+          <div class="startup-brand">
+            <img class="startup-light" src="./gitna-logo-light.png" alt="" />
+            <img class="startup-dark" src="./gitna-logo-dark.png" alt="" />
+            <span>Gitna</span>
+          </div>
+          <h1 id="startup-title">Opening folder</h1>
+          <p id="startup-status" role="status">Preparing your folder…</p>
+          <span class="startup-spinner" aria-hidden="true"></span>
+          <a id="startup-retry" href="" hidden>Reload Gitna</a>
+          <noscript>Gitna needs JavaScript to open your folder.</noscript>
+        </div>
+      </main>
+    </div>
     <script type="module" src="/src/diffshub/main.tsx"></script>
   </body>
 </html>
