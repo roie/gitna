@@ -61,11 +61,12 @@ export function adaptWorktreeFile(
   source: WorktreeFile,
   generation: number,
   draft?: FileContents,
+  cacheNamespace = '',
 ): LoadedDiffsHubData {
   const file: FileContents = draft ?? {
     name: source.path,
     contents: source.content,
-    cacheKey: `worktree:${source.hash}:${source.path}`,
+    cacheKey: `${cacheNamespace}worktree:${source.hash}:${source.path}`,
   }
   const lineCount =
     file.contents.length === 0
@@ -89,18 +90,19 @@ export function adaptWorktreeComparison(
   generation: number,
   leftDraft?: FileContents,
   rightDraft?: FileContents,
+  cacheNamespace = '',
 ): LoadedDiffsHubData {
   const before: FileContents = leftDraft ?? {
     name: diff.before.path,
     contents: diff.before.content,
     lang: diff.before.language as FileContents['lang'],
-    cacheKey: `worktree-compare:${generation}:${diff.before.path}`,
+    cacheKey: `${cacheNamespace}worktree-compare:${generation}:${diff.before.path}`,
   }
   const after: FileContents = rightDraft ?? {
     name: diff.after.path,
     contents: diff.after.content,
     lang: diff.after.language as FileContents['lang'],
-    cacheKey: `worktree-compare:${generation}:${diff.after.path}`,
+    cacheKey: `${cacheNamespace}worktree-compare:${generation}:${diff.after.path}`,
   }
   const fileDiff = parseDiffFromFile(before, after, undefined, true)
   const accumulator = createDiffsHubDataAccumulator()
@@ -114,14 +116,18 @@ export function adaptWorktreeComparison(
   return snapshotDiffsHubData(accumulator)
 }
 
-export function adaptGitnaFile(diff: FileDiff, generation: number): LoadedDiffsHubData {
+export function adaptGitnaFile(
+  diff: FileDiff,
+  generation: number,
+  cacheNamespace = '',
+): LoadedDiffsHubData {
   const path = diff.after.path || diff.before.path
   const contents = diff.binary || diff.tooLarge ? '' : diff.after.content
   const file: FileContents = {
     name: path,
     contents,
     lang: diff.after.language as FileContents['lang'],
-    cacheKey: `file:${generation}:${path}`,
+    cacheKey: `${cacheNamespace}file:${generation}:${path}`,
   }
   const lineCount =
     contents.length === 0 ? 0 : contents.split('\n').length - (contents.endsWith('\n') ? 1 : 0)
@@ -156,10 +162,11 @@ export interface GitnaReviewAccumulator {
 export function createGitnaReviewAccumulator(
   review: ReviewResponse,
   itemVersion = review.generation,
+  cacheNamespace = '',
 ): GitnaReviewAccumulator {
   return {
     accumulator: createDiffsHubDataAccumulator(),
-    cacheKey: `${reviewIdentityKey(review)}:${review.generation}`,
+    cacheKey: `${cacheNamespace}${reviewIdentityKey(review)}:${review.generation}`,
     generation: review.generation,
     itemVersion,
   }
@@ -232,6 +239,9 @@ export function appendGitnaReviewPage(
   return { data: snapshotDiffsHubData(accumulator), pendingItems }
 }
 
-export function adaptGitnaReview(review: ReviewResponse): LoadedDiffsHubData {
-  return appendGitnaReviewPage(createGitnaReviewAccumulator(review), review).data
+export function adaptGitnaReview(review: ReviewResponse, cacheNamespace = ''): LoadedDiffsHubData {
+  return appendGitnaReviewPage(
+    createGitnaReviewAccumulator(review, review.generation, cacheNamespace),
+    review,
+  ).data
 }

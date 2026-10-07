@@ -1069,6 +1069,189 @@ test('folder path switches the live session and remains fully editable', async (
   await expect(nextFolderOption).toHaveCount(0)
 })
 
+test('folder switches and browser history reuse the document and workers without losing dirty-file protection', async ({
+  page,
+  app,
+}) => {
+  const nextRepo = join(dirname(app.repo), 'persistent-folder')
+  mkdirSync(nextRepo)
+  runGit(nextRepo, 'init', '-q', '-b', 'persistent')
+  runGit(nextRepo, 'config', 'user.email', 'e2e@example.com')
+  runGit(nextRepo, 'config', 'user.name', 'Gitna E2E')
+  writeFileSync(join(nextRepo, 'next.txt'), 'original destination\n')
+  runGit(nextRepo, 'add', '--', 'next.txt')
+  runGit(nextRepo, 'commit', '-qm', 'destination')
+  writeFileSync(join(nextRepo, 'next.txt'), 'PERSISTENT_DESTINATION_DIFF\n')
+  await page.addInitScript(() => {
+    const OriginalWorker = window.Worker
+    const state = window as unknown as Window & { gitnaWorkerStarts: number }
+    state.gitnaWorkerStarts = 0
+    window.Worker = class extends OriginalWorker {
+      constructor(url: string | URL, options?: WorkerOptions) {
+        super(url, options)
+        state.gitnaWorkerStarts += 1
+      }
+    }
+  })
+  await page.goto(app.url)
+  await expect(page.getByRole('switch', { name: 'Amend' })).toBeEnabled()
+  await expect(page.locator('diffs-container').first()).toBeVisible()
+  const lifetime = () =>
+    page.evaluate(() => ({
+      timeOrigin: performance.timeOrigin,
+      workers: (window as unknown as Window & { gitnaWorkerStarts: number }).gitnaWorkerStarts,
+    }))
+  const initial = await lifetime()
+  expect(initial.workers).toBeGreaterThan(0)
+  await switchFolderWithKeyboard(page, app.repo, nextRepo)
+  await expect(page).toHaveTitle('persistent-folder - Gitna')
+  await expect
+    .poll(() =>
+      page.locator('diffs-container').evaluate((element) => element.shadowRoot?.textContent ?? ''),
+    )
+    .toContain('PERSISTENT_DESTINATION_DIFF')
+  expect(await lifetime()).toEqual(initial)
+
+  await page.goBack()
+  await expect(page).toHaveTitle(`${basename(app.repo)} - Gitna`)
+  expect(await lifetime()).toEqual(initial)
+  await page.goForward()
+  await expect(page).toHaveTitle('persistent-folder - Gitna')
+  expect(await lifetime()).toEqual(initial)
+
+  const repositoryHeader = page.locator('[data-section="repository"]')
+  if ((await repositoryHeader.getAttribute('aria-expanded')) === 'false') {
+    await repositoryHeader.click()
+  }
+  await page
+    .locator('#gitna-repository-tree__tree')
+    .getByRole('treeitem', {
+      name: 'next.txt',
+      exact: true,
+    })
+    .click()
+  const editor = page.getByRole('textbox', { name: 'next.txt' })
+  await editor.click()
+  await page.keyboard.press('Control+End')
+  await page.keyboard.type('unsaved destination draft')
+  const destinationURL = page.url()
+  await page.evaluate(() => {
+    const link = document.createElement('a')
+    link.href = '#review-section'
+    link.textContent = 'Jump to review section'
+    document.body.append(link)
+  })
+  await page.getByRole('link', { name: 'Jump to review section' }).click()
+  await expect(page).toHaveURL(`${destinationURL}#review-section`)
+  await expect(editor).toContainText('unsaved destination draft')
+  expect(await lifetime()).toEqual(initial)
+  await page.goBack()
+  await expect(page).toHaveURL(destinationURL)
+  await expect(editor).toContainText('unsaved destination draft')
+  expect(await lifetime()).toEqual(initial)
+  const dialog = page.waitForEvent('dialog')
+  const goingBack = page.goBack()
+  await (await dialog).dismiss()
+  await goingBack
+  await expect(page).toHaveURL(destinationURL)
+  await expect(editor).toContainText('unsaved destination draft')
+  expect(await lifetime()).toEqual(initial)
+  expect(readFileSync(join(nextRepo, 'next.txt'), 'utf8')).toBe('PERSISTENT_DESTINATION_DIFF\n')
+
+  const leaveDialog = page.waitForEvent('dialog')
+  const leaving = page.goBack()
+  await (await leaveDialog).accept()
+  await leaving
+  await expect(page).toHaveTitle(`${basename(app.repo)} - Gitna`)
+  expect(await lifetime()).toEqual(initial)
+})
+
+test('persistent workers render the destination content for identical file paths and generations', async ({
+  page,
+  app,
+}) => {
+  const folders = ['same-source', 'same-destination'].map((name, index) => {
+    const repo = join(dirname(app.repo), name)
+    mkdirSync(repo)
+    runGit(repo, 'init', '-q', '-b', 'main')
+    runGit(repo, 'config', 'user.email', 'e2e@example.com')
+    runGit(repo, 'config', 'user.name', 'Gitna E2E')
+    writeFileSync(join(repo, 'README.md'), `original ${index}\n`)
+    runGit(repo, 'add', '--', 'README.md')
+    runGit(repo, 'commit', '-qm', 'initial')
+    writeFileSync(join(repo, 'README.md'), `REPOSITORY_CONTENT_${index}\n`)
+    return repo
+  })
+  await page.goto(app.url)
+  await expect(page.getByRole('switch', { name: 'Amend' })).toBeEnabled()
+  await switchFolderWithKeyboard(page, app.repo, folders[0]!)
+  await expect(page).toHaveTitle('same-source - Gitna')
+  await expect(page.locator('[data-folder-loading]')).toHaveCount(0)
+  await page.reload()
+  const rendered = () =>
+    page.locator('diffs-container').evaluate((element) => element.shadowRoot?.textContent ?? '')
+  await expect.poll(rendered).toContain('REPOSITORY_CONTENT_0')
+  const origin = await page.evaluate(() => performance.timeOrigin)
+  await switchFolderWithKeyboard(page, folders[0]!, folders[1]!)
+  await expect(page).toHaveTitle('same-destination - Gitna')
+  await expect.poll(rendered).toContain('REPOSITORY_CONTENT_1')
+  await expect.poll(rendered).not.toContain('REPOSITORY_CONTENT_0')
+  expect(await page.evaluate(() => performance.timeOrigin)).toBe(origin)
+  await page.goBack()
+  await expect(page).toHaveTitle('same-source - Gitna')
+  await expect.poll(rendered).toContain('REPOSITORY_CONTENT_0')
+  await expect.poll(rendered).not.toContain('REPOSITORY_CONTENT_1')
+  await page.goForward()
+  await expect(page).toHaveTitle('same-destination - Gitna')
+  await expect.poll(rendered).toContain('REPOSITORY_CONTENT_1')
+  await expect.poll(rendered).not.toContain('REPOSITORY_CONTENT_0')
+  expect(await page.evaluate(() => performance.timeOrigin)).toBe(origin)
+})
+
+test('switching to an alias of the current folder restores the usable workbench', async ({
+  page,
+  app,
+}) => {
+  await page.goto(app.url)
+  await expect(page.getByRole('switch', { name: 'Amend' })).toBeEnabled()
+  const initialURL = page.url()
+  await page.getByRole('combobox', { name: 'Folder path' }).fill(`${app.repo}/.`)
+  await page.getByRole('button', { name: 'Switch folder' }).click()
+  await expect(page.locator('[data-folder-loading]')).toHaveCount(0)
+  await expect(page).toHaveTitle(`${basename(app.repo)} - Gitna`)
+  await expect(page).toHaveURL(initialURL)
+  await expect(page.getByRole('switch', { name: 'Amend' })).toBeEnabled()
+})
+
+test('a delayed destination snapshot restores focus when the workbench becomes usable', async ({
+  page,
+  app,
+}) => {
+  const folder = join(dirname(app.repo), 'focus-destination')
+  mkdirSync(folder)
+  writeFileSync(join(folder, 'note.txt'), 'destination note\n')
+  await page.goto(app.url)
+  await expect(page.getByRole('switch', { name: 'Amend' })).toBeEnabled()
+  let release!: () => void
+  const pending = new Promise<void>((resolve) => {
+    release = resolve
+  })
+  await page.route('**/focus-destination/api/v1/snapshot', async (route) => {
+    await pending
+    await route.continue()
+  })
+  try {
+    await page.getByRole('combobox', { name: 'Folder path' }).fill(folder)
+    await page.getByRole('button', { name: 'Switch folder' }).click()
+    await expect(page).toHaveURL(/focus-destination\/$/)
+    await expect(page.locator('[data-folder-loading]')).toBeVisible()
+  } finally {
+    release()
+  }
+  await expect(page.locator('[data-folder-loading]')).toHaveCount(0)
+  await expect(page.getByRole('region', { name: 'Review' })).toBeFocused()
+})
+
 test('startup keeps themed feedback visible while the workbench loads', async ({ page, app }) => {
   await page.addInitScript(() => localStorage.setItem('theme', 'dark'))
   await page.emulateMedia({ colorScheme: 'light', reducedMotion: 'reduce' })

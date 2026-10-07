@@ -360,7 +360,10 @@ export class GitnaRepository {
   private repositoryFileCountRequest = 0
   private repositoryFileCountController: AbortController | null = null
 
-  constructor(api: ApiClient = createApi()) {
+  constructor(
+    api: ApiClient = createApi(),
+    private readonly eventsURL = 'api/v1/events',
+  ) {
     this.api = api
   }
 
@@ -1530,7 +1533,7 @@ export class GitnaRepository {
   connectEvents(): () => void {
     if (this.eventSource != null) return () => {}
     this.disposed = false
-    const source = new EventSource('api/v1/events')
+    const source = new EventSource(this.eventsURL)
     this.eventSource = source
     let refreshFiles = false
     let refreshGraph = false
@@ -2491,9 +2494,18 @@ export function createRepoState(options: { api?: ApiClient } = {}): GitnaReposit
 
 const RepositoryContext = createContext<GitnaRepository | null>(null)
 
-export function RepositoryProvider({ children }: { children: ReactNode }) {
+export function RepositoryProvider({
+  children,
+  baseURL,
+}: {
+  children: ReactNode
+  baseURL?: string
+}) {
   const storeRef = useRef<GitnaRepository | null>(null)
-  storeRef.current ??= new GitnaRepository()
+  storeRef.current ??= new GitnaRepository(
+    createApi(baseURL),
+    baseURL == null ? undefined : new URL('api/v1/events', baseURL).href,
+  )
   const repository = storeRef.current
 
   useEffect(() => {

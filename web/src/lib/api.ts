@@ -256,9 +256,11 @@ export function reviewQuery(request: ReviewRequest): string {
 
 /**
  * API client for the local workbench. All requests are same-origin relative to
- * the capability URL, so no absolute base is needed.
+ * the capability URL. A supplied base keeps in-flight clients bound to their folder.
  */
-export function createApi(): ApiClient {
+export function createApi(baseURL?: string): ApiClient {
+  const fetch = (url: string, options?: RequestInit) =>
+    globalThis.fetch(baseURL == null ? url : new URL(url, baseURL), options)
   return {
     async snapshot(): Promise<RepoSnapshot> {
       const res = await expectOK(

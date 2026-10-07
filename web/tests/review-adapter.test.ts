@@ -1,5 +1,8 @@
 import { describe, expect, it } from 'vite-plus/test'
 import {
+  adaptGitnaFile,
+  adaptGitnaReview,
+  adaptWorktreeFile,
   adaptWorktreeComparison,
   appendGitnaReviewPage,
   createGitnaReviewAccumulator,
@@ -26,6 +29,51 @@ function page(path: string, generation = 7, nextCursor?: string): ReviewResponse
     nextCursor,
   }
 }
+
+describe('persistent worker cache ownership', () => {
+  it('isolates identical file paths and generations between owners while retaining within-owner reuse', () => {
+    const diff = {
+      before: { path: 'same.txt', content: 'before\n', language: 'text' },
+      after: { path: 'same.txt', content: 'after\n', language: 'text' },
+      binary: false,
+      tooLarge: false,
+    }
+    const adapters = [
+      (owner: string) =>
+        adaptWorktreeFile(
+          { path: 'same.txt', content: 'after\n', hash: 'same-hash' },
+          7,
+          undefined,
+          owner,
+        ),
+      (owner: string) => adaptGitnaFile(diff, 7, owner),
+      (owner: string) => adaptWorktreeComparison(diff, 7, undefined, undefined, owner),
+      (owner: string) => {
+        const review = page('same.txt')
+        review.supplements[0]!.kind = 'modified'
+        review.supplements[0]!.diff.before.content = 'before\n'
+        return adaptGitnaReview(review, owner)
+      },
+    ]
+    for (const adapt of adapters) {
+      const key = (owner: string) => {
+        const item = adapt(owner).items[0]!
+        return item.type === 'file' ? item.file.cacheKey : item.fileDiff.cacheKey
+      }
+      expect(key('first:')).toBeDefined()
+      expect(key('first:')).toBe(key('first:'))
+      expect(key('first:')).not.toBe(key('second:'))
+    }
+    const draft = { name: 'same.txt', contents: 'unsaved revision\n' }
+    const item = adaptWorktreeFile(
+      { path: 'same.txt', content: 'after\n', hash: 'same-hash' },
+      7,
+      draft,
+      'first:',
+    ).items[0]!
+    expect(item.type === 'file' && item.file.cacheKey).toBeUndefined()
+  })
+})
 
 describe('worktree comparison adapter', () => {
   it('uses dirty draft contents and image annotations in Pierre diff items', () => {

@@ -364,15 +364,27 @@ function useReviewTarget(): ReviewTarget | null {
   return { key: scope, request: { scope } }
 }
 
-export function GitnaReviewUI({ searchRequest = 0 }: { searchRequest?: number }) {
+type GitnaReviewUIProps = {
+  searchRequest?: number
+  focusOnReady?: boolean
+  onFolderNavigate?: (href: string) => void
+  onNavigationGuardChange?: (guard: (() => boolean) | null) => void
+}
+
+export function GitnaReviewUI(props: GitnaReviewUIProps) {
   return (
     <ThemeSourceProvider controller={themeController}>
-      <GitnaReviewUIInner searchRequest={searchRequest} />
+      <GitnaReviewUIInner {...props} />
     </ThemeSourceProvider>
   )
 }
 
-function GitnaReviewUIInner({ searchRequest }: { searchRequest: number }) {
+function GitnaReviewUIInner({
+  searchRequest = 0,
+  focusOnReady = false,
+  onFolderNavigate,
+  onNavigationGuardChange,
+}: GitnaReviewUIProps) {
   const repository = useRepository()
   const target = useReviewTarget()
   const scopeKnownEmpty =
@@ -500,6 +512,12 @@ function GitnaReviewUIInner({ searchRequest }: { searchRequest: number }) {
     previousMarkdownModeRef.current = markdownMode
   }, [markdownMode])
   const reviewRootRef = useRef<HTMLDivElement>(null)
+  const destinationFocusRestored = useRef(false)
+  useEffect(() => {
+    if (!focusOnReady || destinationFocusRestored.current || repository.snapshot == null) return
+    reviewRootRef.current?.focus({ preventScroll: true })
+    destinationFocusRestored.current = true
+  }, [focusOnReady, repository.snapshot])
   const homeButtonRef = useRef<HTMLButtonElement>(null)
   const restoreHomeFocusRef = useRef(false)
   const viewerRef = useRef<CodeViewHandle<CommentMetadata, undefined> | null>(null)
@@ -509,6 +527,7 @@ function GitnaReviewUIInner({ searchRequest }: { searchRequest: number }) {
     path: string
   } | null>(null)
   const reviewItemVersionRef = useRef(0)
+  const [reviewCacheNamespace] = useState(() => `${crypto.randomUUID()}:`)
   const themeState = useThemeController(themeController)
 
   useEffect(() => {
@@ -744,7 +763,7 @@ function GitnaReviewUIInner({ searchRequest }: { searchRequest: number }) {
         if (untitled != null) {
           const loaded: WorktreeFile = { path, content: untitled.contents, hash: '' }
           setWorktreeFiles((current) => new Map(current).set(path, loaded))
-          return adaptWorktreeFile(loaded, repository.generation)
+          return adaptWorktreeFile(loaded, repository.generation, undefined, reviewCacheNamespace)
         }
         const loaded = await repository.api.readWorktreeFile(path)
         const rename = repository.worktreeRename
@@ -764,12 +783,17 @@ function GitnaReviewUIInner({ searchRequest }: { searchRequest: number }) {
             : (worktreeFilesRef.current.get(path) ??
               worktreeFilesRef.current.get(previousPath) ??
               loaded)
-        return adaptWorktreeFile({ ...baseline, path }, repository.generation, draft)
+        return adaptWorktreeFile(
+          { ...baseline, path },
+          repository.generation,
+          draft,
+          reviewCacheNamespace,
+        )
       } catch (error) {
         const draft = worktreeDraftsRef.current.get(path)
         const baseline = worktreeFilesRef.current.get(path)
         if (draft != null && baseline != null) {
-          return adaptWorktreeFile(baseline, repository.generation, draft)
+          return adaptWorktreeFile(baseline, repository.generation, draft, reviewCacheNamespace)
         }
         const unavailableTextFile =
           error instanceof ApiError &&
@@ -784,10 +808,10 @@ function GitnaReviewUIInner({ searchRequest }: { searchRequest: number }) {
             reviewAbortController.signal,
           )
           if (diff.tooLarge || diff.after.image == null) throw error
-          return adaptGitnaFile(diff, repository.generation)
+          return adaptGitnaFile(diff, repository.generation, reviewCacheNamespace)
         }
         const diff = await repository.api.diff({ scope: 'unstaged', path })
-        return adaptGitnaFile(diff, repository.generation)
+        return adaptGitnaFile(diff, repository.generation, reviewCacheNamespace)
       }
     }
     const loadWorktreeComparison = async (
@@ -824,13 +848,18 @@ function GitnaReviewUIInner({ searchRequest }: { searchRequest: number }) {
         repository.generation + comparison.version,
         leftDraft == null ? undefined : { ...leftDraft, name: comparison.leftPath },
         rightDraft == null ? undefined : { ...rightDraft, name: comparison.rightPath },
+        reviewCacheNamespace,
       )
     }
     const loadReview = async (): Promise<LoadedDiffsHubData> => {
       const request = { ...target.request!, signal: reviewAbortController.signal }
       let page = await repository.api.review(request)
       // CodeView ignores new content for matching IDs and versions, even across commits.
-      const assembly = createGitnaReviewAccumulator(page, ++reviewItemVersionRef.current)
+      const assembly = createGitnaReviewAccumulator(
+        page,
+        ++reviewItemVersionRef.current,
+        reviewCacheNamespace,
+      )
       let result = appendGitnaReviewPage(assembly, page)
       let loadedPages = 1
       while (
@@ -1345,6 +1374,16 @@ function GitnaReviewUIInner({ searchRequest }: { searchRequest: number }) {
 
   const dirtyPaths = useMemo(() => new Set(worktreeDrafts.keys()), [worktreeDrafts])
   useEffect(() => {
+    onNavigationGuardChange?.(() => {
+      if (repository.busy || savingPathRef.current != null) return false
+      return (
+        worktreeDraftsRef.current.size === 0 ||
+        window.confirm('You have unsaved file changes. Leave this folder and discard them?')
+      )
+    })
+    return () => onNavigationGuardChange?.(null)
+  }, [repository, onNavigationGuardChange])
+  useEffect(() => {
     if (dirtyPaths.size === 0) return
     const protectDrafts = (event: BeforeUnloadEvent) => {
       if (!allowFolderNavigationRef.current) event.preventDefault()
@@ -1436,8 +1475,26 @@ function GitnaReviewUIInner({ searchRequest }: { searchRequest: number }) {
           throw new Error('folder route must remain on the current Gitna origin')
         }
         if (traceStartup) target.searchParams.set('trace-startup', '1')
+        if (
+          onFolderNavigate != null &&
+          target.pathname === window.location.pathname &&
+          target.search === window.location.search
+        ) {
+          folderSwitchOperationRef.current = null
+          folderSwitchRestoreFocusRef.current = previousFocus
+          setFolderSwitchTransition(null)
+          setHomeOpen(false)
+          document.title = previousTitle
+          try {
+            sessionStorage.removeItem(switchStartupStorageKey)
+          } catch {
+            // Startup diagnostics are optional and never block recovery.
+          }
+          return
+        }
         allowFolderNavigationRef.current = true
-        window.location.assign(target.href)
+        if (onFolderNavigate == null) window.location.assign(target.href)
+        else onFolderNavigate(target.href)
       } catch (error) {
         if (folderSwitchOperationRef.current?.id !== id) return
         allowFolderNavigationRef.current = false
@@ -1461,7 +1518,7 @@ function GitnaReviewUIInner({ searchRequest }: { searchRequest: number }) {
         setHomeSwitchError(message)
       }
     },
-    [repository],
+    [repository, onFolderNavigate],
   )
   const openFolderInNewTab = useCallback(
     (path: string): Promise<void> => {
@@ -2753,6 +2810,7 @@ function ReviewGrid({
       ref={containerRef}
       role="region"
       aria-label="Review"
+      tabIndex={-1}
       aria-busy={connectionUnavailable || undefined}
       data-connection-state={repository.connectionState}
       className={cn(
