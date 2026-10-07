@@ -1755,7 +1755,7 @@ test('dispatched mutation loss stays unknown until acknowledged', async ({ page,
   await expect(unknown).toHaveCount(0)
 })
 
-test('Astra refresh updates already-rendered headers without remounting the editor', async ({
+test('Astra failed refresh recovery updates already-rendered headers without remounting the editor', async ({
   page,
   app,
 }) => {
@@ -1846,7 +1846,8 @@ test('Astra refresh updates already-rendered headers without remounting the edit
   const stateBeforeRefresh = await readEditorState()
   let stateDuringRefresh = stateBeforeRefresh
   const saveReason = page.locator('#gitna-action-reason-main-txt')
-  const expectedReason = 'Refreshing backend state. Wait for refresh to complete.'
+  const expectedReason =
+    'Refreshing backend state. Wait for refresh to complete. Refresh failed for test Refresh to retry.'
 
   let releaseSnapshot!: () => void
   let markSnapshotRequested!: () => void
@@ -1857,7 +1858,13 @@ test('Astra refresh updates already-rendered headers without remounting the edit
     markSnapshotRequested = resolve
   })
   let snapshotHeld = false
+  let failSnapshot = true
   await page.route('**/api/v1/snapshot', async (route) => {
+    if (failSnapshot && route.request().method() === 'GET') {
+      failSnapshot = false
+      await route.fulfill({ status: 500, json: { error: 'Refresh failed for test' } })
+      return
+    }
     if (!snapshotHeld && route.request().method() === 'GET') {
       snapshotHeld = true
       markSnapshotRequested()
@@ -1998,7 +2005,13 @@ test('Astra refresh updates already-rendered headers without remounting the edit
     markHunkSnapshotRequested = resolve
   })
   let hunkSnapshotHeld = false
+  let failHunkSnapshot = true
   await page.route('**/api/v1/snapshot', async (route) => {
+    if (failHunkSnapshot && route.request().method() === 'GET') {
+      failHunkSnapshot = false
+      await route.fulfill({ status: 500, json: { error: 'Refresh failed for test' } })
+      return
+    }
     if (!hunkSnapshotHeld && route.request().method() === 'GET') {
       hunkSnapshotHeld = true
       markHunkSnapshotRequested()

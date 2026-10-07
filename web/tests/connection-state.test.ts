@@ -1042,6 +1042,69 @@ describe('GitnaRepository connection owner', () => {
     cleanup()
   })
 
+  it.each(['snapshot-invalidated', 'files-invalidated', 'graph-invalidated'])(
+    'keeps healthy %s refreshes quiet while publishing updated data',
+    async (event) => {
+      const pending = deferred<RepoSnapshot>()
+      const api = apiFor(vi.fn().mockResolvedValueOnce(snapshot()).mockReturnValue(pending.promise))
+      const repo = new GitnaRepository(api)
+      const cleanup = repo.connectEvents()
+      TestEventSource.current!.dispatch('open')
+      await repo.refreshCurrentFolder()
+      api.directoryEntries = vi.fn().mockResolvedValue({
+        directory: '',
+        entries: [],
+        generation: 2,
+        truncated: false,
+      })
+      const states: string[] = []
+      repo.subscribe(() => states.push(repo.connectionState))
+
+      TestEventSource.current!.dispatch(event)
+      await vi.advanceTimersByTimeAsync(150)
+      expect(api.snapshot).toHaveBeenCalledTimes(2)
+      expect(repo.connectionReady).toBe(true)
+      expect(repo.getActionDisabledReason()).toBeNull()
+      pending.resolve(snapshot(2))
+      await vi.advanceTimersByTimeAsync(0)
+      expect(repo.generation).toBe(2)
+      expect(states.length).toBeGreaterThan(0)
+      expect(states.every((state) => state === 'connected')).toBe(true)
+      cleanup()
+    },
+  )
+
+  it('blocks actions when a healthy background refresh fails until full recovery completes', async () => {
+    const pending = deferred<RepoSnapshot>()
+    const retry = deferred<RepoSnapshot>()
+    const api = apiFor(
+      vi
+        .fn()
+        .mockResolvedValueOnce(snapshot())
+        .mockReturnValueOnce(pending.promise)
+        .mockReturnValue(retry.promise),
+    )
+    const repo = new GitnaRepository(api)
+    const cleanup = repo.connectEvents()
+    TestEventSource.current!.dispatch('open')
+    await repo.refreshCurrentFolder()
+    TestEventSource.current!.dispatch('snapshot-invalidated')
+    await vi.advanceTimersByTimeAsync(150)
+    expect(repo.connectionReady).toBe(true)
+    pending.reject(new Error('background refresh failed'))
+    await vi.advanceTimersByTimeAsync(0)
+    expect(repo.connectionState).toBe('reconciling')
+    expect(repo.connectionError).toBe('background refresh failed')
+    expect(repo.getActionDisabledReason()).toContain('background refresh failed')
+    await vi.advanceTimersByTimeAsync(1_000)
+    expect(repo.connectionReady).toBe(false)
+    retry.resolve(snapshot())
+    await vi.advanceTimersByTimeAsync(0)
+    expect(repo.connectionReady).toBe(true)
+    expect(repo.connectionError).toBeNull()
+    cleanup()
+  })
+
   it('keeps catalog auxiliary and probes Snapshot-only', async () => {
     const catalog = deferred<Awaited<ReturnType<ApiClient['folders']>>>()
     const api = apiFor(async () => snapshot())

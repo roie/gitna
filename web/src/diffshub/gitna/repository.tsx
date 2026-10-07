@@ -1193,16 +1193,18 @@ export class GitnaRepository {
     intent: ReconciliationIntent,
   ): Promise<ReconciliationOutcome> {
     if (operationEpoch !== this.repositoryEpoch) return reconciliationOutcome('obsolete')
-    this.setConnectionState(
-      this.sourceOpen
-        ? 'reconciling'
-        : this.recoveryNoticeDelivered
-          ? 'unreachable'
-          : this.sourceHasOpened
-            ? 'reconnecting'
-            : 'connecting',
-      this.sourceOpen || this.recoveryNoticeDelivered ? this.connectionError : null,
-    )
+    if (!this.sourceOpen || !this.connectionReady) {
+      this.setConnectionState(
+        this.sourceOpen
+          ? 'reconciling'
+          : this.recoveryNoticeDelivered
+            ? 'unreachable'
+            : this.sourceHasOpened
+              ? 'reconnecting'
+              : 'connecting',
+        this.sourceOpen || this.recoveryNoticeDelivered ? this.connectionError : null,
+      )
+    }
     const previousRepository = this.snapshot?.repository
     const snapshotResult = await this.readSnapshot(intent.fileMembership)
     if (operationEpoch !== this.repositoryEpoch) return reconciliationOutcome('obsolete')
@@ -1214,6 +1216,7 @@ export class GitnaRepository {
 
     const capabilityChanged =
       previousRepository != null && previousRepository !== this.snapshot?.repository
+    if (capabilityChanged) this.setConnectionState('reconciling', null)
     const includeExplorer = intent.includeExplorer || capabilityChanged
     const includeGit = intent.includeGit || capabilityChanged
     const gitEpoch = this.gitDetailEpoch
