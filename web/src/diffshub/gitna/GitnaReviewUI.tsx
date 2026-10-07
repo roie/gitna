@@ -1163,7 +1163,7 @@ function GitnaReviewUIInner({ searchRequest }: { searchRequest: number }) {
         type: 'item',
         id: itemId,
         align: 'start',
-        behavior: 'smooth-auto',
+        behavior: 'instant',
       })
     })
   }, [reviewData, target?.filePath, target?.key, target?.selectedPath])

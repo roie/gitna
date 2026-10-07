@@ -54,6 +54,45 @@ async function visibleLine(viewer: Locator): Promise<{ text: string; top: number
   return line!
 }
 
+test('file selection jumps directly to the selected diff without animated scrolling', async ({
+  page,
+  app,
+}) => {
+  addScrollFiles(app.repo)
+  await page.setViewportSize({ width: 1280, height: 720 })
+  await page.goto(app.url)
+  const tree = page.locator('#gitna-unstaged-tree__tree')
+  await tree.getByRole('treeitem', { name: 'binary.dat', exact: true }).click()
+  const viewer = page.locator('.code-view')
+  await expect(viewer).toBeVisible()
+  await settleLayout(page)
+
+  const path = 'scroll-002.txt'
+  const row = tree.getByRole('treeitem', { name: path, exact: true })
+  await expect(row).toBeVisible()
+  const positions = await row.evaluate(async (element) => {
+    const scroller = document.querySelector('.code-view')!
+    const positions = [scroller.scrollTop]
+    ;(element as HTMLElement).click()
+    for (let frame = 0; frame < 40; frame++) {
+      await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()))
+      positions.push(scroller.scrollTop)
+    }
+    return positions
+  })
+  await expect(row).toHaveAttribute('aria-selected', 'true')
+  await expect(
+    page.getByRole('button', { name: `Stage file ${path}`, exact: true }),
+  ).toBeInViewport()
+  const start = positions[0]!
+  const end = positions.at(-1)!
+  expect(end - start).toBeGreaterThan(720)
+  expect(
+    positions.filter((position) => position > start + 2 && position < end - 2),
+    'navigation must not render intermediate scroll positions',
+  ).toEqual([])
+})
+
 for (const surface of ['Changes list', 'diff view'] as const) {
   test(`${surface} preserves the reading position during a background refresh`, async ({
     page,
