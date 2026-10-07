@@ -1,6 +1,15 @@
 import { IconSearch } from '@pierre/icons'
 import { FileX, LoaderCircle } from 'lucide-react'
-import { Fragment, type ReactNode, useEffect, useId, useMemo, useRef, useState } from 'react'
+import {
+  Fragment,
+  type ReactNode,
+  useEffect,
+  useId,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react'
 
 import { cn } from '../lib/cn'
 import { splitPaletteFileMatchIndices, paletteTextMatches } from './commandPalette'
@@ -195,6 +204,7 @@ export function GitnaCommandPalette({
   const [includeIgnored, setIncludeIgnored] = useState(true)
   const [activeIndex, setActiveIndex] = useState(0)
   const [refusal, setRefusal] = useState<string | null>(null)
+  const [showFileSearchBusy, setShowFileSearchBusy] = useState(false)
   const listboxId = useId()
   const commandMode = query.trimStart().startsWith('>')
   const lineMode = query.trimStart().startsWith(':')
@@ -254,7 +264,26 @@ export function GitnaCommandPalette({
     onGoToLine,
   ])
 
+  const fileSearchErrorCurrent =
+    !commandMode &&
+    !lineMode &&
+    error != null &&
+    lastRequestedFileQueryRef.current === fileRequestKey
+  const fileSearchBusy =
+    !commandMode &&
+    !lineMode &&
+    (searching || (!fileSearchErrorCurrent && (!fileResultsCurrent || !fileSearchComplete)))
+
   useEffect(() => {
+    if (!open || !fileSearchBusy) {
+      setShowFileSearchBusy(false)
+      return
+    }
+    const timer = window.setTimeout(() => setShowFileSearchBusy(true), 200)
+    return () => window.clearTimeout(timer)
+  }, [open, fileSearchBusy])
+
+  useLayoutEffect(() => {
     const dialog = dialogRef.current
     if (!open || dialog == null) return
     setQuery(initialQuery)
@@ -326,12 +355,6 @@ export function GitnaCommandPalette({
 
   if (!open) return null
 
-  const fileSearchErrorCurrent =
-    !commandMode && error != null && lastRequestedFileQueryRef.current === fileRequestKey
-  const fileSearchBusy =
-    !commandMode &&
-    (searching || (!fileSearchErrorCurrent && (!fileResultsCurrent || !fileSearchComplete)))
-
   return (
     <dialog
       ref={dialogRef}
@@ -391,7 +414,7 @@ export function GitnaCommandPalette({
             }
           }}
         />
-        {fileSearchBusy && (
+        {fileSearchBusy && showFileSearchBusy && (
           <span className="flex shrink-0 items-center text-muted-foreground" role="status">
             <LoaderCircle
               aria-hidden="true"
@@ -426,7 +449,7 @@ export function GitnaCommandPalette({
         role="listbox"
         aria-label={commandMode ? 'Commands' : 'Files'}
         aria-busy={fileSearchBusy}
-        className="gitna-scrollbar max-h-[min(560px,calc(84dvh-58px))] overflow-y-auto overscroll-contain p-1.5"
+        className="gitna-scrollbar h-[min(560px,calc(84dvh-58px))] overflow-y-auto overscroll-contain p-1.5"
       >
         {results.map((result, index) => (
           <button
