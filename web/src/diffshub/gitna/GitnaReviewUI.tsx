@@ -1537,8 +1537,13 @@ function GitnaReviewUIInner({ searchRequest }: { searchRequest: number }) {
       setRecentlySavedPath((current) => (current === path ? null : current))
       const next = new Map(worktreeDraftsRef.current)
       const baseline = worktreeFilesRef.current.get(path)
-      if (baseline != null && baseline.content === file.contents) next.delete(path)
-      else next.set(path, file)
+      if (
+        savingPathRef.current !== path &&
+        baseline != null &&
+        baseline.content === file.contents
+      ) {
+        next.delete(path)
+      } else next.set(path, file)
       worktreeDraftsRef.current = next
       setWorktreeDrafts(next)
     },
@@ -1573,11 +1578,19 @@ function GitnaReviewUIInner({ searchRequest }: { searchRequest: number }) {
         }
       } catch (error) {
         setReviewActionError(error instanceof Error ? error.message : String(error))
+        return false
       } finally {
+        const activeDraft = worktreeDraftsRef.current.get(path)
+        if (activeDraft?.contents === worktreeFilesRef.current.get(path)?.content) {
+          const nextDrafts = new Map(worktreeDraftsRef.current)
+          nextDrafts.delete(path)
+          worktreeDraftsRef.current = nextDrafts
+          setWorktreeDrafts(nextDrafts)
+        }
         savingPathRef.current = null
         setSavingPath(null)
       }
-      return true
+      return !worktreeDraftsRef.current.has(path)
     },
     [repository],
   )
@@ -1589,9 +1602,11 @@ function GitnaReviewUIInner({ searchRequest }: { searchRequest: number }) {
       setPendingUntitledSaveAs(untitled)
       return
     }
-    for (const path of pending.dirtyPaths) {
+    for (const path of pending.paths) {
+      if (!worktreeDraftsRef.current.has(path)) continue
       if (!(await saveWorktreeFile(path))) return
     }
+    if (pending.paths.some((path) => worktreeDraftsRef.current.has(path))) return
     setPendingTabClose(null)
     repository.closeRepositoryFiles(pending.paths)
   }, [pendingTabClose, repository, saveWorktreeFile])
