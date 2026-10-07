@@ -31,7 +31,7 @@ export const ThemedCodeView: ThemedCodeViewComponent = <
   theme?: DiffThemeInput;
 }): React.JSX.Element => {
   const diffTheme = useDiffThemeProps(theme);
-  useWorkerDiffTheme(diffTheme.theme, disableWorkerPool);
+  const workerPoolDisabled = useWorkerDiffTheme(diffTheme.theme, disableWorkerPool);
   const themedOptions = useMemo(
     () => ({
       ...options,
@@ -44,7 +44,8 @@ export const ThemedCodeView: ThemedCodeViewComponent = <
     <CodeView<LAnnotation, undefined>
       {...props}
       ref={ref}
-      disableWorkerPool={disableWorkerPool}
+      key={workerPoolDisabled ? 'main-thread' : 'workers'}
+      disableWorkerPool={workerPoolDisabled}
       options={themedOptions}
     />
   );

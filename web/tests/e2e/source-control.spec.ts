@@ -1121,6 +1121,37 @@ for (const failure of ['blocked', 'timed out'] as const) {
   })
 }
 
+test('worker fallback preserves the selected theme in diffs and editable files', async ({
+  page,
+  app,
+}) => {
+  writeFileSync(join(app.repo, 'theme.js'), 'export const answer = 42;\n')
+  await page.addInitScript(() => {
+    localStorage.setItem('theme', 'dark')
+    localStorage.setItem('diffshub-dark-theme', 'github-dark')
+  })
+  await page.route('**/assets/worker-*.js', (route) => route.abort())
+  await page.goto(app.url)
+  const line = page.locator('[data-line]').filter({ hasText: 'export const answer = 42;' }).first()
+  await expect(line).toBeVisible({ timeout: 20_000 })
+  const renderedBackground = () =>
+    line.evaluate((element) => {
+      const root = element.getRootNode() as ShadowRoot
+      return getComputedStyle(root.host).getPropertyValue('--diffs-dark-bg').trim()
+    })
+  await expect.poll(renderedBackground).toBe('#24292e')
+  await page.getByRole('button', { name: 'Stage file theme.js', exact: true }).click()
+  await expect.poll(() => runGit(app.repo, 'diff', '--cached', '--name-only')).toContain('theme.js')
+  await page.locator('[data-section="repository"]').click()
+  await page
+    .locator('#gitna-repository-tree__tree')
+    .getByRole('treeitem', { name: 'theme.js', exact: true })
+    .click()
+  await expect(page.getByRole('textbox', { name: 'theme.js', exact: true })).toBeVisible()
+  await expect(line).toBeVisible()
+  await expect.poll(renderedBackground).toBe('#24292e')
+})
+
 test('workbench load failure offers recovery instead of an empty screen', async ({ page, app }) => {
   await page.route('**/assets/GitnaReviewUI-*.js', (route) => route.abort())
   await page.goto(app.url)
