@@ -2076,7 +2076,7 @@ function GitnaReviewUIInner({ searchRequest }: { searchRequest: number }) {
                     />
                   </Suspense>
                 )}
-                {sidebarMode === 'source' && <GitnaSourceControl />}
+                <GitnaSourceControl active={sidebarMode === 'source'} />
               </DiffsHubSidebar>
             )}
             <div className="flex min-h-0 flex-col [grid-area:viewer]">

@@ -494,7 +494,30 @@ function useNaturalPaneHeight(
   return height
 }
 
-export function GitnaSourceControl() {
+export function GitnaSourceControl({ active = true }: { active?: boolean }) {
+  const [commitMessage, setCommitMessage] = useState('')
+  const [amend, setAmend] = useState(false)
+  return active ? (
+    <GitnaSourceControlInner
+      commitMessage={commitMessage}
+      setCommitMessage={setCommitMessage}
+      amend={amend}
+      setAmend={setAmend}
+    />
+  ) : null
+}
+
+function GitnaSourceControlInner({
+  commitMessage,
+  setCommitMessage,
+  amend,
+  setAmend,
+}: {
+  commitMessage: string
+  setCommitMessage: (message: string) => void
+  amend: boolean
+  setAmend: (amend: boolean) => void
+}) {
   const repository = useRepository()
   const [repositoryOpen, setRepositoryOpen] = useState(false)
   const [workflowOpen, setWorkflowOpen] = useState(true)
@@ -507,8 +530,6 @@ export function GitnaSourceControl() {
   const [repositoryView, setRepositoryView] = useState<RepositoryViewMode>('tree')
   const [showHiddenFiles, setShowHiddenFiles] = useState(true)
   const [showIgnoredFiles, setShowIgnoredFiles] = useState(true)
-  const [commitMessage, setCommitMessage] = useState('')
-  const [amend, setAmend] = useState(false)
   const [localError, setLocalError] = useState<string | null>(null)
   const [pendingConfirm, setPendingConfirm] = useState<PendingConfirm | null>(null)
   const [operationDialog, setOperationDialog] = useState<OperationDialog>(null)

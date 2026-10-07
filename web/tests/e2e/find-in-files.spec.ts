@@ -79,6 +79,38 @@ test('Find in Files keeps its query, focuses on shortcut, and opens matching lin
   await expect(search.getByText('No results found.')).toHaveCount(0)
 })
 
+test('Source Control preserves its commit draft across search and a failed commit', async ({
+  page,
+  app,
+}) => {
+  await page.goto(app.url)
+  const composer = page.getByRole('textbox', { name: 'Commit message' })
+  const amend = page.getByRole('switch', { name: 'Amend' })
+  await composer.fill('Keep this commit draft while searching')
+  await amend.click()
+  await page.keyboard.press('Control+Shift+f')
+  const search = page.getByRole('region', { name: 'Find in Files' })
+  await search.getByRole('textbox', { name: 'Search files', exact: true }).fill('FIFTY')
+  await expect(search.getByText('1 result in 1 file', { exact: true })).toBeVisible()
+  await search.getByRole('button', { name: 'Show Source Control' }).click()
+  await expect(composer).toHaveValue('Keep this commit draft while searching')
+  await expect(amend).toBeChecked()
+
+  const commitRoute = '**/api/v1/operations?op=commit'
+  await page.route(commitRoute, (route) =>
+    route.fulfill({ status: 200, json: { ok: false, stderr: 'Commit rejected for test' } }),
+  )
+  const commit = page.getByRole('button', { name: 'Commit', exact: true })
+  await commit.click()
+  await expect(page.getByText('Commit rejected for test', { exact: true }).first()).toBeVisible()
+  await expect(composer).toHaveValue('Keep this commit draft while searching')
+  await expect(amend).toBeChecked()
+
+  await page.unroute(commitRoute)
+  await commit.click()
+  await expect(composer).toHaveValue('')
+})
+
 test('Find in Files filters, regex highlights and ignore controls use the real backend', async ({
   page,
   app: gitna,
