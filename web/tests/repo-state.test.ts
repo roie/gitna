@@ -938,6 +938,24 @@ describe('createRepoState', () => {
     expect(revealPath).toHaveBeenCalledTimes(1)
   })
 
+  it('publishes successful rename mapping before reconciliation reads', async () => {
+    const state = createRepoState({
+      api: { ...auxApi, renameWorktreeEntry: async () => {}, snapshot: async () => snapshot() },
+    })
+    await admitAction(state)
+    state.repositoryOpenPaths = ['old.txt']
+    state.repositoryFilePath = 'old.txt'
+    state.repositorySelectedPaths = ['old.txt']
+    let selectedDuringRefresh: string | null = null
+    state.api.snapshot = async () => {
+      selectedDuringRefresh = state.repositoryFilePath
+      return snapshot()
+    }
+    await state.renameWorktreeEntry('old.txt', 'new.txt')
+    expect(selectedDuringRefresh).toBe('new.txt')
+    expect(state.worktreeRename?.destination).toBe('new.txt')
+  })
+
   it('preserves tab changes made while a rename is pending', async () => {
     let release!: () => void
     const gate = new Promise<void>((resolve) => {

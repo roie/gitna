@@ -1,20 +1,47 @@
-import { type ReactNode, useEffect, useRef } from 'react'
+import { type ReactNode, useEffect, useRef, useState } from 'react'
 
 import * as AlertDialog from '@radix-ui/react-alert-dialog'
 import { IconX } from '@pierre/icons'
 
 import { Button } from '../components/Button'
 
+function captureReturnFocus(): () => void {
+  let active = document.activeElement
+  while (active?.shadowRoot?.activeElement != null) active = active.shadowRoot.activeElement
+  const menu = active?.closest('[role="menu"]')
+  const root = active?.getRootNode() as Document | ShadowRoot | undefined
+  const triggerId = menu?.getAttribute('aria-labelledby')
+  const target = (
+    triggerId == null ? active : root?.getElementById(triggerId)
+  ) as HTMLElement | null
+  const label = target?.getAttribute('aria-label')
+  return () => {
+    if (target?.isConnected && !target.matches(':disabled')) target.focus()
+    else if (label != null) {
+      const replacement = Array.from(
+        document.querySelectorAll<HTMLElement>('button[aria-label]'),
+      ).find(
+        (element) => element.getAttribute('aria-label') === label && !element.matches(':disabled'),
+      )
+      replacement?.focus()
+    }
+  }
+}
+
 interface ModalProps {
   children: ReactNode
+  error?: string | null
   onClose: () => void
   disabledReason?: string | null
   role?: 'dialog' | 'alertdialog'
   title: string
 }
 
-export function Modal({ children, onClose, disabledReason, role, title }: ModalProps) {
+export function Modal({ children, onClose, disabledReason, error, role, title }: ModalProps) {
   const dialogRef = useRef<HTMLDialogElement>(null)
+  const [restoreFocus] = useState(captureReturnFocus)
+  const closeRef = useRef(onClose)
+  closeRef.current = onClose
 
   useEffect(() => {
     const dialog = dialogRef.current
@@ -22,11 +49,15 @@ export function Modal({ children, onClose, disabledReason, role, title }: ModalP
     dialog.showModal()
     const onCancel = (event: Event) => {
       event.preventDefault()
-      onClose()
+      closeRef.current()
     }
     dialog.addEventListener('cancel', onCancel)
-    return () => dialog.removeEventListener('cancel', onCancel)
-  }, [onClose])
+    return () => {
+      dialog.removeEventListener('cancel', onCancel)
+      dialog.close()
+      restoreFocus()
+    }
+  }, [restoreFocus])
 
   return (
     <dialog
@@ -48,6 +79,11 @@ export function Modal({ children, onClose, disabledReason, role, title }: ModalP
         {disabledReason != null && (
           <p className="mb-3 overflow-wrap-anywhere text-xs text-muted-foreground" role="note">
             {disabledReason}
+          </p>
+        )}
+        {error != null && (
+          <p className="mb-3 text-xs text-red-600 dark:text-red-400" role="alert">
+            {error}
           </p>
         )}
         {children}
@@ -73,6 +109,7 @@ export function Confirm({
   disabledReason,
   title,
 }: ConfirmProps) {
+  const [restoreFocus] = useState(captureReturnFocus)
   const portalContainer =
     typeof document === 'undefined'
       ? undefined
@@ -86,7 +123,13 @@ export function Confirm({
     >
       <AlertDialog.Portal container={portalContainer}>
         <AlertDialog.Overlay className="fixed inset-0 z-50 bg-black/50" />
-        <AlertDialog.Content className="fixed left-1/2 top-1/2 z-50 w-[min(440px,calc(100vw-2rem))] -translate-x-1/2 -translate-y-1/2 rounded-lg border border-border bg-background p-5 text-foreground shadow-lg outline-none">
+        <AlertDialog.Content
+          onCloseAutoFocus={(event) => {
+            event.preventDefault()
+            restoreFocus()
+          }}
+          className="fixed left-1/2 top-1/2 z-50 w-[min(440px,calc(100vw-2rem))] -translate-x-1/2 -translate-y-1/2 rounded-lg border border-border bg-background p-5 text-foreground shadow-lg outline-none"
+        >
           <AlertDialog.Title className="text-base font-semibold leading-none">
             {title}
           </AlertDialog.Title>

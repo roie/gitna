@@ -99,6 +99,7 @@ export interface GitnaOpenFileAction {
 }
 
 export interface GitnaViewerActions {
+  cacheNamespace: string;
   canOpenFile(path: string): boolean;
   onRevealFile: (path: string) => void;
   kindForPath(path: string): ChangeKind | undefined;
@@ -571,7 +572,13 @@ export const DiffsHubViewer = memo(function DiffsHubViewer({
           </div>
         );
       }
-      if (gitnaActions != null) return <GitnaHeaderActions actions={gitnaActions} item={item} />;
+      if (gitnaActions != null) return (
+        <GitnaHeaderActions
+          key={JSON.stringify([gitnaActions.cacheNamespace, gitnaActions.scope, item.id, item.fileDiff.cacheKey])}
+          actions={gitnaActions}
+          item={item}
+        />
+      );
       if (gitnaOpenFileAction == null) return null;
       const path = item.fileDiff.name;
       if (!gitnaOpenFileAction.canOpenFile(path)) return null;
@@ -924,9 +931,11 @@ function GitnaHeaderActions({
                 void actions.onPatch({
                   op: 'patch', patch: hunk.patch, patchId,
                   scope: actions.scope, path, reverse: actions.scope === 'staged',
-                }).catch((error: unknown) => actions.onError(
-                  error instanceof Error ? error.message : String(error)
-                ));
+                }).catch((error: unknown) => {
+                  setHunks(null);
+                  setPatchId(null);
+                  actions.onError(error instanceof Error ? error.message : String(error));
+                });
               }}
             >
               {primaryLabel} hunk {index + 1}

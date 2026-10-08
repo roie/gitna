@@ -1204,8 +1204,15 @@ function GitnaReviewUIInner({
 
   const handleLineLinkChange = useCallback((_selection: CodeViewLineSelection | null) => {}, [])
 
+  const comparisonPending = target?.request?.scope === 'compare' && repository.compareLoading
+  const comparisonError = target?.request?.scope === 'compare' ? repository.compareError : null
+  const surfaceState = comparisonPending
+    ? 'fetching'
+    : comparisonError != null
+      ? 'error'
+      : loadState
   const viewerAvailable =
-    workerReady && themesHydrated && loadState === 'ready' && reviewData != null
+    workerReady && themesHydrated && surfaceState === 'ready' && reviewData != null
 
   useEffect(() => {
     if (
@@ -1293,6 +1300,7 @@ function GitnaReviewUIInner({
       ? undefined
       : {
           scope: workingScope,
+          cacheNamespace: reviewCacheNamespace,
           canOpenFile(path) {
             return repository.canOpenRepositoryFile(path)
           },
@@ -2180,8 +2188,8 @@ function GitnaReviewUIInner({
                   />
                 ) : repository.snapshot?.repository === false && target == null ? (
                   <FolderEmptyState />
-                ) : scopeKnownEmpty ||
-                  (loadState === 'ready' && reviewData != null && reviewData.items.length === 0) ? (
+                ) : surfaceState === 'ready' &&
+                  (scopeKnownEmpty || (reviewData != null && reviewData.items.length === 0)) ? (
                   <GitnaEmptyState scope={target?.request?.scope} />
                 ) : viewerAvailable && reviewData != null ? (
                   <div
@@ -2304,16 +2312,25 @@ function GitnaReviewUIInner({
                   <div className="grid h-full min-h-0 [&>*]:h-full">
                     <DiffsHubStatusPanel
                       contentKind={target?.filePath == null ? 'diff' : 'file'}
-                      errorMessage={errorMessage ?? repository.error}
+                      errorMessage={comparisonError ?? errorMessage ?? repository.error}
                       localRepository
-                      onRetry={() => setReviewAttempt((attempt) => attempt + 1)}
+                      onRetry={() => {
+                        if (target?.request?.scope === 'compare' && repository.compare != null) {
+                          void repository.openCompare(
+                            repository.compare.from,
+                            repository.compare.to,
+                            repository.compare.label,
+                          )
+                        }
+                        setReviewAttempt((attempt) => attempt + 1)
+                      }}
                       suppressError={
                         loadState === 'error' &&
                         (repository.connectionState !== 'connected' ||
                           errorMessage === 'Failed to fetch' ||
                           repository.error === 'Failed to fetch')
                       }
-                      state={loadState}
+                      state={surfaceState}
                     />
                   </div>
                 )}

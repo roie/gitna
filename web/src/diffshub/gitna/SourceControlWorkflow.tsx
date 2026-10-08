@@ -72,6 +72,7 @@ import {
   nextGraphFocusIndex,
   shouldLoadMoreGraph,
 } from './graphVirtualization'
+import { expandRepositoryFolders } from './expandRepositoryFolders'
 import { Confirm, Modal } from './Modal'
 import { RepositoryEntryModal } from './RepositoryEntryModal'
 import { useRepository } from './repository'
@@ -2064,6 +2065,23 @@ function RepositoryHeaderActions({
 }) {
   const repository = useRepository()
   const disabledReason = repository.getActionDisabledReason()
+  const cancelExpansion = useRef<(() => void) | null>(null)
+  useEffect(
+    () => () => {
+      cancelExpansion.current?.()
+      cancelExpansion.current = null
+    },
+    [model, view, repository.snapshot?.root],
+  )
+  const [renameTarget, setRenameTarget] = useState<string | null>(null)
+  useEffect(() => {
+    const update = () => {
+      const path = model?.getSelectedPaths()[0]
+      setRenameTarget(path != null && model?.getItem(path) != null ? path : null)
+    }
+    update()
+    return model?.subscribe(update)
+  }, [model])
   const filtered = selectedStatuses.size > 0
   const visibleFilters = REPOSITORY_FILTERS.filter(({ status }) => availableStatuses.has(status))
   const [isMac] = useState(
@@ -2178,10 +2196,9 @@ function RepositoryHeaderActions({
             New Folder
           </DropdownMenuItem>
           <DropdownMenuItem
-            disabled={model == null || disabledReason != null}
+            disabled={renameTarget == null || disabledReason != null}
             onSelect={() => {
-              const source = model?.getSelectedPaths()[0]
-              if (source != null) onRename(source)
+              if (renameTarget != null) onRename(renameTarget)
             }}
           >
             Rename
@@ -2215,13 +2232,20 @@ function RepositoryHeaderActions({
           <DropdownMenuSeparator />
           <DropdownMenuItem
             disabled={view !== 'tree' || model == null}
-            onSelect={() => setRepositoryFoldersExpanded(model, paths, true)}
+            onSelect={() => {
+              cancelExpansion.current?.()
+              if (model != null) cancelExpansion.current = expandRepositoryFolders(model)
+            }}
           >
             Expand all folders
           </DropdownMenuItem>
           <DropdownMenuItem
             disabled={view !== 'tree' || model == null}
-            onSelect={() => setRepositoryFoldersExpanded(model, paths, false)}
+            onSelect={() => {
+              cancelExpansion.current?.()
+              cancelExpansion.current = null
+              setRepositoryFoldersExpanded(model, paths, false)
+            }}
           >
             Collapse all folders
           </DropdownMenuItem>
@@ -3557,6 +3581,14 @@ function OperationModal({ kind, onClose, onConfirm, onError }: OperationModalPro
   const [tagMessage, setTagMessage] = useState('')
   const [tagTarget, setTagTarget] = useState('HEAD')
   const [remote, setRemote] = useState('')
+  const [dialogError, setDialogError] = useState<string | null>(null)
+  const mounted = useRef(true)
+  useEffect(() => {
+    mounted.current = true
+    return () => {
+      mounted.current = false
+    }
+  }, [])
   const disabledReason = repository.getActionDisabledReason()
 
   useEffect(() => {
@@ -3576,13 +3608,24 @@ function OperationModal({ kind, onClose, onConfirm, onError }: OperationModalPro
       onError(disabledReason)
       return
     }
+    setDialogError(null)
     onError(null)
     try {
       await action()
     } catch (error) {
-      onError(message(error))
+      if (mounted.current) setDialogError(message(error))
     }
   }
+  const referenceStatus = (
+    <ReadStatus
+      loading={repository.branchesLoading || repository.tagsLoading}
+      error={repository.branchesError ?? repository.tagsError}
+      onRetry={() => {
+        void repository.refreshBranches()
+        void repository.refreshTags()
+      }}
+    />
+  )
   const refs = [
     'HEAD',
     ...repository.branches.map((branch) => branch.name),
@@ -3592,23 +3635,31 @@ function OperationModal({ kind, onClose, onConfirm, onError }: OperationModalPro
   if (kind === 'compare') {
     return (
       <Modal title="Compare references" onClose={onClose}>
+        {referenceStatus}
         <div className="grid gap-3">
           <SelectField label="From" value={from} values={refs} onChange={setFrom} />
           <SelectField label="To" value={to} values={refs} onChange={setTo} />
           <Button
             variant="outline"
             size="sm"
-            disabled={from === to}
+            disabled={from === to || repository.compareLoading}
             onClick={() => void repository.openCompare(from, to, `${from}..${to}`)}
           >
             Compare
           </Button>
-          {repository.compare != null && (
-            <p className="text-xs text-muted-foreground">
-              {repository.compare.label} · {repository.compareFiles.length} changed files loaded in
-              the review surface.
-            </p>
-          )}
+          <ReadStatus
+            loading={repository.compareLoading}
+            error={repository.compareError}
+            onRetry={() => void repository.openCompare(from, to, `${from}..${to}`)}
+          />
+          {repository.compare != null &&
+            !repository.compareLoading &&
+            repository.compareError == null && (
+              <p className="text-xs text-muted-foreground">
+                {repository.compare.label} · {repository.compareFiles.length} changed files loaded
+                in the review surface.
+              </p>
+            )}
         </div>
       </Modal>
     )
@@ -3618,7 +3669,17 @@ function OperationModal({ kind, onClose, onConfirm, onError }: OperationModalPro
       .filter((branch) => !branch.current)
       .map((branch) => branch.name)
     return (
-      <Modal title="Merge or rebase" disabledReason={disabledReason} onClose={onClose}>
+      <Modal
+        title="Merge or rebase"
+        error={dialogError}
+        disabledReason={disabledReason}
+        onClose={onClose}
+      >
+        <ReadStatus
+          loading={repository.branchesLoading}
+          error={repository.branchesError}
+          onRetry={() => void repository.refreshBranches()}
+        />
         <div className="grid gap-3">
           <SelectField
             label="Branch or reference"
@@ -3665,7 +3726,12 @@ function OperationModal({ kind, onClose, onConfirm, onError }: OperationModalPro
   }
   if (kind === 'stash') {
     return (
-      <Modal title="Stashes" disabledReason={disabledReason} onClose={onClose}>
+      <Modal title="Stashes" error={dialogError} disabledReason={disabledReason} onClose={onClose}>
+        <ReadStatus
+          loading={repository.stashesLoading}
+          error={repository.stashesError}
+          onRetry={() => void repository.refreshStashes()}
+        />
         <form
           className="mb-4 grid gap-2"
           onSubmit={(event: FormEvent) => {
@@ -3755,15 +3821,18 @@ function OperationModal({ kind, onClose, onConfirm, onError }: OperationModalPro
               </Button>
             </div>
           ))}
-          {repository.stashes.length === 0 && (
-            <p className="text-xs text-muted-foreground">No stashes</p>
-          )}
+          {repository.stashes.length === 0 &&
+            !repository.stashesLoading &&
+            repository.stashesError == null && (
+              <p className="text-xs text-muted-foreground">No stashes</p>
+            )}
         </div>
       </Modal>
     )
   }
   return (
-    <Modal title="Tags" disabledReason={disabledReason} onClose={onClose}>
+    <Modal title="Tags" error={dialogError} disabledReason={disabledReason} onClose={onClose}>
+      {referenceStatus}
       <form
         className="mb-4 grid gap-2"
         onSubmit={(event) => {
@@ -3859,9 +3928,37 @@ function OperationModal({ kind, onClose, onConfirm, onError }: OperationModalPro
             </Button>
           </div>
         ))}
-        {repository.tags.length === 0 && <p className="text-xs text-muted-foreground">No tags</p>}
+        {repository.tags.length === 0 &&
+          !repository.tagsLoading &&
+          repository.tagsError == null && <p className="text-xs text-muted-foreground">No tags</p>}
       </div>
     </Modal>
+  )
+}
+
+function ReadStatus({
+  loading,
+  error,
+  onRetry,
+}: {
+  loading: boolean
+  error: string | null
+  onRetry: () => void
+}) {
+  if (loading)
+    return (
+      <p className="mb-3 text-xs text-muted-foreground" role="status">
+        Loading… Previous results may remain visible.
+      </p>
+    )
+  if (error == null) return null
+  return (
+    <div className="mb-3 text-xs" role="alert">
+      <p>{error} Previous results may remain visible.</p>
+      <Button variant="outline" size="xs" onClick={onRetry}>
+        Retry
+      </Button>
+    </div>
   )
 }
 

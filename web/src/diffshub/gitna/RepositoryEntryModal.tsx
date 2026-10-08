@@ -25,6 +25,14 @@ export function RepositoryEntryModal({
   const repository = useRepository()
   const [path, setPath] = useState(initialPath)
   const [submitting, setSubmitting] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const mounted = useRef(true)
+  useEffect(() => {
+    mounted.current = true
+    return () => {
+      mounted.current = false
+    }
+  }, [])
   const inputRef = useRef<HTMLInputElement>(null)
   const title = kind === 'rename' ? 'Rename entry' : kind === 'folder' ? 'New folder' : 'New file'
 
@@ -41,6 +49,7 @@ export function RepositoryEntryModal({
     const disabledReason = repository.getActionDisabledReason()
     if (disabledReason != null) return
     setSubmitting(true)
+    setError(null)
     onError('')
     try {
       if (kind === 'rename') {
@@ -56,14 +65,18 @@ export function RepositoryEntryModal({
         else onClose()
       }
     } catch (error) {
-      onError(error instanceof Error ? error.message : String(error))
+      if (mounted.current) {
+        const message = error instanceof Error ? error.message : String(error)
+        setError(message)
+        repository.dismissMutationError(message)
+      }
     } finally {
       setSubmitting(false)
     }
   }
 
   return (
-    <Modal title={title} onClose={onClose}>
+    <Modal title={title} onClose={onClose} error={error}>
       <form onSubmit={(event) => void submit(event)}>
         <label className="text-xs font-medium" htmlFor="gitna-repository-entry-path">
           Repository-relative path
