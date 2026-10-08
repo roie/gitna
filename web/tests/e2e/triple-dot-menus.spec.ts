@@ -1,5 +1,5 @@
 import { spawn, execFileSync } from 'node:child_process'
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync, readFileSync } from 'node:fs'
+import { mkdtempSync, mkdirSync, rmSync, writeFileSync, readFileSync, realpathSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { createInterface } from 'node:readline'
@@ -9,7 +9,7 @@ import { stopGitna } from './fixtures.js'
 const test = base.extend<{ localApp: { url: string; repo: string } }>({
   localApp: async ({ browser, context }, use) => {
     expect(browser.isConnected()).toBe(true)
-    const root = mkdtempSync(join(tmpdir(), 'gitna-menus-'))
+    const root = realpathSync.native(mkdtempSync(join(tmpdir(), 'gitna-menus-')))
     const repo = join(root, 'repo')
     mkdirSync(repo)
     const git = (...args: string[]) => execFileSync('git', args, { cwd: repo })

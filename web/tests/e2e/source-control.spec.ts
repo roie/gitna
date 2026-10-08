@@ -2263,10 +2263,6 @@ test('Astra failed refresh recovery updates already-rendered headers without rem
     .click()
   const renderedFile = page.locator('diffs-container').filter({ hasText: 'two-hunk.txt' })
   await expect(renderedFile).toBeVisible()
-  await page.getByRole('button', { name: 'More actions for two-hunk.txt' }).click()
-  await page.getByRole('menuitem', { name: 'Show hunk actions for two-hunk.txt' }).click()
-  await expect(page.getByRole('button', { name: 'More actions for two-hunk.txt' })).toBeVisible()
-  await page.getByRole('button', { name: 'More actions for two-hunk.txt' }).click()
   const fileAction = page.getByRole('button', {
     name: 'Stage file two-hunk.txt',
     includeHidden: true,
@@ -2275,6 +2271,18 @@ test('Astra failed refresh recovery updates already-rendered headers without rem
     name: 'Stage hunk 1 in two-hunk.txt',
     includeHidden: true,
   })
+  const openHunkActions = async () => {
+    const menu = page.getByRole('button', {
+      name: 'More actions for two-hunk.txt',
+      includeHidden: true,
+    })
+    if ((await menu.getAttribute('aria-expanded')) !== 'true') await menu.click({ timeout: 1000 })
+    const load = page.getByRole('menuitem', { name: 'Show hunk actions for two-hunk.txt' })
+    if (await load.isVisible()) await load.click({ timeout: 1000 })
+    if ((await menu.getAttribute('aria-expanded')) !== 'true') await menu.click({ timeout: 1000 })
+    await expect(hunkAction).toBeEnabled({ timeout: 1000 })
+  }
+  await expect(openHunkActions).toPass({ timeout: 20_000 })
   await expect(fileAction).toBeEnabled()
   await expect(hunkAction).toBeEnabled()
 
@@ -2325,17 +2333,7 @@ test('Astra failed refresh recovery updates already-rendered headers without rem
   await page.keyboard.press('Tab')
   await expect(page.locator(':focus')).toHaveCount(1)
   await expect(fileAction).toBeEnabled({ timeout: 20_000 })
-  await expect(async () => {
-    const menu = page.getByRole('button', {
-      name: 'More actions for two-hunk.txt',
-      includeHidden: true,
-    })
-    if ((await menu.getAttribute('aria-expanded')) !== 'true') await menu.click()
-    const load = page.getByRole('menuitem', { name: 'Show hunk actions for two-hunk.txt' })
-    if (await load.isVisible()) await load.click({ timeout: 1000 })
-    if ((await menu.getAttribute('aria-expanded')) !== 'true') await menu.click()
-    await expect(hunkAction).toBeEnabled({ timeout: 1000 })
-  }).toPass({ timeout: 20_000 })
+  await expect(openHunkActions).toPass({ timeout: 20_000 })
   await page.keyboard.press('Escape')
   await expect(renderedFile.getByRole('note')).toHaveCount(0)
 
