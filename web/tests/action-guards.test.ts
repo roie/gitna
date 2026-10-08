@@ -643,15 +643,19 @@ describe('GitnaRepository action guards', () => {
     vi.useFakeTimers()
     let release!: () => void
     const deferred = new Promise<RepoSnapshot>((resolve) => {
-      release = () => resolve({ ...snapshot(), generation: 2 })
+      release = () => resolve(snapshot())
     })
     const client = api({
       snapshot: vi.fn().mockResolvedValueOnce(snapshot()).mockReturnValueOnce(deferred),
     })
     const { repository } = await readyRepository(client)
     const source = TestEventSource.current!
-    source.dispatch('snapshot-invalidated')
+    source.dispatch('error')
+    expect(repository.connectionState).toBe('reconnecting')
+    await expect(repository.operation({ op: 'push' })).rejects.toBeInstanceOf(ActionGuardError)
+    source.dispatch('open')
     await vi.advanceTimersByTimeAsync(150)
+    expect(client.snapshot).toHaveBeenCalledTimes(2)
     expect(repository.connectionState).toBe('reconciling')
     await expect(repository.operation({ op: 'push' })).rejects.toBeInstanceOf(ActionGuardError)
     expect(client.mutate).not.toHaveBeenCalled()
