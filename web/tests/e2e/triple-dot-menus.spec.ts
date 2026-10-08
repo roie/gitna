@@ -324,10 +324,6 @@ for (const kind of ['tag', 'stash'] as const) {
       parent.getByText(kind === 'tag' ? 'No tags' : 'No stashes', { exact: true }),
     ).toBeVisible()
     expect(kind === 'tag' ? git('tag', '--list') : git('stash', 'list')).toBe('')
-    test.fail(
-      true,
-      'Deleting the last item removes the restored trigger; focus needs a parent-dialog fallback',
-    )
     await expect(parent.getByRole('button', { name: 'Close dialog' })).toBeFocused()
   })
 }
@@ -790,7 +786,6 @@ for (const vanished of ['file', 'commit']) {
     await page.evaluate(
       () => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))),
     )
-    test.fail(true, 'A vanished initiating row has no relevant pane fallback')
     await expect(
       page.getByRole('button', {
         name: vanished === 'file' ? 'More actions' : 'Graph actions',

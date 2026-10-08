@@ -15,16 +15,28 @@ function captureReturnFocus(): () => void {
     triggerId == null ? active : root?.getElementById(triggerId)
   ) as HTMLElement | null
   const label = target?.getAttribute('aria-label')
+  const ownerSelector = 'dialog, [data-pane], [role="region"][aria-label="Review"]'
+  const owner =
+    target?.closest(ownerSelector) ??
+    (root instanceof ShadowRoot ? root.host.closest(ownerSelector) : null)
   return () => {
-    if (target?.isConnected && !target.matches(':disabled')) target.focus()
-    else if (label != null) {
-      const replacement = Array.from(
-        document.querySelectorAll<HTMLElement>('button[aria-label]'),
-      ).find(
-        (element) => element.getAttribute('aria-label') === label && !element.matches(':disabled'),
-      )
-      replacement?.focus()
+    if (target?.isConnected && !target.matches(':disabled')) {
+      target.focus()
+      return
     }
+    const replacement = Array.from(
+      owner?.querySelectorAll<HTMLElement>('button[aria-label]') ?? [],
+    ).find(
+      (element) => element.getAttribute('aria-label') === label && !element.matches(':disabled'),
+    )
+    const fallback = owner?.isConnected
+      ? owner.querySelector<HTMLElement>(
+          'button[aria-label="Close dialog"]:not(:disabled), button[data-menu-focus-fallback]:not(:disabled)',
+        )
+      : null
+    const destination = replacement ?? fallback
+    if (!destination?.isConnected || destination.matches(':disabled')) return
+    destination?.focus()
   }
 }
 
@@ -96,7 +108,7 @@ interface ConfirmProps {
   confirmLabel: string
   message: string
   onCancel: () => void
-  onConfirm: () => void
+  onConfirm: () => void | Promise<void>
   disabledReason?: string | null
   title: string
 }
@@ -159,7 +171,12 @@ export function Confirm({
                 aria-describedby={
                   disabledReason == null ? undefined : 'gitna-confirm-disabled-reason'
                 }
-                onClick={onConfirm}
+                onClick={async () => {
+                  await onConfirm()
+                  requestAnimationFrame(() => {
+                    if (document.activeElement === document.body) restoreFocus()
+                  })
+                }}
               >
                 {confirmLabel}
               </Button>

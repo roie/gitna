@@ -1226,10 +1226,10 @@ function GitnaSourceControlInner({
           confirmLabel={pendingConfirm.confirmLabel}
           disabledReason={repository.getActionDisabledReason()}
           onCancel={() => setPendingConfirm(null)}
-          onConfirm={() => {
+          onConfirm={async () => {
             const pending = pendingConfirm
             setPendingConfirm(null)
-            void run(pending.run)
+            await run(pending.run)
           }}
         />
       )}
@@ -1561,6 +1561,7 @@ function SourceControlHeaderActions({
             variant="ghost"
             size="icon-only"
             aria-label="More actions"
+            data-menu-focus-fallback
             title="More actions"
             className={CHROME_ICON_BUTTON_CLASS}
           >
@@ -2177,6 +2178,7 @@ function RepositoryHeaderActions({
             size="icon-only"
             className={CHROME_ICON_BUTTON_CLASS}
             aria-label="Explorer actions"
+            data-menu-focus-fallback
             title="Explorer actions"
           >
             <IconEllipsis className="size-4 md:size-3" />
@@ -2949,6 +2951,7 @@ function GraphSection({
                   variant="ghost"
                   size="icon-only"
                   aria-label="Graph actions"
+                  data-menu-focus-fallback
                   title="Graph actions"
                   className={CHROME_ICON_BUTTON_CLASS}
                 >

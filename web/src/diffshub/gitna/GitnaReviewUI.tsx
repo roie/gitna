@@ -2476,10 +2476,10 @@ function GitnaReviewUIInner({
             confirmLabel={pendingFileAction.action === 'delete' ? 'Delete file' : 'Discard changes'}
             disabledReason={repository.getActionDisabledReason()}
             onCancel={() => setPendingFileAction(null)}
-            onConfirm={() => {
+            onConfirm={async () => {
               const pending = pendingFileAction
               setPendingFileAction(null)
-              void repository
+              await repository
                 .mutate({ op: pending.action, paths: pending.paths })
                 .catch((error: unknown) =>
                   setReviewActionError(error instanceof Error ? error.message : String(error)),
