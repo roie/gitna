@@ -2768,6 +2768,13 @@ function GraphSection({
     getItemKey: (index) => repository.graphRows[index]?.commit.oid ?? index,
     getScrollElement: () => (mobile ? scrollRootRef.current : graphBodyRef.current),
     onChange(instance) {
+      const previousRows = previousRowsRef.current
+      if (
+        previousRows.length !== repository.graphRows.length ||
+        previousRows[0] !== repository.graphRows[0]?.commit.oid
+      ) {
+        return
+      }
       const scrollOffset = instance.scrollOffset ?? 0
       const item = instance.getVirtualItems().find((candidate) => candidate.end > scrollOffset)
       const oid =
