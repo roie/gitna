@@ -5,6 +5,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -23,7 +24,7 @@ func TestReadWorktreeResourceStaysInsideRepository(t *testing.T) {
 		t.Fatal(err)
 	}
 	if err := os.Symlink(outside, filepath.Join(root, "link.png")); err != nil {
-		t.Fatal(err)
+		t.Skipf("symlinks unavailable: %v", err)
 	}
 	data, err := repo.ReadWorktreeResource(context.Background(), "picture.png")
 	if err != nil || string(data) != string(image) {
@@ -62,7 +63,7 @@ func TestWorktreeFileReadWriteAndConflict(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if info.Mode().Perm() != 0o640 {
+	if runtime.GOOS != "windows" && info.Mode().Perm() != 0o640 {
 		t.Fatalf("mode = %o, want 640", info.Mode().Perm())
 	}
 	if _, err := repo.WriteWorktreeFile(context.Background(), "notes.txt", "stale\n", loaded.Hash); !errors.Is(err, protocol.ErrWorktreeConflict) {
@@ -133,7 +134,7 @@ func TestWorktreeFileRejectsUnsafeAndUnsupportedInputs(t *testing.T) {
 		t.Fatal(err)
 	}
 	if err := os.Symlink(filepath.Join(outside, "secret.txt"), filepath.Join(root, "link.txt")); err != nil {
-		t.Fatal(err)
+		t.Skipf("symlinks unavailable: %v", err)
 	}
 
 	for path, want := range map[string]error{

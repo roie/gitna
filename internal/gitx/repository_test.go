@@ -13,6 +13,7 @@ func initTestRepo(t *testing.T) string {
 	t.Helper()
 	root := t.TempDir()
 	runGit(t, root, "init", "-q", root)
+	runGit(t, root, "config", "core.autocrlf", "false")
 	runGit(t, root, "config", "user.email", "test@example.com")
 	runGit(t, root, "config", "user.name", "Test")
 	runGit(t, root, "branch", "-M", "main")

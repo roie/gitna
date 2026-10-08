@@ -37,7 +37,7 @@ func TestRepositoryFilesListsTrackedUntrackedAndIgnoredWorktreeFiles(t *testing.
 		t.Fatal(err)
 	}
 	if err := os.Symlink(external, filepath.Join(root, "external-link")); err != nil {
-		t.Fatal(err)
+		t.Skipf("symlinks unavailable: %v", err)
 	}
 
 	files, err := (Repository{Root: root, GitDir: filepath.Join(root, ".git")}).RepositoryFiles(context.Background(), &ExecRunner{}, "", 100)

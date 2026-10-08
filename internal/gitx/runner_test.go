@@ -13,15 +13,26 @@ import (
 	"time"
 )
 
-// TestHelperProcess is re-invoked by the tests below as a stand-in for git so
-// argument safety and output behavior can be asserted without a shell script.
-func TestHelperProcess(t *testing.T) {
-	if os.Getenv("GV_HELPER") != "1" {
-		return
+// TestMain lets the helper subprocess exit before the Go test framework starts
+// another suite. This prevents the subprocess test binary from recursively
+// launching the full package tests on Windows.
+func TestMain(m *testing.M) {
+	if os.Getenv("GV_HELPER") == "1" {
+		runTestHelperProcess()
+		os.Exit(0)
 	}
+	os.Exit(m.Run())
+}
+
+// runTestHelperProcess is re-invoked by tests as a stand-in for git so
+// argument safety and output behavior can be asserted without a shell script.
+func runTestHelperProcess() {
 	switch os.Getenv("GV_HELPER_MODE") {
 	case "echo-args":
 		fmt.Printf("%q\n", os.Args[1:])
+		if len(os.Args) > 1 && os.Args[1] == "--definitely-not-a-git-flag" {
+			os.Exit(2)
+		}
 	case "split-output":
 		fmt.Fprint(os.Stderr, "error-out\n")
 		fmt.Fprint(os.Stdout, "stdout-out\n")

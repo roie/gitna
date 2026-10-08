@@ -117,7 +117,7 @@ func TestRepositoryFileCountIncludesSymlinkEntries(t *testing.T) {
 	}
 	for name, target := range map[string]string{"directory-link": external, "broken-link": filepath.Join(external, "missing")} {
 		if err := os.Symlink(target, filepath.Join(root, name)); err != nil {
-			t.Fatal(err)
+			t.Skipf("symlinks unavailable: %v", err)
 		}
 	}
 	total, err := (Repository{Root: root, GitDir: filepath.Join(root, ".git")}).RepositoryFileCount(t.Context(), &ExecRunner{})

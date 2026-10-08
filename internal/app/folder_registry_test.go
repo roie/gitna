@@ -64,7 +64,7 @@ func TestFolderRegistryKeepsStableIndependentRoutes(t *testing.T) {
 	}
 	alias := filepath.Join(parent, "shared-alias")
 	if err := os.Symlink(first, alias); err != nil {
-		t.Fatal(err)
+		t.Skipf("symlinks unavailable: %v", err)
 	}
 	aliased, err := registry.openFolder(t.Context(), alias)
 	if err != nil {

@@ -3,6 +3,7 @@ package gitx
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 )
 
@@ -13,6 +14,9 @@ func TestIgnoredPathsUsesGitRulesAndNULDelimitedPaths(t *testing.T) {
 	}
 	if err := os.Mkdir(filepath.Join(root, "ignored"), 0o755); err != nil {
 		t.Fatal(err)
+	}
+	if runtime.GOOS == "windows" {
+		t.Skip("Windows filenames cannot contain newlines")
 	}
 	newlinePath := "ignored/line\nbreak.txt"
 	for path, content := range map[string]string{

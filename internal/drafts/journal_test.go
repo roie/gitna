@@ -4,6 +4,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 	"time"
 )
@@ -103,14 +104,14 @@ func TestJournalUsesRestrictedAtomicRecords(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if info.Mode().Perm() != 0o700 {
+	if runtime.GOOS != "windows" && info.Mode().Perm() != 0o700 {
 		t.Fatalf("directory permissions = %o, want 700", info.Mode().Perm())
 	}
 	fileInfo, err := os.Stat(filepath.Join(dir, "drafts", "document-1.json"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if fileInfo.Mode().Perm() != 0o600 {
+	if runtime.GOOS != "windows" && fileInfo.Mode().Perm() != 0o600 {
 		t.Fatalf("file permissions = %o, want 600", fileInfo.Mode().Perm())
 	}
 }

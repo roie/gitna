@@ -5,6 +5,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 	"testing"
@@ -77,6 +78,9 @@ func TestStagePreservesWorktree(t *testing.T) {
 }
 
 func TestStageTreatsWildcardFilenamesLiterally(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("Windows filenames cannot contain wildcard characters")
+	}
 	root := initTestRepo(t)
 	writeFile(t, filepath.Join(root, "a*.txt"), "selected\n")
 	writeFile(t, filepath.Join(root, "another.txt"), "unselected\n")

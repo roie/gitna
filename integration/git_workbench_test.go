@@ -250,6 +250,7 @@ func newHarness(t *testing.T) *harness {
 	t.Helper()
 	root := t.TempDir()
 	git(t, root, "init", "-q")
+	git(t, root, "config", "core.autocrlf", "false")
 	git(t, root, "config", "user.email", "test@example.com")
 	git(t, root, "config", "user.name", "Test")
 	git(t, root, "branch", "-M", "main")

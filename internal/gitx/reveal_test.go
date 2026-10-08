@@ -21,7 +21,7 @@ func TestResolveRevealPath(t *testing.T) {
 	}
 	outside := t.TempDir()
 	if err := os.Symlink(outside, filepath.Join(root, "escape")); err != nil {
-		t.Fatal(err)
+		t.Skipf("symlinks unavailable: %v", err)
 	}
 	for _, path := range []string{"nested/", "nested/notes.txt"} {
 		got, err := repo.ResolveRevealPath(context.Background(), path)

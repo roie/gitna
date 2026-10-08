@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
-	"path/filepath"
+	pathpkg "path"
 	"runtime"
 	"strings"
 )
@@ -53,7 +53,7 @@ func revealCommandFor(goos, path string, isDirectory bool) ([]string, error) {
 		return []string{"explorer.exe", path}, nil
 	case "linux":
 		if !isDirectory {
-			path = filepath.Dir(path)
+			path = pathpkg.Dir(path)
 		}
 		return []string{"xdg-open", path}, nil
 	case "darwin":
