@@ -48,6 +48,7 @@ for (const dirtySibling of [false, true]) {
       const remaining = page.getByRole('alertdialog')
       await expect(remaining).toBeVisible()
       await remaining.getByRole('button', { name: 'Save changes', exact: true }).click()
+      await expect(remaining).toHaveCount(0)
       expect(readFileSync(join(app.repo, 'main.txt'), 'utf8')).toContain('sibling draft')
     }
     await expect(confirmation).toHaveCount(0)
