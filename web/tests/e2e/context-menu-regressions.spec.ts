@@ -55,3 +55,25 @@ for (const dirtySibling of [false, true]) {
     expect(readFileSync(join(app.repo, 'saved-close.txt'), 'utf8')).toBe('untitled draft')
   })
 }
+
+for (const action of ['Close All', 'Close Others', 'Close Left', 'Close Clean']) {
+  test(`${action} includes the comparison tab`, async ({ page, app }) => {
+    await page.goto(app.url)
+    await page.locator('[data-section="repository"]').click()
+    const tree = page.locator('#gitna-repository-tree__tree')
+    await tree.getByRole('treeitem', { name: 'main.txt', exact: true }).click()
+    await tree
+      .getByRole('treeitem', { name: 'feature.txt', exact: true })
+      .click({ modifiers: ['Control'] })
+    await tree.getByRole('treeitem', { name: 'main.txt', exact: true }).click({ button: 'right' })
+    await page.getByRole('menuitem', { name: 'Compare Selected', exact: true }).click()
+    const comparison = page.locator('[data-comparison-tab="true"]')
+    await expect(comparison).toBeVisible()
+    await page.getByRole('tab', { name: 'main.txt', exact: true }).click({ button: 'right' })
+    await page.getByRole('menuitem', { name: action, exact: true }).click()
+    await expect(comparison).toHaveCount(0)
+    await expect(page.getByRole('tab', { name: 'main.txt', exact: true })).toHaveCount(
+      action === 'Close All' || action === 'Close Clean' ? 0 : 1,
+    )
+  })
+}

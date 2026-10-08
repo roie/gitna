@@ -463,6 +463,7 @@ function GitnaReviewUIInner({
   const [pendingTabClose, setPendingTabClose] = useState<{
     paths: string[]
     dirtyPaths: string[]
+    closeComparison: boolean
   } | null>(null)
   const [pendingUntitledSaveAs, setPendingUntitledSaveAs] = useState<string | null>(null)
   const [recoverableDrafts, setRecoverableDrafts] = useState<readonly DraftRecord[]>([])
@@ -1571,19 +1572,19 @@ function GitnaReviewUIInner({
     [closeHome, dirtyPaths.size, performFolderSwitch, repository.snapshot?.root],
   )
   const closeRepositoryFiles = useCallback(
-    (paths: readonly string[]) => {
+    (paths: readonly string[], closeComparison = false) => {
       const uniquePaths = [...new Set(paths)].filter((path) =>
         repository.repositoryOpenPaths.includes(path),
       )
-      if (uniquePaths.length === 0) return
+      if (uniquePaths.length === 0 && !closeComparison) return
       const dirty = uniquePaths.filter(
         (path) => dirtyPaths.has(path) || worktreeDraftsRef.current.has(path),
       )
       if (dirty.length > 0) {
-        setPendingTabClose({ paths: uniquePaths, dirtyPaths: dirty })
+        setPendingTabClose({ paths: uniquePaths, dirtyPaths: dirty, closeComparison })
         return
       }
-      repository.closeRepositoryFiles(uniquePaths)
+      repository.closeRepositoryFiles(uniquePaths, closeComparison)
     },
     [dirtyPaths, repository],
   )
@@ -1665,7 +1666,7 @@ function GitnaReviewUIInner({
     }
     if (pending.paths.some((path) => worktreeDraftsRef.current.has(path))) return
     setPendingTabClose(null)
-    repository.closeRepositoryFiles(pending.paths)
+    repository.closeRepositoryFiles(pending.paths, pending.closeComparison)
   }, [pendingTabClose, repository, saveWorktreeFile])
 
   const discardPendingTabs = useCallback(async () => {
@@ -1681,7 +1682,7 @@ function GitnaReviewUIInner({
         return next
       })
       setPendingTabClose(null)
-      repository.closeRepositoryFiles(pending.paths)
+      repository.closeRepositoryFiles(pending.paths, pending.closeComparison)
     } catch (error) {
       setReviewActionError(error instanceof Error ? error.message : String(error))
     }
@@ -2423,12 +2424,14 @@ function GitnaReviewUIInner({
               if (remainingDirty.length === 0) {
                 repository.closeRepositoryFiles(
                   pending.paths.filter((candidate) => candidate !== source),
+                  pending.closeComparison,
                 )
                 setPendingTabClose(null)
               } else {
                 setPendingTabClose({
                   paths: pending.paths.filter((candidate) => candidate !== source),
                   dirtyPaths: remainingDirty,
+                  closeComparison: pending.closeComparison,
                 })
               }
             }}
@@ -2494,7 +2497,7 @@ function RepositoryFileTabs({
   onClose,
 }: {
   dirtyPaths: ReadonlySet<string>
-  onClose: (paths: readonly string[]) => void
+  onClose: (paths: readonly string[], closeComparison?: boolean) => void
 }) {
   const repository = useRepository()
   const tablistRef = useRef<HTMLDivElement>(null)
@@ -2523,9 +2526,9 @@ function RepositoryFileTabs({
     focusTarget: HTMLButtonElement,
     anchorRect: DOMRect,
   ) => setContextMenu({ anchorRect, focusTarget, index, path })
-  const closeFromMenu = (paths: readonly string[]) => {
+  const closeFromMenu = (paths: readonly string[], closeComparison = false) => {
     setContextMenu(null)
-    onClose(paths)
+    onClose(paths, closeComparison)
   }
   return (
     <div className="flex h-9 shrink-0 items-center border-b border-border bg-muted/20">
@@ -2711,15 +2714,20 @@ function RepositoryFileTabs({
               Close
             </DropdownMenuItem>
             <DropdownMenuItem
-              disabled={openPaths.length === 1}
-              onSelect={() => closeFromMenu(openPaths.filter((path) => path !== contextMenu.path))}
+              disabled={openPaths.length === 1 && comparison == null}
+              onSelect={() =>
+                closeFromMenu(
+                  openPaths.filter((path) => path !== contextMenu.path),
+                  true,
+                )
+              }
             >
               Close Others
             </DropdownMenuItem>
             <DropdownMenuSeparator />
             <DropdownMenuItem
-              disabled={contextMenu.index === 0}
-              onSelect={() => closeFromMenu(openPaths.slice(0, contextMenu.index))}
+              disabled={contextMenu.index === 0 && comparison == null}
+              onSelect={() => closeFromMenu(openPaths.slice(0, contextMenu.index), true)}
             >
               Close Left
             </DropdownMenuItem>
@@ -2731,12 +2739,19 @@ function RepositoryFileTabs({
             </DropdownMenuItem>
             <DropdownMenuSeparator />
             <DropdownMenuItem
-              disabled={openPaths.every((path) => dirtyPaths.has(path))}
-              onSelect={() => closeFromMenu(openPaths.filter((path) => !dirtyPaths.has(path)))}
+              disabled={comparison == null && openPaths.every((path) => dirtyPaths.has(path))}
+              onSelect={() =>
+                closeFromMenu(
+                  openPaths.filter((path) => !dirtyPaths.has(path)),
+                  true,
+                )
+              }
             >
               Close Clean
             </DropdownMenuItem>
-            <DropdownMenuItem onSelect={() => closeFromMenu(openPaths)}>Close All</DropdownMenuItem>
+            <DropdownMenuItem onSelect={() => closeFromMenu(openPaths, true)}>
+              Close All
+            </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>
       )}

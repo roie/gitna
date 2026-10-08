@@ -1974,9 +1974,17 @@ export class GitnaRepository {
     this.emit()
   }
 
-  closeRepositoryFiles(paths: readonly string[]): void {
+  closeRepositoryFiles(paths: readonly string[], closeComparison = false): void {
     const closing = new Set(paths)
-    if (!this.repositoryOpenPaths.some((path) => closing.has(path))) return
+    if (
+      !this.repositoryOpenPaths.some((path) => closing.has(path)) &&
+      !(closeComparison && this.repositoryFileComparison != null)
+    )
+      return
+    if (closeComparison) {
+      this.repositoryFileComparison = null
+      this.repositoryFileComparisonActive = false
+    }
     const openPaths = this.repositoryOpenPaths
     const currentPath = this.repositoryFilePath
     const currentIndex = currentPath == null ? -1 : openPaths.indexOf(currentPath)
