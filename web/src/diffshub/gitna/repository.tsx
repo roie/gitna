@@ -1883,6 +1883,8 @@ export class GitnaRepository {
       snapshot == null
         ? []
         : [...snapshot.staged, ...snapshot.unstaged].filter((change) => change.path === path)
+    if (changes.some((change) => change.scope === 'unstaged' && change.kind === 'deleted'))
+      return false
     if (changes.some((change) => change.kind !== 'deleted')) return true
     if (changes.some((change) => change.kind === 'deleted')) return false
     if (this.commitDiff?.path === path && this.commitDiff.kind !== 'deleted') return true

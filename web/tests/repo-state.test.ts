@@ -973,12 +973,41 @@ describe('createRepoState', () => {
     expect(state.canOpenRepositoryFile('current.txt')).toBe(true)
   })
 
+  it('does not open or reveal a staged modification deleted from the worktree', () => {
+    const state = createRepoState({ api: auxApi })
+    state.snapshot = snapshot({
+      staged: [change('staged', 'nested/deleted.txt', 'modified')],
+      unstaged: [change('unstaged', 'nested/deleted.txt', 'deleted')],
+    })
+    state.repositoryPaths = []
+
+    expect(state.canOpenRepositoryFile('nested/deleted.txt')).toBe(false)
+    expect(state.canRevealPath('nested/deleted.txt')).toBe(false)
+    expect(state.canRevealPath('nested/')).toBe(false)
+  })
+
+  it('allows current changes before the lazy Explorer catalog loads', () => {
+    const state = createRepoState({ api: auxApi })
+    state.snapshot = snapshot({
+      staged: [change('staged', 'nested/staged.txt', 'modified')],
+      unstaged: [change('unstaged', 'nested/added.txt', 'untracked')],
+    })
+    state.repositoryPaths = []
+
+    for (const path of ['nested/staged.txt', 'nested/added.txt']) {
+      expect(state.canOpenRepositoryFile(path)).toBe(true)
+      expect(state.canRevealPath(path)).toBe(true)
+    }
+    expect(state.canRevealPath('nested/')).toBe(true)
+  })
+
   it('opens a recreated worktree file even while its deletion remains staged', () => {
     const state = createRepoState({ api: auxApi })
     state.snapshot = snapshot({ staged: [change('staged', 'deleted.txt', 'deleted')] })
     state.repositoryPaths = ['deleted.txt']
 
     expect(state.canOpenRepositoryFile('deleted.txt')).toBe(true)
+    expect(state.canRevealPath('deleted.txt')).toBe(true)
     state.selectRepositoryFile('deleted.txt')
     expect(state.repositoryFilePath).toBe('deleted.txt')
   })
