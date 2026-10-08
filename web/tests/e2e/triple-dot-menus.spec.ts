@@ -677,7 +677,15 @@ test('Stale patch refusal clears hunk cache without replaying the action', async
   await page.goto(localApp.url)
   await hunkMenu(page)
   await page.getByRole('menuitem', { name: 'Stage hunk 1 in two-hunk.txt', exact: true }).click()
-  await expect(page.getByRole('alert').filter({ hasText: 'stale patch identity' })).toBeVisible()
+  await expect(
+    page.getByLabel('Notifications').getByRole('alert').filter({ hasText: 'stale patch identity' }),
+  ).toBeVisible()
+  await expect(
+    page
+      .getByRole('region', { name: 'Review', exact: true })
+      .getByRole('alert')
+      .filter({ hasText: 'stale patch identity' }),
+  ).toBeVisible()
   await page.getByRole('button', { name: 'More actions for two-hunk.txt', exact: true }).click()
   await expect(page.getByRole('menuitem', { name: /Stage hunk/ })).toHaveCount(0)
   await expect(
