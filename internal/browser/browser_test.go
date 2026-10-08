@@ -69,8 +69,10 @@ func TestRevealCommandFor(t *testing.T) {
 		isDirectory bool
 		want        []string
 	}{
-		{name: "Linux", goos: "linux", want: []string{"xdg-open", path}},
-		{name: "Windows", goos: "windows", want: []string{"explorer.exe", path}},
+		{name: "Linux file", goos: "linux", want: []string{"xdg-open", "/Users/Roie/My Folder"}},
+		{name: "Linux folder", goos: "linux", isDirectory: true, want: []string{"xdg-open", path}},
+		{name: "Windows file", goos: "windows", want: []string{"explorer.exe", "/select," + path}},
+		{name: "Windows folder", goos: "windows", isDirectory: true, want: []string{"explorer.exe", path}},
 		{name: "Darwin folder", goos: "darwin", isDirectory: true, want: []string{"/usr/bin/open", path}},
 		{name: "Darwin file", goos: "darwin", want: []string{"/usr/bin/open", "-R", path}},
 	}

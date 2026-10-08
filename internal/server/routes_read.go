@@ -85,6 +85,8 @@ func (s *Server) apiRoutes() http.Handler {
 			s.handleDrafts(w, r)
 		case r.Method == http.MethodGet && p == "/events":
 			s.handleEvents(w, r)
+		case r.Method == http.MethodPost && p == "/worktree/reveal":
+			s.handleRevealPath(w, r)
 		case r.Method == http.MethodPost && p == "/folder/reveal":
 			s.handleRevealFolder(w, r)
 		case r.Method == http.MethodPost && p == "/folder":

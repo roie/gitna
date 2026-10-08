@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"runtime"
 	"strings"
 )
@@ -16,14 +17,11 @@ var commandOutput = func(name string, args ...string) ([]byte, error) {
 func Reveal(path string) error {
 	goos := runtime.GOOS
 	wsl := goos == "linux" && isWSL()
-	isDirectory := false
-	if goos == "darwin" {
-		info, err := os.Stat(path)
-		if err != nil {
-			return fmt.Errorf("browser: inspect reveal path: %w", err)
-		}
-		isDirectory = info.IsDir()
+	info, err := os.Stat(path)
+	if err != nil {
+		return fmt.Errorf("browser: inspect reveal path: %w", err)
 	}
+	isDirectory := info.IsDir()
 	return revealFor(goos, wsl, path, isDirectory)
 }
 
@@ -33,7 +31,11 @@ func revealFor(goos string, wsl bool, path string, isDirectory bool) error {
 		if err != nil {
 			return fmt.Errorf("browser: convert WSL path: %w", err)
 		}
-		return startCommand("explorer.exe", strings.TrimSpace(string(converted)))
+		convertedPath := strings.TrimSpace(string(converted))
+		if !isDirectory {
+			return startCommand("explorer.exe", "/select,"+convertedPath)
+		}
+		return startCommand("explorer.exe", convertedPath)
 	}
 	command, err := revealCommandFor(goos, path, isDirectory)
 	if err != nil {
@@ -45,8 +47,14 @@ func revealFor(goos string, wsl bool, path string, isDirectory bool) error {
 func revealCommandFor(goos, path string, isDirectory bool) ([]string, error) {
 	switch goos {
 	case "windows":
+		if !isDirectory {
+			return []string{"explorer.exe", "/select," + path}, nil
+		}
 		return []string{"explorer.exe", path}, nil
 	case "linux":
+		if !isDirectory {
+			path = filepath.Dir(path)
+		}
 		return []string{"xdg-open", path}, nil
 	case "darwin":
 		if isDirectory {

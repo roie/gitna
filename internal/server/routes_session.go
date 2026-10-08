@@ -78,6 +78,26 @@ func (s *Server) handleRemoveRecentFolder(w http.ResponseWriter, r *http.Request
 	w.WriteHeader(http.StatusNoContent)
 }
 
+func (s *Server) handleRevealPath(w http.ResponseWriter, r *http.Request) {
+	if s.revealPath == nil {
+		writeJSON(w, http.StatusNotImplemented, map[string]string{"error": "file reveal unavailable"})
+		return
+	}
+	r.Body = http.MaxBytesReader(w, r.Body, MaxRequestBody)
+	var request openFolderRequest
+	if err := json.NewDecoder(r.Body).Decode(&request); err != nil || request.Path == "" {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "file path is required"})
+		return
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), LocalMutationTimeout)
+	defer cancel()
+	if err := s.revealPath(ctx, request.Path); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
 func (s *Server) handleRevealFolder(w http.ResponseWriter, r *http.Request) {
 	if s.revealFolder == nil {
 		writeJSON(w, http.StatusNotImplemented, map[string]string{"error": "folder reveal unavailable"})

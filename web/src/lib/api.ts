@@ -196,6 +196,7 @@ export interface ApiClient {
   openFolder: (path: string, signal?: AbortSignal) => Promise<OpenFolderResult>
   removeRecentFolder: (path: string) => Promise<void>
   revealFolder: () => Promise<void>
+  revealPath: (path: string) => Promise<void>
 }
 
 /** Error carrying the HTTP status and server message so callers can react to
@@ -605,6 +606,16 @@ export function createApi(baseURL?: string): ApiClient {
       await expectOK(
         await fetch('api/v1/folders/recent', {
           method: 'DELETE',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ path }),
+          signal: AbortSignal.timeout(MUTATE_TIMEOUT),
+        }),
+      )
+    },
+    async revealPath(path: string): Promise<void> {
+      await expectOK(
+        await fetch('api/v1/worktree/reveal', {
+          method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ path }),
           signal: AbortSignal.timeout(MUTATE_TIMEOUT),

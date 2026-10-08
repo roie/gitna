@@ -274,6 +274,7 @@ func (r *folderRegistry) createBackend(
 		OnEventSubscribersChanged: func(delta int) { r.subscribersChanged(entry, delta) },
 		OpenFolder:                r.openFolder,
 		RevealFolder:              session.revealFolder,
+		RevealPath:                session.revealPath,
 		Folders:                   session.folderCatalog,
 		RemoveRecentFolder:        r.removeRecentFolder,
 	})

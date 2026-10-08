@@ -842,6 +842,7 @@ function GitnaSourceControlInner({
         }}
         onCreate={(kind, initialPath) => setRepositoryEntryDialog({ kind, initialPath })}
         onOpen={selectRepositoryPath}
+        onReveal={(path) => void run(() => repository.revealPath(path))}
         onOpenChange={(scope, path) => repository.select(scope, path)}
         onRefresh={() => void repository.refreshExplorer()}
         onRename={(source) =>
@@ -849,7 +850,7 @@ function GitnaSourceControlInner({
         }
       />
     ),
-    [changeScopesForPath, repository, selectRepositoryPath],
+    [changeScopesForPath, repository, run, selectRepositoryPath],
   )
 
   useEffect(() => {
@@ -1826,6 +1827,7 @@ function RepositoryContextMenu({
   onOpenChange,
   onRefresh,
   onRename,
+  onReveal,
 }: {
   changeScopes: readonly ChangeScope[]
   compareSelected: boolean
@@ -1838,6 +1840,7 @@ function RepositoryContextMenu({
   onOpenChange: (scope: ChangeScope, path: string) => void
   onRefresh: () => void
   onRename: (source: string) => void
+  onReveal: (path: string) => void
 }) {
   const repository = useRepository()
   const disabledReason = repository.getActionDisabledReason()
@@ -1899,6 +1902,16 @@ function RepositoryContextMenu({
         <DropdownMenuItem
           disabled={disabledReason != null}
           onSelect={() => {
+            context.close()
+            onReveal(item.path)
+          }}
+        >
+          Reveal in File Manager
+        </DropdownMenuItem>
+        <DropdownMenuSeparator />
+        <DropdownMenuItem
+          disabled={disabledReason != null}
+          onSelect={() => {
             closeForDialog()
             onCreate('file', repositoryItemParent(item))
           }}
@@ -1948,14 +1961,20 @@ function RepositoryContextMenu({
 
 function ChangeContextMenu({
   canOpen,
+  canReveal,
   context,
   path,
+  directory,
   onOpen,
+  onReveal,
 }: {
   canOpen: boolean
+  canReveal: boolean
   context: ContextMenuOpenContext
   path: string
+  directory: boolean
   onOpen: (path: string) => void
+  onReveal: (path: string) => void
 }) {
   return (
     <DropdownMenu
@@ -1977,14 +1996,25 @@ function ChangeContextMenu({
           context.restoreFocus()
         }}
       >
+        {!directory && (
+          <DropdownMenuItem
+            disabled={!canOpen}
+            onSelect={() => {
+              context.close()
+              onOpen(path)
+            }}
+          >
+            Open in Explorer
+          </DropdownMenuItem>
+        )}
         <DropdownMenuItem
-          disabled={!canOpen}
+          disabled={!canReveal}
           onSelect={() => {
             context.close()
-            onOpen(path)
+            onReveal(path)
           }}
         >
-          Open in Explorer
+          Reveal in File Manager
         </DropdownMenuItem>
       </DropdownMenuContent>
     </DropdownMenu>
@@ -2472,14 +2502,18 @@ function ChangeSection({
   )
   const renderContextMenu = useCallback(
     (item: ContextMenuItem, context: ContextMenuOpenContext) => {
-      if (item.kind !== 'file') return null
       const path = trimDirectoryPath(item.path)
       return (
         <ChangeContextMenu
           canOpen={repository.canOpenRepositoryFile(path)}
+          canReveal={
+            repository.getActionDisabledReason() == null && repository.canRevealPath(item.path)
+          }
           context={context}
           path={path}
+          directory={item.kind !== 'file'}
           onOpen={(nextPath) => void onRun(() => repository.openRepositoryFile(nextPath, true))}
+          onReveal={(nextPath) => void onRun(() => repository.revealPath(nextPath))}
         />
       )
     },

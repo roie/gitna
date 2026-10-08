@@ -102,6 +102,7 @@ type Options struct {
 	OpenFolder func(context.Context, string) (protocol.OpenFolderResult, error)
 	// RevealFolder opens the current repository in the platform file manager.
 	RevealFolder func(context.Context) error
+	RevealPath   func(context.Context, string) error
 	// Folders returns the active and bounded recent folder catalog.
 	Folders func() protocol.FolderCatalog
 	// RemoveRecentFolder removes one path from shared recent-folder history.
@@ -122,6 +123,7 @@ type Server struct {
 	gen                atomic.Uint64
 	openFolder         func(context.Context, string) (protocol.OpenFolderResult, error)
 	revealFolder       func(context.Context) error
+	revealPath         func(context.Context, string) error
 	folders            func() protocol.FolderCatalog
 	removeRecentFolder func(context.Context, string) error
 }
@@ -146,6 +148,7 @@ func New(staticFS fs.FS, opts Options) (*Server, error) {
 		draftFolderKey:     opts.DraftFolderKey,
 		openFolder:         opts.OpenFolder,
 		revealFolder:       opts.RevealFolder,
+		revealPath:         opts.RevealPath,
 		folders:            opts.Folders,
 		removeRecentFolder: opts.RemoveRecentFolder,
 		security: Security{

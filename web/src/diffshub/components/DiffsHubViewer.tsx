@@ -100,6 +100,7 @@ export interface GitnaOpenFileAction {
 
 export interface GitnaViewerActions {
   canOpenFile(path: string): boolean;
+  onRevealFile: (path: string) => void;
   kindForPath(path: string): ChangeKind | undefined;
   loadDiff(path: string): Promise<FileDiff>;
   onFileAction: (action: GitnaFileAction, path: string, kind: ChangeKind) => void;
@@ -897,6 +898,7 @@ function GitnaHeaderActions({
           {actions.canOpenFile(path) && (
             <DropdownMenuItem aria-label={`Open ${path} in Repository`} onSelect={() => actions.onOpenFile(path)}>Open File</DropdownMenuItem>
           )}
+          <DropdownMenuItem disabled={actions.disabledReason != null || !actions.canOpenFile(path)} onSelect={() => actions.onRevealFile(path)}>Reveal in File Manager</DropdownMenuItem>
           {actions.scope === 'unstaged' && (
             <DropdownMenuItem
               disabled={actions.disabledReason != null}

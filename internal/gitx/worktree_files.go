@@ -317,6 +317,20 @@ func (r Repository) RenameWorktreeEntry(ctx context.Context, source, destination
 	return nil
 }
 
+func (r Repository) ResolveRevealPath(ctx context.Context, path string) (string, error) {
+	if err := ctx.Err(); err != nil {
+		return "", err
+	}
+	target, info, err := r.resolveWorktreeEntry(strings.TrimSuffix(path, "/"), true)
+	if err != nil {
+		return "", err
+	}
+	if !info.Mode().IsRegular() && !info.IsDir() {
+		return "", fmt.Errorf("%w: %q is not a regular file or directory", protocol.ErrInvalidPath, path)
+	}
+	return target, nil
+}
+
 func (r Repository) resolveWorktreeEntry(path string, rejectSymlink bool) (string, os.FileInfo, error) {
 	if err := validateWorktreePath(path); err != nil {
 		return "", nil, err

@@ -2306,6 +2306,23 @@ export class GitnaRepository {
     await this.refreshFolders()
   }
 
+  canRevealPath(path: string): boolean {
+    if (this.isUntitledPath(path)) return false
+    if (!path.endsWith('/')) return this.canOpenRepositoryFile(path)
+    if (this.repositoryPaths.some((candidate) => candidate.startsWith(path))) return true
+    return [...(this.snapshot?.staged ?? []), ...(this.snapshot?.unstaged ?? [])].some(
+      (change) => change.path.startsWith(path) && this.canOpenRepositoryFile(change.path),
+    )
+  }
+
+  revealPath(path: string): Promise<void> {
+    const reason = this.getActionDisabledReason()
+    if (reason != null) return Promise.reject(new ActionGuardError(reason))
+    if (this.isUntitledPath(path))
+      return Promise.reject(new Error('Save the file before revealing it'))
+    return this.api.revealPath(path)
+  }
+
   revealFolder(): Promise<void> {
     const reason = this.getActionDisabledReason()
     if (reason != null) return Promise.reject(new ActionGuardError(reason))

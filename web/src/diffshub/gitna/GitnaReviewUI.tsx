@@ -1345,6 +1345,13 @@ function GitnaReviewUIInner({
                 setReviewActionError(error instanceof Error ? error.message : String(error)),
               )
           },
+          onRevealFile(path) {
+            void repository
+              .revealPath(path)
+              .catch((error: unknown) =>
+                setReviewActionError(error instanceof Error ? error.message : String(error)),
+              )
+          },
           onPatch(request) {
             const reason = repository.getActionDisabledReason()
             if (reason != null) return Promise.reject(new ActionGuardError(reason))
@@ -2160,7 +2167,11 @@ function GitnaReviewUIInner({
               </DiffsHubSidebar>
             )}
             <div className="flex min-h-0 flex-col [grid-area:viewer]">
-              <RepositoryFileTabs dirtyPaths={dirtyPaths} onClose={closeRepositoryFiles} />
+              <RepositoryFileTabs
+                dirtyPaths={dirtyPaths}
+                onClose={closeRepositoryFiles}
+                onError={setReviewActionError}
+              />
               <div className="min-h-0 flex-1">
                 {target?.filePath != null && nativeMediaKind(target.filePath) != null ? (
                   <NativeMediaPreview
@@ -2495,9 +2506,11 @@ function RepositoryTabIconSprite() {
 function RepositoryFileTabs({
   dirtyPaths,
   onClose,
+  onError,
 }: {
   dirtyPaths: ReadonlySet<string>
   onClose: (paths: readonly string[], closeComparison?: boolean) => void
+  onError: (error: string) => void
 }) {
   const repository = useRepository()
   const tablistRef = useRef<HTMLDivElement>(null)
@@ -2710,6 +2723,22 @@ function RepositoryFileTabs({
               })
             }}
           >
+            <DropdownMenuItem
+              disabled={
+                repository.getActionDisabledReason() != null ||
+                !repository.canRevealPath(contextMenu.path)
+              }
+              onSelect={() => {
+                const path = contextMenu.path
+                setContextMenu(null)
+                void repository
+                  .revealPath(path)
+                  .catch((error) => onError(error instanceof Error ? error.message : String(error)))
+              }}
+            >
+              Reveal in File Manager
+            </DropdownMenuItem>
+            <DropdownMenuSeparator />
             <DropdownMenuItem onSelect={() => closeFromMenu([contextMenu.path])}>
               Close
             </DropdownMenuItem>

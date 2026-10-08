@@ -362,6 +362,14 @@ func folderName(path string) string {
 	return name
 }
 
+func (s *folderSession) revealPath(ctx context.Context, path string) error {
+	target, err := s.adapter.current().ResolveRevealPath(ctx, path)
+	if err != nil {
+		return err
+	}
+	return browser.Reveal(target)
+}
+
 func (s *folderSession) revealFolder(context.Context) error {
 	return browser.Reveal(s.adapter.current().Root)
 }

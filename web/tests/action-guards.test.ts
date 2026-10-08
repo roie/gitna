@@ -55,6 +55,7 @@ function api(overrides: Record<string, unknown> = {}): ApiClient {
     openFolder: vi.fn(async (path: string) => ({ root: path, href: '../folder/' })),
     removeRecentFolder: vi.fn(async () => undefined),
     revealFolder: vi.fn(async () => undefined),
+    revealPath: vi.fn(async () => undefined),
     ...overrides,
   } as unknown as ApiClient
 }
@@ -112,6 +113,7 @@ const API_ENDPOINTS = [
   'openFolder',
   'removeRecentFolder',
   'revealFolder',
+  'revealPath',
 ] as const
 
 type DirectCommand = () => Promise<unknown>
@@ -127,6 +129,7 @@ function directCommands(repository: GitnaRepository): DirectCommand[] {
     () => repository.renameWorktreeEntry('old.txt', 'new.txt'),
     () => repository.removeRecentFolder('/old'),
     () => repository.revealFolder(),
+    () => repository.revealPath('file.txt'),
   ]
 }
 

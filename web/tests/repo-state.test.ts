@@ -199,6 +199,7 @@ const auxApi: ApiClient = {
   },
   async removeRecentFolder() {},
   async revealFolder() {},
+  async revealPath() {},
 }
 
 /** API client whose graph pages and commit files are scripted in order. Only
@@ -908,6 +909,33 @@ describe('createRepoState', () => {
     // One catalog read establishes readiness; removal refreshes it once more.
     expect(folders).toHaveBeenCalledTimes(2)
     expect(state.folders.recent.map((folder) => folder.path)).toEqual(['/tmp/current'])
+  })
+
+  it('reveals the requested path without changing the review or open tabs', async () => {
+    const revealPath = vi.fn(async () => {})
+    const state = createRepoState({
+      api: { ...auxApi, revealPath, snapshot: async () => snapshot() },
+    })
+    await admitAction(state)
+    state.repositoryPaths = ['nested/', 'nested/file.txt']
+    state.repositoryOpenPaths = ['other.txt']
+    const selection = state.selection
+
+    await state.revealPath('nested/file.txt')
+
+    expect(revealPath).toHaveBeenCalledWith('nested/file.txt')
+    expect(state.repositoryOpenPaths).toEqual(['other.txt'])
+    expect(state.selection).toBe(selection)
+    expect(state.canRevealPath('nested/')).toBe(true)
+    expect(state.canRevealPath('missing.txt')).toBe(false)
+    expect(state.canRevealPath('untitled:1')).toBe(false)
+    await expect(state.revealPath('untitled:1')).rejects.toThrow(
+      'Save the file before revealing it',
+    )
+    expect(revealPath).toHaveBeenCalledTimes(1)
+    state.busy = true
+    await expect(state.revealPath('nested/file.txt')).rejects.toThrow()
+    expect(revealPath).toHaveBeenCalledTimes(1)
   })
 
   it('preserves tab changes made while a rename is pending', async () => {
