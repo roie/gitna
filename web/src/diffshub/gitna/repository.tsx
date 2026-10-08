@@ -2201,6 +2201,9 @@ export class GitnaRepository {
         : path.startsWith(sourcePrefix)
           ? `${destinationPrefix}${path.slice(sourcePrefix.length)}`
           : path
+    await this.runWorktreeOperation('rename-entry', () =>
+      this.api.renameWorktreeEntry(source, destination),
+    )
     const openPaths = this.repositoryOpenPaths.map(remap)
     const selectedPath = this.repositoryFilePath == null ? null : remap(this.repositoryFilePath)
     const selectedPaths = this.repositorySelectedPaths.map(remap)
@@ -2212,9 +2215,6 @@ export class GitnaRepository {
             rightPath: remap(this.repositoryFileComparison.rightPath),
             version: this.repositoryFileComparison.version + 1,
           }
-    await this.runWorktreeOperation('rename-entry', () =>
-      this.api.renameWorktreeEntry(source, destination),
-    )
     // A lazy Explorer may not have loaded the destination directory yet. The
     // successful mutation is authoritative, so keep remapped tabs and selection
     // instead of treating absence from the mounted rows as deletion.

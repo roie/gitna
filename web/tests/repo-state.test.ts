@@ -910,6 +910,31 @@ describe('createRepoState', () => {
     expect(state.folders.recent.map((folder) => folder.path)).toEqual(['/tmp/current'])
   })
 
+  it('preserves tab changes made while a rename is pending', async () => {
+    let release!: () => void
+    const gate = new Promise<void>((resolve) => {
+      release = resolve
+    })
+    const state = createRepoState({
+      api: { ...auxApi, renameWorktreeEntry: () => gate, snapshot: async () => snapshot() },
+    })
+    await admitAction(state)
+    state.repositoryPaths = ['old.txt', 'newer.txt']
+    state.repositoryOpenPaths = ['old.txt', 'closed.txt']
+    state.repositoryFilePath = 'old.txt'
+    state.repositorySelectedPaths = ['old.txt']
+
+    const rename = state.renameWorktreeEntry('old.txt', 'renamed.txt')
+    state.closeRepositoryFiles(['closed.txt'])
+    state.selectRepositoryFile('newer.txt')
+    release()
+    await rename
+
+    expect(state.repositoryOpenPaths).toEqual(['renamed.txt', 'newer.txt'])
+    expect(state.repositoryFilePath).toBe('newer.txt')
+    expect(state.repositorySelectedPaths).toEqual(['newer.txt'])
+  })
+
   it('opens only available files from the repository catalog', () => {
     const state = createRepoState({ api: auxApi })
     state.snapshot = snapshot({ staged: [change('staged', 'deleted.txt', 'deleted')] })
