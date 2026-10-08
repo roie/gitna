@@ -2419,8 +2419,11 @@ function GitnaReviewUIInner({
               const pending = pendingTabClose
               if (pending == null) return
               const remainingDirty = pending.dirtyPaths.filter((candidate) => candidate !== source)
-              repository.closeRepositoryFiles([source])
+              repository.closeRepositoryFiles([path])
               if (remainingDirty.length === 0) {
+                repository.closeRepositoryFiles(
+                  pending.paths.filter((candidate) => candidate !== source),
+                )
                 setPendingTabClose(null)
               } else {
                 setPendingTabClose({
