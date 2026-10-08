@@ -3,7 +3,7 @@ import { mkdtempSync, mkdirSync, rmSync, writeFileSync, readFileSync } from 'nod
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { createInterface } from 'node:readline'
-import { test as base, expect } from '@playwright/test'
+import { test as base, expect, type Page } from '@playwright/test'
 
 const test = base.extend<{ localApp: { url: string; repo: string } }>({
   localApp: async ({ browser }, use) => {
@@ -266,3 +266,536 @@ test('Compare failures appear in both the dialog and review surface and can be r
   await page.getByRole('button', { name: 'Try again', exact: true }).click()
   await expect(page.getByText('compare read failed', { exact: true })).toHaveCount(0)
 })
+
+async function sourceMenu(page: Page, item: string) {
+  await page.getByRole('button', { name: 'More actions', exact: true }).click()
+  await page.getByRole('menuitem', { name: item, exact: true }).click()
+}
+
+async function explorerMenu(page: Page, item: string) {
+  await page.getByRole('button', { name: 'Explorer actions', exact: true }).click()
+  await page.getByRole('menuitem', { name: item, exact: true }).click()
+}
+
+function barrier() {
+  let release!: () => void
+  const promise = new Promise<void>((resolve) => {
+    release = resolve
+  })
+  return { promise, release }
+}
+
+for (const kind of ['tag', 'stash'] as const) {
+  test(`Nested ${kind} confirmation restores focus on Cancel, Escape and removal`, async ({
+    page,
+    localApp,
+  }) => {
+    const git = (...args: string[]) =>
+      execFileSync('git', args, { cwd: localApp.repo, encoding: 'utf8' })
+    if (kind === 'tag') git('tag', 'edge-tag')
+    else git('stash', 'push', '-qm', 'edge-stash')
+    await page.goto(localApp.url)
+    await sourceMenu(page, kind === 'tag' ? 'Tags…' : 'Stashes…')
+    const parent = page.getByRole('dialog', {
+      name: kind === 'tag' ? 'Tags' : 'Stashes',
+      exact: true,
+    })
+    const trigger = parent.getByRole('button', {
+      name: kind === 'tag' ? 'Delete' : 'Drop',
+      exact: true,
+    })
+    for (const dismissal of ['Cancel', 'Escape']) {
+      await trigger.click()
+      const confirm = page.getByRole('alertdialog')
+      await expect(confirm.getByRole('button', { name: 'Cancel', exact: true })).toBeFocused()
+      if (dismissal === 'Cancel')
+        await confirm.getByRole('button', { name: 'Cancel', exact: true }).click()
+      else await page.keyboard.press('Escape')
+      await expect(confirm).toHaveCount(0)
+      await expect(trigger).toBeFocused()
+      expect(kind === 'tag' ? git('tag', '--list') : git('stash', 'list')).not.toBe('')
+    }
+    await trigger.click()
+    await page
+      .getByRole('alertdialog')
+      .getByRole('button', { name: kind === 'tag' ? 'Delete tag' : 'Drop stash', exact: true })
+      .click()
+    await expect(
+      parent.getByText(kind === 'tag' ? 'No tags' : 'No stashes', { exact: true }),
+    ).toBeVisible()
+    expect(kind === 'tag' ? git('tag', '--list') : git('stash', 'list')).toBe('')
+    test.fail(
+      true,
+      'Deleting the last item removes the restored trigger; focus needs a parent-dialog fallback',
+    )
+    await expect(parent.getByRole('button', { name: 'Close dialog' })).toBeFocused()
+  })
+}
+
+for (const interruption of ['Collapse all folders', 'Show as List']) {
+  test(`Pending lazy expansion is canceled by ${interruption}`, async ({ page, localApp }) => {
+    await page.goto(localApp.url)
+    await page.locator('[data-section="repository"]').click()
+    const started = barrier()
+    const resume = barrier()
+    await page.route('**/api/v1/directory?*', async (route) => {
+      if (new URL(route.request().url()).searchParams.get('path') !== 'nested')
+        return route.continue()
+      const response = await route.fetch()
+      started.release()
+      await resume.promise
+      await route.fulfill({ response })
+    })
+    try {
+      await explorerMenu(page, 'Expand all folders')
+      await started.promise
+      await explorerMenu(page, interruption)
+      const response = page.waitForResponse(
+        (response) => new URL(response.url()).searchParams.get('path') === 'nested',
+      )
+      resume.release()
+      await response
+      await page.evaluate(
+        () => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))),
+      )
+      await expect(
+        page
+          .locator('#gitna-repository-tree__tree')
+          .getByRole('treeitem', { name: 'file.txt', exact: true }),
+      ).toHaveCount(0)
+      if (interruption === 'Show as List') await explorerMenu(page, 'Show as Tree')
+      await expect(
+        page
+          .locator('#gitna-repository-tree__tree')
+          .getByRole('treeitem', { name: 'nested', exact: true }),
+      ).toHaveAttribute('aria-expanded', 'false')
+      await page.unroute('**/api/v1/directory?*')
+      await explorerMenu(page, 'Expand all folders')
+      await expect(
+        page
+          .locator('#gitna-repository-tree__tree')
+          .getByRole('treeitem', { name: 'nested', exact: true }),
+      ).toHaveAttribute('aria-expanded', 'true')
+      test.fail(
+        true,
+        'Expand all stops before traversing newly visible descendants of cached loaded directories',
+      )
+      await expect(
+        page
+          .locator('#gitna-repository-tree__tree')
+          .getByRole('treeitem', { name: 'file.txt', exact: true }),
+      ).toBeVisible()
+    } finally {
+      resume.release()
+    }
+  })
+}
+
+test('Failed lazy directory load settles without retries and explicit expansion recovers', async ({
+  page,
+  localApp,
+}) => {
+  await page.goto(localApp.url)
+  await page.locator('[data-section="repository"]').click()
+  let failures = 0
+  await page.route('**/api/v1/directory?*', (route) => {
+    if (new URL(route.request().url()).searchParams.get('path') !== 'nested')
+      return route.continue()
+    failures++
+    return route.fulfill({
+      status: 500,
+      contentType: 'application/json',
+      body: JSON.stringify({ error: 'edge directory failure' }),
+    })
+  })
+  await explorerMenu(page, 'Expand all folders')
+  await expect(page.getByText('edge directory failure', { exact: false })).toBeVisible()
+  await page.getByRole('button', { name: 'Explorer actions', exact: true }).click()
+  await page.getByRole('menuitemcheckbox', { name: 'Show hidden files', exact: true }).click()
+  await page.keyboard.press('Escape')
+  await explorerMenu(page, 'Collapse all folders')
+  expect(failures).toBe(1)
+  await page.unroute('**/api/v1/directory?*')
+  await explorerMenu(page, 'Expand all folders')
+  await expect(
+    page
+      .locator('#gitna-repository-tree__tree')
+      .getByRole('treeitem', { name: 'file.txt', exact: true }),
+  ).toBeVisible()
+  expect(failures).toBe(1)
+})
+
+test('Dismissed pending tag failure cannot contaminate a new operation dialog', async ({
+  page,
+  localApp,
+}) => {
+  await page.goto(localApp.url)
+  const started = barrier()
+  const resume = barrier()
+  const finished = barrier()
+  await page.route('**/api/v1/operations?op=create-tag', async (route) => {
+    started.release()
+    await resume.promise
+    await route.fulfill({
+      status: 500,
+      contentType: 'application/json',
+      body: JSON.stringify({ error: 'old tag operation failure' }),
+    })
+    finished.release()
+  })
+  try {
+    await sourceMenu(page, 'Tags…')
+    const tags = page.getByRole('dialog', { name: 'Tags', exact: true })
+    await tags.getByRole('textbox', { name: 'New tag name' }).fill('pending-tag')
+    await tags.getByRole('button', { name: 'Create', exact: true }).click()
+    await started.promise
+    await tags.getByRole('button', { name: 'Close dialog' }).click()
+    await sourceMenu(page, 'Stashes…')
+    const stash = page.getByRole('dialog', { name: 'Stashes', exact: true })
+    await expect(stash).toBeVisible()
+    resume.release()
+    await finished.promise
+    await expect(stash.getByRole('alert')).toHaveCount(0)
+    await expect(stash.getByRole('button', { name: 'Stash', exact: true })).toBeEnabled()
+    await stash.getByRole('button', { name: 'Close dialog' }).click()
+    await sourceMenu(page, 'Tags…')
+    await expect(tags.getByRole('alert')).toHaveCount(0)
+    expect(execFileSync('git', ['tag', '--list'], { cwd: localApp.repo, encoding: 'utf8' })).toBe(
+      '',
+    )
+  } finally {
+    resume.release()
+  }
+})
+
+for (const operation of ['merge', 'rebase', 'cherry-pick'] as const) {
+  test(`Local ${operation} conflict reports target, preserves Git state and permits recovery`, async ({
+    page,
+    localApp,
+  }) => {
+    const git = (...args: string[]) =>
+      execFileSync('git', args, { cwd: localApp.repo, encoding: 'utf8' })
+    git('restore', 'two-hunk.txt')
+    git('checkout', '-q', 'other')
+    writeFileSync(join(localApp.repo, 'main.txt'), 'conflicting topic\n')
+    git('commit', '-qam', 'conflicting topic')
+    const target = git('rev-parse', 'HEAD').trim()
+    git('checkout', '-q', 'main')
+    let original = git('rev-parse', 'HEAD').trim()
+    expect(git('remote')).toBe('')
+    await page.goto(localApp.url)
+    if (operation === 'cherry-pick') {
+      await page.locator('[data-section="graph"]').click()
+      await page.getByRole('button', { name: 'Actions for base', exact: true }).click()
+      await page.keyboard.press('Escape')
+      await expect(
+        page.getByRole('button', { name: 'Actions for base', exact: true }),
+      ).toBeFocused()
+      git('merge', '-q', '--no-commit', '-s', 'ours', 'other')
+      git('commit', '-qm', 'expose topic history')
+      original = git('rev-parse', 'HEAD').trim()
+      await page.getByRole('button', { name: 'Refresh Graph', exact: true }).click()
+      await page.getByRole('button', { name: 'Actions for conflicting topic', exact: true }).click()
+      await page.getByRole('menuitem', { name: 'Cherry-pick', exact: true }).click()
+      await expect(
+        page
+          .getByRole('alert')
+          .filter({ hasText: /conflict|could not apply/i })
+          .first(),
+      ).toBeVisible()
+    } else {
+      await sourceMenu(page, 'Merge or rebase…')
+      const dialog = page.getByRole('dialog', { name: 'Merge or rebase', exact: true })
+      const button = dialog.getByRole('button', {
+        name: operation === 'merge' ? 'Merge' : 'Rebase',
+        exact: true,
+      })
+      await expect(button).toBeDisabled()
+      await dialog.getByRole('combobox').selectOption('other')
+      await expect(button).toBeEnabled()
+      await button.click()
+      if (operation === 'merge') {
+        await expect(dialog).toHaveCount(0)
+        await expect(page.getByText('Merge in progress', { exact: true })).toBeVisible()
+        await expect(page.getByRole('button', { name: 'Continue', exact: true })).toBeDisabled()
+      } else {
+        await expect(dialog.getByRole('alert')).toContainText(/conflict|could not apply/i)
+        await expect(dialog.getByRole('combobox')).toHaveValue('other')
+        await expect(button).toBeEnabled()
+        await dialog.getByRole('button', { name: 'Close dialog' }).click()
+      }
+    }
+    expect(git('diff', '--name-only', '--diff-filter=U').trim()).toBe('main.txt')
+    if (operation !== 'rebase')
+      expect(
+        git('rev-parse', `${operation === 'merge' ? 'MERGE_HEAD' : 'CHERRY_PICK_HEAD'}`).trim(),
+      ).toBe(target)
+    if (operation === 'rebase') {
+      const onto = git('rev-parse', '--git-path', 'rebase-merge/onto').trim()
+      expect(readFileSync(join(localApp.repo, onto), 'utf8').trim()).toBe(target)
+    }
+    expect(readFileSync(join(localApp.repo, 'main.txt'), 'utf8')).toContain('<<<<<<<')
+    await expect(page.getByRole('button', { name: 'Continue', exact: true })).toBeDisabled()
+    await expect(page.getByRole('button', { name: 'Abort', exact: true })).toBeEnabled()
+    await page.getByRole('button', { name: 'Abort', exact: true }).click()
+    await expect(page.getByRole('button', { name: 'Abort', exact: true })).toHaveCount(0)
+    expect(git('status', '--porcelain')).toBe('')
+    expect(git('rev-parse', 'HEAD').trim()).toBe(original)
+    await page.getByRole('button', { name: 'Refresh Graph', exact: true }).click()
+    await sourceMenu(page, 'Merge or rebase…')
+    await expect(
+      page.getByRole('dialog', { name: 'Merge or rebase', exact: true }).getByRole('alert'),
+    ).toHaveCount(0)
+  })
+}
+
+async function hunkMenu(page: Page, label = 'Stage') {
+  const menu = page.getByRole('button', { name: 'More actions for two-hunk.txt', exact: true })
+  await expect(async () => {
+    if ((await menu.getAttribute('aria-expanded')) !== 'true') await menu.click()
+    const load = page.getByRole('menuitem', {
+      name: 'Show hunk actions for two-hunk.txt',
+      exact: true,
+    })
+    if ((await load.isVisible()) && (await load.isEnabled())) {
+      const response = page.waitForResponse((response) =>
+        new URL(response.url()).pathname.endsWith('/diff'),
+      )
+      await load.click()
+      await response
+      if ((await menu.getAttribute('aria-expanded')) !== 'true') await menu.click()
+    }
+    await expect(
+      page.getByRole('menuitem', { name: `${label} hunk 1 in two-hunk.txt`, exact: true }),
+    ).toBeVisible({ timeout: 1000 })
+  }).toPass({ timeout: 10000 })
+}
+
+test('Pending hunk load cannot populate a different scope', async ({ page, localApp }) => {
+  execFileSync('git', ['add', 'two-hunk.txt'], { cwd: localApp.repo })
+  writeFileSync(
+    join(localApp.repo, 'two-hunk.txt'),
+    readFileSync(join(localApp.repo, 'two-hunk.txt'), 'utf8').replace('line 20\n', 'TWENTY\n'),
+  )
+  await page.goto(localApp.url)
+  const started = barrier()
+  const resume = barrier()
+  await page.route('**/api/v1/diff?*', async (route) => {
+    const url = new URL(route.request().url())
+    if (
+      url.searchParams.get('scope') !== 'unstaged' ||
+      url.searchParams.get('path') !== 'two-hunk.txt'
+    )
+      return route.continue()
+    const response = await route.fetch()
+    started.release()
+    await resume.promise
+    await route.fulfill({ response })
+  })
+  try {
+    const menu = page.getByRole('button', { name: 'More actions for two-hunk.txt', exact: true })
+    await menu.click()
+    await page
+      .getByRole('menuitem', { name: 'Show hunk actions for two-hunk.txt', exact: true })
+      .click()
+    await started.promise
+    await page
+      .locator('#gitna-staged-tree__tree')
+      .getByRole('treeitem', { name: 'two-hunk.txt', exact: true })
+      .click()
+    await expect(
+      page.getByRole('button', { name: 'Unstage file two-hunk.txt', exact: true }),
+    ).toBeVisible()
+    const response = page.waitForResponse(
+      (response) =>
+        new URL(response.url()).searchParams.get('scope') === 'unstaged' &&
+        new URL(response.url()).pathname.endsWith('/diff'),
+    )
+    resume.release()
+    await response
+    await page.evaluate(
+      () => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))),
+    )
+    await menu.click()
+    await expect(
+      page.getByRole('menuitem', { name: 'Show hunk actions for two-hunk.txt', exact: true }),
+    ).toBeEnabled()
+    await expect(page.getByRole('menuitem', { name: /Unstage hunk/ })).toHaveCount(0)
+    await page.keyboard.press('Escape')
+    await page.unroute('**/api/v1/diff?*')
+    await hunkMenu(page, 'Unstage')
+    await expect(
+      page.getByRole('menuitem', { name: 'Unstage hunk 2 in two-hunk.txt', exact: true }),
+    ).toBeVisible()
+    expect(
+      execFileSync('git', ['diff', '--cached'], { cwd: localApp.repo, encoding: 'utf8' }),
+    ).toContain('FIFTY')
+    expect(execFileSync('git', ['diff'], { cwd: localApp.repo, encoding: 'utf8' })).toContain(
+      'TWENTY',
+    )
+  } finally {
+    resume.release()
+  }
+})
+
+test('Same-scope file changes invalidate loaded hunk actions', async ({ page, localApp }) => {
+  await page.goto(localApp.url)
+  await hunkMenu(page)
+  await expect(
+    page.getByRole('menuitem', { name: 'Stage hunk 2 in two-hunk.txt', exact: true }),
+  ).toBeVisible()
+  await page.keyboard.press('Escape')
+  writeFileSync(
+    join(localApp.repo, 'two-hunk.txt'),
+    Array.from({ length: 60 }, (_, i) => (i === 1 ? 'NEW TWO\n' : `line ${i + 1}\n`)).join(''),
+  )
+  await expect(page.locator('.code-view').getByText('NEW TWO', { exact: true })).toBeVisible()
+  await hunkMenu(page)
+  await expect(
+    page.getByRole('menuitem', { name: 'Stage hunk 2 in two-hunk.txt', exact: true }),
+  ).toHaveCount(0)
+  expect(execFileSync('git', ['diff', '--cached'], { cwd: localApp.repo, encoding: 'utf8' })).toBe(
+    '',
+  )
+})
+
+test('Stale patch refusal clears hunk cache without replaying the action', async ({
+  page,
+  localApp,
+}) => {
+  let mutations = 0
+  const paths: string[] = []
+  await page.route('**/api/v1/operations?op=patch', async (route) => {
+    mutations++
+    paths.push(route.request().postDataJSON().path)
+    if (mutations === 1)
+      return route.continue({
+        postData: JSON.stringify({
+          ...route.request().postDataJSON(),
+          patchId: 'stale-edge-identity',
+        }),
+      })
+    return route.continue()
+  })
+  await page.goto(localApp.url)
+  await hunkMenu(page)
+  await page.getByRole('menuitem', { name: 'Stage hunk 1 in two-hunk.txt', exact: true }).click()
+  await expect(page.getByRole('alert').filter({ hasText: 'stale patch identity' })).toBeVisible()
+  await page.getByRole('button', { name: 'More actions for two-hunk.txt', exact: true }).click()
+  await expect(page.getByRole('menuitem', { name: /Stage hunk/ })).toHaveCount(0)
+  await expect(
+    page.getByRole('menuitem', { name: 'Show hunk actions for two-hunk.txt', exact: true }),
+  ).toBeEnabled()
+  expect(mutations).toBe(1)
+  expect(execFileSync('git', ['diff', '--cached'], { cwd: localApp.repo, encoding: 'utf8' })).toBe(
+    '',
+  )
+  await page.keyboard.press('Escape')
+  await expect(
+    page.getByRole('button', { name: 'Stage file two-hunk.txt', exact: true }),
+  ).toBeEnabled({ timeout: 35000 })
+  await hunkMenu(page)
+  expect(mutations).toBe(1)
+  await page.getByRole('menuitem', { name: 'Stage hunk 1 in two-hunk.txt', exact: true }).click()
+  await expect(page.locator('#gitna-staged-tree__tree')).toBeVisible()
+  expect(mutations).toBe(2)
+  expect(paths).toEqual(['two-hunk.txt', 'two-hunk.txt'])
+  expect(
+    execFileSync('git', ['diff', '--cached'], { cwd: localApp.repo, encoding: 'utf8' }),
+  ).toContain('TWO')
+  expect(execFileSync('git', ['diff'], { cwd: localApp.repo, encoding: 'utf8' })).toContain('FIFTY')
+})
+
+test('Repository switching cancels expansion and ignores the old directory response', async ({
+  page,
+  localApp,
+}) => {
+  const alternate = join(localApp.repo, '..', 'alternate')
+  mkdirSync(join(alternate, 'fresh/deeper'), { recursive: true })
+  const git = (...args: string[]) => execFileSync('git', args, { cwd: alternate, encoding: 'utf8' })
+  git('init', '-q', '-b', 'main')
+  git('config', 'user.name', 'Menu Tests')
+  git('config', 'user.email', 'menus@example.test')
+  writeFileSync(join(alternate, 'fresh/deeper/new.txt'), 'alternate\n')
+  git('add', '.')
+  git('commit', '-qm', 'alternate base')
+  expect(git('remote')).toBe('')
+  await page.goto(localApp.url)
+  await page.locator('[data-section="repository"]').click()
+  const started = barrier()
+  const resume = barrier()
+  const finished = barrier()
+  await page.route('**/api/v1/directory?*', async (route) => {
+    const url = new URL(route.request().url())
+    if (!url.pathname.includes('/repo/') || url.searchParams.get('path') !== 'nested')
+      return route.continue()
+    const response = await route.fetch()
+    started.release()
+    await resume.promise
+    try {
+      await route.fulfill({ response })
+    } finally {
+      finished.release()
+    }
+  })
+  try {
+    await explorerMenu(page, 'Expand all folders')
+    await started.promise
+    await page.getByRole('combobox', { name: 'Folder path' }).fill(alternate)
+    await page.getByRole('button', { name: 'Switch folder', exact: true }).click()
+    await expect(page).toHaveURL(/alternate\/$/)
+    await expect(page.getByRole('combobox', { name: 'Folder path' })).toHaveValue(alternate)
+    resume.release()
+    await finished.promise
+    if (
+      (await page.locator('[data-section="repository"]').getAttribute('aria-expanded')) !== 'true'
+    )
+      await page.locator('[data-section="repository"]').click()
+    const tree = page.locator('#gitna-repository-tree__tree')
+    await expect(tree.getByRole('treeitem', { name: 'fresh', exact: true })).toHaveAttribute(
+      'aria-expanded',
+      'false',
+    )
+    await expect(tree.getByRole('treeitem', { name: 'nested', exact: true })).toHaveCount(0)
+    await expect(tree.getByRole('treeitem', { name: 'new.txt', exact: true })).toHaveCount(0)
+    await explorerMenu(page, 'Expand all folders')
+    await expect(tree.getByRole('treeitem', { name: 'new.txt', exact: true })).toBeVisible()
+  } finally {
+    resume.release()
+  }
+})
+
+for (const vanished of ['file', 'commit']) {
+  test(`Confirmation dismissal restores relevant focus after initiating ${vanished} disappears`, async ({
+    page,
+    localApp,
+  }) => {
+    await page.goto(localApp.url)
+    if (vanished === 'file') {
+      await page.getByRole('button', { name: 'More actions for two-hunk.txt', exact: true }).click()
+      await page.getByRole('menuitem', { name: 'Discard', exact: true }).click()
+      execFileSync('git', ['restore', 'two-hunk.txt'], { cwd: localApp.repo })
+      await expect(page.locator('button[aria-label="More actions for two-hunk.txt"]')).toHaveCount(
+        0,
+      )
+    } else {
+      await page.locator('[data-section="graph"]').click()
+      await page.getByRole('button', { name: 'Actions for second', exact: true }).click()
+      await page.getByRole('menuitem', { name: 'Reset hard…', exact: true }).click()
+      execFileSync('git', ['reset', '--hard', 'HEAD~1'], { cwd: localApp.repo })
+      await expect(page.locator('button[aria-label="Actions for second"]')).toHaveCount(0)
+    }
+    await page.keyboard.press('Escape')
+    await expect(page.getByRole('alertdialog')).toHaveCount(0)
+    await page.evaluate(
+      () => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))),
+    )
+    test.fail(true, 'A vanished initiating row has no relevant pane fallback')
+    await expect(
+      page.getByRole('button', {
+        name: vanished === 'file' ? 'More actions' : 'Graph actions',
+        exact: true,
+      }),
+    ).toBeFocused()
+  })
+}
