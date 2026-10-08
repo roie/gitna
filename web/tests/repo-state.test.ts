@@ -913,11 +913,21 @@ describe('createRepoState', () => {
   it('opens only available files from the repository catalog', () => {
     const state = createRepoState({ api: auxApi })
     state.snapshot = snapshot({ staged: [change('staged', 'deleted.txt', 'deleted')] })
-    state.repositoryPaths = ['deleted.txt', 'current.txt', 'nested/']
+    state.repositoryPaths = ['current.txt', 'nested/']
 
     expect(state.canOpenRepositoryFile('deleted.txt')).toBe(false)
     expect(state.canOpenRepositoryFile('nested/')).toBe(false)
     expect(state.canOpenRepositoryFile('current.txt')).toBe(true)
+  })
+
+  it('opens a recreated worktree file even while its deletion remains staged', () => {
+    const state = createRepoState({ api: auxApi })
+    state.snapshot = snapshot({ staged: [change('staged', 'deleted.txt', 'deleted')] })
+    state.repositoryPaths = ['deleted.txt']
+
+    expect(state.canOpenRepositoryFile('deleted.txt')).toBe(true)
+    state.selectRepositoryFile('deleted.txt')
+    expect(state.repositoryFilePath).toBe('deleted.txt')
   })
 
   it('loads and caches commit files with lazy graph statistics', async () => {
