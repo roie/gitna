@@ -372,10 +372,6 @@ for (const interruption of ['Collapse all folders', 'Show as List']) {
           .locator('#gitna-repository-tree__tree')
           .getByRole('treeitem', { name: 'nested', exact: true }),
       ).toHaveAttribute('aria-expanded', 'true')
-      test.fail(
-        true,
-        'Expand all stops before traversing newly visible descendants of cached loaded directories',
-      )
       await expect(
         page
           .locator('#gitna-repository-tree__tree')

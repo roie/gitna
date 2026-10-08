@@ -17,18 +17,23 @@ export function expandRepositoryFolders(model: FileTree): () => void {
           return
         }
       }
+      let revealed = false
       for (const row of model.getVisibleRows(0, model.getVisibleCount())) {
         if (row.kind !== 'directory') continue
         const item = model.getItem(row.path) as FileTreeDirectoryHandle | null
         if (item == null) continue
         expanded.add(row.path)
-        if (!item.isExpanded()) item.expand()
+        if (!item.isExpanded()) {
+          item.expand()
+          revealed = true
+        }
       }
       const pending = Array.from(expanded).some((path) => {
         const state = model.getDirectoryLoadState(path)
         return state === 'unloaded' || state === 'loading'
       })
-      if (!pending) cancel()
+      if (revealed) schedule()
+      else if (!pending) cancel()
     })
   }
   const unsubscribe = model.subscribe(schedule)

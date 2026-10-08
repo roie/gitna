@@ -40,6 +40,40 @@ function pendingTree() {
 }
 
 describe('Expand all lifecycle', () => {
+  it('traverses newly exposed descendants even when their directory loads are cached', async () => {
+    const expanded = new Set<string>()
+    let listener: (() => void) | undefined
+    const unsubscribe = vi.fn(() => {
+      listener = undefined
+    })
+    const visibleRows = () => [
+      { kind: 'directory', path: 'nested/' },
+      ...(expanded.has('nested/') ? [{ kind: 'directory', path: 'nested/deeper/' }] : []),
+      ...(expanded.has('nested/deeper/') ? [{ kind: 'file', path: 'nested/deeper/file.txt' }] : []),
+    ]
+    const model = {
+      subscribe: (callback: () => void) => {
+        listener = callback
+        return unsubscribe
+      },
+      getVisibleCount: () => visibleRows().length,
+      getVisibleRows: visibleRows,
+      getDirectoryLoadState: () => 'loaded',
+      getItem: (path: string) => ({
+        isDirectory: () => true,
+        isExpanded: () => expanded.has(path),
+        expand: () => {
+          expanded.add(path)
+          listener?.()
+        },
+      }),
+    } as unknown as FileTree
+    expandRepositoryFolders(model)
+    await vi.waitFor(() => expect(unsubscribe).toHaveBeenCalledTimes(1))
+    expect(expanded).toEqual(new Set(['nested/', 'nested/deeper/']))
+    expect(visibleRows()).toContainEqual({ kind: 'file', path: 'nested/deeper/file.txt' })
+  })
+
   it('unsubscribes on directory failure and does not retry on later notifications', async () => {
     const tree = pendingTree()
     expandRepositoryFolders(tree.model)
