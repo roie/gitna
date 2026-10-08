@@ -141,6 +141,21 @@ func TestOperationMapsErrors(t *testing.T) {
 	}
 }
 
+func TestEmptyStashesAndTagsAreArrays(t *testing.T) {
+	for _, route := range []string{"stashes", "tags"} {
+		t.Run(route, func(t *testing.T) {
+			h := newSnapshotServer(&fakeRepo{})
+			req := httptest.NewRequest(http.MethodGet, "/g/"+testToken+"/api/v1/"+route, nil)
+			req.Host = testHost
+			rec := httptest.NewRecorder()
+			h.ServeHTTP(rec, req)
+			if rec.Code != http.StatusOK || rec.Body.String() != "[]\n" {
+				t.Fatalf("status/body = %d/%q, want 200/[]", rec.Code, rec.Body.String())
+			}
+		})
+	}
+}
+
 func TestReadStashesTagsAndCompare(t *testing.T) {
 	repo := &fakeRepo{
 		stashes: []protocol.StashEntry{

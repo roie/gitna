@@ -567,13 +567,19 @@ export function createApi(baseURL?: string): ApiClient {
       const res = await expectOK(
         await fetch('api/v1/stashes', { signal: AbortSignal.timeout(FETCH_TIMEOUT) }),
       )
-      return (await res.json()) as StashEntry[]
+      const entries: unknown = await res.json()
+      if (entries === null) return []
+      if (!Array.isArray(entries)) throw new Error('Expected an array of stashes')
+      return entries as StashEntry[]
     },
     async tags(): Promise<Tag[]> {
       const res = await expectOK(
         await fetch('api/v1/tags', { signal: AbortSignal.timeout(FETCH_TIMEOUT) }),
       )
-      return (await res.json()) as Tag[]
+      const tags: unknown = await res.json()
+      if (tags === null) return []
+      if (!Array.isArray(tags)) throw new Error('Expected an array of tags')
+      return tags as Tag[]
     },
     async compare(from: string, to: string): Promise<CommitFiles> {
       const res = await expectOK(

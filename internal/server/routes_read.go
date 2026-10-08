@@ -783,6 +783,9 @@ func (s *Server) handleStashes(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 		return
 	}
+	if entries == nil {
+		entries = []protocol.StashEntry{}
+	}
 	writeJSON(w, http.StatusOK, entries)
 }
 
@@ -803,6 +806,9 @@ func (s *Server) handleTags(w http.ResponseWriter, r *http.Request) {
 		}
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 		return
+	}
+	if tags == nil {
+		tags = []protocol.Tag{}
 	}
 	writeJSON(w, http.StatusOK, tags)
 }
