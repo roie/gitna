@@ -37,6 +37,7 @@ test('Find in Files keeps its query, focuses on shortcut, and opens matching lin
   app: gitna,
 }) => {
   await page.goto(gitna.url)
+  await expect(page.getByRole('button', { name: 'Open command palette' })).toBeVisible()
   await page.keyboard.press('Control+Shift+f')
   const search = page.getByRole('region', { name: 'Find in Files' })
   const input = search.getByRole('textbox', { name: 'Search files', exact: true })
@@ -124,6 +125,7 @@ test('Find in Files filters, regex highlights and ignore controls use the real b
   mkdirSync(join(gitna.repo, 'ignored'), { recursive: true })
   writeFileSync(join(gitna.repo, 'ignored/search.txt'), 'needle\n')
   await page.goto(gitna.url)
+  await expect(page.getByRole('button', { name: 'Open command palette' })).toBeVisible()
   await page.keyboard.press('Control+Shift+f')
   const search = page.getByRole('region', { name: 'Find in Files' })
   await search.getByRole('textbox', { name: 'Search files', exact: true }).fill('need[a-z]+')
@@ -165,6 +167,7 @@ test('search uses file-type icons and highlights every editor match without chan
 }) => {
   writeFileSync(join(app.repo, 'matches.ts'), 'export const needle = "needle"\n// needle again\n')
   await page.goto(app.url)
+  await expect(page.getByRole('button', { name: 'Open command palette' })).toBeVisible()
   await page.keyboard.press('Control+Shift+f')
   const search = page.getByRole('region', { name: 'Find in Files' })
   const input = search.getByRole('textbox', { name: 'Search files', exact: true })

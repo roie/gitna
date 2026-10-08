@@ -3,6 +3,7 @@ import { Button } from '../components/Button'
 
 interface DirtyTabCloseModalProps {
   dirtyPaths: readonly string[]
+  saveDisabledReason?: string | null
   onCancel: () => void
   onDiscard: () => void
   onSave: () => void
@@ -10,6 +11,7 @@ interface DirtyTabCloseModalProps {
 
 export function DirtyTabCloseModal({
   dirtyPaths,
+  saveDisabledReason,
   onCancel,
   onDiscard,
   onSave,
@@ -36,7 +38,13 @@ export function DirtyTabCloseModal({
         <Button type="button" variant="outline" size="sm" onClick={onDiscard}>
           {isUntitled ? "Don't Save" : 'Discard changes'}
         </Button>
-        <Button type="button" size="sm" onClick={onSave}>
+        <Button
+          type="button"
+          size="sm"
+          disabled={saveDisabledReason != null}
+          title={saveDisabledReason ?? undefined}
+          onClick={onSave}
+        >
           {isUntitled ? 'Save' : 'Save changes'}
         </Button>
       </div>

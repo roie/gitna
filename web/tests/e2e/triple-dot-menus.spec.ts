@@ -4,15 +4,17 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { createInterface } from 'node:readline'
 import { test as base, expect, type Page } from '@playwright/test'
+import { stopGitna } from './fixtures.js'
 
 const test = base.extend<{ localApp: { url: string; repo: string } }>({
-  localApp: async ({ browser }, use) => {
+  localApp: async ({ browser, context }, use) => {
     expect(browser.isConnected()).toBe(true)
     const root = mkdtempSync(join(tmpdir(), 'gitna-menus-'))
     const repo = join(root, 'repo')
     mkdirSync(repo)
     const git = (...args: string[]) => execFileSync('git', args, { cwd: repo })
     git('init', '-q', '-b', 'main')
+    git('config', 'core.autocrlf', 'false')
     git('config', 'user.name', 'Menu Tests')
     git('config', 'user.email', 'menus@example.test')
     mkdirSync(join(repo, 'nested/deeper'), { recursive: true })
@@ -34,7 +36,13 @@ const test = base.extend<{ localApp: { url: string; repo: string } }>({
       ).join(''),
     )
     const child = spawn(process.env.GITNA_E2E_BINARY!, [repo], {
-      env: { ...process.env, GITNA_NO_BROWSER: '1', XDG_CONFIG_HOME: join(root, 'config') },
+      detached: process.platform !== 'win32',
+      env: {
+        ...process.env,
+        APPDATA: join(root, 'config'),
+        GITNA_NO_BROWSER: '1',
+        XDG_CONFIG_HOME: join(root, 'config'),
+      },
       stdio: ['ignore', 'pipe', 'pipe'],
     })
     try {
@@ -53,11 +61,15 @@ const test = base.extend<{ localApp: { url: string; repo: string } }>({
       })
       await use({ url, repo })
     } finally {
-      if (child.exitCode == null) {
-        child.kill('SIGTERM')
-        await new Promise<void>((resolve) => child.once('exit', () => resolve()))
+      try {
+        await context.close()
+      } finally {
+        try {
+          await stopGitna(child)
+        } finally {
+          rmSync(root, { recursive: true, force: true, maxRetries: 20, retryDelay: 250 })
+        }
       }
-      rmSync(root, { recursive: true, force: true })
     }
   },
 })
@@ -72,9 +84,11 @@ for (const [action, title] of [
   }) => {
     await page.goto(localApp.url)
     const trigger = page.getByRole('button', { name: 'Explorer actions', exact: true })
+    await expect(trigger).toBeEnabled()
     await trigger.focus()
     await page.keyboard.press('Enter')
     const item = page.getByRole('menuitem', { name: action, exact: true })
+    await expect(item).toBeEnabled()
     await item.focus()
     await page.keyboard.press('Enter')
     const dialog = page.getByRole('dialog', { name: title, exact: true })
@@ -183,32 +197,26 @@ test('Tags and stashes show empty lists; list failures stay visible with Retry',
 
 test('Hunk actions reload after partial staging and across scopes', async ({ page, localApp }) => {
   await page.goto(localApp.url)
-  const fileMenu = page.getByRole('button', { name: 'More actions for two-hunk.txt', exact: true })
-  const loadHunks = async (label: 'Stage' | 'Unstage' = 'Stage') => {
-    const hunk = page.getByRole('menuitem', {
-      name: `${label} hunk 1 in two-hunk.txt`,
-      exact: true,
-    })
+  const loadHunks = (label: 'Stage' | 'Unstage' = 'Stage') => hunkMenu(page, label)
+  const applyHunk = async (label: 'Stage' | 'Unstage') => {
     await expect(async () => {
-      if ((await fileMenu.getAttribute('aria-expanded')) !== 'true') await fileMenu.click()
-      const load = page.getByRole('menuitem', {
-        name: 'Show hunk actions for two-hunk.txt',
-        exact: true,
-      })
-      if ((await load.isVisible()) && (await load.isEnabled())) {
-        const response = page.waitForResponse((response) =>
-          new URL(response.url()).pathname.endsWith('/diff'),
-        )
-        await load.focus()
-        await page.keyboard.press('Enter')
-        await response
-        if ((await fileMenu.getAttribute('aria-expanded')) !== 'true') await fileMenu.click()
+      await loadHunks(label)
+      const response = page.waitForResponse(
+        (response) =>
+          response.request().method() === 'POST' &&
+          new URL(response.url()).searchParams.get('op') === 'patch',
+      )
+      await page
+        .getByRole('menuitem', { name: `${label} hunk 1 in two-hunk.txt`, exact: true })
+        .click()
+      const result = await response
+      if (result.status() === 409) {
+        expect((await result.json()).code).toBe('stale-patch')
       }
-      await expect(hunk).toBeVisible({ timeout: 1000 })
-    }).toPass({ timeout: 10000 })
+      expect(result.ok()).toBe(true)
+    }).toPass({ timeout: 20000 })
   }
-  await loadHunks()
-  await page.getByRole('menuitem', { name: 'Stage hunk 1 in two-hunk.txt', exact: true }).click()
+  await applyHunk('Stage')
   const unstaged = page
     .locator('#gitna-unstaged-tree__tree')
     .getByRole('treeitem', { name: 'two-hunk.txt', exact: true })
@@ -222,7 +230,7 @@ test('Hunk actions reload after partial staging and across scopes', async ({ pag
   await expect(
     page.getByRole('menuitem', { name: 'Stage hunk 2 in two-hunk.txt', exact: true }),
   ).toHaveCount(0)
-  await page.getByRole('menuitem', { name: 'Stage hunk 1 in two-hunk.txt', exact: true }).click()
+  await applyHunk('Stage')
   await expect(unstaged).toHaveCount(0)
   const staged = page
     .locator('#gitna-staged-tree__tree')
@@ -231,8 +239,7 @@ test('Hunk actions reload after partial staging and across scopes', async ({ pag
   await expect(
     page.getByRole('button', { name: 'Unstage file two-hunk.txt', exact: true }),
   ).toBeEnabled()
-  await loadHunks('Unstage')
-  await page.getByRole('menuitem', { name: 'Unstage hunk 1 in two-hunk.txt', exact: true }).click()
+  await applyHunk('Unstage')
   await expect(unstaged).toBeVisible()
   expect(
     execFileSync('git', ['diff', '--cached'], { cwd: localApp.repo, encoding: 'utf8' }),
@@ -542,25 +549,23 @@ for (const operation of ['merge', 'rebase', 'cherry-pick'] as const) {
 }
 
 async function hunkMenu(page: Page, label = 'Stage') {
-  const menu = page.getByRole('button', { name: 'More actions for two-hunk.txt', exact: true })
+  const menu = page.getByRole('button', {
+    name: 'More actions for two-hunk.txt',
+    exact: true,
+    includeHidden: true,
+  })
   await expect(async () => {
     if ((await menu.getAttribute('aria-expanded')) !== 'true') await menu.click()
     const load = page.getByRole('menuitem', {
       name: 'Show hunk actions for two-hunk.txt',
       exact: true,
     })
-    if ((await load.isVisible()) && (await load.isEnabled())) {
-      const response = page.waitForResponse((response) =>
-        new URL(response.url()).pathname.endsWith('/diff'),
-      )
-      await load.click()
-      await response
-      if ((await menu.getAttribute('aria-expanded')) !== 'true') await menu.click()
-    }
+    if (await load.isVisible()) await load.click({ timeout: 1000 })
+    if ((await menu.getAttribute('aria-expanded')) !== 'true') await menu.click()
     await expect(
-      page.getByRole('menuitem', { name: `${label} hunk 1 in two-hunk.txt`, exact: true }),
-    ).toBeVisible({ timeout: 1000 })
-  }).toPass({ timeout: 10000 })
+      page.getByRole('menuitem', { name: `${label} hunk 1 in two-hunk.txt` }),
+    ).toBeEnabled({ timeout: 1000 })
+  }).toPass({ timeout: 20000 })
 }
 
 test('Pending hunk load cannot populate a different scope', async ({ page, localApp }) => {

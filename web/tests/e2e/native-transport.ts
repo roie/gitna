@@ -109,9 +109,13 @@ export class NativeTransportProxy {
     for (const stream of this.activeStreams) stream.destroy()
   }
 
-  /** Make the next real Snapshot response an HTTP session failure. */
-  failNextSnapshot(status: 403 | 404, error: string): void {
+  /** Fail Snapshot reads until recovery is explicitly enabled. */
+  failSnapshots(status: 403 | 404, error: string): void {
     this.snapshotFailure = { status, body: JSON.stringify({ error }) }
+  }
+
+  clearSnapshotFailure(): void {
+    this.snapshotFailure = null
   }
 
   /** Hold one authoritative repository file-count response until release(). */
@@ -206,7 +210,6 @@ export class NativeTransportProxy {
       }
       if (snapshot && this.snapshotFailure != null) {
         const failure = this.snapshotFailure
-        this.snapshotFailure = null
         outgoing.writeHead(failure.status, { 'content-type': 'application/json' })
         outgoing.end(failure.body)
         return

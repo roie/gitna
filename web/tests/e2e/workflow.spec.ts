@@ -272,8 +272,7 @@ test('commit text survives hook failure and clears after authoritative success',
   ).toBeVisible()
   await expect(composer).toHaveValue('milestone commit')
 
-  // Editing readiness is not mutation readiness: a watcher refresh can keep
-  // the composer editable while Commit remains guarded by reconciliation.
+  // Failed reconciliation blocks mutations without disabling draft editing.
   await expect(commitButton).toBeEnabled()
   await page.keyboard.press('Control+Shift+C')
   await expect(composer).toBeFocused()
@@ -285,7 +284,13 @@ test('commit text survives hook failure and clears after authoritative success',
   const snapshotRequest = new Promise<void>((resolve) => {
     snapshotStarted = resolve
   })
+  let failSnapshot = true
   await page.route('**/api/v1/snapshot', async (route) => {
+    if (failSnapshot) {
+      failSnapshot = false
+      await route.fulfill({ status: 500, json: { error: 'Refresh failed for test' } })
+      return
+    }
     snapshotStarted()
     await snapshotGate
     await route.continue()

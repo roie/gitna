@@ -4,12 +4,15 @@ import { join } from 'node:path'
 import { expect, test } from './fixtures.js'
 
 test('fast commit expansion does not flash a loading message', async ({ page, app }) => {
+  const files = await page.request.get(new URL(`api/v1/commit/${app.headOid}/files`, app.url).href)
+  expect(files.ok()).toBe(true)
+  await page.route('**/api/v1/commit/*/files', (route) => route.fulfill({ response: files }))
   await page.goto(app.url)
   await page.locator('[data-section="graph"]').click()
   const row = page.locator('.graph-row').filter({
     has: page.getByRole('button', { name: /^merge feature/ }),
   })
-  await page.evaluate(() => {
+  await row.evaluate((element) => {
     const state = { flashed: false }
     Object.assign(window, { commitLoadingState: state })
     const observer = new MutationObserver((records) => {
@@ -19,7 +22,7 @@ test('fast commit expansion does not flash a loading message', async ({ page, ap
         }
       }
     })
-    observer.observe(document.body, { childList: true, subtree: true })
+    observer.observe(element, { childList: true, subtree: true })
   })
   await row.locator('[data-graph-disclosure]').click()
   await expect(row.getByRole('treeitem', { name: 'feature.txt', exact: true })).toBeVisible()

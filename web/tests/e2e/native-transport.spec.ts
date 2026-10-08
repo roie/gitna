@@ -96,7 +96,7 @@ test('native transport distinguishes Snapshot session failures from file failure
     await expect(page.getByRole('region', { name: 'Review' })).toBeVisible({
       timeout: 20_000,
     })
-    proxy.failNextSnapshot(403, 'session capability rejected')
+    proxy.failSnapshots(403, 'session capability rejected')
     writeFileSync(join(app.repo, 'native-session-failure.txt'), 'trigger\n')
     const connection = page.getByLabel('Notifications').getByRole('status')
     await expect(connection).toHaveAttribute('data-connection-state', 'session-error', {
@@ -108,9 +108,10 @@ test('native transport distinguishes Snapshot session failures from file failure
     const folder = page.getByRole('combobox', { name: 'Folder path' })
     await expect(folder).toBeVisible()
     await folder.fill(openFolder)
+    proxy.clearSnapshotFailure()
     await page.getByRole('button', { name: 'Switch folder' }).click()
     await expect(page).toHaveTitle('native-open-folder - Gitna', { timeout: 30_000 })
-    proxy.failNextSnapshot(404, 'session route not found')
+    proxy.failSnapshots(404, 'session route not found')
     writeFileSync(join(openFolder, 'native-session-failure-404.txt'), 'trigger\n')
     await expect(connection).toHaveAttribute('data-connection-state', 'session-error', {
       timeout: 20_000,

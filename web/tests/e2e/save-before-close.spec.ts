@@ -108,6 +108,9 @@ for (const mode of ['append', 'undo', 'undo-failure']) {
     const confirmation = page.getByRole('alertdialog')
     await confirmation.getByRole('button', { name: 'Save changes', exact: true }).click()
     await started
+    await expect(
+      confirmation.getByRole('button', { name: 'Save changes', exact: true }),
+    ).toBeDisabled()
     await confirmation.getByRole('button', { name: 'Cancel', exact: true }).click()
     await editor.click()
     if (undo) {

@@ -37,6 +37,7 @@ function createRepository(root: string): { repo: string; baseOid: string; headOi
   const remote = join(root, 'remote.git')
   mkdirSync(repo)
   git(repo, 'init', '-q', '-b', 'main')
+  git(repo, 'config', 'core.autocrlf', 'false')
   git(repo, 'config', 'user.email', 'e2e@example.com')
   git(repo, 'config', 'user.name', 'Gitna E2E')
 
@@ -149,7 +150,7 @@ async function startGitna(
   }
 }
 
-async function stopGitna(child: ChildProcess): Promise<void> {
+export async function stopGitna(child: ChildProcess): Promise<void> {
   if (child.exitCode !== null || child.signalCode !== null) return
   const exited = new Promise<void>((resolve) => child.once('exit', () => resolve()))
   const waitForExit = (timeout: number) =>

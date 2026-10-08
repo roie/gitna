@@ -2420,6 +2420,7 @@ function GitnaReviewUIInner({
         {pendingTabClose != null && (
           <DirtyTabCloseModal
             dirtyPaths={pendingTabClose.dirtyPaths}
+            saveDisabledReason={savingPath == null ? backendDisabledReason : 'Saving changes…'}
             onCancel={() => setPendingTabClose(null)}
             onDiscard={() => void discardPendingTabs()}
             onSave={() => void savePendingTabs()}
