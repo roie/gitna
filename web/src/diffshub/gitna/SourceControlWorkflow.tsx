@@ -495,11 +495,18 @@ function useNaturalPaneHeight(
   return height
 }
 
-export function GitnaSourceControl({ active = true }: { active?: boolean }) {
+export function GitnaSourceControl({
+  active = true,
+  onSearchCommits,
+}: {
+  active?: boolean
+  onSearchCommits?: () => void
+}) {
   const [commitMessage, setCommitMessage] = useState('')
   const [amend, setAmend] = useState(false)
   return active ? (
     <GitnaSourceControlInner
+      onSearchCommits={onSearchCommits}
       commitMessage={commitMessage}
       setCommitMessage={setCommitMessage}
       amend={amend}
@@ -509,11 +516,13 @@ export function GitnaSourceControl({ active = true }: { active?: boolean }) {
 }
 
 function GitnaSourceControlInner({
+  onSearchCommits,
   commitMessage,
   setCommitMessage,
   amend,
   setAmend,
 }: {
+  onSearchCommits?: () => void
   commitMessage: string
   setCommitMessage: (message: string) => void
   amend: boolean
@@ -867,6 +876,10 @@ function GitnaSourceControlInner({
   }, [repository.repositoryFileRevealVersion])
 
   useEffect(() => {
+    if (repository.graphReveal != null) setGraphOpen(true)
+  }, [repository.graphReveal])
+
+  useEffect(() => {
     if (selectedScope == null || selectedChangePath == null) return
     setWorkflowOpen(true)
     if (selectedScope === 'staged') setStagedOpen(true)
@@ -1164,6 +1177,7 @@ function GitnaSourceControlInner({
 
         {snapshot.repository && (
           <GraphSection
+            onSearchCommits={onSearchCommits}
             headerRef={graphHeader}
             scrollRootRef={containerRef}
             open={graphOpen}
@@ -2674,6 +2688,7 @@ function ChangeSection({
 }
 
 interface GraphSectionProps {
+  onSearchCommits?: () => void
   headerRef: React.RefObject<HTMLButtonElement | null>
   scrollRootRef: React.RefObject<HTMLDivElement | null>
   onConfirm: (confirm: PendingConfirm) => void
@@ -2728,6 +2743,7 @@ interface GraphScrollAnchor {
 }
 
 function GraphSection({
+  onSearchCommits,
   headerRef,
   scrollRootRef,
   onConfirm,
@@ -2742,6 +2758,7 @@ function GraphSection({
   const [pins, setPins] = useState<ReadonlySet<string>>(() => new Set())
   const graphBodyRef = useRef<HTMLDivElement>(null)
   const continuationArmedRef = useRef(false)
+  const revealedRef = useRef<typeof repository.graphReveal>(null)
   const anchorRef = useRef<GraphScrollAnchor | null>(null)
   const previousRowsRef = useRef<readonly string[]>([])
   const laneCount = Math.max(1, ...repository.graphRows.map((row) => row.totalColumns))
@@ -2915,6 +2932,28 @@ function GraphSection({
     },
     [virtualizer],
   )
+  useEffect(() => {
+    const reveal = repository.graphReveal
+    if (!open || reveal == null || revealedRef.current === reveal || repository.graphLoading) return
+    const index = repository.graphRows.findIndex((row) => row.commit.oid === reveal.oid)
+    if (index >= 0) {
+      revealedRef.current = reveal
+      continuationArmedRef.current = false
+      focusIndex(index)
+    } else if (repository.graphHasMore && repository.graphError == null) {
+      void repository.loadMoreGraph()
+    }
+  }, [
+    open,
+    repository.graphReveal,
+    repository.graphRows,
+    repository.graphLoading,
+    repository.graphHasMore,
+    repository.graphError,
+    focusIndex,
+    repository,
+  ])
+
   const handleDisclosureFocus = useCallback((index: number) => setActiveIndex(index), [])
   const handleDisclosureKeyDown = useCallback(
     (index: number, event: ReactKeyboardEvent<HTMLElement>) => {
@@ -2973,6 +3012,9 @@ function GraphSection({
                   Show as List
                 </DropdownMenuItem>
                 <DropdownMenuSeparator />
+                {onSearchCommits != null && (
+                  <DropdownMenuItem onSelect={onSearchCommits}>Search Commits…</DropdownMenuItem>
+                )}
                 <DropdownMenuItem
                   disabled={!repository.graphHasMore || repository.graphLoading}
                   onSelect={() => void repository.loadMoreGraph()}

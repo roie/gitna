@@ -184,6 +184,12 @@ export interface ApiClient {
   review: (request: ReviewRequest) => Promise<ReviewResponse>
   mutate: (request: MutateRequest) => Promise<void>
   commit: (request: CommitRequest) => Promise<OperationResult>
+  searchCommits?: (
+    query: string,
+    all: boolean,
+    skip: number,
+    signal: AbortSignal,
+  ) => Promise<GraphPage>
   graph: (skip?: number, tip?: string, signal?: AbortSignal) => Promise<GraphPage>
   graphCount: (tip: string, generation: number, signal?: AbortSignal) => Promise<GraphCount>
   commitFiles: (oid: string) => Promise<CommitFiles>
@@ -523,6 +529,15 @@ export function createApi(baseURL?: string): ApiClient {
         }),
       )
       return (await res.json()) as OperationResult
+    },
+    async searchCommits(query, all, skip, signal) {
+      const params = new URLSearchParams({ q: query, all: all ? '1' : '0', skip: String(skip) })
+      const res = await expectOK(
+        await fetch(`api/v1/commits/search?${params}`, {
+          signal: AbortSignal.any([signal, AbortSignal.timeout(FETCH_TIMEOUT)]),
+        }),
+      )
+      return (await res.json()) as GraphPage
     },
     async graph(skip = 0, tip?: string, signal?: AbortSignal): Promise<GraphPage> {
       const query = new URLSearchParams({ skip: String(skip) })

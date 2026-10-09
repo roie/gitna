@@ -187,6 +187,10 @@ func (a *repoAdapter) Review(ctx context.Context, scope protocol.DiffScope, opts
 	return a.current().Review(ctx, a.runner, scope, opts, after)
 }
 
+func (a *repoAdapter) SearchCommits(ctx context.Context, query string, all bool, skip int) (protocol.GraphPage, error) {
+	return a.current().SearchCommits(ctx, a.runner, query, all, skip)
+}
+
 func (a *repoAdapter) HistoryAt(ctx context.Context, tip string, skip, limit int) ([]protocol.GraphCommit, error) {
 	return a.current().HistoryAt(ctx, a.runner, tip, skip, limit)
 }

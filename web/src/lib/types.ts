@@ -21,6 +21,7 @@ export interface GraphCommit {
   authorName: string
   authorTime: string
   refs: CommitRef[]
+  branches?: string[]
 }
 
 export interface GraphPage {

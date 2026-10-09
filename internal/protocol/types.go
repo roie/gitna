@@ -307,6 +307,7 @@ type GraphCommit struct {
 	AuthorName string      `json:"authorName"`
 	AuthorTime time.Time   `json:"authorTime"`
 	Refs       []CommitRef `json:"refs"`
+	Branches   []string    `json:"branches,omitempty"`
 }
 
 // CommitFile is one path changed by a commit. Kind uses the same ChangeKind

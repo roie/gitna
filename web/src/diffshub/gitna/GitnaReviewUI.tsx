@@ -1807,6 +1807,18 @@ function GitnaReviewUIInner({
   const paletteCommands = useMemo<GitnaPaletteCommand[]>(() => {
     const commands: GitnaPaletteCommand[] = [
       {
+        id: 'search-commits',
+        icon: <IconBranch />,
+        label: 'Search Commits…',
+        description: 'Search history by message, author, or hash',
+        keywords: 'git history log',
+        paletteQuery: '#',
+        disabledReason: repository.snapshot?.repository
+          ? backendDisabledReason
+          : 'Open a Git repository to search commits.',
+        run: () => {},
+      },
+      {
         id: 'find-in-files',
         icon: <IconSearch />,
         label: 'Find in Files',
@@ -2171,7 +2183,13 @@ function GitnaReviewUIInner({
                     />
                   </Suspense>
                 )}
-                <GitnaSourceControl active={sidebarMode === 'source'} />
+                <GitnaSourceControl
+                  active={sidebarMode === 'source'}
+                  onSearchCommits={() => {
+                    setCommandPaletteInitialQuery('#')
+                    setCommandPaletteOpen(true)
+                  }}
+                />
               </DiffsHubSidebar>
             )}
             <div className="flex min-h-0 flex-col [grid-area:viewer]">
@@ -2346,6 +2364,19 @@ function GitnaReviewUIInner({
           <Suspense fallback={null}>
             <GitnaCommandPalette
               commands={paletteCommands}
+              searchCommits={
+                repository.snapshot?.repository ? repository.api.searchCommits : undefined
+              }
+              repositoryKey={`${repository.snapshot?.root}:${repository.snapshot?.headOid}`}
+              onOpenCommit={(oid, subject, currentBranch) => {
+                setHomeOpen(false)
+                if (currentBranch) {
+                  setSidebarMode('source')
+                  if (mobileViewport) setFileTreeOverlayOpen(true)
+                  else setSidebarVisible(true)
+                }
+                return repository.openCommit(oid, subject, currentBranch)
+              }}
               error={repository.ordinarySearchError}
               externalFileResults={repository.ordinarySearchResults}
               fileSearchComplete={repository.ordinarySearchComplete}

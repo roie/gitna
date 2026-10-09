@@ -39,6 +39,7 @@ export interface Selection {
 }
 
 export interface CommitDiffTarget {
+  fromSearch?: boolean
   oid: string
   subject: string
   path: string
@@ -282,6 +283,7 @@ export class GitnaRepository {
 
   graphCommits: GraphCommit[] = []
   graphRows: GraphRow[] = []
+  graphReveal: { oid: string } | null = null
   graphLoading = false
   graphError: string | null = null
   graphHasMore = false
@@ -1176,6 +1178,7 @@ export class GitnaRepository {
     this.graphCountController?.abort()
     this.graphCommits = []
     this.graphRows = []
+    this.graphReveal = null
     this.graphError = null
     this.graphHasMore = false
     this.graphTip = ''
@@ -1677,7 +1680,11 @@ export class GitnaRepository {
       this.commitStats = Object.fromEntries(
         Object.entries(this.commitStats).filter(([oid]) => present.has(oid)),
       )
-      if (this.commitDiff != null && !present.has(this.commitDiff.oid)) {
+      if (
+        this.commitDiff != null &&
+        !this.commitDiff.fromSearch &&
+        !present.has(this.commitDiff.oid)
+      ) {
         this.commitDiff = null
       }
       if (page.tip !== '' && this.graphTotal == null) {
@@ -2003,12 +2010,25 @@ export class GitnaRepository {
     this.emit()
   }
 
-  selectCommitFile(oid: string, subject: string, file: CommitFile): void {
+  async openCommit(oid: string, subject: string, reveal = false): Promise<void> {
+    const epoch = this.repositoryEpoch
+    const { files, stats } = await this.api.commitFiles(oid)
+    if (epoch !== this.repositoryEpoch) return
+    this.compare = null
+    this.commitFiles = { ...this.commitFiles, [oid]: files }
+    if (stats != null) this.commitStats = { ...this.commitStats, [oid]: stats }
+    if (reveal) this.expanded = { ...this.expanded, [oid]: true }
+    this.selectCommitFile(oid, subject, files[0] ?? { path: '', kind: 'modified' }, true)
+    this.graphReveal = reveal ? { oid } : null
+    this.emit()
+  }
+
+  selectCommitFile(oid: string, subject: string, file: CommitFile, fromSearch = false): void {
     this.selection = null
     this.repositoryFilePath = null
     this.compareDiff = null
     this.repositoryFileComparisonActive = false
-    this.commitDiff = { oid, subject, ...file }
+    this.commitDiff = { oid, subject, ...file, ...(fromSearch ? { fromSearch: true } : {}) }
     this.emit()
   }
 

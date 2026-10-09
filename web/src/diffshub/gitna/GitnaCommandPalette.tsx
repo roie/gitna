@@ -1,5 +1,5 @@
 import { IconSearch } from '@pierre/icons'
-import { FileX, LoaderCircle } from 'lucide-react'
+import { FileX, GitBranch, GitCommitHorizontal, LoaderCircle } from 'lucide-react'
 import {
   Fragment,
   type ReactNode,
@@ -10,6 +10,9 @@ import {
   useRef,
   useState,
 } from 'react'
+
+import type { ApiClient } from '../../lib/api'
+import type { GraphPage } from '../../lib/types'
 
 import { cn } from '../lib/cn'
 import { splitPaletteFileMatchIndices, paletteTextMatches } from './commandPalette'
@@ -88,11 +91,14 @@ function MiddleTruncatedHighlightedText({
 
 export interface GitnaPaletteCommand {
   description?: string
+  detail?: string
   disabledReason?: string | null
   icon: ReactNode
   id: string
   keywords?: string
   label: string
+  paletteQuery?: string
+  keepOpen?: boolean
   run: () => Promise<void> | void
 }
 
@@ -104,6 +110,9 @@ export interface GitnaPaletteFileResult {
 }
 
 interface GitnaCommandPaletteProps {
+  searchCommits?: ApiClient['searchCommits']
+  repositoryKey?: string
+  onOpenCommit?: (oid: string, subject: string, currentBranch: boolean) => void | Promise<void>
   commands: readonly GitnaPaletteCommand[]
   externalFileResults: readonly GitnaPaletteFileResult[]
   fileSearchComplete: boolean
@@ -180,6 +189,9 @@ function PaletteFileLabel({
 
 export function GitnaCommandPalette({
   commands,
+  searchCommits,
+  repositoryKey,
+  onOpenCommit,
   error,
   externalFileResults,
   fileSearchComplete,
@@ -206,15 +218,57 @@ export function GitnaCommandPalette({
   const [refusal, setRefusal] = useState<string | null>(null)
   const [showFileSearchBusy, setShowFileSearchBusy] = useState(false)
   const listboxId = useId()
+  const [allBranches, setAllBranches] = useState(false)
+  const [commitPage, setCommitPage] = useState<{ key: string; page: GraphPage } | null>(null)
+  const [commitError, setCommitError] = useState<string | null>(null)
+  const [commitLoading, setCommitLoading] = useState(false)
+  const [commitSkip, setCommitSkip] = useState(0)
+  const commitMode = query.trimStart().startsWith('#')
+  const commitQuery = commitMode ? query.trimStart().slice(1).trim() : ''
+  const commitKey = `${repositoryKey}\u0000${allBranches}\u0000${commitQuery}`
+  const commitsCurrent = commitPage?.key === commitKey
   const commandMode = query.trimStart().startsWith('>')
   const lineMode = query.trimStart().startsWith(':')
   const commandQuery = commandMode ? query.trimStart().slice(1).trim() : ''
   const lineQuery = lineMode ? query.trimStart().slice(1).trim() : ''
-  const fileRequestKey = `${includeIgnored ? '1' : '0'}\u0000${query}`
+  const fileQuery = query.startsWith('\\#') ? query.slice(1) : query
+  const fileRequestKey = `${includeIgnored ? '1' : '0'}\u0000${fileQuery}`
 
   const fileResultsCurrent =
-    fileResultQuery === query && fileResultIncludeIgnored === includeIgnored
+    fileResultQuery === fileQuery && fileResultIncludeIgnored === includeIgnored
   const results = useMemo<PaletteResult[]>(() => {
+    if (commitMode) {
+      const rows: PaletteResult[] = (commitsCurrent ? (commitPage?.page.commits ?? []) : []).map(
+        (commit) => ({
+          id: `commit:${commit.oid}`,
+          kind: 'command',
+          command: {
+            id: `commit:${commit.oid}`,
+            icon: <GitCommitHorizontal />,
+            label: commit.subject || '(No commit message)',
+            description: `${commit.oid.slice(0, 8)} · ${commit.authorName} · ${new Date(commit.authorTime).toLocaleString(undefined, { dateStyle: 'short', timeStyle: 'short' })}`,
+            detail: allBranches
+              ? `Branches: ${commit.branches?.join(', ') || 'No branch'}`
+              : undefined,
+            run: () => onOpenCommit?.(commit.oid, commit.subject, !allBranches),
+          },
+        }),
+      )
+      if (commitsCurrent && commitPage?.page.hasMore && commitPage.page.commits.length <= 10000)
+        rows.push({
+          id: 'more-commits',
+          kind: 'command',
+          command: {
+            id: 'more-commits',
+            icon: null,
+            label: 'Load more commits',
+            keepOpen: true,
+            disabledReason: commitLoading ? 'Loading commits…' : undefined,
+            run: () => setCommitSkip(commitPage.page.commits.length),
+          },
+        })
+      return rows
+    }
     if (lineMode) {
       const line = Number.parseInt(lineQuery, 10)
       return Number.isFinite(line) && line > 0 && onGoToLine != null
@@ -254,6 +308,12 @@ export function GitnaCommandPalette({
       stale: !fileResultsCurrent,
     }))
   }, [
+    commitMode,
+    commitsCurrent,
+    commitPage,
+    commitLoading,
+    allBranches,
+    onOpenCommit,
     commandMode,
     commandQuery,
     commands,
@@ -265,14 +325,64 @@ export function GitnaCommandPalette({
   ])
 
   const fileSearchErrorCurrent =
+    !commitMode &&
     !commandMode &&
     !lineMode &&
     error != null &&
     lastRequestedFileQueryRef.current === fileRequestKey
   const fileSearchBusy =
+    !commitMode &&
     !commandMode &&
     !lineMode &&
     (searching || (!fileSearchErrorCurrent && (!fileResultsCurrent || !fileSearchComplete)))
+
+  useEffect(() => {
+    setCommitSkip(0)
+    setCommitPage(null)
+    setCommitError(null)
+    setActiveIndex(0)
+  }, [commitKey, open])
+
+  useEffect(() => {
+    if (!open || !commitMode) return
+    const controller = new AbortController()
+    setCommitLoading(true)
+    setCommitError(null)
+    const timer = window.setTimeout(() => {
+      if (searchCommits == null) {
+        setCommitError('Commit search is unavailable in this folder.')
+        setCommitLoading(false)
+        return
+      }
+      void searchCommits(commitQuery, allBranches, commitSkip, controller.signal)
+        .then((page) => {
+          if (controller.signal.aborted) return
+          setCommitPage((previous) => ({
+            key: commitKey,
+            page: {
+              ...page,
+              commits:
+                commitSkip > 0 &&
+                previous?.key === commitKey &&
+                previous.page.generation === page.generation
+                  ? [...previous.page.commits, ...page.commits]
+                  : page.commits,
+            },
+          }))
+        })
+        .catch((reason: unknown) => {
+          if (!controller.signal.aborted)
+            setCommitError(reason instanceof Error ? reason.message : String(reason))
+        })
+        .finally(() => {
+          if (!controller.signal.aborted) setCommitLoading(false)
+        })
+    }, 150)
+    return () => {
+      controller.abort()
+      window.clearTimeout(timer)
+    }
+  }, [open, commitMode, commitKey, commitQuery, allBranches, commitSkip, searchCommits])
 
   useEffect(() => {
     if (!open || !fileSearchBusy) {
@@ -303,19 +413,20 @@ export function GitnaCommandPalette({
   }, [results.length])
 
   useEffect(() => {
-    if (!open || commandMode || lineMode) return
+    if (!open || commitMode || commandMode || lineMode) return
     const repeatedQuery = lastRequestedFileQueryRef.current === fileRequestKey
     if (repeatedQuery && ((fileResultsCurrent && fileSearchComplete) || searching || error != null))
       return
     const timer = window.setTimeout(
       () => {
         lastRequestedFileQueryRef.current = fileRequestKey
-        onFileQueryChange(query, includeIgnored)
+        onFileQueryChange(fileQuery, includeIgnored)
       },
       repeatedQuery ? 500 : 100,
     )
     return () => window.clearTimeout(timer)
   }, [
+    commitMode,
     commandMode,
     error,
     lineMode,
@@ -325,7 +436,7 @@ export function GitnaCommandPalette({
     includeIgnored,
     onFileQueryChange,
     open,
-    query,
+    fileQuery,
     searching,
   ])
 
@@ -341,10 +452,18 @@ export function GitnaCommandPalette({
       setRefusal(result.command.disabledReason)
       return
     }
+    if (result.kind === 'command' && result.command.paletteQuery != null) {
+      setQuery(result.command.paletteQuery)
+      setActiveIndex(0)
+      setRefusal(null)
+      return
+    }
     try {
       const operation = result.kind === 'file' ? onOpenFile(result.path) : result.command.run()
       void Promise.resolve(operation)
-        .then(() => onClose())
+        .then(() => {
+          if (result.kind !== 'command' || !result.command.keepOpen) onClose()
+        })
         .catch((reason: unknown) =>
           onError(reason instanceof Error ? reason.message : String(reason)),
         )
@@ -383,7 +502,11 @@ export function GitnaCommandPalette({
           aria-label="Search files and commands"
           autoComplete="off"
           className="h-8 min-w-0 flex-1 bg-transparent text-sm outline-none placeholder:text-muted-foreground"
-          placeholder="Search files, type > for commands, or : for a line"
+          placeholder={
+            commitMode
+              ? 'Search by message, author, or hash'
+              : 'Search files, > commands, # commits, : line'
+          }
           spellCheck={false}
           value={query}
           onChange={(event) => {
@@ -414,16 +537,33 @@ export function GitnaCommandPalette({
             }
           }}
         />
-        {fileSearchBusy && showFileSearchBusy && (
+        {((fileSearchBusy && showFileSearchBusy) || (commitMode && commitLoading)) && (
           <span className="flex shrink-0 items-center text-muted-foreground" role="status">
             <LoaderCircle
               aria-hidden="true"
               className="size-3.5 animate-spin motion-reduce:animate-none"
             />
-            <span className="sr-only">{searching ? 'Searching files' : 'Scanning folder'}</span>
+            <span className="sr-only">
+              {commitMode ? 'Searching commits' : searching ? 'Searching files' : 'Scanning folder'}
+            </span>
           </span>
         )}
-        {!commandMode && supportsIgnoredFiles && (
+        {commitMode && (
+          <button
+            type="button"
+            aria-label={allBranches ? 'Exclude Other Branches' : 'Include All Branches'}
+            aria-pressed={allBranches}
+            title={allBranches ? 'Exclude Other Branches' : 'Include All Branches'}
+            className={cn(
+              'flex size-7 shrink-0 cursor-pointer items-center justify-center rounded text-muted-foreground outline-hidden hover:bg-muted hover:text-foreground active:bg-muted focus-visible:ring-2 focus-visible:ring-ring',
+              allBranches && 'bg-muted text-foreground',
+            )}
+            onClick={() => setAllBranches((current) => !current)}
+          >
+            <GitBranch aria-hidden="true" className="size-4" />
+          </button>
+        )}
+        {!commitMode && !commandMode && !lineMode && supportsIgnoredFiles && (
           <button
             type="button"
             aria-label={includeIgnored ? 'Exclude Ignored Files' : 'Include Ignored Files'}
@@ -447,8 +587,8 @@ export function GitnaCommandPalette({
         ref={listRef}
         id={listboxId}
         role="listbox"
-        aria-label={commandMode ? 'Commands' : 'Files'}
-        aria-busy={fileSearchBusy}
+        aria-label={commitMode ? 'Commits' : commandMode ? 'Commands' : 'Files'}
+        aria-busy={commitMode ? commitLoading : fileSearchBusy}
         className="gitna-scrollbar h-[min(560px,calc(84dvh-58px))] overflow-y-auto overscroll-contain p-1.5"
       >
         {results.map((result, index) => (
@@ -513,6 +653,14 @@ export function GitnaCommandPalette({
                     {result.command.description}
                   </span>
                 )}
+                {result.command.detail != null && (
+                  <span
+                    title={result.command.detail}
+                    className="mbs-0.5 block truncate text-xs text-muted-foreground"
+                  >
+                    {result.command.detail}
+                  </span>
+                )}
                 {result.command.disabledReason != null && (
                   <span
                     id={`${listboxId}-reason-${index}`}
@@ -526,7 +674,21 @@ export function GitnaCommandPalette({
           </button>
         ))}
 
-        {refusal != null && commandMode && (
+        {commitMode && commitError != null && (
+          <p className="px-3 py-4 text-center text-sm text-muted-foreground" role="alert">
+            {commitError}
+          </p>
+        )}
+        {commitMode &&
+          !commitLoading &&
+          commitsCurrent &&
+          results.length === 0 &&
+          commitError == null && (
+            <p className="px-3 py-8 text-center text-sm text-muted-foreground" role="status">
+              No commits match.
+            </p>
+          )}
+        {refusal != null && (commandMode || commitMode) && (
           <p className="px-3 py-2 text-xs text-muted-foreground" role="status">
             {refusal}
           </p>
@@ -538,6 +700,7 @@ export function GitnaCommandPalette({
           </div>
         )}
         {results.length === 0 &&
+          !commitMode &&
           (commandMode ||
             (fileResultsCurrent && fileSearchComplete && !searching && error == null)) && (
             <p className="px-3 py-8 text-center text-sm text-muted-foreground" role="status">

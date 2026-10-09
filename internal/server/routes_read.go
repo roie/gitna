@@ -63,6 +63,8 @@ func (s *Server) apiRoutes() http.Handler {
 			s.handleDiff(w, r)
 		case r.Method == http.MethodGet && p == "/review":
 			s.handleReview(w, r)
+		case r.Method == http.MethodGet && p == "/commits/search":
+			s.handleCommitSearch(w, r)
 		case r.Method == http.MethodGet && p == "/graph":
 			s.handleGraph(w, r)
 		case r.Method == http.MethodGet && p == "/graph/count":

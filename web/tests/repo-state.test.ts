@@ -1360,6 +1360,24 @@ describe('createRepoState', () => {
     expect(state.busy).toBe(false)
   })
 
+  it('opens a searched commit and requests reveal only for current-branch results', async () => {
+    const files = [commitFile('two.txt')]
+    const state = createRepoState({
+      api: graphApi([[graphCommit('c2', ['c1']), graphCommit('c1', [])]], { c2: files }),
+    })
+    await state.openCommit('c2', 'second commit', true)
+    expect(state.commitDiff).toMatchObject({ oid: 'c2', path: 'two.txt', fromSearch: true })
+    expect(state.expanded.c2).toBe(true)
+    expect(state.commitFiles.c2).toEqual(files)
+    expect(state.graphReveal?.oid).toBe('c2')
+    const firstReveal = state.graphReveal
+    await state.openCommit('c2', 'second commit', true)
+    expect(state.graphReveal).not.toBe(firstReveal)
+    await state.openCommit('c2', 'second commit', false)
+    expect(state.graphReveal).toBeNull()
+    expect(state.commitDiff?.oid).toBe('c2')
+  })
+
   it('assigns lanes to the loaded graph', async () => {
     const state = createRepoState({
       api: graphApi([
