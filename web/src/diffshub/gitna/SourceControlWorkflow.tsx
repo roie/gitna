@@ -44,7 +44,7 @@ import { createPortal } from 'react-dom'
 
 import { ApiError } from '../../lib/api'
 import type { GraphRow } from '../../lib/graph-lanes'
-import type { ChangeKind, ChangeScope, ConflictEntry } from '../../lib/types'
+import type { ChangeKind, ChangeScope, CommitFile, ConflictEntry } from '../../lib/types'
 import { Button } from '../components/Button'
 import { CHROME_ICON_BUTTON_CLASS } from '../components/chromeButtonStyles'
 import { DiffsHubFileTree } from '../components/DiffsHubFileTree'
@@ -2734,6 +2734,11 @@ function relativeCommitTime(value: string): string {
   return formatter.format(elapsedSeconds, 'second')
 }
 
+type GraphTreeExpansionCache = WeakMap<
+  readonly CommitFile[],
+  Partial<Record<RepositoryViewMode, readonly string[]>>
+>
+
 type GraphPinReason = 'menu' | 'tooltip'
 
 interface GraphScrollAnchor {
@@ -2757,6 +2762,7 @@ function GraphSection({
   const [activeIndex, setActiveIndex] = useState(0)
   const [pins, setPins] = useState<ReadonlySet<string>>(() => new Set())
   const graphBodyRef = useRef<HTMLDivElement>(null)
+  const [treeExpansionCache] = useState<GraphTreeExpansionCache>(() => new WeakMap())
   const continuationArmedRef = useRef(false)
   const revealedRef = useRef<typeof repository.graphReveal>(null)
   const anchorRef = useRef<GraphScrollAnchor | null>(null)
@@ -3094,6 +3100,7 @@ function GraphSection({
                       disclosureTabIndex={item.index === activeIndex ? 0 : -1}
                       index={item.index}
                       laneCount={laneCount}
+                      treeExpansionCache={treeExpansionCache}
                       row={row}
                       view={view}
                       onConfirm={onConfirm}
@@ -3225,6 +3232,7 @@ function GraphLaneGutter({
 }
 
 const GraphCommitRow = memo(function GraphCommitRow({
+  treeExpansionCache,
   disclosureTabIndex,
   index,
   laneCount,
@@ -3235,6 +3243,7 @@ const GraphCommitRow = memo(function GraphCommitRow({
   onDisclosureKeyDown,
   onPinChange,
 }: {
+  treeExpansionCache: GraphTreeExpansionCache
   disclosureTabIndex: number
   index: number
   laneCount: number
@@ -3266,9 +3275,17 @@ const GraphCommitRow = memo(function GraphCommitRow({
           ),
     [files, view],
   )
-  const [treeModel, setTreeModel] = useState<FileTree | null>(null)
+  const initialExpandedPaths = files == null ? undefined : treeExpansionCache.get(files)?.[view]
+  const saveExpandedPaths = useCallback(
+    (paths: readonly string[]) => {
+      if (files == null) return
+      const cached = treeExpansionCache.get(files) ?? {}
+      cached[view] = paths
+      treeExpansionCache.set(files, cached)
+    },
+    [files, treeExpansionCache, view],
+  )
   const [commitOidCopied, setCommitOidCopied] = useState(false)
-  const treeHeight = useNaturalTreeHeight(treeModel)
   const selectedPath =
     repository.commitDiff?.oid === row.commit.oid ? repository.commitDiff.path : null
   const refs = row.commit.refs.filter(
@@ -3493,21 +3510,22 @@ const GraphCommitRow = memo(function GraphCommitRow({
             <p className="px-3 py-2 text-xs text-muted-foreground">Loading…</p>
           )}
           {files != null && files.length > 0 && (
-            <div className="min-h-0" style={{ height: `min(${treeHeight}px, 50vh)` }}>
-              <DiffsHubFileTree
-                className="md:ml-1"
-                modelId={`gitna-graph-${row.commit.oid}`}
-                onModelReady={setTreeModel}
-                onSelectItem={(path) => {
-                  const file = files.find((candidate) => candidate.path === path)
-                  if (file != null) {
-                    repository.selectCommitFile(row.commit.oid, row.commit.subject, file)
-                  }
-                }}
-                selectedPath={selectedPath}
-                source={source}
-              />
-            </div>
+            <DiffsHubFileTree
+              key={view}
+              className="md:ml-1"
+              modelId={`gitna-graph-${row.commit.oid}`}
+              naturalHeightLimit="50vh"
+              initialExpandedPaths={initialExpandedPaths}
+              onExpandedPathsChange={saveExpandedPaths}
+              onSelectItem={(path) => {
+                const file = files.find((candidate) => candidate.path === path)
+                if (file != null) {
+                  repository.selectCommitFile(row.commit.oid, row.commit.subject, file)
+                }
+              }}
+              selectedPath={selectedPath}
+              source={source}
+            />
           )}
           {files != null && files.length === 0 && !repository.filesLoading[row.commit.oid] && (
             <p className="px-3 py-2 text-xs text-muted-foreground">No changed files</p>

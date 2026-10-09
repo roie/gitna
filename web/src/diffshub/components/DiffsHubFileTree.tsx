@@ -12,7 +12,11 @@ import type {
   FileTreeDropResult,
   FileTreeOptions,
 } from '@pierre/trees';
-import { type FileTreeProps, useFileTree } from '@pierre/trees/react';
+import {
+  type FileTreeProps,
+  useFileTree,
+  useFileTreeSelector,
+} from '@pierre/trees/react';
 import {
   type CSSProperties,
   type MouseEvent as ReactMouseEvent,
@@ -20,6 +24,8 @@ import {
   type WheelEvent as ReactWheelEvent,
   memo,
   useEffect,
+  useLayoutEffect,
+  useMemo,
   useRef,
   useState,
 } from 'react';
@@ -159,6 +165,9 @@ interface DiffsHubFileTreeProps {
   className?: string;
   dragAndDrop?: FileTreeDragAndDropConfig;
   modelId?: string;
+  naturalHeightLimit?: string;
+  initialExpandedPaths?: readonly string[];
+  onExpandedPathsChange?: (paths: readonly string[]) => void;
   lazyDirectories?: ReadonlySet<string>;
   knownEmptyDirectories?: ReadonlySet<string>;
   pagedDirectories?: ReadonlySet<string>;
@@ -167,7 +176,7 @@ interface DiffsHubFileTreeProps {
   // Callback invoked with the underlying tree model once it's mounted, and
   // again with `null` on unmount. Lets parents drive imperative APIs like
   // search open/close without owning the model creation.
-  onModelReady: (model: FileTreeModel | null) => void;
+  onModelReady?: (model: FileTreeModel | null) => void;
   onSelectItem: (itemId: string) => void;
   onSelectPaths?: (paths: readonly string[]) => void;
   renderContextMenu?: (
@@ -186,6 +195,9 @@ export const DiffsHubFileTree = memo(function DiffsHubFileTree({
   className,
   dragAndDrop,
   modelId = 'gh-code-view-tree',
+  naturalHeightLimit,
+  initialExpandedPaths,
+  onExpandedPathsChange,
   lazyDirectories,
   knownEmptyDirectories,
   pagedDirectories,
@@ -367,6 +379,8 @@ export const DiffsHubFileTree = memo(function DiffsHubFileTree({
   const { model } = useFileTree({
     ...fileTreeOptions,
     id: modelId,
+    initialExpansion: initialExpandedPaths == null ? fileTreeOptions.initialExpansion : 'closed',
+    initialExpandedPaths,
     gitStatus: source.gitStatus,
     dragAndDrop:
       dragAndDrop == null
@@ -386,6 +400,34 @@ export const DiffsHubFileTree = memo(function DiffsHubFileTree({
     initialVisibleRowCount,
     initialUnloadedDirectoryPaths: lazyDirectories == null ? undefined : [...lazyDirectories],
   });
+
+  const naturalHeight = useFileTreeSelector(model, (tree) =>
+    naturalHeightLimit == null ? 0 : tree.getVisibleCount() * tree.getItemHeight()
+  );
+  const directoryPaths = useMemo(() => {
+    if (onExpandedPathsChange == null) return [];
+    const directories = new Set<string>();
+    for (const path of source.paths.slice(0, source.pathCount)) {
+      let separator = path.indexOf('/');
+      while (separator >= 0) {
+        directories.add(path.slice(0, separator + 1));
+        separator = path.indexOf('/', separator + 1);
+      }
+    }
+    return [...directories];
+  }, [onExpandedPathsChange, source]);
+
+  useLayoutEffect(() => {
+    if (onExpandedPathsChange == null) return;
+    const publish = () => onExpandedPathsChange(
+      directoryPaths.filter((path) => {
+        const item = model.getItem(path);
+        return item?.isDirectory() && (item as FileTreeDirectoryHandle).isExpanded();
+      })
+    );
+    publish();
+    return model.subscribe(publish);
+  }, [directoryPaths, model, onExpandedPathsChange]);
 
   useEffect(() => {
     if (lazyDirectories == null) return;
@@ -505,8 +547,8 @@ export const DiffsHubFileTree = memo(function DiffsHubFileTree({
   }, [model, renderRowActions]);
 
   useEffect(() => {
-    onModelReady(model);
-    return () => onModelReady(null);
+    onModelReady?.(model);
+    return () => onModelReady?.(null);
   }, [model, onModelReady]);
 
   useEffect(() => {
@@ -554,13 +596,24 @@ export const DiffsHubFileTree = memo(function DiffsHubFileTree({
 
   return (
     <ThemedFileTree
-      className={cn('h-full min-h-0 overflow-auto overscroll-contain md:ml-3', className)}
+      className={cn(
+        'h-full min-h-0 overflow-auto md:ml-3',
+        naturalHeightLimit == null ? 'overscroll-contain' : 'overscroll-auto',
+        className
+      )}
       model={model}
       onClickCapture={handleClickCapture}
       onWheelCapture={handleWheelCapture}
       reconcileForegroundFromChrome
       renderContextMenu={renderContextMenu == null ? undefined : stableRenderContextMenu}
-      style={DENSITY_OVERRIDE_STYLES}
+      style={
+        naturalHeightLimit == null
+          ? DENSITY_OVERRIDE_STYLES
+          : {
+              ...DENSITY_OVERRIDE_STYLES,
+              blockSize: `min(${naturalHeight}px, ${naturalHeightLimit})`,
+            }
+      }
     />
   );
 });
