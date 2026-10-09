@@ -1395,6 +1395,31 @@ describe('createRepoState', () => {
     expect(state.graphHasMore).toBe(false)
   })
 
+  it('expands only loaded commits without eagerly fetching files and collapses all', async () => {
+    const commitFiles = vi.fn(async () => ({ files: [commitFile('two.txt')] }))
+    const state = createRepoState({
+      api: {
+        ...graphApi([[graphCommit('c2', ['c1'])], [graphCommit('c1', [])]]),
+        commitFiles,
+      },
+    })
+    await state.refreshGraph()
+    state.expandLoadedCommits()
+    expect(state.expanded.c2).toBe(true)
+    expect(state.expanded.c1).toBeFalsy()
+    expect(commitFiles).not.toHaveBeenCalled()
+
+    await state.loadMoreGraph()
+    expect(state.graphRows.map((row) => row.commit.oid)).toEqual(['c2', 'c1'])
+    expect(state.expanded.c1).toBeFalsy()
+    state.expandLoadedCommits()
+    expect(state.expanded.c1).toBe(true)
+    await state.loadCommitDetails('c2')
+    state.collapseAllCommits()
+    expect(Object.values(state.expanded).some(Boolean)).toBe(false)
+    expect(state.commitFiles.c2).toEqual([commitFile('two.txt')])
+  })
+
   it('shows a new commit after refresh and keeps expanded commits and their files', async () => {
     const state = createRepoState({
       api: graphApi(

@@ -1852,6 +1852,17 @@ export class GitnaRepository {
     }
   }
 
+  expandLoadedCommits(): void {
+    this.expanded = { ...this.expanded }
+    for (const { commit } of this.graphRows) this.expanded[commit.oid] = true
+    this.emit()
+  }
+
+  collapseAllCommits(): void {
+    this.expanded = {}
+    this.emit()
+  }
+
   async toggleCommit(oid: string): Promise<void> {
     const open = !this.expanded[oid]
     this.expanded = { ...this.expanded, [oid]: open }

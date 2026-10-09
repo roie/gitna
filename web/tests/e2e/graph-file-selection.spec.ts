@@ -3,6 +3,29 @@ import { writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { expect, test } from './fixtures.js'
 
+test('graph actions expand loaded commits and collapse all', async ({ page, app }) => {
+  await page.goto(app.url)
+  await page.locator('[data-section="graph"]').click()
+  const disclosures = page.locator('[data-graph-disclosure]')
+  await expect(disclosures.first()).toBeVisible()
+  await page.getByRole('button', { name: 'Graph actions', exact: true }).click()
+  await expect(page.getByRole('menuitem', { name: 'Collapse all', exact: true })).toBeDisabled()
+  await page.getByRole('menuitem', { name: 'Expand loaded commits', exact: true }).click()
+  await expect(page.locator('[data-graph-disclosure][aria-expanded="false"]')).toHaveCount(0)
+  const head = page.locator(`[data-graph-oid="${app.headOid}"]`)
+  await expect(head.getByRole('treeitem', { name: 'feature.txt', exact: true })).toBeVisible()
+
+  await page.getByRole('button', { name: 'Graph actions', exact: true }).click()
+  await expect(
+    page.getByRole('menuitem', { name: 'Expand loaded commits', exact: true }),
+  ).toBeDisabled()
+  await page.getByRole('menuitem', { name: 'Collapse all', exact: true }).click()
+  await expect(page.locator('[data-graph-disclosure][aria-expanded="true"]')).toHaveCount(0)
+  await expect(page.locator('[data-graph-files]')).toHaveCount(0)
+  await head.locator('[data-graph-disclosure]').click()
+  await expect(head.getByRole('treeitem', { name: 'feature.txt', exact: true })).toBeVisible()
+})
+
 test('fast commit expansion does not flash a loading message', async ({ page, app }) => {
   const files = await page.request.get(new URL(`api/v1/commit/${app.headOid}/files`, app.url).href)
   expect(files.ok()).toBe(true)

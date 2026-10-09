@@ -3012,6 +3012,21 @@ function GraphSection({
                   Show as List
                 </DropdownMenuItem>
                 <DropdownMenuSeparator />
+                <DropdownMenuItem
+                  disabled={
+                    !repository.graphRows.some((row) => !repository.expanded[row.commit.oid])
+                  }
+                  onSelect={() => repository.expandLoadedCommits()}
+                >
+                  Expand loaded commits
+                </DropdownMenuItem>
+                <DropdownMenuItem
+                  disabled={!Object.values(repository.expanded).some(Boolean)}
+                  onSelect={() => repository.collapseAllCommits()}
+                >
+                  Collapse all
+                </DropdownMenuItem>
+                <DropdownMenuSeparator />
                 {onSearchCommits != null && (
                   <DropdownMenuItem onSelect={onSearchCommits}>Search Commits…</DropdownMenuItem>
                 )}
@@ -3237,6 +3252,9 @@ const GraphCommitRow = memo(function GraphCommitRow({
   const files = repository.commitFiles[row.commit.oid]
   const filesLoading = repository.filesLoading[row.commit.oid] === true
   const filesLoadingVisible = useDelayedRefreshIndicator(open && filesLoading)
+  useEffect(() => {
+    if (open) void repository.loadCommitDetails(row.commit.oid)
+  }, [open, repository, row.commit.oid])
   const stats = repository.commitStats[row.commit.oid]
   const source = useMemo(
     () =>
