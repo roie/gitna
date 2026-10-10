@@ -987,10 +987,10 @@ function GitnaSourceControlInner({
                       }
                     }}
                   />
-                  <div className="mt-2 flex items-center gap-2">
+                  <div className="mbs-2 flex flex-wrap items-center gap-2">
                     <label
                       htmlFor="gitna-amend"
-                      className="mr-auto flex cursor-pointer items-center gap-1.5 text-xs text-muted-foreground"
+                      className="me-auto flex cursor-pointer items-center gap-1.5 text-xs text-muted-foreground"
                     >
                       <Switch
                         id="gitna-amend"
@@ -1267,6 +1267,9 @@ function SourceControlHeaderActions({
   const repository = useRepository()
   const [branchQuery, setBranchQuery] = useState('')
   const [branchMenuOpen, setBranchMenuOpen] = useState(false)
+  const branchMenuContent = useRef<HTMLDivElement>(null)
+  const branchMenuTriggers = useRef(new Map<string, HTMLDivElement>())
+  const [branchSubmenuOffset, setBranchSubmenuOffset] = useState(0)
   const [moreOpen, setMoreOpen] = useState(false)
   const [publishBranch, setPublishBranch] = useState<string | null>(null)
   const fetching = repository.activeOp === 'Fetching'
@@ -1401,7 +1404,7 @@ function SourceControlHeaderActions({
             <IconBranch className="size-4 md:size-3" />
           </Button>
         </DropdownMenuTrigger>
-        <DropdownMenuContent align="start" className="w-72 p-2">
+        <DropdownMenuContent ref={branchMenuContent} align="start" className="w-72 p-2">
           <form
             className="mb-2 flex gap-2"
             onSubmit={(event) => {
@@ -1434,83 +1437,131 @@ function SourceControlHeaderActions({
           <p className="px-2 py-1 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
             Local branches
           </p>
-          {localBranches.map((branch) =>
-            branch.current ? (
-              <DropdownMenuItem key={branch.name} disabled>
-                <span className="w-4" />
-                <span className="min-w-0 flex-1 truncate font-medium">{branch.name}</span>
-                <span className="text-[10px] text-muted-foreground">
-                  Current
-                  {branch.upstream != null && (
-                    <>
-                      {' · '}
-                      {branch.upstream}
-                      {branch.ahead > 0 ? ` ↑${branch.ahead}` : ''}
-                      {branch.behind > 0 ? ` ↓${branch.behind}` : ''}
-                    </>
-                  )}
-                </span>
-              </DropdownMenuItem>
-            ) : (
-              <DropdownMenuSub key={branch.name}>
-                <DropdownMenuSubTrigger disabled={repository.busy || disabledReason != null}>
+          <TooltipProvider delayDuration={400} skipDelayDuration={150}>
+            {localBranches.map((branch) =>
+              branch.current ? (
+                <DropdownMenuItem key={branch.name} disabled>
                   <span className="w-4" />
-                  <span className="min-w-0 flex-1 truncate">{branch.name}</span>
-                  {branch.upstream != null && (
-                    <span className="text-[10px] text-muted-foreground">
-                      {branch.ahead > 0 ? `↑${branch.ahead}` : ''}
-                      {branch.behind > 0 ? ` ↓${branch.behind}` : ''}
-                    </span>
-                  )}
-                </DropdownMenuSubTrigger>
-                <DropdownMenuSubContent>
-                  <DropdownMenuItem
-                    disabled={disabledReason != null}
-                    onSelect={() => void run(() => repository.switchBranch(branch.name))}
+                  <span className="min-w-0 flex-1 wrap-anywhere font-medium">{branch.name}</span>
+                  <span className="text-[10px] text-muted-foreground">
+                    Current
+                    {branch.upstream != null && (
+                      <>
+                        {' · '}
+                        {branch.upstream}
+                        {branch.ahead > 0 ? ` ↑${branch.ahead}` : ''}
+                        {branch.behind > 0 ? ` ↓${branch.behind}` : ''}
+                      </>
+                    )}
+                  </span>
+                </DropdownMenuItem>
+              ) : (
+                <DropdownMenuSub
+                  key={branch.name}
+                  onOpenChange={(open) => {
+                    if (!open || branchMenuContent.current == null) return
+                    const bounds = branchMenuContent.current.getBoundingClientRect()
+                    const viewportWidth = document.documentElement.clientWidth
+                    const availableWidth = Math.max(bounds.left, viewportWidth - bounds.right)
+                    const triggerWidth =
+                      branchMenuTriggers.current.get(branch.name)?.offsetWidth ?? 0
+                    setBranchSubmenuOffset(
+                      availableWidth < bounds.width ? -(triggerWidth + bounds.width) / 2 : 0,
+                    )
+                  }}
+                >
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <DropdownMenuSubTrigger
+                        ref={(element) => {
+                          if (element == null) branchMenuTriggers.current.delete(branch.name)
+                          else branchMenuTriggers.current.set(branch.name, element)
+                        }}
+                        onPointerLeave={(event) => {
+                          // Overlapping content invalidates Radix's sideways pointer-grace area.
+                          if (branchSubmenuOffset < 0) event.preventDefault()
+                        }}
+                        disabled={repository.busy || disabledReason != null}
+                      >
+                        <span className="w-4" />
+                        <span className="min-w-0 flex-1 truncate">{branch.name}</span>
+                        {branch.upstream != null && (
+                          <span className="text-[10px] text-muted-foreground">
+                            {branch.ahead > 0 ? `↑${branch.ahead}` : ''}
+                            {branch.behind > 0 ? ` ↓${branch.behind}` : ''}
+                          </span>
+                        )}
+                      </DropdownMenuSubTrigger>
+                    </TooltipTrigger>
+                    <TooltipContent className="max-w-[min(20rem,var(--radix-tooltip-content-available-width))] wrap-anywhere">
+                      {branch.name}
+                    </TooltipContent>
+                  </Tooltip>
+                  <DropdownMenuSubContent
+                    sideOffset={branchSubmenuOffset}
+                    collisionPadding={8}
+                    className="w-72 max-w-[min(18rem,var(--radix-dropdown-menu-content-available-width))]"
                   >
-                    Switch to branch
-                  </DropdownMenuItem>
-                  <DropdownMenuItem
-                    className="text-red-600 dark:text-red-400"
-                    onSelect={() => void deleteBranch(branch.name)}
-                  >
-                    Delete branch…
-                  </DropdownMenuItem>
-                </DropdownMenuSubContent>
-              </DropdownMenuSub>
-            ),
-          )}
-          {remoteBranches.length > 0 && (
-            <>
-              <DropdownMenuSeparator />
-              <p className="px-2 py-1 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
-                Remote branches
-              </p>
-              <p className="px-2 py-1 text-[11px] text-muted-foreground">
-                Select a remote branch to check it out locally.
-              </p>
-              {remoteBranches.map((branch) => {
-                const localName = branch.name.slice(branch.name.indexOf('/') + 1)
-                return (
-                  <DropdownMenuItem
-                    key={branch.name}
-                    aria-label={`Checkout ${branch.name} as ${localName}`}
-                    disabled={repository.busy || disabledReason != null}
-                    onSelect={() => void run(() => repository.createBranch(localName, branch.name))}
-                  >
-                    <span className="w-4" />
-                    <span className="min-w-0 flex-1 truncate">{branch.name}</span>
-                    <span className="text-[10px] text-muted-foreground">
-                      Checkout as {localName}
-                    </span>
-                  </DropdownMenuItem>
-                )
-              })}
-            </>
-          )}
-          {localBranches.length === 0 && remoteBranches.length === 0 && (
-            <p className="px-2 py-2 text-xs text-muted-foreground">No matching branches</p>
-          )}
+                    <p className="px-2 py-1.5 text-xs wrap-anywhere text-muted-foreground">
+                      {branch.name}
+                    </p>
+                    <DropdownMenuSeparator />
+                    <DropdownMenuItem
+                      disabled={disabledReason != null}
+                      onSelect={() => void run(() => repository.switchBranch(branch.name))}
+                    >
+                      Switch to branch
+                    </DropdownMenuItem>
+                    <DropdownMenuItem
+                      className="text-red-600 dark:text-red-400"
+                      onSelect={() => void deleteBranch(branch.name)}
+                    >
+                      Delete branch…
+                    </DropdownMenuItem>
+                  </DropdownMenuSubContent>
+                </DropdownMenuSub>
+              ),
+            )}
+            {remoteBranches.length > 0 && (
+              <>
+                <DropdownMenuSeparator />
+                <p className="px-2 py-1 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+                  Remote branches
+                </p>
+                <p className="px-2 py-1 text-[11px] text-muted-foreground">
+                  Select a remote branch to check it out locally.
+                </p>
+                {remoteBranches.map((branch) => {
+                  const localName = branch.name.slice(branch.name.indexOf('/') + 1)
+                  return (
+                    <Tooltip key={branch.name}>
+                      <TooltipTrigger asChild>
+                        <DropdownMenuItem
+                          aria-label={`Checkout ${branch.name} as ${localName}`}
+                          disabled={repository.busy || disabledReason != null}
+                          onSelect={() =>
+                            void run(() => repository.createBranch(localName, branch.name))
+                          }
+                        >
+                          <span className="w-4" />
+                          <span className="min-w-0 flex-1 wrap-anywhere">{branch.name}</span>
+                          <span className="min-w-0 flex-1 wrap-anywhere text-[10px] text-muted-foreground">
+                            Checkout as {localName}
+                          </span>
+                        </DropdownMenuItem>
+                      </TooltipTrigger>
+                      <TooltipContent className="max-w-[min(20rem,var(--radix-tooltip-content-available-width))] wrap-anywhere">
+                        {branch.name}
+                      </TooltipContent>
+                    </Tooltip>
+                  )
+                })}
+              </>
+            )}
+            {localBranches.length === 0 && remoteBranches.length === 0 && (
+              <p className="px-2 py-2 text-xs text-muted-foreground">No matching branches</p>
+            )}
+          </TooltipProvider>
         </DropdownMenuContent>
       </DropdownMenu>
       <Button
