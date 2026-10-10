@@ -37,32 +37,46 @@ test('expanded commit trees keep their height and folders across virtual remount
   await page.locator('[data-graph-index="0"] [data-graph-disclosure]').focus()
   await page.mouse.move(900, 600)
   const graph = page.locator('[data-pane-body="graph"]')
-  await graph.evaluate((element) => { element.scrollTop = 160 })
+  await graph.evaluate((element) => {
+    element.scrollTop = 160
+  })
   await folder.hover()
   await page.mouse.wheel(0, 120)
   await expect.poll(() => graph.evaluate((element) => element.scrollTop)).toBeGreaterThan(160)
 
-  await graph.evaluate((element) => { element.scrollTop = 160 })
+  await graph.evaluate((element) => {
+    element.scrollTop = 160
+  })
   await folder.click()
   await expect(folder).toHaveAttribute('aria-expanded', 'true')
-  await graph.evaluate((element) => { element.scrollTop = 160 })
+  await graph.evaluate((element) => {
+    element.scrollTop = 160
+  })
   const treeScroller = row.locator('[data-file-tree-virtualized-scroll]')
   await folder.hover()
   await page.mouse.wheel(0, 80)
   await expect.poll(() => treeScroller.evaluate((element) => element.scrollTop)).toBeGreaterThan(0)
   expect(await graph.evaluate((element) => element.scrollTop)).toBe(160)
 
-  await treeScroller.evaluate((element) => { element.scrollTop = element.scrollHeight })
+  await treeScroller.evaluate((element) => {
+    element.scrollTop = element.scrollHeight
+  })
   await page.mouse.wheel(0, 80)
   await expect.poll(() => graph.evaluate((element) => element.scrollTop)).toBeGreaterThan(160)
 
-  await graph.evaluate((element) => { element.scrollTop = 160 })
-  await treeScroller.evaluate((element) => { element.scrollTop = 0 })
+  await graph.evaluate((element) => {
+    element.scrollTop = 160
+  })
+  await treeScroller.evaluate((element) => {
+    element.scrollTop = 0
+  })
   await folder.hover()
   await page.mouse.wheel(0, -80)
   await expect.poll(() => graph.evaluate((element) => element.scrollTop)).toBeLessThan(160)
 
-  await graph.evaluate((element) => { element.scrollTop = 160 })
+  await graph.evaluate((element) => {
+    element.scrollTop = 160
+  })
   await folder.click()
   await expect(folder).toHaveAttribute('aria-expanded', 'false')
 
