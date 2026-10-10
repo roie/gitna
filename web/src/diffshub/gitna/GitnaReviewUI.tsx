@@ -67,7 +67,8 @@ import { Confirm } from './Modal'
 import { UntitledSaveAsModal } from './UntitledSaveAsModal'
 import { DirtyTabCloseModal } from './DirtyTabCloseModal'
 import { DraftRecoveryModal } from './DraftRecoveryModal'
-import type { MarkdownViewMode } from './MarkdownWorkbench'
+import type { MarkdownViewMode as FilePreviewMode } from './MarkdownWorkbench'
+import { SVGPreview } from './SVGPreview'
 import { NativeMediaPreview, nativeMediaKind } from './NativeMediaPreview'
 import {
   scrollPreviewToSourceLine,
@@ -438,19 +439,19 @@ function GitnaReviewUIInner({
   const [showBackgrounds, setShowBackgrounds] = useState(true)
   const [diffIndicators, setDiffIndicators] = useState<DiffIndicators>('bars')
   const [lineNumbers, setLineNumbers] = useState(true)
-  const [markdownMode, setMarkdownMode] = useState<MarkdownViewMode>('editor')
-  const [cachedMarkdownPath, setCachedMarkdownPath] = useState<string | null>(null)
-  const [cachedMarkdownMode, setCachedMarkdownMode] = useState<'preview' | 'split'>('split')
-  const markdownLayoutMode = markdownMode === 'editor' ? cachedMarkdownMode : markdownMode
+  const [previewMode, setPreviewMode] = useState<FilePreviewMode>('editor')
+  const [cachedPreviewPath, setCachedPreviewPath] = useState<string | null>(null)
+  const [cachedPreviewMode, setCachedPreviewMode] = useState<'preview' | 'split'>('split')
+  const previewLayoutMode = previewMode === 'editor' ? cachedPreviewMode : previewMode
   useEffect(() => {
-    if (markdownMode !== 'editor') {
-      setCachedMarkdownPath(target?.filePath ?? null)
-      setCachedMarkdownMode(markdownMode)
+    if (previewMode !== 'editor') {
+      setCachedPreviewPath(target?.filePath ?? null)
+      setCachedPreviewMode(previewMode)
     }
-  }, [markdownMode, target?.filePath])
+  }, [previewMode, target?.filePath])
   const [previewHeaderHeight, setPreviewHeaderHeight] = useState(44)
   const [themesHydrated, setThemesHydrated] = useState(false)
-  useEffect(() => setMarkdownMode('editor'), [target?.filePath])
+  useEffect(() => setPreviewMode('editor'), [target?.filePath])
   const [loadState, setLoadState] = useState<ViewerLoadState>('fetching')
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
   const [reviewData, setReviewData] = useState<LoadedDiffsHubData | null>(null)
@@ -517,10 +518,10 @@ function GitnaReviewUIInner({
   const previewScrollRef = useRef<HTMLElement | null>(null)
   const scrollOriginRef = useRef<'editor' | 'preview' | null>(null)
   const scrollGuardTimerRef = useRef<number | null>(null)
-  const previousMarkdownModeRef = useRef(markdownMode)
+  const previousPreviewModeRef = useRef(previewMode)
   useEffect(() => {
-    previousMarkdownModeRef.current = markdownMode
-  }, [markdownMode])
+    previousPreviewModeRef.current = previewMode
+  }, [previewMode])
   const reviewRootRef = useRef<HTMLDivElement>(null)
   const destinationFocusRestored = useRef(false)
   useEffect(() => {
@@ -1012,7 +1013,7 @@ function GitnaReviewUIInner({
 
   const claimScroll = useCallback(
     (origin: 'editor' | 'preview', key?: string) => {
-      if (markdownMode !== 'split') return
+      if (previewMode !== 'split') return
       if (
         key != null &&
         !['ArrowUp', 'ArrowDown', 'PageUp', 'PageDown', 'Home', 'End', ' '].includes(key)
@@ -1021,7 +1022,7 @@ function GitnaReviewUIInner({
       // User input takes over immediately, even inside the feedback guard.
       guardScroll(origin)
     },
-    [guardScroll, markdownMode],
+    [guardScroll, previewMode],
   )
 
   const syncPreviewFromEditor = useCallback(() => {
@@ -1038,8 +1039,8 @@ function GitnaReviewUIInner({
   const handlePreviewMount = useCallback(
     (element: HTMLElement | null) => {
       previewScrollRef.current = element
-      if (element == null || markdownMode !== 'split') return
-      if (previousMarkdownModeRef.current === 'preview' && target?.filePath != null) {
+      if (element == null || previewMode !== 'split') return
+      if (previousPreviewModeRef.current === 'preview' && target?.filePath != null) {
         guardScroll('preview')
         viewerRef.current?.scrollTo({
           type: 'line',
@@ -1051,13 +1052,13 @@ function GitnaReviewUIInner({
         requestAnimationFrame(syncPreviewFromEditor)
       }
     },
-    [guardScroll, markdownMode, syncPreviewFromEditor, target?.filePath],
+    [guardScroll, previewMode, syncPreviewFromEditor, target?.filePath],
   )
 
   const handlePreviewScroll = useCallback(
     (element: HTMLElement) => {
       if (
-        markdownMode !== 'split' ||
+        previewMode !== 'split' ||
         scrollOriginRef.current === 'editor' ||
         target?.filePath == null
       )
@@ -1070,7 +1071,7 @@ function GitnaReviewUIInner({
         align: 'start',
       })
     },
-    [guardScroll, markdownMode, target?.filePath],
+    [guardScroll, previewMode, target?.filePath],
   )
 
   const handleReviewScroll = useCallback(
@@ -1079,11 +1080,11 @@ function GitnaReviewUIInner({
       if (scroller == null) return
       const remaining = scroller.scrollHeight - scrollTop - scroller.clientHeight
       if (remaining <= scroller.clientHeight) void loadMoreReview()
-      if (markdownMode === 'split' && scrollOriginRef.current !== 'preview') {
+      if (previewMode === 'split' && scrollOriginRef.current !== 'preview') {
         requestAnimationFrame(syncPreviewFromEditor)
       }
     },
-    [loadMoreReview, markdownMode, syncPreviewFromEditor],
+    [loadMoreReview, previewMode, syncPreviewFromEditor],
   )
 
   const selectedImageRequest = useMemo(
@@ -1228,7 +1229,7 @@ function GitnaReviewUIInner({
     if (
       !viewerAvailable ||
       reviewData.items.length === 0 ||
-      markdownMode === 'editor' ||
+      previewMode === 'editor' ||
       target?.filePath == null
     )
       return
@@ -1259,7 +1260,7 @@ function GitnaReviewUIInner({
       resizeObserver.observe(header)
       resizeObserver.observe(viewport)
       viewport.addEventListener('scroll', update)
-      if (markdownMode === 'preview') {
+      if (previewMode === 'preview') {
         const hideEditor = () => {
           for (const pre of shadowRoot.querySelectorAll<HTMLElement>('pre')) {
             pre.inert = true
@@ -1282,7 +1283,7 @@ function GitnaReviewUIInner({
         pre.removeAttribute('aria-hidden')
       }
     }
-  }, [viewerAvailable, reviewData?.items.length, markdownMode, target?.filePath])
+  }, [viewerAvailable, reviewData?.items.length, previewMode, target?.filePath])
 
   useEffect(() => {
     if (!viewerAvailable || imageDiff == null || selectedImageRequest == null) return
@@ -1740,11 +1741,15 @@ function GitnaReviewUIInner({
     target?.filePath != null && /\.(md|markdown|mdown|mkdn)$/i.test(target.filePath)
       ? target.filePath
       : null
-  const markdownValue =
-    markdownPath == null
+  const svgPath =
+    target?.filePath != null && /\.svg$/i.test(target.filePath) ? target.filePath : null
+  const previewPath = markdownPath ?? svgPath
+  const previewLabel = svgPath != null ? 'SVG' : 'Markdown'
+  const previewValue =
+    previewPath == null
       ? null
-      : (worktreeDrafts.get(markdownPath)?.contents ??
-        worktreeFiles.get(markdownPath)?.content ??
+      : (worktreeDrafts.get(previewPath)?.contents ??
+        worktreeFiles.get(previewPath)?.content ??
         null)
   const gitnaEditorActions: GitnaEditorActions | undefined =
     target?.filePath != null && worktreeFiles.has(target.filePath)
@@ -1766,7 +1771,9 @@ function GitnaReviewUIInner({
           onChange: handleWorktreeEditChange,
           onOpenChange: (scope, path) => repository.select(scope, path),
           onSave: requestSave,
-          ...(markdownPath == null ? {} : { markdownMode, onMarkdownModeChange: setMarkdownMode }),
+          ...(previewPath == null
+            ? {}
+            : { previewMode, onPreviewModeChange: setPreviewMode, previewLabel }),
         }
       : undefined
 
@@ -1938,33 +1945,33 @@ function GitnaReviewUIInner({
       },
     ]
 
-    if (markdownPath != null) {
+    if (previewPath != null) {
       commands.push(
         {
-          id: 'markdown-preview',
+          id: 'file-preview',
           icon: <IconDiffSplit />,
-          label: 'Markdown: Open Preview',
-          description: 'Show the rendered Markdown in the current pane',
-          keywords: 'markdown preview render',
-          run: () => setMarkdownMode('preview'),
+          label: `${previewLabel}: Open Preview`,
+          description: `Show the rendered ${previewLabel} in the current pane`,
+          keywords: `${previewLabel} preview render`,
+          run: () => setPreviewMode('preview'),
         },
         {
-          id: 'markdown-preview-side',
+          id: 'file-preview-side',
           icon: <IconDiffSplit />,
-          label: 'Markdown: Open Preview to the Side',
+          label: `${previewLabel}: Open Preview to the Side`,
           description: 'Keep the editor open beside the rendered preview',
-          keywords: 'markdown preview split side',
-          run: () => setMarkdownMode('split'),
+          keywords: `${previewLabel} preview split side`,
+          run: () => setPreviewMode('split'),
         },
       )
-      if (markdownMode !== 'editor') {
+      if (previewMode !== 'editor') {
         commands.push({
-          id: 'markdown-close-preview',
+          id: 'file-close-preview',
           icon: <IconX />,
-          label: 'Markdown: Close Preview',
-          description: 'Return to the Markdown editor',
-          keywords: 'markdown preview close editor',
-          run: () => setMarkdownMode('editor'),
+          label: `${previewLabel}: Close Preview`,
+          description: `Return to the ${previewLabel} editor`,
+          keywords: `${previewLabel} preview close editor`,
+          run: () => setPreviewMode('editor'),
         })
       }
     }
@@ -2062,8 +2069,9 @@ function GitnaReviewUIInner({
     colorMode,
     diffStyle,
     fileTreeOverlayOpen,
-    markdownMode,
-    markdownPath,
+    previewMode,
+    previewPath,
+    previewLabel,
     mobileViewport,
     openHome,
     repository,
@@ -2236,11 +2244,12 @@ function GitnaReviewUIInner({
                   <div
                     className={cn(
                       'relative h-full min-h-0',
-                      markdownPath != null && 'markdown-file-view',
-                      markdownPath != null && markdownMode === 'preview' && 'markdown-preview-open',
-                      markdownPath != null &&
-                        markdownMode === 'split' &&
-                        'markdown-split-view grid grid-cols-2 max-[700px]:grid-cols-1 max-[700px]:grid-rows-2',
+                      previewPath != null && 'markdown-file-view',
+                      previewPath != null && previewMode === 'preview' && 'markdown-preview-open',
+                      previewPath != null &&
+                        previewMode === 'split' &&
+                        'grid grid-cols-2 max-[700px]:grid-cols-1 max-[700px]:grid-rows-2',
+                      markdownPath != null && previewMode === 'split' && 'markdown-split-view',
                     )}
                     style={
                       { '--markdown-header-height': `${previewHeaderHeight}px` } as CSSProperties
@@ -2286,32 +2295,32 @@ function GitnaReviewUIInner({
                         }
                       />
                     </div>
-                    {markdownPath != null &&
-                      (markdownMode !== 'editor' || cachedMarkdownPath === markdownPath) && (
+                    {previewPath != null &&
+                      (previewMode !== 'editor' || cachedPreviewPath === previewPath) && (
                         <div
                           className={cn(
                             'flex min-h-0 flex-col bg-background',
-                            markdownMode === 'editor' && 'invisible pointer-events-none',
-                            markdownLayoutMode === 'preview'
+                            previewMode === 'editor' && 'invisible pointer-events-none',
+                            previewLayoutMode === 'preview'
                               ? 'absolute inset-x-0 bottom-0 z-10'
                               : cn(
                                   'h-full border-l border-border max-[700px]:border-l-0 max-[700px]:border-t',
-                                  markdownMode === 'editor' &&
+                                  previewMode === 'editor' &&
                                     'absolute right-0 top-0 w-1/2 max-[700px]:top-auto max-[700px]:bottom-0 max-[700px]:h-1/2 max-[700px]:w-full',
                                 ),
                           )}
-                          aria-hidden={markdownMode === 'editor' || undefined}
-                          inert={markdownMode === 'editor'}
+                          aria-hidden={previewMode === 'editor' || undefined}
+                          inert={previewMode === 'editor'}
                           onWheelCapture={() => claimScroll('preview')}
                           onTouchMoveCapture={() => claimScroll('preview')}
                           onKeyDownCapture={(event) => claimScroll('preview', event.key)}
                           style={
-                            markdownLayoutMode === 'preview'
+                            previewLayoutMode === 'preview'
                               ? { top: previewHeaderHeight }
                               : undefined
                           }
                         >
-                          {markdownLayoutMode === 'split' && (
+                          {previewLayoutMode === 'split' && (
                             <div
                               className="flex shrink-0 items-center border-b border-border px-4 text-xs text-muted-foreground"
                               style={{ height: previewHeaderHeight }}
@@ -2327,23 +2336,31 @@ function GitnaReviewUIInner({
                                 </div>
                               }
                             >
-                              <MarkdownWorkbench
-                                key={markdownPath}
-                                scrollRef={handlePreviewMount}
-                                onScroll={handlePreviewScroll}
-                                onOpenPath={(path) => {
-                                  void repository
-                                    .openRepositoryFile(path, true)
-                                    .catch((error: unknown) =>
-                                      setReviewActionError(
-                                        error instanceof Error ? error.message : String(error),
-                                      ),
-                                    )
-                                }}
-                                path={markdownPath}
-                                value={markdownValue}
-                                active={markdownMode !== 'editor'}
-                              />
+                              {svgPath != null ? (
+                                <SVGPreview
+                                  key={svgPath}
+                                  value={previewValue}
+                                  active={previewMode !== 'editor'}
+                                />
+                              ) : (
+                                <MarkdownWorkbench
+                                  key={markdownPath}
+                                  scrollRef={handlePreviewMount}
+                                  onScroll={handlePreviewScroll}
+                                  onOpenPath={(path) => {
+                                    void repository
+                                      .openRepositoryFile(path, true)
+                                      .catch((error: unknown) =>
+                                        setReviewActionError(
+                                          error instanceof Error ? error.message : String(error),
+                                        ),
+                                      )
+                                  }}
+                                  path={previewPath}
+                                  value={previewValue}
+                                  active={previewMode !== 'editor'}
+                                />
+                              )}
                             </Suspense>
                           </div>
                         </div>

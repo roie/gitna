@@ -80,8 +80,9 @@ export interface GitnaEditorActions {
   onChange: (path: string, file: FileContents, viewState: EditorViewState) => void;
   onOpenChange: (scope: ChangeScope, path: string) => void;
   onSave: (path: string) => void;
-  markdownMode?: 'editor' | 'preview' | 'split';
-  onMarkdownModeChange?: (mode: 'editor' | 'preview' | 'split') => void;
+  previewLabel?: 'Markdown' | 'SVG';
+  previewMode?: 'editor' | 'preview' | 'split';
+  onPreviewModeChange?: (mode: 'editor' | 'preview' | 'split') => void;
 }
 
 export interface GitnaComparisonActions {
@@ -731,7 +732,7 @@ function WorktreeHeaderActions({
 }) {
   const dirty = actions.dirtyPaths.has(path);
   const recentlySaved = actions.recentlySavedPath === path;
-  const markdownMode = actions.markdownMode;
+  const previewMode = actions.previewMode;
   const scopes = actions.changeScopes(path);
   const openChange = (scope: ChangeScope) => actions.onOpenChange(scope, path);
   let saveLabel: ReactNode = 'Save';
@@ -746,28 +747,28 @@ function WorktreeHeaderActions({
   }
   return (
     <span className="inline-flex items-center gap-0.5">
-      {markdownMode != null && actions.onMarkdownModeChange != null && (
+      {previewMode != null && actions.onPreviewModeChange != null && (
         <>
           <FileHeaderAction
             type="button"
-            aria-label="Open Markdown preview"
-            title="Open Markdown preview"
-            aria-pressed={markdownMode === 'preview'}
-            className={markdownMode === 'preview' ? 'bg-accent text-foreground' : undefined}
+            aria-label={`Open ${actions.previewLabel ?? 'Markdown'} preview`}
+            title={`Open ${actions.previewLabel ?? 'Markdown'} preview`}
+            aria-pressed={previewMode === 'preview'}
+            className={previewMode === 'preview' ? 'bg-accent text-foreground' : undefined}
             onClick={() =>
-              actions.onMarkdownModeChange?.(markdownMode === 'preview' ? 'editor' : 'preview')
+              actions.onPreviewModeChange?.(previewMode === 'preview' ? 'editor' : 'preview')
             }
           >
             <IconEye className="size-3" />
           </FileHeaderAction>
           <FileHeaderAction
             type="button"
-            aria-label="Open Markdown preview to the side"
-            title="Open Markdown preview to the side"
-            aria-pressed={markdownMode === 'split'}
-            className={markdownMode === 'split' ? 'bg-accent text-foreground' : undefined}
+            aria-label={`Open ${actions.previewLabel ?? 'Markdown'} preview to the side`}
+            title={`Open ${actions.previewLabel ?? 'Markdown'} preview to the side`}
+            aria-pressed={previewMode === 'split'}
+            className={previewMode === 'split' ? 'bg-accent text-foreground' : undefined}
             onClick={() =>
-              actions.onMarkdownModeChange?.(markdownMode === 'split' ? 'editor' : 'split')
+              actions.onPreviewModeChange?.(previewMode === 'split' ? 'editor' : 'split')
             }
           >
             <IconDiffSplit className="size-3" />
