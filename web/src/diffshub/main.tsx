@@ -5,6 +5,7 @@ import { ScrollbarGutterVariables } from './components/ScrollbarGutterVariables'
 import { ThemeProvider } from './components/ThemeProvider'
 import { WorkerPoolContext } from './components/WorkerPoolContext'
 import { RepositoryProvider } from './gitna/repository'
+import { isHomePath } from './gitna/navigation'
 
 const pdfPath = new URLSearchParams(window.location.search).get('pdf')
 type ReviewUI = typeof import('./gitna/GitnaReviewUI').GitnaReviewUI
@@ -16,7 +17,10 @@ import './globals.css'
 
 function App({ GitnaReviewUI }: { GitnaReviewUI: ReviewUI | null }) {
   const [searchRequest, setSearchRequest] = useState(0)
-  const [folderURL, setFolderURL] = useState(window.location.href)
+  const [folderURL, setFolderURL] = useState(
+    window.history.state?.gitnaFolderURL ?? window.location.href,
+  )
+  const [homeOpen, setHomeOpen] = useState(isHomePath(window.location.pathname))
   const activeFolderURL = useRef(folderURL)
   const [focusFolderOnReady, setFocusFolderOnReady] = useState(false)
   const navigationGuard = useRef<(() => boolean) | null>(null)
@@ -30,19 +34,44 @@ function App({ GitnaReviewUI }: { GitnaReviewUI: ReviewUI | null }) {
     target.hash = ''
     if (target.origin !== window.location.origin) throw new Error('Invalid folder origin')
     window.history.pushState(
-      { ...window.history.state, gitnaFolderIndex: ++historyIndex.current },
+      { gitnaFolderIndex: ++historyIndex.current, gitnaFolderURL: target.href },
       '',
       target.href,
     )
     activeFolderURL.current = target.href
+    setHomeOpen(false)
     setFocusFolderOnReady(true)
     setSearchRequest(0)
     setFolderURL(target.href)
   }, [])
 
+  const navigateHome = useCallback((open: boolean) => {
+    const target = open
+      ? new URL(
+          isHomePath(new URL(activeFolderURL.current).pathname) ? './' : '../',
+          activeFolderURL.current,
+        ).href
+      : activeFolderURL.current
+    if (target === window.location.href) return
+    window.history.pushState(
+      {
+        ...window.history.state,
+        gitnaFolderIndex: ++historyIndex.current,
+        gitnaFolderURL: activeFolderURL.current,
+      },
+      '',
+      target,
+    )
+    setHomeOpen(open)
+  }, [])
+
   useEffect(() => {
     window.history.replaceState(
-      { ...window.history.state, gitnaFolderIndex: historyIndex.current },
+      {
+        ...window.history.state,
+        gitnaFolderIndex: historyIndex.current,
+        gitnaFolderURL: activeFolderURL.current,
+      },
       '',
     )
     const onPopState = (event: PopStateEvent) => {
@@ -51,10 +80,12 @@ function App({ GitnaReviewUI }: { GitnaReviewUI: ReviewUI | null }) {
         return
       }
       const nextIndex: unknown = event.state?.gitnaFolderIndex
-      const destination = new URL(window.location.href)
+      const isHome = isHomePath(window.location.pathname)
+      const destination = new URL(event.state?.gitnaFolderURL ?? window.location.href)
       const current = new URL(activeFolderURL.current)
       if (destination.pathname === current.pathname && destination.search === current.search) {
         if (typeof nextIndex === 'number') historyIndex.current = nextIndex
+        setHomeOpen(isHome)
         return
       }
       if (typeof nextIndex !== 'number') {
@@ -69,6 +100,7 @@ function App({ GitnaReviewUI }: { GitnaReviewUI: ReviewUI | null }) {
       historyIndex.current = nextIndex
       destination.hash = ''
       activeFolderURL.current = destination.href
+      setHomeOpen(isHome)
       setFocusFolderOnReady(true)
       setSearchRequest(0)
       setFolderURL(destination.href)
@@ -123,6 +155,9 @@ function App({ GitnaReviewUI }: { GitnaReviewUI: ReviewUI | null }) {
         <ThemeProvider attribute="class">
           <RepositoryProvider key={folderURL} baseURL={folderURL}>
             <GitnaReviewUI
+              homeOpen={homeOpen}
+              onHomeNavigate={navigateHome}
+              folderURL={folderURL}
               searchRequest={searchRequest}
               focusOnReady={focusFolderOnReady}
               onFolderNavigate={navigateFolder}

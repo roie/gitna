@@ -540,7 +540,7 @@ func folderRouteSlug(name string) string {
 		}
 	}
 	value := strings.Trim(slug.String(), "-")
-	if value == "" || value == "api" || value == "g" {
+	if value == "" || value == "api" || value == "g" || value == "assets" {
 		return "folder"
 	}
 	return value
@@ -551,11 +551,15 @@ func (r *folderRegistry) initialHref() string {
 }
 
 func (r *folderRegistry) ServeHTTP(w http.ResponseWriter, request *http.Request) {
-	if request.URL.Path == "/" {
-		http.Redirect(w, request, r.initialHref(), http.StatusFound)
+	trimmed := strings.TrimPrefix(request.URL.Path, "/")
+	if request.URL.Path == "/" || strings.HasPrefix(request.URL.Path, "/assets/") ||
+		(!strings.Contains(trimmed, "/") && strings.Contains(trimmed, ".")) {
+		r.staticServer.ServeHTTP(w, request)
 		return
 	}
-	trimmed := strings.TrimPrefix(request.URL.Path, "/")
+	if strings.HasPrefix(request.URL.Path, "/api/") {
+		trimmed = r.initialRoute + request.URL.Path
+	}
 	route, rest, found := strings.Cut(trimmed, "/")
 	if !found {
 		r.mu.RLock()

@@ -3185,7 +3185,7 @@ test('Gitna Home searches recent folders and protects dirty drafts', async ({ pa
   writeFileSync(join(otherFolder, 'other.txt'), 'other folder note\n')
 
   await page.goto(app.url)
-  const capabilityUrl = page.url()
+  const capabilityUrl = new URL('../', page.url()).href
   await switchFolderWithKeyboard(page, app.repo, folder)
   await expect(page).toHaveTitle(`${basename(folder)} - Gitna`)
   await switchFolderWithKeyboard(page, folder, otherFolder)
@@ -3420,7 +3420,7 @@ test('Gitna Home searches recent folders and protects dirty drafts', async ({ pa
   await expect(
     page.getByRole('heading', { name: 'Welcome back to Gitna', exact: true }),
   ).toBeVisible()
-  await expect(page).toHaveTitle(`${basename(app.repo)} - Gitna`)
+  await expect(page).toHaveTitle('Gitna')
 })
 
 test('repository explorer shows and independently hides hidden and ignored files', async ({

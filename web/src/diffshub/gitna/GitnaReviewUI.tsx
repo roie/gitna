@@ -1,3 +1,4 @@
+import { isHomePath, resolveFolderHref } from './navigation'
 import type { CodeViewLineSelection, DiffIndicators, FileContents } from '@pierre/diffs'
 import { type EditorViewState } from '@pierre/diffs/edit'
 import { type CodeViewHandle, useWorkerPool } from '@pierre/diffs/react'
@@ -365,6 +366,9 @@ function useReviewTarget(): ReviewTarget | null {
 }
 
 type GitnaReviewUIProps = {
+  homeOpen?: boolean
+  onHomeNavigate?: (open: boolean) => void
+  folderURL?: string
   searchRequest?: number
   focusOnReady?: boolean
   onFolderNavigate?: (href: string) => void
@@ -380,6 +384,9 @@ export function GitnaReviewUI(props: GitnaReviewUIProps) {
 }
 
 function GitnaReviewUIInner({
+  homeOpen: routedHomeOpen,
+  onHomeNavigate,
+  folderURL = window.location.href,
   searchRequest = 0,
   focusOnReady = false,
   onFolderNavigate,
@@ -450,7 +457,9 @@ function GitnaReviewUIInner({
   const [imageDiff, setImageDiff] = useState<FileDiff | null>(null)
   const [reviewAttempt, setReviewAttempt] = useState(0)
   const [reviewActionError, setReviewActionError] = useState<string | null>(null)
-  const [homeOpen, setHomeOpen] = useState(false)
+  const [localHomeOpen, setLocalHomeOpen] = useState(false)
+  const homeOpen = routedHomeOpen ?? localHomeOpen
+  const setHomeOpen = onHomeNavigate ?? setLocalHomeOpen
   const [homeSwitchError, setHomeSwitchError] = useState<string | null>(null)
   const [worktreeFiles, setWorktreeFiles] = useState<ReadonlyMap<string, WorktreeFile>>(
     () => new Map(),
@@ -558,8 +567,9 @@ function GitnaReviewUIInner({
 
   useEffect(() => {
     const root = repository.snapshot?.root
-    if (root != null) document.title = `${repositoryName(root)} - Gitna`
-  }, [repository.snapshot?.root])
+    if (homeOpen) document.title = 'Gitna'
+    else if (root != null) document.title = `${repositoryName(root)} - Gitna`
+  }, [homeOpen, repository.snapshot?.root])
 
   useEffect(() => {
     const path = repository.repositoryFilePath
@@ -1421,11 +1431,24 @@ function GitnaReviewUIInner({
     setCommandPaletteOpen(false)
     setHomeSwitchError(null)
     setHomeOpen(true)
-  }, [])
+  }, [setHomeOpen])
   const closeHome = useCallback(() => {
     restoreHomeFocusRef.current = true
+    if (isHomePath(new URL(folderURL).pathname) && repository.snapshot != null) {
+      void repository
+        .openFolder(repository.snapshot.root)
+        .then((result) => {
+          const target = resolveFolderHref(result.href, folderURL).href
+          if (onFolderNavigate != null) onFolderNavigate(target)
+          else window.location.assign(target)
+        })
+        .catch((error: unknown) => {
+          setHomeSwitchError(error instanceof Error ? error.message : String(error))
+        })
+      return
+    }
     setHomeOpen(false)
-  }, [])
+  }, [folderURL, onFolderNavigate, repository, setHomeOpen])
   useEffect(() => {
     if (homeOpen || !restoreHomeFocusRef.current) return
     restoreHomeFocusRef.current = false
@@ -1486,7 +1509,7 @@ function GitnaReviewUIInner({
       try {
         const result = await repository.openFolder(path, controller.signal)
         if (folderSwitchOperationRef.current?.id !== id) return
-        const target = new URL(result.href, window.location.href)
+        const target = resolveFolderHref(result.href, folderURL)
         if (target.origin !== window.location.origin) {
           throw new Error('folder route must remain on the current Gitna origin')
         }
@@ -1534,7 +1557,7 @@ function GitnaReviewUIInner({
         setHomeSwitchError(message)
       }
     },
-    [repository, onFolderNavigate],
+    [folderURL, repository, onFolderNavigate, setHomeOpen],
   )
   const openFolderInNewTab = useCallback(
     (path: string): Promise<void> => {
@@ -1548,7 +1571,7 @@ function GitnaReviewUIInner({
       return repository
         .openFolder(path)
         .then((result) => {
-          const target = new URL(result.href, window.location.href)
+          const target = resolveFolderHref(result.href, folderURL)
           if (target.origin !== window.location.origin) {
             throw new Error('folder route must remain on the current Gitna origin')
           }
@@ -1559,7 +1582,7 @@ function GitnaReviewUIInner({
           throw error
         })
     },
-    [colorMode, repository],
+    [colorMode, folderURL, repository],
   )
   const requestFolderSwitch = useCallback(
     async (path: string, returnHome: boolean) => {

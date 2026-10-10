@@ -177,8 +177,8 @@ func TestFolderRegistryRedirectsEntryPointsAndRejectsUnknownRoutes(t *testing.T)
 	rootRequest := httptest.NewRequest(http.MethodGet, "/", nil)
 	rootResponse := httptest.NewRecorder()
 	registry.ServeHTTP(rootResponse, rootRequest)
-	if rootResponse.Code != http.StatusFound || rootResponse.Header().Get("Location") != registry.initialHref() {
-		t.Fatalf("root redirect = %d %q", rootResponse.Code, rootResponse.Header().Get("Location"))
+	if rootResponse.Code != http.StatusOK || rootResponse.Body.String() != "gitna" {
+		t.Fatalf("home shell = %d %q", rootResponse.Code, rootResponse.Body.String())
 	}
 
 	slashless := httptest.NewRequest(http.MethodGet, "/"+registry.initialRoute, nil)
@@ -187,6 +187,20 @@ func TestFolderRegistryRedirectsEntryPointsAndRejectsUnknownRoutes(t *testing.T)
 	if slashlessResponse.Code != http.StatusFound || slashlessResponse.Header().Get("Location") != registry.initialHref() {
 		t.Fatalf("route redirect = %d %q", slashlessResponse.Code, slashlessResponse.Header().Get("Location"))
 	}
+
+	assertSnapshotRoot(t, registry, "/api/v1/snapshot", root)
+	homeFolder := filepath.Join(t.TempDir(), "home")
+	if err := os.Mkdir(homeFolder, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	opened, err := registry.openFolder(t.Context(), homeFolder)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if opened.Href != "../home/" {
+		t.Fatalf("home folder href = %q", opened.Href)
+	}
+	assertSnapshotRoot(t, registry, "/home/api/v1/snapshot", homeFolder)
 
 	unknown := httptest.NewRequest(http.MethodGet, "/missing/api/v1/snapshot", nil)
 	unknownResponse := httptest.NewRecorder()
