@@ -11,6 +11,10 @@ row renderer, including hover/focus styling; Pierre continues to own Tree DOM,
 selection, focus, search, sticky rows, and virtualization. Gitna only supplies
 typed action descriptions and callbacks.
 
+The patch also makes built-in middle truncation split text only at Unicode
+grapheme boundaries with `Intl.Segmenter`. It preserves emoji sequences and
+combining marks instead of dividing them between separate DOM elements.
+
 The patch is retained as the reproducible distribution artifact rather than a
 parallel or copied Tree implementation. See `THIRD_PARTY_NOTICES.md` for the
 license and attribution record.

@@ -19,7 +19,7 @@ overrides:
 
 patchedDependencies:
   '@pierre/diffs@1.5.2': ab7037aa091984cb8b6d21afda12308b2b126731f796fe0ae29c5d34ed6b55b3
-  '@pierre/trees@1.0.0-beta.6': c58f3ce64e029f0c9067624fdb6af4ab4ac972127ae4cf64e22ddbc020bba2e7
+  '@pierre/trees@1.0.0-beta.6': 981eb4adb4b9961b361fdf6352609bc5e616b24534e85cff6f31b177ee55292d
 
 importers:
 
@@ -39,7 +39,7 @@ importers:
         version: 1.0.1(@pierre/theme@2.0.0)(@shikijs/themes@4.4.3)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)(shiki@4.4.3)
       '@pierre/trees':
         specifier: 1.0.0-beta.6
-        version: 1.0.0-beta.6(patch_hash=c58f3ce64e029f0c9067624fdb6af4ab4ac972127ae4cf64e22ddbc020bba2e7)(@pierre/theme@2.0.0)(@shikijs/themes@4.4.3)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)(shiki@4.4.3)
+        version: 1.0.0-beta.6(patch_hash=981eb4adb4b9961b361fdf6352609bc5e616b24534e85cff6f31b177ee55292d)(@pierre/theme@2.0.0)(@shikijs/themes@4.4.3)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)(shiki@4.4.3)
       '@radix-ui/react-alert-dialog':
         specifier: ^1.1.23
         version: 1.1.23(@types/react-dom@19.3.0(@types/react@19.3.0))(@types/react@19.3.0)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
@@ -2624,7 +2624,7 @@ snapshots:
       react-dom: 19.3.0(react@19.3.0)
       shiki: 4.4.3
 
-  '@pierre/trees@1.0.0-beta.6(patch_hash=c58f3ce64e029f0c9067624fdb6af4ab4ac972127ae4cf64e22ddbc020bba2e7)(@pierre/theme@2.0.0)(@shikijs/themes@4.4.3)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)(shiki@4.4.3)':
+  '@pierre/trees@1.0.0-beta.6(patch_hash=981eb4adb4b9961b361fdf6352609bc5e616b24534e85cff6f31b177ee55292d)(@pierre/theme@2.0.0)(@shikijs/themes@4.4.3)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)(shiki@4.4.3)':
     dependencies:
       '@pierre/theming': 1.0.1(@pierre/theme@2.0.0)(@shikijs/themes@4.4.3)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)(shiki@4.4.3)
       preact: 11.0.0-beta.0
