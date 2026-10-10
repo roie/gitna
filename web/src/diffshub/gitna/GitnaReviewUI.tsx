@@ -439,7 +439,19 @@ function GitnaReviewUIInner({
   const [showBackgrounds, setShowBackgrounds] = useState(true)
   const [diffIndicators, setDiffIndicators] = useState<DiffIndicators>('bars')
   const [lineNumbers, setLineNumbers] = useState(true)
-  const [previewMode, setPreviewMode] = useState<FilePreviewMode>('editor')
+  const [filePreviewModes, setFilePreviewModes] = useState<Map<string, FilePreviewMode>>(
+    () => new Map(),
+  )
+  const previewFilePath = target?.filePath
+  const previewMode =
+    previewFilePath == null ? 'editor' : (filePreviewModes.get(previewFilePath) ?? 'editor')
+  const setPreviewMode = useCallback(
+    (mode: FilePreviewMode) => {
+      if (previewFilePath == null) return
+      setFilePreviewModes((modes) => new Map(modes).set(previewFilePath, mode))
+    },
+    [previewFilePath],
+  )
   const [cachedPreviewPath, setCachedPreviewPath] = useState<string | null>(null)
   const [cachedPreviewMode, setCachedPreviewMode] = useState<'preview' | 'split'>('split')
   const previewLayoutMode = previewMode === 'editor' ? cachedPreviewMode : previewMode
@@ -451,7 +463,6 @@ function GitnaReviewUIInner({
   }, [previewMode, target?.filePath])
   const [previewHeaderHeight, setPreviewHeaderHeight] = useState(44)
   const [themesHydrated, setThemesHydrated] = useState(false)
-  useEffect(() => setPreviewMode('editor'), [target?.filePath])
   const [loadState, setLoadState] = useState<ViewerLoadState>('fetching')
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
   const [reviewData, setReviewData] = useState<LoadedDiffsHubData | null>(null)
@@ -1283,7 +1294,7 @@ function GitnaReviewUIInner({
         pre.removeAttribute('aria-hidden')
       }
     }
-  }, [viewerAvailable, reviewData?.items.length, previewMode, target?.filePath])
+  }, [viewerAvailable, reviewData, previewMode, target?.filePath])
 
   useEffect(() => {
     if (!viewerAvailable || imageDiff == null || selectedImageRequest == null) return
