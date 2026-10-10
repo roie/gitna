@@ -2014,6 +2014,7 @@ export class GitnaRepository {
       const nextPath = openPaths.slice(currentIndex + 1).find((path) => !closing.has(path))
       const previousPath = openPaths.slice(0, currentIndex).findLast((path) => !closing.has(path))
       this.repositoryFilePath = nextPath ?? previousPath ?? null
+      this.repositorySelectedPaths = this.repositoryFilePath == null ? [] : [this.repositoryFilePath]
     }
     for (const path of closing) {
       if (this.isUntitledPath(path)) this.documents.delete(path.slice('untitled:'.length))

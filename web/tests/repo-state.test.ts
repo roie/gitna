@@ -981,6 +981,51 @@ describe('createRepoState', () => {
     expect(state.repositorySelectedPaths).toEqual(['newer.txt'])
   })
 
+  it.each([
+    { opened: ['a.txt'], active: 'a.txt', closing: ['a.txt'], next: null },
+    { opened: ['a.txt', 'b.txt', 'c.txt'], active: 'b.txt', closing: ['b.txt'], next: 'c.txt' },
+    { opened: ['a.txt', 'b.txt'], active: 'b.txt', closing: ['b.txt'], next: 'a.txt' },
+    {
+      opened: ['a.txt', 'b.txt', 'c.txt'],
+      active: 'a.txt',
+      closing: ['a.txt', 'b.txt'],
+      next: 'c.txt',
+    },
+    {
+      opened: ['a.txt', 'b.txt'],
+      active: 'b.txt',
+      closing: ['a.txt', 'b.txt'],
+      next: null,
+    },
+  ])(
+    'syncs Explorer selection after closing active tab $active: $closing',
+    ({ opened, active, closing, next }) => {
+      const state = createRepoState({ api: auxApi })
+      state.repositoryPaths = opened
+      for (const path of opened) state.selectRepositoryFile(path)
+      state.selectRepositoryFile(active)
+
+      state.closeRepositoryFiles(closing)
+
+      expect(state.repositoryOpenPaths).toEqual(opened.filter((path) => !closing.includes(path)))
+      expect(state.repositoryFilePath).toBe(next)
+      expect(state.repositorySelectedPaths).toEqual(next == null ? [] : [next])
+    },
+  )
+
+  it('preserves Explorer selection when closing an inactive tab', () => {
+    const state = createRepoState({ api: auxApi })
+    state.repositoryPaths = ['a.txt', 'b.txt', 'c.txt']
+    state.selectRepositoryFile('a.txt')
+    state.selectRepositoryFile('b.txt')
+    state.setRepositorySelectedPaths(['b.txt', 'c.txt'])
+
+    state.closeRepositoryFiles(['a.txt'])
+
+    expect(state.repositoryFilePath).toBe('b.txt')
+    expect(state.repositorySelectedPaths).toEqual(['b.txt', 'c.txt'])
+  })
+
   it('opens only available files from the repository catalog', () => {
     const state = createRepoState({ api: auxApi })
     state.snapshot = snapshot({ staged: [change('staged', 'deleted.txt', 'deleted')] })
