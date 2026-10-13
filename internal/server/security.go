@@ -5,6 +5,9 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+
+	"github.com/roie/gitna/internal/drafts"
+	"github.com/roie/gitna/internal/gitx"
 )
 
 // CapabilityPathPrefix namespaces every Gitna process capability URL.
@@ -71,7 +74,11 @@ func (s Security) Wrap(next http.Handler) http.Handler {
 				http.Error(w, "unsupported media type", http.StatusUnsupportedMediaType)
 				return
 			}
-			bodyLimit := mutationRequestBodyLimit(r.URL.Path, prefix, r.URL.Query().Get("op"))
+			bodyLimit, err := mutationRequestBodyLimit(r, prefix)
+			if err != nil {
+				writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+				return
+			}
 			if r.ContentLength > bodyLimit {
 				http.Error(w, "request body too large", http.StatusRequestEntityTooLarge)
 				return
@@ -83,19 +90,28 @@ func (s Security) Wrap(next http.Handler) http.Handler {
 	})
 }
 
-func mutationRequestBodyLimit(requestPath, capabilityPrefix, operation string) int64 {
-	relative := strings.TrimPrefix(requestPath, capabilityPrefix)
+func mutationRequestBodyLimit(r *http.Request, capabilityPrefix string) (int64, error) {
+	relative := strings.TrimPrefix(r.URL.Path, capabilityPrefix)
+	parts := strings.Split(strings.Trim(relative, "/"), "/")
+	if len(parts) >= 4 && parts[1] == "api" && parts[2] == "v1" {
+		relative = "/" + strings.Join(parts[1:], "/")
+	}
 	switch relative {
 	case "/api/v1/drafts", "/api/v1/worktree/file", "/api/v1/worktree/entry":
+		fallback, overhead := int64(gitx.DefaultDiffBytes), int64(16<<10)
 		if relative == "/api/v1/drafts" {
-			return draftRequestBodyLimit
+			fallback, overhead = drafts.DefaultMaxContent, 32<<10
 		}
-		return worktreeRequestBodyLimit
+		limit, err := worktreeRequestLimit(r, fallback)
+		if err != nil {
+			return 0, err
+		}
+		return limit*6 + overhead, nil
 	}
-	if isOperationsRequestPath(requestPath, capabilityPrefix) {
-		return operationRequestBodyLimit(operation)
+	if isOperationsRequestPath(r.URL.Path, capabilityPrefix) {
+		return operationRequestBodyLimit(r.URL.Query().Get("op")), nil
 	}
-	return MaxRequestBody
+	return MaxRequestBody, nil
 }
 
 func isOperationsRequestPath(requestPath, capabilityPrefix string) bool {
