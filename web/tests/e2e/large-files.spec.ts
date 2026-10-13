@@ -13,7 +13,7 @@ async function openFile(page: Page, name: string) {
   await option.click()
 }
 
-test('large-file consent supports cancel, exact saves, undo and durable recovery', async ({
+test('large-file consent supports tab closing, exact saves, undo and durable recovery', async ({
   page,
   app,
 }) => {
@@ -23,7 +23,8 @@ test('large-file consent supports cancel, exact saves, undo and durable recovery
   await page.goto(app.url)
   await openFile(page, 'approved.txt')
   await expect(page.getByRole('heading', { name: 'Open large file?' })).toBeVisible()
-  await page.getByRole('button', { name: 'Cancel', exact: true }).click()
+  await expect(page.getByRole('button', { name: 'Cancel', exact: true })).toHaveCount(0)
+  await page.getByRole('button', { name: 'Close approved.txt', exact: true }).click()
   await expect(page.getByRole('tab', { name: 'approved.txt' })).toHaveCount(0)
   await openFile(page, 'approved.txt')
   await expect(page.getByRole('heading', { name: 'Open large file?' })).toBeVisible()
@@ -78,7 +79,9 @@ test('large-file consent does not bypass encoding validation', async ({ page, ap
   await page.goto(app.url)
   await openFile(page, 'encoding.txt')
   await page.getByRole('button', { name: 'Open anyway' }).click()
-  await expect(page.getByRole('alert')).toContainText('not valid UTF-8')
+  await expect(page.getByRole('alert')).toContainText('invalid UTF-8')
+  await expect(page.getByRole('alert')).toContainText('Convert it to UTF-8')
+  await expect(page.getByRole('button', { name: 'Try again' })).toHaveCount(0)
   await expect(page.getByRole('button', { name: 'Open anyway' })).toHaveCount(0)
   expect(readFileSync(path)).toEqual(bytes)
 })

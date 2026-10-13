@@ -14,9 +14,8 @@ interface DiffsHubStatusPanelProps {
   errorMessage: string | null;
   localRepository?: boolean;
   suppressError?: boolean;
-  onRetry: () => void;
+  onRetry?: () => void;
   onOpenAnyway?: () => void;
-  onCancel?: () => void;
   state: ViewerLoadState;
 }
 
@@ -26,7 +25,6 @@ export function DiffsHubStatusPanel({
   localRepository = false,
   onRetry,
   onOpenAnyway,
-  onCancel,
   suppressError = false,
   state,
 }: DiffsHubStatusPanelProps) {
@@ -98,17 +96,10 @@ export function DiffsHubStatusPanel({
         <p className="text-muted-foreground mt-1 text-sm text-pretty">
           {message}
         </p>
-        {isError && (
-          <>
-            <Button type="button" className="mbs-4" onClick={onOpenAnyway ?? onRetry}>
-              {onOpenAnyway == null ? 'Try again' : 'Open anyway'}
-            </Button>
-            {onOpenAnyway != null && onCancel != null && (
-              <Button type="button" className="mbs-4 ms-2" onClick={onCancel}>
-                Cancel
-              </Button>
-            )}
-          </>
+        {isError && (onOpenAnyway != null || onRetry != null) && (
+          <Button type="button" className="mbs-4" onClick={onOpenAnyway ?? onRetry}>
+            {onOpenAnyway == null ? 'Try again' : 'Open anyway'}
+          </Button>
         )}
       </section>
     </div>

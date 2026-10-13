@@ -310,7 +310,7 @@ function repositoryFileErrorMessage(error: unknown): string {
     if (error.code === 'file-too-large') return 'This file is too large to open in Gitna.'
     if (error.code === 'binary-file') return 'Binary files can’t be opened in the editor.'
     if (error.code === 'unsupported-encoding') {
-      return 'This file is not valid UTF-8 and can’t be edited in Gitna. Its bytes have not been changed.'
+      return 'This file contains invalid UTF-8 text. Convert it to UTF-8 in another tool before opening it for editing. Gitna has not changed the file.'
     }
     if (error.code === 'file-not-found') {
       return 'This file is no longer available. Refresh Explorer or select another file.'
@@ -468,6 +468,7 @@ function GitnaReviewUIInner({
   const [themesHydrated, setThemesHydrated] = useState(false)
   const [loadState, setLoadState] = useState<ViewerLoadState>('fetching')
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
+  const [fileErrorCode, setFileErrorCode] = useState<string | null>(null)
   const [largeFileWarning, setLargeFileWarning] = useState<{
     path: string
     sizeBytes: number
@@ -866,6 +867,7 @@ function GitnaReviewUIInner({
       setLoadState('fetching')
     }
     setErrorMessage(null)
+    setFileErrorCode(null)
     setLargeFileWarning(null)
     const loadRepositoryFile = async (path: string): Promise<LoadedDiffsHubData> => {
       try {
@@ -1032,6 +1034,9 @@ function GitnaReviewUIInner({
           ) {
             setLargeFileWarning({ path: target.filePath, sizeBytes: error.sizeBytes! })
           }
+          setFileErrorCode(
+            target.filePath != null && error instanceof ApiError ? (error.code ?? null) : null,
+          )
           setErrorMessage(nextError)
           setLoadState('error')
         }
@@ -2518,25 +2523,26 @@ function GitnaReviewUIInner({
                             }
                           : undefined
                       }
-                      onCancel={
-                        largeFileWarning == null
+                      localRepository
+                      onRetry={
+                        fileErrorCode === 'unsupported-encoding' ||
+                        fileErrorCode === 'binary-file' ||
+                        fileErrorCode === 'file-too-large'
                           ? undefined
                           : () => {
-                              repository.closeRepositoryFiles([largeFileWarning.path], false)
-                              setLargeFileWarning(null)
+                              if (
+                                target?.request?.scope === 'compare' &&
+                                repository.compare != null
+                              ) {
+                                void repository.openCompare(
+                                  repository.compare.from,
+                                  repository.compare.to,
+                                  repository.compare.label,
+                                )
+                              }
+                              setReviewAttempt((attempt) => attempt + 1)
                             }
                       }
-                      localRepository
-                      onRetry={() => {
-                        if (target?.request?.scope === 'compare' && repository.compare != null) {
-                          void repository.openCompare(
-                            repository.compare.from,
-                            repository.compare.to,
-                            repository.compare.label,
-                          )
-                        }
-                        setReviewAttempt((attempt) => attempt + 1)
-                      }}
                       suppressError={
                         loadState === 'error' &&
                         (repository.connectionState !== 'connected' ||
