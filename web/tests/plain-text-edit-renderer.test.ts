@@ -34,6 +34,32 @@ async function fixture(
 }
 
 describe('plain-text editor viewport rendering', () => {
+  it('renders million-line edit sessions in bounded windows', async () => {
+    const { file, renderer, tokenize } = await fixture('x\r\n'.repeat(999999) + 'END!')
+    expect(renderer.editorRenderReady()).toBe(true)
+    for (const line of [999997, 20, 500000, 0]) {
+      const html = renderWindow(renderer, file, line)
+      expect(html).toContain(`data-line="${line + 1}"`)
+      if (line === 999997) expect(html).toContain('END!')
+    }
+    expect(tokenize.mock.calls.every(([contents]) => contents.length < 100)).toBe(true)
+    renderer.updateRenderCache(new Map([[999999, [[0, '', 'END!Z']]]]), 'dark')
+    expect(renderWindow(renderer, file, 999997)).toContain('END!Z')
+    renderWindow(renderer, file, 0)
+    expect(renderWindow(renderer, file, 999997)).toContain('END!Z')
+    expect(file.contents).toBe('x\r\n'.repeat(999999) + 'END!Z')
+    const document = new TextDocument<'file', undefined>(file.name, `first\r\n${file.contents}`)
+    renderer.applyDocumentChange(document)
+    expect(renderWindow(renderer, file, 999998)).toContain('END!Z')
+    expect(renderWindow(renderer, file, 0)).toContain('first')
+    renderer.applyDocumentChange(
+      new TextDocument<'file', undefined>(file.name, 'x\r\n'.repeat(999999) + 'END!'),
+    )
+    expect(renderWindow(renderer, file, 999997)).toContain('END!')
+    expect(renderer.editorRenderReady()).toBe(true)
+    renderer.cleanUp()
+  })
+
   it('reveals distant matches without retokenizing the entire unchanged document', async () => {
     const { file, renderer, tokenize } = await fixture()
     const initialCalls = tokenize.mock.calls.length

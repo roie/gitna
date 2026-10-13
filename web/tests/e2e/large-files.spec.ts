@@ -17,7 +17,8 @@ test('large-file consent supports tab closing, exact saves, undo and durable rec
   page,
   app,
 }) => {
-  const content = 'ordinary line 1234567890\r\n'.repeat(30000) + 'END!'
+  test.setTimeout(90000)
+  const content = 'x\r\n'.repeat(1000000) + 'END!'
   const path = join(app.repo, 'approved.txt')
   writeFileSync(path, content)
   await page.goto(app.url)
@@ -51,7 +52,9 @@ test('large-file consent supports tab closing, exact saves, undo and durable rec
   await editor.press('Control+End')
   const backup = page.waitForResponse(
     (response) =>
-      response.request().method() === 'POST' && response.url().includes('/api/v1/drafts?maxBytes='),
+      response.request().method() === 'POST' &&
+      response.url().includes('/api/v1/drafts?maxBytes=') &&
+      response.request().postDataJSON().contents === content + 'ZR',
   )
   await editor.pressSequentially('R')
   expect((await backup).status()).toBe(200)
