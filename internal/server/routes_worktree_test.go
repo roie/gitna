@@ -24,7 +24,7 @@ type fakeWorktreeRepo struct {
 	renamedDest   string
 }
 
-func (f *fakeWorktreeRepo) ReadWorktreeFile(context.Context, string) (protocol.WorktreeFile, error) {
+func (f *fakeWorktreeRepo) ReadWorktreeFile(context.Context, string, ...int64) (protocol.WorktreeFile, error) {
 	return f.file, f.err
 }
 
@@ -32,7 +32,7 @@ func (f *fakeWorktreeRepo) CompareWorktreeFiles(context.Context, string, string)
 	return f.comparison, f.err
 }
 
-func (f *fakeWorktreeRepo) WriteWorktreeFile(_ context.Context, path, content, _ string) (protocol.WorktreeFile, error) {
+func (f *fakeWorktreeRepo) WriteWorktreeFile(_ context.Context, path, content, _ string, _ ...int64) (protocol.WorktreeFile, error) {
 	if f.err != nil {
 		return protocol.WorktreeFile{}, f.err
 	}
@@ -40,7 +40,7 @@ func (f *fakeWorktreeRepo) WriteWorktreeFile(_ context.Context, path, content, _
 	return f.file, nil
 }
 
-func (f *fakeWorktreeRepo) CreateWorktreeFile(_ context.Context, path, content string) (protocol.WorktreeFile, error) {
+func (f *fakeWorktreeRepo) CreateWorktreeFile(_ context.Context, path, content string, _ ...int64) (protocol.WorktreeFile, error) {
 	if f.err != nil {
 		return protocol.WorktreeFile{}, f.err
 	}

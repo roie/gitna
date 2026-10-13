@@ -35,8 +35,24 @@ func (r Repository) ReadWorktreeResource(ctx context.Context, path string) ([]by
 	return r.readBoundedWorktreeFile(path)
 }
 
+type WorktreeFileLimitError struct {
+	SizeBytes  int64
+	LimitBytes int64
+}
+
+func (e *WorktreeFileLimitError) Error() string { return protocol.ErrWorktreeFileTooLarge.Error() }
+func (e *WorktreeFileLimitError) Unwrap() error { return protocol.ErrWorktreeFileTooLarge }
+
+func worktreeContentLimit(budget []int64) int64 {
+	if len(budget) > 0 {
+		return max(int64(DefaultDiffBytes), budget[0])
+	}
+	return DefaultDiffBytes
+}
+
 // ReadWorktreeFile returns one bounded, regular text file from the worktree.
-func (r Repository) ReadWorktreeFile(ctx context.Context, path string) (protocol.WorktreeFile, error) {
+func (r Repository) ReadWorktreeFile(ctx context.Context, path string, budget ...int64) (protocol.WorktreeFile, error) {
+	limit := worktreeContentLimit(budget)
 	if err := ctx.Err(); err != nil {
 		return protocol.WorktreeFile{}, err
 	}
@@ -47,10 +63,10 @@ func (r Repository) ReadWorktreeFile(ctx context.Context, path string) (protocol
 	if !info.Mode().IsRegular() {
 		return protocol.WorktreeFile{}, fmt.Errorf("%w: %q is not a regular file", protocol.ErrInvalidPath, path)
 	}
-	if info.Size() > DefaultDiffBytes {
-		return protocol.WorktreeFile{}, fmt.Errorf("%w: %q", protocol.ErrWorktreeFileTooLarge, path)
+	if info.Size() > limit {
+		return protocol.WorktreeFile{}, &WorktreeFileLimitError{SizeBytes: info.Size(), LimitBytes: limit}
 	}
-	data, err := r.readBoundedWorktreeFile(path)
+	data, err := r.readBoundedWorktreeFile(path, limit)
 	if err != nil {
 		return protocol.WorktreeFile{}, err
 	}
@@ -132,12 +148,13 @@ func (r Repository) readComparisonFile(path string) ([]byte, bool, bool, error) 
 
 // WriteWorktreeFile atomically replaces an existing regular text file when its
 // current content still matches expectedHash.
-func (r Repository) WriteWorktreeFile(ctx context.Context, path, content, expectedHash string) (protocol.WorktreeFile, error) {
+func (r Repository) WriteWorktreeFile(ctx context.Context, path, content, expectedHash string, budget ...int64) (protocol.WorktreeFile, error) {
+	limit := worktreeContentLimit(budget)
 	if err := ctx.Err(); err != nil {
 		return protocol.WorktreeFile{}, err
 	}
-	if len(content) > DefaultDiffBytes {
-		return protocol.WorktreeFile{}, fmt.Errorf("%w: %q", protocol.ErrWorktreeFileTooLarge, path)
+	if int64(len(content)) > limit {
+		return protocol.WorktreeFile{}, &WorktreeFileLimitError{SizeBytes: int64(len(content)), LimitBytes: limit}
 	}
 	data := []byte(content)
 	if isBinary(data) {
@@ -153,7 +170,7 @@ func (r Repository) WriteWorktreeFile(ctx context.Context, path, content, expect
 	if !info.Mode().IsRegular() {
 		return protocol.WorktreeFile{}, fmt.Errorf("%w: %q is not a regular file", protocol.ErrInvalidPath, path)
 	}
-	current, err := r.readBoundedWorktreeFile(path)
+	current, err := r.readBoundedWorktreeFile(path, limit)
 	if err != nil {
 		return protocol.WorktreeFile{}, err
 	}
@@ -189,7 +206,7 @@ func (r Repository) WriteWorktreeFile(ctx context.Context, path, content, expect
 	if err := temporary.Close(); err != nil {
 		return protocol.WorktreeFile{}, err
 	}
-	latest, err := r.readBoundedWorktreeFile(path)
+	latest, err := r.readBoundedWorktreeFile(path, limit)
 	if err != nil {
 		return protocol.WorktreeFile{}, err
 	}
@@ -203,12 +220,13 @@ func (r Repository) WriteWorktreeFile(ctx context.Context, path, content, expect
 }
 
 // CreateWorktreeFile creates one regular text file without overwriting an existing entry.
-func (r Repository) CreateWorktreeFile(ctx context.Context, path, content string) (protocol.WorktreeFile, error) {
+func (r Repository) CreateWorktreeFile(ctx context.Context, path, content string, budget ...int64) (protocol.WorktreeFile, error) {
+	limit := worktreeContentLimit(budget)
 	if err := ctx.Err(); err != nil {
 		return protocol.WorktreeFile{}, err
 	}
-	if len(content) > DefaultDiffBytes {
-		return protocol.WorktreeFile{}, fmt.Errorf("%w: %q", protocol.ErrWorktreeFileTooLarge, path)
+	if int64(len(content)) > limit {
+		return protocol.WorktreeFile{}, &WorktreeFileLimitError{SizeBytes: int64(len(content)), LimitBytes: limit}
 	}
 	data := []byte(content)
 	if isBinary(data) {
@@ -435,7 +453,8 @@ func createWorktreeTemp(root *os.Root, path string) (string, *os.File, error) {
 	return "", nil, errors.New("could not allocate temporary worktree file")
 }
 
-func (r Repository) readBoundedWorktreeFile(path string) ([]byte, error) {
+func (r Repository) readBoundedWorktreeFile(path string, budget ...int64) ([]byte, error) {
+	limit := worktreeContentLimit(budget)
 	root, err := os.OpenRoot(r.Root)
 	if err != nil {
 		return nil, err
@@ -460,12 +479,17 @@ func (r Repository) readBoundedWorktreeFile(path string) ([]byte, error) {
 	if !openedInfo.Mode().IsRegular() {
 		return nil, fmt.Errorf("%w: %q is not a regular file", protocol.ErrInvalidPath, path)
 	}
-	data, err := io.ReadAll(io.LimitReader(file, DefaultDiffBytes+1))
+	if openedInfo.Size() > limit {
+		return nil, &WorktreeFileLimitError{SizeBytes: openedInfo.Size(), LimitBytes: limit}
+	}
+	// Bound the read to the opened snapshot as well as the approved budget.
+	snapshotLimit := openedInfo.Size()
+	data, err := io.ReadAll(io.LimitReader(file, snapshotLimit+1))
 	if err != nil {
 		return nil, err
 	}
-	if len(data) > DefaultDiffBytes {
-		return nil, fmt.Errorf("%w: %q", protocol.ErrWorktreeFileTooLarge, path)
+	if int64(len(data)) > snapshotLimit {
+		return nil, &WorktreeFileLimitError{SizeBytes: int64(len(data)), LimitBytes: snapshotLimit}
 	}
 	return data, nil
 }

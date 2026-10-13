@@ -128,29 +128,29 @@ func (a *repoAdapter) ReadWorktreeResource(ctx context.Context, path string) ([]
 	return a.current().ReadWorktreeResource(ctx, path)
 }
 
-func (a *repoAdapter) ReadWorktreeFile(ctx context.Context, path string) (protocol.WorktreeFile, error) {
-	return a.current().ReadWorktreeFile(ctx, path)
+func (a *repoAdapter) ReadWorktreeFile(ctx context.Context, path string, budget ...int64) (protocol.WorktreeFile, error) {
+	return a.current().ReadWorktreeFile(ctx, path, budget...)
 }
 
 func (a *repoAdapter) CompareWorktreeFiles(ctx context.Context, leftPath, rightPath string) (protocol.FileDiff, error) {
 	return a.current().CompareWorktreeFiles(ctx, leftPath, rightPath)
 }
 
-func (a *repoAdapter) WriteWorktreeFile(ctx context.Context, path, content, expectedHash string) (protocol.WorktreeFile, error) {
+func (a *repoAdapter) WriteWorktreeFile(ctx context.Context, path, content, expectedHash string, budget ...int64) (protocol.WorktreeFile, error) {
 	var file protocol.WorktreeFile
 	err := a.queue.Do(ctx, func(ctx context.Context) error {
 		var err error
-		file, err = a.current().WriteWorktreeFile(ctx, path, content, expectedHash)
+		file, err = a.current().WriteWorktreeFile(ctx, path, content, expectedHash, budget...)
 		return err
 	})
 	return file, err
 }
 
-func (a *repoAdapter) CreateWorktreeFile(ctx context.Context, path, content string) (protocol.WorktreeFile, error) {
+func (a *repoAdapter) CreateWorktreeFile(ctx context.Context, path, content string, budget ...int64) (protocol.WorktreeFile, error) {
 	var file protocol.WorktreeFile
 	err := a.queue.Do(ctx, func(ctx context.Context) error {
 		var err error
-		file, err = a.current().CreateWorktreeFile(ctx, path, content)
+		file, err = a.current().CreateWorktreeFile(ctx, path, content, budget...)
 		return err
 	})
 	if err == nil {

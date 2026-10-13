@@ -44,6 +44,11 @@ func (s *Server) handleDrafts(w http.ResponseWriter, r *http.Request) {
 			writeJSON(w, http.StatusForbidden, map[string]string{"error": "draft belongs to another folder"})
 			return
 		}
+		limit, _ := worktreeRequestLimit(r, drafts.DefaultMaxContent)
+		if record.MaxBytes > limit {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "draft exceeds approved byte budget"})
+			return
+		}
 		if err := s.drafts.Put(record); err != nil {
 			writeDraftError(w, err)
 			return
@@ -76,12 +81,16 @@ func (s *Server) handleDrafts(w http.ResponseWriter, r *http.Request) {
 }
 
 func decodeDraftRequest(w http.ResponseWriter, r *http.Request, target any) error {
-	decoder := json.NewDecoder(http.MaxBytesReader(w, r.Body, draftRequestBodyLimit))
+	limit, err := worktreeRequestLimit(r, drafts.DefaultMaxContent)
+	if err != nil {
+		return err
+	}
+	decoder := json.NewDecoder(http.MaxBytesReader(w, r.Body, limit*6+32<<10))
 	if err := decoder.Decode(target); err != nil {
 		return err
 	}
 	var trailing json.RawMessage
-	err := decoder.Decode(&trailing)
+	err = decoder.Decode(&trailing)
 	if err == io.EOF {
 		return nil
 	}

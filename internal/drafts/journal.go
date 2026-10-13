@@ -43,6 +43,7 @@ type Record struct {
 	BaselineHash string    `json:"baselineHash,omitempty"`
 	UpdatedAt    time.Time `json:"updatedAt"`
 	Recovery     string    `json:"recovery,omitempty"`
+	MaxBytes     int64     `json:"maxBytes,omitempty"`
 }
 
 type Options struct {
@@ -183,8 +184,9 @@ func (j *Journal) validate(record Record) error {
 	if record.Label == "" || record.Schema != 0 && record.Schema != SchemaVersion {
 		return ErrInvalidRecord
 	}
-	if len([]byte(record.Contents)) > j.maxContent {
-		return fmt.Errorf("%w: content exceeds %d bytes", ErrQuota, j.maxContent)
+	limit := max(int64(j.maxContent), record.MaxBytes)
+	if int64(len(record.Contents)) > limit {
+		return fmt.Errorf("%w: content exceeds %d bytes", ErrQuota, limit)
 	}
 	return nil
 }

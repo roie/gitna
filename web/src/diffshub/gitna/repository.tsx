@@ -892,7 +892,7 @@ export class GitnaRepository {
     let suffix = ' (Recovered)'
     if (record.path != null && this.api.readWorktreeFile != null) {
       try {
-        const current = await this.api.readWorktreeFile(record.path)
+        const current = await this.api.readWorktreeFile(record.path, record.maxBytes)
         if (record.baselineHash != null && current.hash !== record.baselineHash) {
           suffix = ' (Conflict — disk changed)'
         }
@@ -902,11 +902,8 @@ export class GitnaRepository {
         }
       }
     }
-    const document = this.documents.createUntitled(
-      record.contents,
-      record.folderKey,
-      `${record.label}${suffix}`,
-    )
+    const document = this.documents.createUntitled('', record.folderKey, `${record.label}${suffix}`)
+    this.documents.updateContent(document.id, record.contents)
     this.recoverySources.set(document.id, record)
     const path = `untitled:${document.id}`
     this.selectRepositoryFile(path, true)
@@ -941,13 +938,24 @@ export class GitnaRepository {
     this.closeRepositoryFiles([path])
   }
 
+  draftMaxBytes(path: string): number | undefined {
+    const document = this.untitledDocument(path)
+    return document == null ? undefined : this.recoverySources.get(document.id)?.maxBytes
+  }
+
   async saveUntitledDocument(path: string, destination: string): Promise<WorktreeFile> {
     const document = this.untitledDocument(path)
     if (document == null) throw new Error('This untitled document is no longer available.')
     const submittedRevision = document.revision
     const submittedContents = document.contents
     const saved = await this.runWorktreeOperation('save-file', () =>
-      this.api.createWorktreeFile(destination, submittedContents),
+      this.api.createWorktreeFile(
+        destination,
+        submittedContents,
+        this.draftMaxBytes(path) == null
+          ? undefined
+          : Math.max(this.draftMaxBytes(path)!, new TextEncoder().encode(submittedContents).length),
+      ),
     )
     const acknowledged = this.documents.acknowledgeSave(
       document.id,
@@ -2214,9 +2222,10 @@ export class GitnaRepository {
     path: string,
     content: string,
     expectedHash: string,
+    maxBytes?: number,
   ): Promise<WorktreeFile> {
     return this.runWorktreeOperation('save-file', () =>
-      this.api.writeWorktreeFile(path, content, expectedHash),
+      this.api.writeWorktreeFile(path, content, expectedHash, maxBytes),
     )
   }
 

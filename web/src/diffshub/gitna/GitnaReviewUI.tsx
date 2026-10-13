@@ -468,6 +468,14 @@ function GitnaReviewUIInner({
   const [themesHydrated, setThemesHydrated] = useState(false)
   const [loadState, setLoadState] = useState<ViewerLoadState>('fetching')
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
+  const [largeFileWarning, setLargeFileWarning] = useState<{
+    path: string
+    sizeBytes: number
+  } | null>(null)
+  const approvedFileBudgetsRef = useRef(new Map<string, number>())
+  const largeDraftBackupsRef = useRef(
+    new Map<string, { record: DraftRecord; pending: Promise<void> }>(),
+  )
   const [reviewData, setReviewData] = useState<LoadedDiffsHubData | null>(null)
   const [imageDiff, setImageDiff] = useState<FileDiff | null>(null)
   const [reviewAttempt, setReviewAttempt] = useState(0)
@@ -622,6 +630,13 @@ function GitnaReviewUIInner({
             revision: draft.revision,
             contents: draft.contents,
             baselineHash: draft.baselineHash,
+            maxBytes:
+              repository.draftMaxBytes(`untitled:${draft.id}`) == null
+                ? undefined
+                : Math.max(
+                    repository.draftMaxBytes(`untitled:${draft.id}`)!,
+                    new TextEncoder().encode(draft.contents).length,
+                  ),
             updatedAt: new Date().toISOString(),
           }).catch((error: unknown) => {
             setReviewActionError(
@@ -634,9 +649,65 @@ function GitnaReviewUIInner({
   }, [repository.api, untitledDraftKey])
 
   useEffect(() => {
+    const putDraft = repository.api.putDraft
+    if (putDraft == null) return
+    const timers: number[] = []
+    for (const [path, draft] of worktreeDrafts) {
+      const budget = approvedFileBudgetsRef.current.get(path)
+      const baseline = worktreeFilesRef.current.get(path)
+      if (budget == null || baseline == null || path.startsWith('untitled:')) continue
+      timers.push(
+        window.setTimeout(() => {
+          const previous = largeDraftBackupsRef.current.get(path)
+          if (previous?.record.contents === draft.contents && previous.record.path === path) return
+          const record: DraftRecord = {
+            schema: 1,
+            documentId: previous?.record.documentId ?? crypto.randomUUID(),
+            clientId: draftClientIdRef.current!,
+            folderKey: repository.snapshot?.root,
+            path,
+            label: path,
+            revision: (previous?.record.revision ?? 0) + 1,
+            contents: draft.contents,
+            baselineHash: baseline.hash,
+            maxBytes: Math.max(budget, new TextEncoder().encode(draft.contents).length),
+            updatedAt: new Date().toISOString(),
+          }
+          const pending = (previous?.pending ?? Promise.resolve())
+            .then(async () => {
+              await putDraft(record)
+            })
+            .catch((error: unknown) => {
+              setReviewActionError(
+                `Could not back up ${path}: ${error instanceof Error ? error.message : String(error)}`,
+              )
+            })
+          largeDraftBackupsRef.current.set(path, { record, pending })
+        }, 500),
+      )
+    }
+    for (const [path, backup] of largeDraftBackupsRef.current) {
+      if (worktreeDrafts.has(path)) continue
+      const deleteDraft = repository.api.deleteDraft
+      if (deleteDraft == null) continue
+      largeDraftBackupsRef.current.delete(path)
+      void backup.pending
+        .then(() => deleteDraft(backup.record.documentId, backup.record.revision))
+        .catch((error: unknown) =>
+          setReviewActionError(
+            `Could not remove draft backup: ${error instanceof Error ? error.message : String(error)}`,
+          ),
+        )
+    }
+    return () => timers.forEach((timer) => window.clearTimeout(timer))
+  }, [repository.api, repository.snapshot?.root, worktreeDrafts])
+
+  useEffect(() => {
     const root = repository.snapshot?.root
     if (root == null) return
     if (editorRepositoryRootRef.current != null && editorRepositoryRootRef.current !== root) {
+      approvedFileBudgetsRef.current.clear()
+      largeDraftBackupsRef.current.clear()
       setWorktreeFiles(new Map())
       setWorktreeDrafts(new Map())
       setRecentlySavedPath(null)
@@ -653,6 +724,18 @@ function GitnaReviewUIInner({
   useEffect(() => {
     const rename = repository.worktreeRename
     if (rename == null) return
+    approvedFileBudgetsRef.current = new Map(
+      [...approvedFileBudgetsRef.current].map(([path, budget]) => [
+        remapWorktreePath(path, rename.source, rename.destination),
+        budget,
+      ]),
+    )
+    largeDraftBackupsRef.current = new Map(
+      [...largeDraftBackupsRef.current].map(([path, backup]) => [
+        remapWorktreePath(path, rename.source, rename.destination),
+        backup,
+      ]),
+    )
     setWorktreeFiles((current) => {
       const next = new Map<string, WorktreeFile>()
       for (const [path, file] of current) {
@@ -783,6 +866,7 @@ function GitnaReviewUIInner({
       setLoadState('fetching')
     }
     setErrorMessage(null)
+    setLargeFileWarning(null)
     const loadRepositoryFile = async (path: string): Promise<LoadedDiffsHubData> => {
       try {
         const untitled = repository.untitledDocument(path)
@@ -791,7 +875,10 @@ function GitnaReviewUIInner({
           setWorktreeFiles((current) => new Map(current).set(path, loaded))
           return adaptWorktreeFile(loaded, repository.generation, undefined, reviewCacheNamespace)
         }
-        const loaded = await repository.api.readWorktreeFile(path)
+        const loaded = await repository.api.readWorktreeFile(
+          path,
+          approvedFileBudgetsRef.current.get(path),
+        )
         const rename = repository.worktreeRename
         const previousPath =
           rename == null ? path : previousWorktreePath(path, rename.source, rename.destination)
@@ -936,6 +1023,15 @@ function GitnaReviewUIInner({
           setReviewActionError(`Could not refresh review: ${nextError}`)
           setLoadState('ready')
         } else {
+          if (
+            target.filePath != null &&
+            error instanceof ApiError &&
+            error.code === 'file-too-large' &&
+            Number.isSafeInteger(error.sizeBytes) &&
+            error.sizeBytes! > 0
+          ) {
+            setLargeFileWarning({ path: target.filePath, sizeBytes: error.sizeBytes! })
+          }
           setErrorMessage(nextError)
           setLoadState('error')
         }
@@ -1676,7 +1772,18 @@ function GitnaReviewUIInner({
       setSavingPath(path)
       setReviewActionError(null)
       try {
-        const saved = await repository.saveWorktreeFile(path, submittedContent, baseline.hash)
+        const approvedBudget = approvedFileBudgetsRef.current.get(path)
+        const maxBytes =
+          approvedBudget == null
+            ? undefined
+            : Math.max(approvedBudget, new TextEncoder().encode(submittedContent).length)
+        const saved = await repository.saveWorktreeFile(
+          path,
+          submittedContent,
+          baseline.hash,
+          maxBytes,
+        )
+        if (maxBytes != null) approvedFileBudgetsRef.current.set(path, maxBytes)
         const nextFiles = new Map(worktreeFilesRef.current).set(path, saved)
         worktreeFilesRef.current = nextFiles
         setWorktreeFiles(nextFiles)
@@ -1806,13 +1913,17 @@ function GitnaReviewUIInner({
     const onSave = (event: KeyboardEvent) => {
       if (!(event.ctrlKey || event.metaKey) || event.key.toLowerCase() !== 's') return
       const path = target?.filePath
-      if (path == null || !worktreeDraftsRef.current.has(path)) return
+      if (
+        path == null ||
+        (!worktreeDraftsRef.current.has(path) && !repository.isUntitledPath(path))
+      )
+        return
       event.preventDefault()
       requestSave(path)
     }
     window.addEventListener('keydown', onSave)
     return () => window.removeEventListener('keydown', onSave)
-  }, [dirtyPaths, requestSave, target?.filePath])
+  }, [dirtyPaths, repository, requestSave, target?.filePath])
 
   const toggleSidebar = useCallback(() => {
     if (window.matchMedia('(max-width: 767px)').matches) {
@@ -1996,7 +2107,10 @@ function GitnaReviewUIInner({
       (target?.request?.scope === 'staged' || target?.request?.scope === 'unstaged'
         ? target.selectedPath
         : undefined)
-    if (currentPath != null && worktreeDrafts.has(currentPath)) {
+    if (
+      currentPath != null &&
+      (worktreeDrafts.has(currentPath) || repository.isUntitledPath(currentPath))
+    ) {
       commands.push({
         id: 'save-file',
         icon: <IconCheck />,
@@ -2107,6 +2221,8 @@ function GitnaReviewUIInner({
     worktreeDrafts,
   ])
 
+  const untitledSaveBudget =
+    pendingUntitledSaveAs == null ? undefined : repository.draftMaxBytes(pendingUntitledSaveAs)
   const startupLoading = repository.snapshot == null && repository.error == null
   const loadingPath =
     folderSwitchTransition?.path ??
@@ -2385,7 +2501,31 @@ function GitnaReviewUIInner({
                   <div className="grid h-full min-h-0 [&>*]:h-full">
                     <DiffsHubStatusPanel
                       contentKind={target?.filePath == null ? 'diff' : 'file'}
-                      errorMessage={comparisonError ?? errorMessage ?? repository.error}
+                      errorMessage={
+                        largeFileWarning != null && largeFileWarning.path === target?.filePath
+                          ? `This file is ${(largeFileWarning!.sizeBytes / 1048576).toFixed(2)} MiB. Opening it may use a lot of memory or make this tab unresponsive. Very long lines and millions of lines are especially demanding.`
+                          : (comparisonError ?? errorMessage ?? repository.error)
+                      }
+                      onOpenAnyway={
+                        largeFileWarning?.path === target?.filePath && largeFileWarning != null
+                          ? () => {
+                              approvedFileBudgetsRef.current.set(
+                                largeFileWarning.path,
+                                largeFileWarning.sizeBytes,
+                              )
+                              setLargeFileWarning(null)
+                              setReviewAttempt((attempt) => attempt + 1)
+                            }
+                          : undefined
+                      }
+                      onCancel={
+                        largeFileWarning == null
+                          ? undefined
+                          : () => {
+                              repository.closeRepositoryFiles([largeFileWarning.path], false)
+                              setLargeFileWarning(null)
+                            }
+                      }
                       localRepository
                       onRetry={() => {
                         if (target?.request?.scope === 'compare' && repository.compare != null) {
@@ -2520,6 +2660,13 @@ function GitnaReviewUIInner({
             onError={setReviewActionError}
             onSaved={(path, file) => {
               const source = pendingUntitledSaveAs
+              const budget = untitledSaveBudget
+              if (budget != null) {
+                approvedFileBudgetsRef.current.set(
+                  path,
+                  Math.max(budget, new TextEncoder().encode(file.content).length),
+                )
+              }
               setPendingUntitledSaveAs(null)
               setWorktreeFiles((current) => {
                 const next = new Map(current)

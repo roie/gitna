@@ -15,6 +15,8 @@ interface DiffsHubStatusPanelProps {
   localRepository?: boolean;
   suppressError?: boolean;
   onRetry: () => void;
+  onOpenAnyway?: () => void;
+  onCancel?: () => void;
   state: ViewerLoadState;
 }
 
@@ -23,6 +25,8 @@ export function DiffsHubStatusPanel({
   errorMessage,
   localRepository = false,
   onRetry,
+  onOpenAnyway,
+  onCancel,
   suppressError = false,
   state,
 }: DiffsHubStatusPanelProps) {
@@ -38,7 +42,7 @@ export function DiffsHubStatusPanel({
   if (isError && suppressError) return null;
   const fileContent = contentKind === 'file';
   const title = isError
-    ? fileContent
+    ? onOpenAnyway != null ? 'Open large file?' : fileContent
       ? 'Couldn’t open file'
       : 'Couldn’t load diff'
     : state === 'parsing'
@@ -95,9 +99,16 @@ export function DiffsHubStatusPanel({
           {message}
         </p>
         {isError && (
-          <Button type="button" className="mt-4" onClick={onRetry}>
-            Try again
-          </Button>
+          <>
+            <Button type="button" className="mbs-4" onClick={onOpenAnyway ?? onRetry}>
+              {onOpenAnyway == null ? 'Try again' : 'Open anyway'}
+            </Button>
+            {onOpenAnyway != null && onCancel != null && (
+              <Button type="button" className="mbs-4 ms-2" onClick={onCancel}>
+                Cancel
+              </Button>
+            )}
+          </>
         )}
       </section>
     </div>

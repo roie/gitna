@@ -21,10 +21,10 @@ type worktreeResourceRepository interface {
 }
 
 type worktreeRepository interface {
-	ReadWorktreeFile(context.Context, string) (protocol.WorktreeFile, error)
+	ReadWorktreeFile(context.Context, string, ...int64) (protocol.WorktreeFile, error)
 	CompareWorktreeFiles(context.Context, string, string) (protocol.FileDiff, error)
-	WriteWorktreeFile(context.Context, string, string, string) (protocol.WorktreeFile, error)
-	CreateWorktreeFile(context.Context, string, string) (protocol.WorktreeFile, error)
+	WriteWorktreeFile(context.Context, string, string, string, ...int64) (protocol.WorktreeFile, error)
+	CreateWorktreeFile(context.Context, string, string, ...int64) (protocol.WorktreeFile, error)
 	CreateWorktreeEntry(context.Context, string, bool) error
 	RenameWorktreeEntry(context.Context, string, string) error
 }
@@ -84,7 +84,12 @@ func (s *Server) handleReadWorktreeFile(w http.ResponseWriter, r *http.Request) 
 	}
 	ctx, cancel := context.WithTimeout(r.Context(), ReadTimeout)
 	defer cancel()
-	file, err := repo.ReadWorktreeFile(ctx, r.URL.Query().Get("path"))
+	limit, err := worktreeRequestLimit(r, gitx.DefaultDiffBytes)
+	if err != nil {
+		writeMutationDecodeError(w, err)
+		return
+	}
+	file, err := repo.ReadWorktreeFile(ctx, r.URL.Query().Get("path"), limit)
 	if err != nil {
 		writeWorktreeError(w, r, s, err)
 		return
@@ -125,7 +130,8 @@ func (s *Server) handleWriteWorktreeFile(w http.ResponseWriter, r *http.Request)
 	}
 	ctx, cancel := withTimeout(r.Context(), LocalMutationTimeout)
 	defer cancel()
-	file, err := repo.WriteWorktreeFile(ctx, req.Path, req.Content, req.ExpectedHash)
+	limit, _ := worktreeRequestLimit(r, gitx.DefaultDiffBytes)
+	file, err := repo.WriteWorktreeFile(ctx, req.Path, req.Content, req.ExpectedHash, limit)
 	if err != nil {
 		writeWorktreeError(w, r, s, err)
 		return
@@ -147,7 +153,8 @@ func (s *Server) handleCreateWorktreeFile(w http.ResponseWriter, r *http.Request
 	}
 	ctx, cancel := withTimeout(r.Context(), LocalMutationTimeout)
 	defer cancel()
-	file, err := repo.CreateWorktreeFile(ctx, req.Path, req.Content)
+	limit, _ := worktreeRequestLimit(r, gitx.DefaultDiffBytes)
+	file, err := repo.CreateWorktreeFile(ctx, req.Path, req.Content, limit)
 	if err != nil {
 		writeWorktreeError(w, r, s, err)
 		return
@@ -199,12 +206,16 @@ func (s *Server) handleRenameWorktreeEntry(w http.ResponseWriter, r *http.Reques
 }
 
 func decodeWorktreeRequest(w http.ResponseWriter, r *http.Request, target any) error {
-	decoder := json.NewDecoder(http.MaxBytesReader(w, r.Body, worktreeRequestBodyLimit))
+	limit, err := worktreeRequestLimit(r, gitx.DefaultDiffBytes)
+	if err != nil {
+		return err
+	}
+	decoder := json.NewDecoder(http.MaxBytesReader(w, r.Body, limit*6+16<<10))
 	if err := decoder.Decode(target); err != nil {
 		return err
 	}
 	var trailing json.RawMessage
-	err := decoder.Decode(&trailing)
+	err = decoder.Decode(&trailing)
 	if err == io.EOF {
 		return nil
 	}
@@ -214,12 +225,31 @@ func decodeWorktreeRequest(w http.ResponseWriter, r *http.Request, target any) e
 	return err
 }
 
+func worktreeRequestLimit(r *http.Request, fallback int64) (int64, error) {
+	value := r.URL.Query().Get("maxBytes")
+	if value == "" {
+		return fallback, nil
+	}
+	limit, err := strconv.ParseInt(value, 10, 64)
+	// Leave room for JSON escaping and envelope overhead without integer overflow.
+	if err != nil || limit <= 0 || limit > (1<<63-1-32<<10)/6 {
+		return 0, errors.New("maxBytes must be a positive byte budget")
+	}
+	return max(fallback, limit), nil
+}
+
 func writeWorktreeError(w http.ResponseWriter, r *http.Request, s *Server, err error) {
 	switch {
 	case errors.Is(err, os.ErrNotExist):
 		writeJSON(w, http.StatusNotFound, map[string]any{"error": err.Error(), "code": "file-not-found"})
 	case errors.Is(err, protocol.ErrWorktreeFileTooLarge):
-		writeJSON(w, http.StatusRequestEntityTooLarge, map[string]any{"error": err.Error(), "code": "file-too-large"})
+		body := map[string]any{"error": err.Error(), "code": "file-too-large"}
+		var limitError *gitx.WorktreeFileLimitError
+		if errors.As(err, &limitError) {
+			body["sizeBytes"] = limitError.SizeBytes
+			body["limitBytes"] = limitError.LimitBytes
+		}
+		writeJSON(w, http.StatusRequestEntityTooLarge, body)
 	case errors.Is(err, protocol.ErrWorktreeBinary):
 		writeJSON(w, http.StatusUnsupportedMediaType, map[string]any{"error": err.Error(), "code": "binary-file"})
 	case errors.Is(err, protocol.ErrWorktreeEncoding):

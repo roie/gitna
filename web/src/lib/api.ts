@@ -126,6 +126,7 @@ export interface DraftRecord {
   baselineHash?: string
   updatedAt: string
   recovery?: string
+  maxBytes?: number
 }
 
 export interface OperationResult {
@@ -167,14 +168,19 @@ export interface ApiClient {
       signal?: AbortSignal
     },
   ) => Promise<ContentSearchResults>
-  readWorktreeFile: (path: string) => Promise<WorktreeFile>
+  readWorktreeFile: (path: string, maxBytes?: number) => Promise<WorktreeFile>
   compareWorktreeFiles: (
     leftPath: string,
     rightPath: string,
     signal?: AbortSignal,
   ) => Promise<FileDiff>
-  writeWorktreeFile: (path: string, content: string, expectedHash: string) => Promise<WorktreeFile>
-  createWorktreeFile: (path: string, content: string) => Promise<WorktreeFile>
+  writeWorktreeFile: (
+    path: string,
+    content: string,
+    expectedHash: string,
+    maxBytes?: number,
+  ) => Promise<WorktreeFile>
+  createWorktreeFile: (path: string, content: string, maxBytes?: number) => Promise<WorktreeFile>
   createWorktreeEntry: (path: string, directory: boolean) => Promise<void>
   renameWorktreeEntry: (source: string, destination: string) => Promise<void>
   drafts?: () => Promise<DraftRecord[]>
@@ -215,6 +221,7 @@ export class ApiError extends Error {
     message: string,
     readonly code?: string,
     readonly branch?: string,
+    readonly sizeBytes?: number,
   ) {
     super(message)
     this.name = 'ApiError'
@@ -232,12 +239,14 @@ async function expectOK(res: Response): Promise<Response> {
       error?: string
       code?: string
       branch?: string
+      sizeBytes?: number
     } | null
     throw new ApiError(
       res.status,
       body?.error ?? `request failed: ${res.status}`,
       body?.code,
       body?.branch,
+      body?.sizeBytes,
     )
   }
   return res
@@ -380,11 +389,14 @@ export function createApi(baseURL?: string): ApiClient {
         )
       return (await res.json()) as ContentSearchResults
     },
-    async readWorktreeFile(path: string): Promise<WorktreeFile> {
+    async readWorktreeFile(path: string, maxBytes?: number): Promise<WorktreeFile> {
       const res = await expectOK(
-        await fetch(`api/v1/worktree/file?path=${encodeURIComponent(path)}`, {
-          signal: AbortSignal.timeout(FETCH_TIMEOUT),
-        }),
+        await fetch(
+          `api/v1/worktree/file?path=${encodeURIComponent(path)}${maxBytes == null ? '' : `&maxBytes=${maxBytes}`}`,
+          {
+            signal: AbortSignal.timeout(FETCH_TIMEOUT),
+          },
+        ),
       )
       return (await res.json()) as WorktreeFile
     },
@@ -408,9 +420,10 @@ export function createApi(baseURL?: string): ApiClient {
       path: string,
       content: string,
       expectedHash: string,
+      maxBytes?: number,
     ): Promise<WorktreeFile> {
       const res = await expectOK(
-        await fetch('api/v1/worktree/file', {
+        await fetch(`api/v1/worktree/file${maxBytes == null ? '' : `?maxBytes=${maxBytes}`}`, {
           method: 'PUT',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ path, content, expectedHash }),
@@ -419,9 +432,13 @@ export function createApi(baseURL?: string): ApiClient {
       )
       return (await res.json()) as WorktreeFile
     },
-    async createWorktreeFile(path: string, content: string): Promise<WorktreeFile> {
+    async createWorktreeFile(
+      path: string,
+      content: string,
+      maxBytes?: number,
+    ): Promise<WorktreeFile> {
       const res = await expectOK(
-        await fetch('api/v1/worktree/file', {
+        await fetch(`api/v1/worktree/file${maxBytes == null ? '' : `?maxBytes=${maxBytes}`}`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ path, content }),
@@ -456,12 +473,15 @@ export function createApi(baseURL?: string): ApiClient {
     },
     async putDraft(record: DraftRecord): Promise<DraftRecord> {
       const res = await expectOK(
-        await fetch('api/v1/drafts', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(record),
-          signal: AbortSignal.timeout(MUTATE_TIMEOUT),
-        }),
+        await fetch(
+          `api/v1/drafts${record.maxBytes == null ? '' : `?maxBytes=${record.maxBytes}`}`,
+          {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(record),
+            signal: AbortSignal.timeout(MUTATE_TIMEOUT),
+          },
+        ),
       )
       return (await res.json()) as DraftRecord
     },
