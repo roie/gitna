@@ -16,6 +16,7 @@ var (
 	ErrInvalidRef           = errors.New("invalid ref or oid")
 	ErrNotInRepo            = errors.New("path escapes repository")
 	ErrWorktreeBinary       = errors.New("binary worktree file")
+	ErrWorktreeEncoding     = errors.New("worktree file is not valid UTF-8")
 	ErrWorktreeConflict     = errors.New("worktree file changed")
 	ErrWorktreeEntryExists  = errors.New("worktree entry already exists")
 	ErrWorktreeFileTooLarge = errors.New("worktree file exceeds edit limit")

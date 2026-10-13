@@ -26,7 +26,10 @@ function imageMetadata(version: FileVersion, alt: string): ImageAnnotationMetada
 
 function fileImageAnnotations(diff: FileDiff, path: string): LineAnnotation<CommentMetadata>[] {
   const metadata = imageMetadata(diff.after.image == null ? diff.before : diff.after, path)
-  return metadata == null ? [] : [{ lineNumber: 0, metadata }]
+  if (metadata != null) return [{ lineNumber: 0, metadata }]
+  return diffImageAnnotations(diff, path).flatMap(({ metadata }) =>
+    metadata.kind === 'preview' ? [{ lineNumber: 0, metadata }] : [],
+  )
 }
 
 export function diffImageAnnotations(

@@ -12,6 +12,7 @@ import (
 	slashpath "path"
 	"path/filepath"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/roie/gitna/internal/protocol"
 )
@@ -55,6 +56,9 @@ func (r Repository) ReadWorktreeFile(ctx context.Context, path string) (protocol
 	}
 	if isBinary(data) {
 		return protocol.WorktreeFile{}, fmt.Errorf("%w: %q", protocol.ErrWorktreeBinary, path)
+	}
+	if !utf8.Valid(data) {
+		return protocol.WorktreeFile{}, fmt.Errorf("%w: %q", protocol.ErrWorktreeEncoding, path)
 	}
 	return worktreeFile(path, data), nil
 }
@@ -104,6 +108,9 @@ func (r Repository) CompareWorktreeFiles(ctx context.Context, leftPath, rightPat
 		result.Binary = true
 		return result, nil
 	}
+	if !utf8.Valid(left) || !utf8.Valid(right) {
+		return protocol.FileDiff{}, protocol.ErrWorktreeEncoding
+	}
 	result.Before.Content = string(left)
 	result.After.Content = string(right)
 	return result, nil
@@ -136,6 +143,9 @@ func (r Repository) WriteWorktreeFile(ctx context.Context, path, content, expect
 	if isBinary(data) {
 		return protocol.WorktreeFile{}, fmt.Errorf("%w: %q", protocol.ErrWorktreeBinary, path)
 	}
+	if !utf8.Valid(data) {
+		return protocol.WorktreeFile{}, fmt.Errorf("%w: %q", protocol.ErrWorktreeEncoding, path)
+	}
 	_, info, err := r.resolveWorktreeEntry(path, true)
 	if err != nil {
 		return protocol.WorktreeFile{}, err
@@ -146,6 +156,9 @@ func (r Repository) WriteWorktreeFile(ctx context.Context, path, content, expect
 	current, err := r.readBoundedWorktreeFile(path)
 	if err != nil {
 		return protocol.WorktreeFile{}, err
+	}
+	if !utf8.Valid(current) {
+		return protocol.WorktreeFile{}, fmt.Errorf("%w: %q", protocol.ErrWorktreeEncoding, path)
 	}
 	if worktreeHash(current) != expectedHash {
 		return protocol.WorktreeFile{}, fmt.Errorf("%w: %q", protocol.ErrWorktreeConflict, path)
@@ -200,6 +213,9 @@ func (r Repository) CreateWorktreeFile(ctx context.Context, path, content string
 	data := []byte(content)
 	if isBinary(data) {
 		return protocol.WorktreeFile{}, fmt.Errorf("%w: %q", protocol.ErrWorktreeBinary, path)
+	}
+	if !utf8.Valid(data) {
+		return protocol.WorktreeFile{}, fmt.Errorf("%w: %q", protocol.ErrWorktreeEncoding, path)
 	}
 	if _, err := r.resolveNewWorktreeEntry(path); err != nil {
 		return protocol.WorktreeFile{}, err

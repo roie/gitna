@@ -166,6 +166,22 @@ func TestWorktreeEntryRoutesCreateAndRename(t *testing.T) {
 	}
 }
 
+func TestWorktreeRoutesRejectUnsupportedEncoding(t *testing.T) {
+	repo := &fakeWorktreeRepo{fakeRepo: &fakeRepo{}, err: protocol.ErrWorktreeEncoding}
+	h := newSnapshotServer(repo)
+	for _, request := range []struct{ method, path, body string }{
+		{http.MethodGet, "/worktree/file?path=malformed.txt", ""},
+		{http.MethodPut, "/worktree/file", `{"path":"malformed.txt","content":"after","expectedHash":"before"}`},
+		{http.MethodPost, "/worktree/file", `{"path":"malformed.txt","content":"after"}`},
+		{http.MethodGet, "/worktree/compare?left=malformed.txt&right=notes.txt", ""},
+	} {
+		rec := worktreeRequest(t, h, request.method, request.path, request.body)
+		if rec.Code != http.StatusUnsupportedMediaType || !strings.Contains(rec.Body.String(), "unsupported-encoding") {
+			t.Fatalf("%s %s: status = %d, body = %s", request.method, request.path, rec.Code, rec.Body.String())
+		}
+	}
+}
+
 func TestWorktreeRoutesMapConflictsAndUnavailableRepo(t *testing.T) {
 	repo := &fakeWorktreeRepo{fakeRepo: &fakeRepo{}, err: protocol.ErrWorktreeConflict}
 	rec := worktreeRequest(t, newSnapshotServer(repo), http.MethodPut, "/worktree/file", `{"path":"notes.txt","content":"after","expectedHash":"old"}`)

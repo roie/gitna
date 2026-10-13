@@ -309,6 +309,9 @@ function repositoryFileErrorMessage(error: unknown): string {
   if (error instanceof ApiError) {
     if (error.code === 'file-too-large') return 'This file is too large to open in Gitna.'
     if (error.code === 'binary-file') return 'Binary files can’t be opened in the editor.'
+    if (error.code === 'unsupported-encoding') {
+      return 'This file is not valid UTF-8 and can’t be edited in Gitna. Its bytes have not been changed.'
+    }
     if (error.code === 'file-not-found') {
       return 'This file is no longer available. Refresh Explorer or select another file.'
     }
@@ -822,6 +825,7 @@ function GitnaReviewUIInner({
           error instanceof ApiError &&
           (error.code === 'binary-file' || error.code === 'file-too-large')
         if (!unavailableTextFile) throw error
+        if (error.code === 'file-too-large' && !rasterImagePattern.test(path)) throw error
         if (/\.(md|markdown|mdown|mkdn)$/i.test(path)) throw error
         if (!repository.snapshot?.repository) {
           if (!rasterImagePattern.test(path)) throw error

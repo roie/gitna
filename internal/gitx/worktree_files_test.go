@@ -157,6 +157,57 @@ func TestWorktreeFileRejectsUnsafeAndUnsupportedInputs(t *testing.T) {
 	}
 }
 
+func TestWorktreeFileRejectsMalformedUTF8WithoutChangingBytes(t *testing.T) {
+	root := initTestRepo(t)
+	repo := Repository{Root: root}
+	ctx := context.Background()
+	original := []byte("alpha\xff\xfeEND!")
+	path := filepath.Join(root, "malformed.txt")
+	if err := os.WriteFile(path, original, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := repo.ReadWorktreeFile(ctx, "malformed.txt"); err == nil {
+		t.Fatal("malformed UTF-8 was exposed to the text editor")
+	}
+	if _, err := repo.WriteWorktreeFile(ctx, "malformed.txt", "replacement", worktreeHash(original)); err == nil {
+		t.Fatal("malformed source was overwritten")
+	}
+	actual, err := os.ReadFile(path)
+	if err != nil || string(actual) != string(original) {
+		t.Fatalf("source changed: %q, error = %v", actual, err)
+	}
+	if _, err := repo.CreateWorktreeFile(ctx, "new.txt", string(original)); err == nil {
+		t.Fatal("malformed UTF-8 was created")
+	}
+	if _, err := os.Stat(filepath.Join(root, "new.txt")); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("rejected creation left a file: %v", err)
+	}
+}
+
+func TestWorktreeFilePreservesUTF8Bytes(t *testing.T) {
+	root := initTestRepo(t)
+	repo := Repository{Root: root}
+	ctx := context.Background()
+	original := "\ufeffalpha\r\n😀 é 日本語 �\r\nEND!"
+	if err := os.WriteFile(filepath.Join(root, "unicode.txt"), []byte(original), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	loaded, err := repo.ReadWorktreeFile(ctx, "unicode.txt")
+	if err != nil || loaded.Content != original {
+		t.Fatalf("read changed UTF-8: %q, error = %v", loaded.Content, err)
+	}
+	if _, err := repo.WriteWorktreeFile(ctx, "unicode.txt", "invalid\xff", loaded.Hash); err == nil {
+		t.Fatal("malformed replacement was written")
+	}
+	if _, err := repo.WriteWorktreeFile(ctx, "unicode.txt", loaded.Content, loaded.Hash); err != nil {
+		t.Fatal(err)
+	}
+	actual, err := os.ReadFile(filepath.Join(root, "unicode.txt"))
+	if err != nil || string(actual) != original {
+		t.Fatalf("save changed UTF-8: %q, error = %v", actual, err)
+	}
+}
+
 func TestCreateWorktreeFile(t *testing.T) {
 	root := initTestRepo(t)
 	repo := Repository{Root: root}

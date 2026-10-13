@@ -75,6 +75,26 @@ describe('persistent worker cache ownership', () => {
   })
 })
 
+describe('unavailable worktree previews', () => {
+  it.each([
+    { binary: false, tooLarge: true, message: 'Too large to preview' },
+    { binary: true, tooLarge: false, message: 'Binary file changed' },
+  ])('explains non-editable file previews: $message', ({ binary, tooLarge, message }) => {
+    const item = adaptGitnaFile(
+      {
+        before: { path: 'large.txt', content: '', language: 'text' },
+        after: { path: 'large.txt', content: '', language: 'text' },
+        binary,
+        tooLarge,
+      },
+      1,
+    ).items[0]!
+    expect(item.type).toBe('file')
+    expect(item.edit).not.toBe(true)
+    expect(item.annotations?.[0]?.metadata).toMatchObject({ kind: 'preview', message })
+  })
+})
+
 describe('worktree comparison adapter', () => {
   it('uses dirty draft contents and image annotations in Pierre diff items', () => {
     const text = adaptWorktreeComparison(

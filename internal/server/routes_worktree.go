@@ -222,6 +222,8 @@ func writeWorktreeError(w http.ResponseWriter, r *http.Request, s *Server, err e
 		writeJSON(w, http.StatusRequestEntityTooLarge, map[string]any{"error": err.Error(), "code": "file-too-large"})
 	case errors.Is(err, protocol.ErrWorktreeBinary):
 		writeJSON(w, http.StatusUnsupportedMediaType, map[string]any{"error": err.Error(), "code": "binary-file"})
+	case errors.Is(err, protocol.ErrWorktreeEncoding):
+		writeJSON(w, http.StatusUnsupportedMediaType, map[string]any{"error": err.Error(), "code": "unsupported-encoding"})
 	case errors.Is(err, protocol.ErrWorktreeConflict):
 		writeJSON(w, http.StatusConflict, map[string]any{"error": err.Error(), "code": "stale-file"})
 	case errors.Is(err, protocol.ErrWorktreeEntryExists):

@@ -51,6 +51,36 @@ async function switchFolderWithKeyboard(
   await folderPath.press('Enter')
 }
 
+test('unsupported text files show explicit errors without changing bytes', async ({
+  page,
+  app,
+}) => {
+  const malformed = Buffer.from([0x61, 0xff, 0xfe, 0x62])
+  const oversized = Buffer.alloc((512 << 10) + 1, 'x')
+  const plain = join(dirname(app.repo), 'plain')
+  mkdirSync(plain)
+  for (const folder of [app.repo, plain]) {
+    writeFileSync(join(folder, 'malformed.txt'), malformed)
+    writeFileSync(join(folder, 'oversized.txt'), oversized)
+  }
+  await page.goto(app.url)
+  for (const folder of [app.repo, plain]) {
+    if (folder === plain) await switchFolderWithKeyboard(page, app.repo, plain)
+    for (const [name, message, bytes] of [
+      ['malformed.txt', 'This file is not valid UTF-8', malformed],
+      ['oversized.txt', 'This file is too large to open in Gitna.', oversized],
+    ] as const) {
+      await page.getByRole('button', { name: 'Open command palette' }).click()
+      const palette = page.getByRole('dialog', { name: 'Command palette' })
+      await palette.getByRole('combobox', { name: 'Search files and commands' }).fill(name)
+      await palette.getByRole('option', { name: new RegExp(name) }).click()
+      await expect(page.getByRole('alert')).toContainText(message)
+      await expect(page.getByRole('textbox', { name, exact: true })).toHaveCount(0)
+      expect(readFileSync(join(folder, name))).toEqual(bytes)
+    }
+  }
+})
+
 test('clean repository supports a message-only amend', async ({ page, app }) => {
   runGit(app.repo, 'reset', '--hard', 'HEAD')
   runGit(app.repo, 'clean', '-fd')
