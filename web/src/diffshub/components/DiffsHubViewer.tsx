@@ -738,7 +738,7 @@ export function FileHeaderAction({ className, ...props }: ComponentProps<typeof 
   );
 }
 
-function WorktreeHeaderActions({
+export function WorktreeHeaderActions({
   actions,
   path,
 }: {

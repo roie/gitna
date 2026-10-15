@@ -75,6 +75,83 @@ test('large-file consent supports tab closing, exact saves, undo and durable rec
   expect(readFileSync(path, 'utf8')).toBe(content + 'Z')
 })
 
+test('extreme lines use bounded sections with whole-file save, undo and recovery', async ({
+  page,
+  app,
+}) => {
+  test.setTimeout(120000)
+  const content = 'HEAD\r\n' + 'x'.repeat(6 * 1024 * 1024) + '\r\nEND!'
+  const path = join(app.repo, 'extreme.txt')
+  writeFileSync(path, content)
+  writeFileSync(join(app.repo, 'other.txt'), 'other file')
+  await page.goto(app.url)
+  await openFile(page, 'extreme.txt')
+  await page.getByRole('button', { name: 'Open anyway' }).click()
+  const editor = page.getByRole('textbox', { name: 'Edit section of extreme.txt' })
+  await expect(editor).toBeVisible()
+  await expect(editor).toHaveValue(/^HEAD\n/)
+  expect((await editor.inputValue()).length).toBeLessThanOrEqual(16384)
+  await editor.press('Control+End')
+  await expect(editor).toHaveValue(/END!$/)
+  await expect
+    .poll(() =>
+      editor.evaluate(
+        (element: HTMLTextAreaElement) =>
+          element.scrollTop + element.clientHeight >= element.scrollHeight - 1,
+      ),
+    )
+    .toBe(true)
+  await editor.pressSequentially('Z')
+  await page.getByRole('button', { name: 'First section', exact: true }).click()
+  await editor.press('Control+Home')
+  await editor.pressSequentially('A')
+  await editor.press('Control+z')
+  await expect(editor).toHaveValue(/^HEAD\n/)
+  await editor.press('Control+z')
+  await expect(editor).toHaveValue(/END!$/)
+  await editor.press('Control+Shift+z')
+  await expect(editor).toHaveValue(/END!Z$/)
+  await editor.press('Control+Shift+z')
+  await expect(editor).toHaveValue(/^AHEAD\n/)
+  await editor.press('Control+s')
+  await expect.poll(() => readFileSync(path, 'utf8')).toBe('A' + content + 'Z')
+  await expect(
+    page.getByRole('tab', { name: 'extreme.txt' }).getByLabel('Unsaved changes'),
+  ).toHaveCount(0)
+  await openFile(page, 'other.txt')
+  await page.getByRole('tab', { name: 'extreme.txt' }).click()
+  await expect(editor).toBeVisible()
+  await editor.press('Control+z')
+  await expect(editor).toHaveValue(/^HEAD\n/)
+  await editor.press('Control+Shift+z')
+  await expect(editor).toHaveValue(/^AHEAD\n/)
+  await editor.press('Control+End')
+  const backup = page.waitForResponse(
+    (response) =>
+      response.request().method() === 'POST' &&
+      response.url().includes('/api/v1/drafts?maxBytes=') &&
+      response.request().postDataJSON().contents === 'A' + content + 'ZR',
+  )
+  await editor.pressSequentially('R')
+  expect((await backup).status()).toBe(200)
+  await page.reload()
+  const recovery = page.getByRole('dialog', { name: 'Recover unsaved documents' })
+  await expect(recovery).toBeVisible()
+  await recovery.getByRole('button', { name: 'Restore copy' }).click()
+  const recovered = page.getByRole('textbox', { name: 'Edit section of extreme.txt (Recovered)' })
+  await expect(recovered).toBeVisible()
+  await recovered.press('Control+s')
+  const saveAs = page.getByRole('dialog', { name: 'Save As' })
+  await saveAs
+    .getByRole('textbox', { name: 'Repository-relative path' })
+    .fill('extreme-recovered.txt')
+  await saveAs.getByRole('button', { name: 'Save', exact: true }).click()
+  await expect
+    .poll(() => readFileSync(join(app.repo, 'extreme-recovered.txt'), 'utf8'))
+    .toBe('A' + content + 'ZR')
+  expect(readFileSync(path, 'utf8')).toBe('A' + content + 'Z')
+})
+
 test('large-file consent does not bypass encoding validation', async ({ page, app }) => {
   const bytes = Buffer.concat([Buffer.from([255]), Buffer.alloc(550000, 'x')])
   const path = join(app.repo, 'encoding.txt')
