@@ -2519,6 +2519,7 @@ function GitnaReviewUIInner({
                                 largeFileWarning.sizeBytes,
                               )
                               setLargeFileWarning(null)
+                              setLoadState('fetching')
                               setReviewAttempt((attempt) => attempt + 1)
                             }
                           : undefined

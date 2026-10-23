@@ -14,6 +14,39 @@ async function openFile(page: Page, name: string) {
   await option.click()
 }
 
+test('approving a large file shows loading without a retry error flash', async ({ page, app }) => {
+  writeFileSync(join(app.repo, 'loading.txt'), 'x'.repeat((2 << 20) + 1))
+  await page.goto(app.url)
+  await openFile(page, 'loading.txt')
+  await expect(page.getByRole('heading', { name: 'Open large file?' })).toBeVisible()
+  let releaseRead!: () => void
+  const readGate = new Promise<void>((resolve) => (releaseRead = resolve))
+  await page.route('**/api/v1/worktree/file?*', async (route) => {
+    if (new URL(route.request().url()).searchParams.has('maxBytes')) await readGate
+    await route.continue()
+  })
+  await page.evaluate(() => {
+    const retryFlashes: string[] = []
+    Object.assign(window, { retryFlashes })
+    new MutationObserver(() => {
+      for (const alert of document.querySelectorAll('[role="alert"]')) {
+        if (alert.textContent?.includes('Try again')) retryFlashes.push(alert.textContent)
+      }
+    }).observe(document.body, { childList: true, subtree: true, characterData: true })
+  })
+  try {
+    await page.getByRole('button', { name: 'Open anyway' }).click()
+    await expect(page.getByRole('heading', { name: 'Opening file', exact: true })).toBeVisible()
+    await expect(page.getByRole('button', { name: 'Try again', exact: true })).toHaveCount(0)
+  } finally {
+    releaseRead()
+  }
+  await expect(page.locator('.code-view [contenteditable="true"]').first()).toBeVisible()
+  expect(
+    await page.evaluate(() => (window as typeof window & { retryFlashes?: string[] }).retryFlashes),
+  ).toEqual([])
+})
+
 test('large-file consent supports tab closing, exact saves, undo and durable recovery', async ({
   page,
   app,
