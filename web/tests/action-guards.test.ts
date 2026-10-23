@@ -804,7 +804,7 @@ describe('GitnaRepository action guards', () => {
     expect(gitClient.writeWorktreeFile).toHaveBeenCalledTimes(1)
     expect(gitClient.createWorktreeEntry).toHaveBeenCalledTimes(2)
     expect(gitClient.renameWorktreeEntry).toHaveBeenCalledTimes(1)
-    expect(gitClient.writeWorktreeFile).toHaveBeenCalledWith('file.txt', 'saved', 'old-hash')
+    expect(gitClient.writeWorktreeFile).toHaveBeenCalledWith('file.txt', 'saved', 'old-hash', undefined)
     expect(gitClient.createWorktreeEntry).toHaveBeenNthCalledWith(1, 'new.txt', false)
     expect(gitClient.createWorktreeEntry).toHaveBeenNthCalledWith(2, 'new-folder/', true)
     expect(gitClient.renameWorktreeEntry).toHaveBeenCalledWith('old.txt', 'new.txt')
@@ -832,7 +832,7 @@ describe('GitnaRepository action guards', () => {
     expect(ordinaryClient.writeWorktreeFile).toHaveBeenCalledTimes(1)
     expect(ordinaryClient.createWorktreeEntry).toHaveBeenCalledTimes(1)
     expect(ordinaryClient.renameWorktreeEntry).toHaveBeenCalledTimes(1)
-    expect(ordinaryClient.writeWorktreeFile).toHaveBeenCalledWith('file.txt', 'saved', 'old-hash')
+    expect(ordinaryClient.writeWorktreeFile).toHaveBeenCalledWith('file.txt', 'saved', 'old-hash', undefined)
     expect(ordinaryClient.createWorktreeEntry).toHaveBeenCalledWith('new.txt', false)
     expect(ordinaryClient.renameWorktreeEntry).toHaveBeenCalledWith('old.txt', 'new.txt')
     for (const endpoint of [
@@ -922,7 +922,7 @@ describe('GitnaRepository action guards', () => {
     const client = api({ writeWorktreeFile: vi.fn(async () => saved) })
     const { repository } = await readyRepository(client)
     await expect(repository.saveWorktreeFile('file.txt', 'saved', 'old-hash')).resolves.toBe(saved)
-    expect(client.writeWorktreeFile).toHaveBeenCalledWith('file.txt', 'saved', 'old-hash')
+    expect(client.writeWorktreeFile).toHaveBeenCalledWith('file.txt', 'saved', 'old-hash', undefined)
   })
 
   it('binds each named Graph and Stage-edited callback to its own catch', () => {

@@ -8,7 +8,7 @@
 import {
   type DiffsThemeNames,
   registerCustomTheme,
-  type ThemeRegistrationResolved,
+  type DiffsTheme,
   type ThemesType,
   type ThemeTypes,
 } from '@pierre/diffs';
@@ -61,7 +61,7 @@ function nameForDiffThemeValue(value: DiffThemeValue): string {
   if (!seededDiffThemeNames.has(name)) {
     seededDiffThemeNames.add(name);
     registerCustomTheme(name, () =>
-      Promise.resolve(value as ThemeRegistrationResolved)
+      Promise.resolve(value as NonNullable<DiffsTheme['textmate']>)
     );
   }
   return name;

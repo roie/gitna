@@ -1,7 +1,5 @@
 'use client';
-// Modified from the pinned DiffsHub donor: Gitna uses Shiki's JS engine so
-// its strict CSP can remain free of wasm-unsafe-eval.
-import { preloadHighlighter } from '@pierre/diffs';
+import { canUseWASM, preloadHighlighter } from '@pierre/diffs';
 import { useEffect } from 'react';
 
 export function PreloadHighlighter() {
@@ -14,7 +12,7 @@ export function PreloadHighlighter() {
         'pierre-light-soft',
       ],
       langs: ['zig', 'rust', 'typescript', 'tsx', 'bash'],
-      preferredHighlighter: 'shiki-js',
+      preferredHighlighter: canUseWASM() ? 'highlights' : 'shiki-js',
     });
   }, []);
   return null;

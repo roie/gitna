@@ -220,6 +220,9 @@ func TestSecuritySetsHeaders(t *testing.T) {
 	if got := rec.Header().Get("Content-Security-Policy"); !strings.Contains(got, "frame-ancestors 'none'") {
 		t.Fatalf("CSP = %q, want frame-ancestors 'none'", got)
 	}
+	if got := rec.Header().Get("Content-Security-Policy"); !strings.Contains(got, "script-src 'self' 'wasm-unsafe-eval';") || strings.Contains(got, "'unsafe-eval'") {
+		t.Fatalf("CSP = %q, want WASM compilation without JavaScript eval", got)
+	}
 	if got := rec.Header().Get("Referrer-Policy"); got != "no-referrer" {
 		t.Fatalf("Referrer-Policy = %q, want no-referrer", got)
 	}

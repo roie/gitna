@@ -4,6 +4,7 @@ import { TextDocument } from '@pierre/diffs/edit'
 
 beforeAll(async () => {
   await getSharedHighlighter({
+    preferredHighlighter: 'highlights',
     langs: ['text', 'javascript'],
     themes: ['github-dark', 'github-light'],
   })
@@ -28,7 +29,7 @@ async function fixture(
   const renderer = new FileRenderer({ theme: 'github-dark' })
   renderer.beginEditSession(file)
   const highlighter = await getSharedHighlighter({ langs: ['text'], themes: ['github-dark'] })
-  const tokenize = vi.spyOn(highlighter, 'codeToHast')
+  const tokenize = vi.spyOn(highlighter, 'codeToTokens')
   renderWindow(renderer, file, 0)
   return { file, renderer, tokenize }
 }

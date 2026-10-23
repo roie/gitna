@@ -11,6 +11,7 @@ import {
   type DiffIndicators,
   type DiffLineAnnotation,
   type FileContents,
+  type FileDiffMetadata,
   type FileDiffContentsLoader,
   type LineAnnotation,
   type SelectedLineRange,
@@ -480,6 +481,7 @@ export const DiffsHubViewer = memo(function DiffsHubViewer({
       annotation:
         | DiffLineAnnotation<CommentMetadata>
         | LineAnnotation<CommentMetadata>,
+      _file: FileContents | FileDiffMetadata,
       item: CodeViewItem<CommentMetadata>
     ) => {
       if ((annotation.metadata.kind === 'image' || annotation.metadata.kind === 'preview') || !commentsEnabled || !('side' in annotation) || item.type !== 'diff') {

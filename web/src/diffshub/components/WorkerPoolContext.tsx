@@ -1,6 +1,6 @@
 'use client';
 
-import { DEFAULT_THEMES } from '@pierre/diffs';
+import { canUseWASM, DEFAULT_THEMES } from '@pierre/diffs';
 import DiffsWorker from '@pierre/diffs/worker/worker.js?worker';
 import {
   type WorkerInitializationRenderOptions,
@@ -55,9 +55,8 @@ const HighlighterOptions: WorkerInitializationRenderOptions = {
   // The pool resolves each file's language on demand. Eager grammars (especially
   // C++) otherwise compete with shell startup in the main thread and every worker.
   langs: [],
-  // Gitna's strict CSP intentionally excludes wasm-unsafe-eval. The JS
-  // Shiki engine preserves rendered output without weakening that boundary.
-  preferredHighlighter: 'shiki-js',
+  preferredHighlighter: canUseWASM() ? 'highlights' : 'shiki-js',
+  useTokenTransformer: true,
 };
 
 interface WorkerPoolProps {

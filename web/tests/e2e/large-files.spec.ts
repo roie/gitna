@@ -36,12 +36,16 @@ test('large-file consent supports tab closing, exact saves, undo and durable rec
   await editor.press('Control+End')
   await expect(editor).toContainText('END!')
   await editor.pressSequentially('Z')
+  await expect(editor).toContainText('END!Z')
   await editor.press('Control+z')
+  await expect(editor).toContainText('END!')
+  await expect(editor).not.toContainText('END!Z')
   await expect(
     page.getByRole('tab', { name: 'approved.txt' }).getByLabel('Unsaved changes'),
   ).toHaveCount(0)
   expect(readFileSync(path, 'utf8')).toBe(content)
   await editor.press('Control+Shift+z')
+  await expect(editor).toContainText('END!Z')
   await editor.press('Control+s')
   await expect.poll(() => readFileSync(path, 'utf8')).toBe(content + 'Z')
   await expect(
@@ -57,6 +61,7 @@ test('large-file consent supports tab closing, exact saves, undo and durable rec
       response.request().postDataJSON().contents === content + 'ZR',
   )
   await editor.pressSequentially('R')
+  await expect(editor).toContainText('END!ZR')
   expect((await backup).status()).toBe(200)
   await page.reload()
   const recovery = page.getByRole('dialog', { name: 'Recover unsaved documents' })

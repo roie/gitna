@@ -34,6 +34,7 @@ export default defineConfig({
     },
   },
   worker: {
+    format: 'es',
     plugins: () => [
       {
         name: 'markdown-worker-entities',
