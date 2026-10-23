@@ -579,10 +579,47 @@ diff --git a/dist/highlighter/highlights-editor.js b/dist/highlighter/highlights
 diff --git a/dist/editor/editor.js b/dist/editor/editor.js
 --- a/dist/editor/editor.js
 +++ b/dist/editor/editor.js
-@@ -3585,6 +3585,26 @@
+@@ -3547,6 +3547,13 @@
+ 		const offsetLeft = this.#getGutterWidth() + this.#metrics.ch;
+ 		if (lineText === void 0 || lineText.length === 0 || char <= 0) return [offsetLeft + (this.#activeContentOffset?.left ?? 0), 0];
+ 		const boundedCharacter = snapTextOffsetToUnicodeBoundary(lineText, Math.min(char, lineText.length));
++		if (this.#isWrap && lineText.length > 4096 && /^[\x20-\x7e]+$/.test(lineText)) {
++			const position = this.#getRenderedCharX(line, boundedCharacter, lineText);
++			if (position !== void 0) {
++				this.#lastAccessedCharX = [line, char, position[0], position[1]];
++				return position;
++			}
++		}
+ 		const textBeforeCharacter = lineText.slice(0, boundedCharacter);
+ 		const asciiColumns = getExpandedAsciiTextColumns(textBeforeCharacter, this.#metrics.tabSize);
+ 		let left = 0;
+@@ -3585,6 +3592,67 @@
  		];
  		return [left, wrapLine];
  	}
++	#getRenderedCharX(line, character, text) {
++		const element = this.#getLineElement(line);
++		if (element == null || element.textContent !== text) return;
++		const walker = document.createTreeWalker(element, NodeFilter.SHOW_TEXT);
++		let node = walker.nextNode();
++		if (node == null) return;
++		const range = document.createRange();
++		range.setStart(node, 0);
++		range.collapse(true);
++		const origin = range.getClientRects().item(0);
++		if (origin == null) return;
++		let remaining = character;
++		while (remaining > node.length) {
++			remaining -= node.length;
++			node = walker.nextNode();
++			if (node == null) return;
++		}
++		range.setStart(node, remaining);
++		range.collapse(true);
++		const rect = range.getClientRects().item(0);
++		if (rect == null) return;
++		return [this.#getGutterWidth() + this.#metrics.ch + rect.left - origin.left + (this.#activeContentOffset?.left ?? 0), Math.round((rect.top - origin.top) / this.#metrics.lineHeight)];
++	}
 +	#measureAsciiWrapOffsets(element, length) {
 +		const walker = document.createTreeWalker(element, NodeFilter.SHOW_TEXT);
 +		const range = document.createRange();
@@ -592,13 +629,31 @@ diff --git a/dist/editor/editor.js b/dist/editor/editor.js
 +		for (let node = walker.nextNode(); node != null; node = walker.nextNode()) {
 +			range.selectNodeContents(node);
 +			const rects = range.getClientRects();
++			const counts = Array.from(rects, rect => Math.round(rect.width / this.#metrics.ch));
++			const delta = node.length - counts.reduce((sum, count) => sum + count, 0);
++			if (delta !== 0) {
++				let largest = 0;
++				for (let i = 1; i < rects.length; i++) if (rects[i].width > rects[largest].width) largest = i;
++				if (Math.abs(delta) > 1) return;
++				// Blink loses sub-character precision on very wide overflow fragments.
++				counts[largest] += delta;
++				const boundary = counts.slice(0, largest + 1).reduce((sum, count) => sum + count, 0);
++				range.setStart(node, boundary - 1);
++				range.setEnd(node, boundary);
++				if (range.getBoundingClientRect().top !== rects[largest].top) return;
++				if (boundary < node.length) {
++					range.setStart(node, boundary);
++					range.setEnd(node, boundary + 1);
++					if (range.getBoundingClientRect().top !== rects[largest + 1]?.top) return;
++				}
++			}
 +			for (let i = 0; i < rects.length; i++) {
 +				const rect = rects[i];
 +				if (rect.top !== top) {
 +					starts.push(end);
 +					top = rect.top;
 +				}
-+				end += Math.round(rect.width / this.#metrics.ch);
++				end += counts[i];
 +			}
 +		}
 +		if (starts.length > 0 && end === length) return Uint32Array.from([...starts, end]);
@@ -606,7 +661,7 @@ diff --git a/dist/editor/editor.js b/dist/editor/editor.js
  	#wrapLineText(line) {
  		const cachedOffsets = this.#wrapLineOffsetsCache.get(line);
  		if (cachedOffsets !== void 0) return cachedOffsets;
-@@ -3597,6 +3617,16 @@
+@@ -3597,6 +3665,16 @@
  		}
  		const contentElement = this.#contentElement;
  		if (contentElement == null || !contentElement.isConnected) return;
@@ -623,7 +678,7 @@ diff --git a/dist/editor/editor.js b/dist/editor/editor.js
  		const div = h("div", {
  			style: {
  				position: "absolute",
-@@ -3620,6 +3650,13 @@
+@@ -3620,6 +3698,13 @@
  		try {
  			const divRect = div.getBoundingClientRect();
  			if (divRect.width === 0) return;

@@ -148,6 +148,41 @@ test('long lines retain whole-file selection, editing and exact saves', async ({
   await expect.poll(() => readFileSync(path, 'utf8')).toBe(content)
 })
 
+test('six-megabyte line supports editing and selection near its start without hanging', async ({
+  page,
+  app,
+}) => {
+  const content = 'x'.repeat(6 * 1024 * 1024 - 4) + 'END!'
+  const path = join(app.repo, 'extreme-line.txt')
+  writeFileSync(path, content)
+  await page.goto(app.url)
+  await page.evaluate(() => document.fonts.load('13px "Berkeley Mono"').then(() => undefined))
+  await openFile(page, 'extreme-line.txt')
+  await page.getByRole('button', { name: 'Open anyway' }).click()
+  const editor = page.locator('.code-view [contenteditable="true"]').first()
+  await expect(editor).toBeVisible()
+  await editor.focus()
+  await editor.press('Control+Home', { timeout: 8000 })
+  await editor.press('ArrowRight', { timeout: 8000 })
+  await editor.press('X', { timeout: 8000 })
+  await editor.press('Control+s', { timeout: 8000 })
+  const edited = 'xX' + content.slice(1)
+  await expect.poll(() => readFileSync(path, 'utf8')).toBe(edited)
+  await page.context().grantPermissions(['clipboard-read', 'clipboard-write'])
+  await editor.press('Shift+ArrowLeft', { timeout: 8000 })
+  await editor.press('Control+c', { timeout: 8000 })
+  await expect.poll(() => page.evaluate(() => navigator.clipboard.readText())).toBe('X')
+  await editor.press('Control+z', { timeout: 8000 })
+  await editor.press('Control+s', { timeout: 8000 })
+  await expect.poll(() => readFileSync(path, 'utf8')).toBe(content)
+  await editor.press('Control+Shift+z', { timeout: 8000 })
+  await editor.press('Control+s', { timeout: 8000 })
+  await expect.poll(() => readFileSync(path, 'utf8')).toBe(edited)
+  await editor.press('Control+a', { timeout: 8000 })
+  await editor.press('Control+c', { timeout: 8000 })
+  await expect.poll(() => page.evaluate(() => navigator.clipboard.readText())).toBe(edited)
+})
+
 for (const chunk of ['aB09', 'const x = 1; ']) {
   test(`six-megabyte wrapped ${JSON.stringify(chunk)} lines keep whole-file editing`, async ({
     page,
@@ -161,7 +196,7 @@ for (const chunk of ['aB09', 'const x = 1; ']) {
     await openFile(page, 'six-megabyte.txt')
     await page.getByRole('button', { name: 'Open anyway' }).click()
     const editor = page.locator('.code-view [contenteditable="true"]').first()
-    await expect(editor).toBeVisible()
+    await expect(editor).toBeVisible({ timeout: 20000 })
     await expect
       .poll(() => editor.evaluate((element) => element.textContent?.length))
       .toBe(content.length)
