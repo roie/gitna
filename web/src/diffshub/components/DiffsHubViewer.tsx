@@ -67,7 +67,6 @@ import type {
 } from '@/lib/types';
 import type { MutateRequest } from '../../lib/api';
 import { splitHunkPatches } from '../../lib/hunk-patches';
-import { hasLongEditorLine } from '../../lib/editor-performance';
 import type { ChangeKind, ChangeScope, FileDiff, ContentSearchMatch } from '../../lib/types';
 import { installSearchHighlights, type ActiveSearchMatch } from '../gitna/searchHighlights';
 
@@ -547,14 +546,7 @@ export const DiffsHubViewer = memo(function DiffsHubViewer({
   const renderHeaderMetadata = useCallback(
     (item: CodeViewItem<CommentMetadata>) => {
       if (item.type === 'file' && gitnaEditorActions != null) {
-        return (
-          <>
-            {overflow === 'wrap' && hasLongEditorLine(item.file.contents) && (
-              <span className="text-xs text-muted-foreground">Long lines use horizontal scrolling</span>
-            )}
-            <WorktreeHeaderActions actions={gitnaEditorActions} path={item.file.name} />
-          </>
-        );
+        return <WorktreeHeaderActions actions={gitnaEditorActions} path={item.file.name} />;
       }
       if (item.type !== 'diff') return null;
       if (gitnaComparisonActions != null) {
@@ -603,7 +595,7 @@ export const DiffsHubViewer = memo(function DiffsHubViewer({
         </FileHeaderAction>
       );
     },
-    [gitnaEditorActions, gitnaComparisonActions, gitnaActions, gitnaOpenFileAction, overflow]
+    [gitnaEditorActions, gitnaComparisonActions, gitnaActions, gitnaOpenFileAction]
   );
 
   const renderHeaderPrefix = useStableCallback(
@@ -626,13 +618,6 @@ export const DiffsHubViewer = memo(function DiffsHubViewer({
     }
   );
 
-  const editorOverflow = useMemo(
-    () => gitnaEditorActions != null && initialItems.some(
-      (item) => item.type === 'file' && hasLongEditorLine(item.file.contents)
-    ) ? 'scroll' : overflow,
-    [gitnaEditorActions, initialItems, overflow]
-  );
-
   // NOTE(amadeus): For some insane reason, the react compiler did not know how
   // to properly memoize this, so we pulled it into a `useMemo` for safety...
   const options: CodeViewOptions<CommentMetadata, undefined> = useMemo(
@@ -644,7 +629,7 @@ export const DiffsHubViewer = memo(function DiffsHubViewer({
         themeType,
         diffStyle,
         diffIndicators,
-        overflow: editorOverflow,
+        overflow,
         loadDiffFiles,
         disableBackground: !showBackgrounds,
         disableLineNumbers: !lineNumbers,
@@ -677,7 +662,7 @@ export const DiffsHubViewer = memo(function DiffsHubViewer({
       handleLineSelectionEnd,
       lineNumbers,
       loadDiffFiles,
-      editorOverflow,
+      overflow,
       showBackgrounds,
       themeType,
     ]
@@ -740,7 +725,7 @@ export function FileHeaderAction({ className, ...props }: ComponentProps<typeof 
   );
 }
 
-export function WorktreeHeaderActions({
+function WorktreeHeaderActions({
   actions,
   path,
 }: {

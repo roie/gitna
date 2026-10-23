@@ -1,3 +1,4 @@
+import { execFileSync } from 'node:child_process'
 import { readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import type { Page } from '@playwright/test'
@@ -30,7 +31,7 @@ test('large-file consent supports tab closing, exact saves, undo and durable rec
   await openFile(page, 'approved.txt')
   await expect(page.getByRole('heading', { name: 'Open large file?' })).toBeVisible()
   await page.getByRole('button', { name: 'Open anyway' }).click()
-  const editor = page.locator('.code-view').locator('[contenteditable="true"], textarea').first()
+  const editor = page.locator('.code-view [contenteditable="true"]').first()
   await expect(editor).toBeVisible()
   await editor.click()
   await editor.press('Control+End')
@@ -80,81 +81,75 @@ test('large-file consent supports tab closing, exact saves, undo and durable rec
   expect(readFileSync(path, 'utf8')).toBe(content + 'Z')
 })
 
-test('extreme lines use bounded sections with whole-file save, undo and recovery', async ({
-  page,
-  app,
-}) => {
-  test.setTimeout(120000)
-  const content = 'HEAD\r\n' + 'x'.repeat(6 * 1024 * 1024) + '\r\nEND!'
-  const path = join(app.repo, 'extreme.txt')
+test('long lines retain whole-file selection, editing and exact saves', async ({ page, app }) => {
+  const content = 'HEAD\r\n' + 'x'.repeat(300000) + '\r\nEND!'
+  const path = join(app.repo, 'long-line.txt')
   writeFileSync(path, content)
   writeFileSync(join(app.repo, 'other.txt'), 'other file')
   await page.goto(app.url)
-  await openFile(page, 'extreme.txt')
-  await page.getByRole('button', { name: 'Open anyway' }).click()
-  const editor = page.getByRole('textbox', { name: 'Edit section of extreme.txt' })
+  await openFile(page, 'long-line.txt')
+  const editor = page.locator('.code-view [contenteditable="true"]').first()
   await expect(editor).toBeVisible()
-  await expect(editor).toHaveValue(/^HEAD\n/)
-  expect((await editor.inputValue()).length).toBeLessThanOrEqual(16384)
+  await expect(page.getByRole('button', { name: 'Next section', exact: true })).toHaveCount(0)
+  await editor.click()
   await editor.press('Control+End')
-  await expect(editor).toHaveValue(/END!$/)
-  await expect
-    .poll(() =>
-      editor.evaluate(
-        (element: HTMLTextAreaElement) =>
-          element.scrollTop + element.clientHeight >= element.scrollHeight - 1,
-      ),
-    )
-    .toBe(true)
+  await expect(editor).toContainText('END!')
   await editor.pressSequentially('Z')
-  await page.getByRole('button', { name: 'First section', exact: true }).click()
-  await editor.press('Control+Home')
-  await editor.pressSequentially('A')
   await editor.press('Control+z')
-  await expect(editor).toHaveValue(/^HEAD\n/)
-  await editor.press('Control+z')
-  await expect(editor).toHaveValue(/END!$/)
-  await editor.press('Control+Shift+z')
-  await expect(editor).toHaveValue(/END!Z$/)
-  await editor.press('Control+Shift+z')
-  await expect(editor).toHaveValue(/^AHEAD\n/)
-  await editor.press('Control+s')
-  await expect.poll(() => readFileSync(path, 'utf8')).toBe('A' + content + 'Z')
   await expect(
-    page.getByRole('tab', { name: 'extreme.txt' }).getByLabel('Unsaved changes'),
+    page.getByRole('tab', { name: 'long-line.txt' }).getByLabel('Unsaved changes'),
   ).toHaveCount(0)
-  await openFile(page, 'other.txt')
-  await page.getByRole('tab', { name: 'extreme.txt' }).click()
-  await expect(editor).toBeVisible()
-  await editor.press('Control+z')
-  await expect(editor).toHaveValue(/^HEAD\n/)
   await editor.press('Control+Shift+z')
-  await expect(editor).toHaveValue(/^AHEAD\n/)
-  await editor.press('Control+End')
-  const backup = page.waitForResponse(
-    (response) =>
-      response.request().method() === 'POST' &&
-      response.url().includes('/api/v1/drafts?maxBytes=') &&
-      response.request().postDataJSON().contents === 'A' + content + 'ZR',
-  )
-  await editor.pressSequentially('R')
-  expect((await backup).status()).toBe(200)
-  await page.reload()
-  const recovery = page.getByRole('dialog', { name: 'Recover unsaved documents' })
-  await expect(recovery).toBeVisible()
-  await recovery.getByRole('button', { name: 'Restore copy' }).click()
-  const recovered = page.getByRole('textbox', { name: 'Edit section of extreme.txt (Recovered)' })
-  await expect(recovered).toBeVisible()
-  await recovered.press('Control+s')
-  const saveAs = page.getByRole('dialog', { name: 'Save As' })
-  await saveAs
-    .getByRole('textbox', { name: 'Repository-relative path' })
-    .fill('extreme-recovered.txt')
-  await saveAs.getByRole('button', { name: 'Save', exact: true }).click()
-  await expect
-    .poll(() => readFileSync(join(app.repo, 'extreme-recovered.txt'), 'utf8'))
-    .toBe('A' + content + 'ZR')
-  expect(readFileSync(path, 'utf8')).toBe('A' + content + 'Z')
+  await editor.press('Control+s')
+  await expect.poll(() => readFileSync(path, 'utf8')).toBe(content + 'Z')
+  await editor.press('Control+a')
+  await page.context().grantPermissions(['clipboard-read', 'clipboard-write'])
+  await editor.press('Control+c')
+  await expect.poll(() => page.evaluate(() => navigator.clipboard.readText())).toBe(content + 'Z')
+  await openFile(page, 'other.txt')
+  await page.getByRole('tab', { name: 'long-line.txt', exact: true }).click()
+  await expect(editor).toBeVisible()
+  await editor.click()
+  await editor.press('Control+z')
+  await editor.press('Control+s')
+  await expect.poll(() => readFileSync(path, 'utf8')).toBe(content)
+})
+
+test('heavy TypeScript diffs render and navigate both ends', async ({ page, app }) => {
+  const path = join(app.repo, 'heavy.ts')
+  const contents = (value: number) =>
+    Array.from({ length: 7000 }, (_, index) => `export const value${index} = ${value};\n`).join('')
+  writeFileSync(path, contents(1))
+  execFileSync('git', ['add', '--', 'heavy.ts'], { cwd: app.repo })
+  execFileSync('git', ['commit', '-qm', 'Heavy diff fixture'], { cwd: app.repo })
+  writeFileSync(path, contents(2))
+  await page.goto(app.url)
+  await page
+    .locator('#gitna-unstaged-tree__tree')
+    .getByRole('treeitem', { name: 'heavy.ts', exact: true })
+    .click()
+  const first = page.locator('[data-line]').filter({ hasText: 'export const value0 = 2;' }).first()
+  await expect(first).toBeVisible()
+  const scroller = page.locator('.cv-scrollbar')
+  await scroller.evaluate((element) => {
+    element.scrollTop = element.scrollHeight
+  })
+  await expect(
+    page.locator('[data-line]').filter({ hasText: 'export const value6999 = 2;' }).first(),
+  ).toBeVisible()
+  await page
+    .locator('#gitna-unstaged-tree__tree')
+    .getByRole('treeitem', { name: 'modified.txt', exact: true })
+    .click()
+  await expect(
+    page.locator('[data-line]').filter({ hasText: 'unstaged change' }).first(),
+  ).toBeVisible()
+  await page
+    .locator('#gitna-unstaged-tree__tree')
+    .getByRole('treeitem', { name: 'heavy.ts', exact: true })
+    .click()
+  await expect(first).toBeVisible()
+  expect(readFileSync(path, 'utf8')).toBe(contents(2))
 })
 
 test('large-file consent does not bypass encoding validation', async ({ page, app }) => {

@@ -69,9 +69,6 @@ import { DirtyTabCloseModal } from './DirtyTabCloseModal'
 import { DraftRecoveryModal } from './DraftRecoveryModal'
 import type { MarkdownViewMode as FilePreviewMode } from './MarkdownWorkbench'
 import { SVGPreview } from './SVGPreview'
-import { SectionedFileEditor, type SectionedFileEditorHandle } from './SectionedFileEditor'
-import { hasLongEditorLine } from '../../lib/editor-performance'
-import { EXTREME_EDITOR_LINE_LENGTH, SectionedEditor } from '../../lib/sectioned-editor'
 import { NativeMediaPreview, nativeMediaKind } from './NativeMediaPreview'
 import {
   scrollPreviewToSourceLine,
@@ -558,8 +555,6 @@ function GitnaReviewUIInner({
   const homeButtonRef = useRef<HTMLButtonElement>(null)
   const restoreHomeFocusRef = useRef(false)
   const viewerRef = useRef<CodeViewHandle<CommentMetadata, undefined> | null>(null)
-  const sectionedEditorRef = useRef<SectionedFileEditorHandle>(null)
-  const sectionedSessionsRef = useRef(new Map<string, SectionedEditor>())
   const revealedReviewRef = useRef<{
     viewer: ReturnType<CodeViewHandle<CommentMetadata, undefined>['getInstance']>
     targetKey: string
@@ -1273,10 +1268,6 @@ function GitnaReviewUIInner({
 
   const goToLine = useCallback(
     (line: number, column = 0) => {
-      if (sectionedEditorRef.current != null) {
-        sectionedEditorRef.current.focus(line, column)
-        return true
-      }
       const path = target?.filePath
       const viewer = viewerRef.current
       if (path == null || viewer == null) return false
@@ -1913,41 +1904,6 @@ function GitnaReviewUIInner({
         }
       : undefined
 
-  const sectionedFile = useMemo(() => {
-    const item = reviewData?.items.find(
-      (item) => item.type === 'file' && item.file.name === target?.filePath,
-    )
-    if (item?.type !== 'file' || !hasLongEditorLine(item.file.contents, EXTREME_EDITOR_LINE_LENGTH))
-      return null
-    return (
-      worktreeDrafts.get(item.file.name) ?? {
-        ...item.file,
-        contents: worktreeFiles.get(item.file.name)?.content ?? item.file.contents,
-      }
-    )
-  }, [reviewData, target?.filePath, worktreeDrafts, worktreeFiles])
-  const sectionedSession = useMemo(() => {
-    if (sectionedFile == null) return null
-    const sessionKey = `${repository.snapshot?.root}:${sectionedFile.name}`
-    const previous = sectionedSessionsRef.current.get(sessionKey)
-    if (previous?.document.getText() === sectionedFile.contents) return previous
-    const next = new SectionedEditor(
-      sectionedFile.name,
-      sectionedFile.contents,
-      editorViewStatesRef.current.get(sectionedFile.name),
-    )
-    sectionedSessionsRef.current.set(sessionKey, next)
-    return next
-  }, [sectionedFile, repository.snapshot?.root])
-  useEffect(() => {
-    const openKeys = new Set(
-      repository.repositoryOpenPaths.map((path) => `${repository.snapshot?.root}:${path}`),
-    )
-    for (const key of sectionedSessionsRef.current.keys()) {
-      if (!openKeys.has(key)) sectionedSessionsRef.current.delete(key)
-    }
-  }, [repository.repositoryOpenPaths, repository.snapshot?.root])
-
   useEffect(() => {
     const path = target?.filePath
     const viewer = viewerRef.current
@@ -2420,22 +2376,6 @@ function GitnaReviewUIInner({
                 ) : surfaceState === 'ready' &&
                   (scopeKnownEmpty || (reviewData != null && reviewData.items.length === 0)) ? (
                   <GitnaEmptyState scope={target?.request?.scope} />
-                ) : viewerAvailable &&
-                  sectionedFile != null &&
-                  sectionedSession != null &&
-                  gitnaEditorActions != null ? (
-                  <SectionedFileEditor
-                    key={`${repository.snapshot?.root}:${sectionedFile.name}`}
-                    ref={sectionedEditorRef}
-                    file={sectionedFile}
-                    label={repository.untitledDocument(sectionedFile.name)?.label}
-                    actions={gitnaEditorActions}
-                    model={sectionedSession}
-                    onViewStateChange={(state) =>
-                      editorViewStatesRef.current.set(sectionedFile.name, state)
-                    }
-                    onReady={handleEditorReady}
-                  />
                 ) : viewerAvailable && reviewData != null ? (
                   <div
                     className={cn(
