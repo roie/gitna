@@ -60,6 +60,19 @@ function reviewIdentityKey(review: ReviewResponse): string {
   return [identity.scope, identity.commit, identity.from, identity.to].filter(Boolean).join(':')
 }
 
+function countFileLines(contents: string): number {
+  if (contents.length === 0) return 0
+  let lines = contents.endsWith('\n') ? 0 : 1
+  for (
+    let offset = contents.indexOf('\n');
+    offset !== -1;
+    offset = contents.indexOf('\n', offset + 1)
+  ) {
+    lines++
+  }
+  return lines
+}
+
 export function adaptWorktreeFile(
   source: WorktreeFile,
   generation: number,
@@ -71,10 +84,7 @@ export function adaptWorktreeFile(
     contents: source.content,
     cacheKey: `${cacheNamespace}worktree:${source.hash}:${source.path}`,
   }
-  const lineCount =
-    file.contents.length === 0
-      ? 0
-      : file.contents.split('\n').length - (file.contents.endsWith('\n') ? 1 : 0)
+  const lineCount = countFileLines(file.contents)
   return {
     diffStats: { addedLines: 0, deletedLines: 0, fileCount: 1, totalLinesOfCode: lineCount },
     itemIdToFile: new Map([[source.path, { fileOrder: 0, path: source.path }]]),
@@ -132,8 +142,7 @@ export function adaptGitnaFile(
     lang: diff.after.language as FileContents['lang'],
     cacheKey: `${cacheNamespace}file:${generation}:${path}`,
   }
-  const lineCount =
-    contents.length === 0 ? 0 : contents.split('\n').length - (contents.endsWith('\n') ? 1 : 0)
+  const lineCount = countFileLines(contents)
   return {
     diffStats: { addedLines: 0, deletedLines: 0, fileCount: 1, totalLinesOfCode: lineCount },
     itemIdToFile: new Map([[path, { fileOrder: 0, path }]]),

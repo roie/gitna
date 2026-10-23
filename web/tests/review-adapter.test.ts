@@ -75,6 +75,41 @@ describe('persistent worker cache ownership', () => {
   })
 })
 
+describe('whole-file line counts', () => {
+  it.each([
+    ['', 0],
+    ['one', 1],
+    ['one\n', 1],
+    ['\n', 1],
+    ['\n\n', 2],
+    ['one\r\ntwo\r\n', 2],
+    ['one\ntwo', 2],
+    ['one\r', 1],
+    ['x\n'.repeat(1_000_000), 1_000_000],
+  ] as const)('counts lines without changing file content (%#)', (content, expected) => {
+    const source = { path: 'file.txt', content, hash: 'hash' }
+    const diff = {
+      before: { path: source.path, content: '', language: 'text' },
+      after: { path: source.path, content, language: 'text' },
+      binary: false,
+      tooLarge: false,
+    }
+    for (const result of [adaptWorktreeFile(source, 1), adaptGitnaFile(diff, 1)]) {
+      expect(result.diffStats.totalLinesOfCode).toBe(expected)
+      const item = result.items[0]!
+      expect(item.type === 'file' && item.file.contents).toBe(content)
+    }
+  })
+
+  it('counts the live draft rather than its disk baseline', () => {
+    const result = adaptWorktreeFile({ path: 'file.txt', content: 'disk\n', hash: 'hash' }, 1, {
+      name: 'file.txt',
+      contents: 'first\nsecond\nthird',
+    })
+    expect(result.diffStats.totalLinesOfCode).toBe(3)
+  })
+})
+
 describe('unavailable worktree previews', () => {
   it.each([
     { binary: false, tooLarge: true, message: 'Too large to preview' },
