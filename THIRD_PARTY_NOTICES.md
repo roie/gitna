@@ -56,13 +56,14 @@ distributed unmodified.
 | `@pierre/trees` | `1.0.0-beta.6` + Gitna row-actions patch | `web/node_modules/@pierre/trees/LICENSE.md`; package metadata declares `apache-2.0` | `LICENSES/Apache-2.0.txt`, `web/patches/@pierre__trees@1.0.0-beta.6.patch`, and the `@pierre/trees` notice below. |
 | `@pierre/theme` | `2.0.0` | `web/node_modules/@pierre/theme/LICENSE`; package metadata declares `apache-2.0` | `LICENSES/Apache-2.0.txt` and the `@pierre/theme` notice below. |
 | `@pierre/highlights` | `0.2.0` | `web/node_modules/.pnpm/@pierre+highlights@0.2.0/node_modules/@pierre/highlights/LICENSE.md`; package metadata declares `Apache-2.0` | `THIRD_PARTY_LICENSES.txt` includes its license; `LICENSES/pierre-highlights-NOTICE.md` preserves its upstream theme notices. |
-| `@pierre/theming` | `1.0.1` direct; `1.0.2` through Diffs | `web/node_modules/@pierre/theming/LICENSE.md`; package metadata declares `apache-2.0` | `LICENSES/Apache-2.0.txt`; the package contains no NOTICE file. |
+| `@pierre/theming` | `1.0.2` shared by Gitna, Diffs, and Trees | `web/node_modules/@pierre/theming/LICENSE.md`; package metadata declares `apache-2.0` | `LICENSES/Apache-2.0.txt`; the package contains no NOTICE file. |
 | `react-markdown` | `10.1.0` | `web/node_modules/react-markdown/license`; package metadata declares `MIT` | `LICENSES/MIT.txt`; the package contains no NOTICE file. |
 | `remark-gfm` | `4.0.1` | `web/node_modules/remark-gfm/license`; package metadata declares `MIT` | `LICENSES/MIT.txt`; the package contains no NOTICE file. |
 
-The Apache-2.0 text shipped by the pinned DiffsHub app and the other four
-installed Pierre packages is byte-identical, so Gitna keeps one verbatim shared
-copy at `LICENSES/Apache-2.0.txt`. Icons includes its own copyright attribution;
+Gitna keeps the shared Apache-2.0 license text at `LICENSES/Apache-2.0.txt`.
+The generated inventory includes the license text for each installed package.
+Highlights' theme credits remain in `LICENSES/pierre-highlights-NOTICE.md`.
+Icons includes its own copyright attribution;
 its full license is kept at `LICENSES/pierre-icons-Apache-2.0.txt`.
 The Trees and Theme notices are
 reproduced verbatim below because they contain distinct upstream attribution.

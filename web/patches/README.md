@@ -1,4 +1,15 @@
-# Pierre Trees package patch
+# Pierre package patches
+
+Only the active patches listed in `web/pnpm-workspace.yaml` belong here.
+Previous patch versions remain available in Git history.
+
+## Diffs 1.6.1
+
+`@pierre__diffs@1.6.1.patch` carries Gitna's raster preview slots, editor theme
+updates, invalid-regex feedback, and bounded large-file rendering. It also
+refreshes plain-text edits without full-document background tokenization.
+
+## Trees 1.0.0-beta.6
 
 `@pierre/trees@1.0.0-beta.6` is Apache-2.0 software from Pierre Computer
 Company. Gitna applies `@pierre__trees@1.0.0-beta.6.patch` to the package
