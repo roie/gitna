@@ -525,7 +525,7 @@ diff --git a/dist/highlighter/highlights-editor.js b/dist/highlighter/highlights
  	#version;
  	#disposed = false;
  	#returnedRange;
-@@ -18,14 +19,16 @@
+@@ -18,19 +19,22 @@
  		this.#tokenizer = this.#createTokenizer();
  	}
  	#createTokenizer() {
@@ -549,7 +549,13 @@ diff --git a/dist/highlighter/highlights-editor.js b/dist/highlighter/highlights
  			renderRange: [0, 0],
  			onDeferTokenize: (lines) => this.#deliver(lines)
  		});
-@@ -61,6 +64,11 @@
+ 	}
+ 	#deliver(lines) {
++		if (this.#plainText) return;
+ 		const captured = this.#capturedLines;
+ 		if (captured != null) {
+ 			for (const [line, tokens] of lines) captured.set(line, tokens);
+@@ -61,6 +65,11 @@
  		const start = Math.min(renderRange?.startingLine ?? 0, document.lineCount);
  		const end = Math.min(start + (renderRange?.totalLines ?? Infinity), document.lineCount);
  		const returnedStart = Math.max(start, change.startLine);
@@ -561,7 +567,7 @@ diff --git a/dist/highlighter/highlights-editor.js b/dist/highlighter/highlights
  		this.#paused = false;
  		let lines;
  		if (this.#version !== document.version) {
-@@ -125,7 +133,7 @@
+@@ -125,7 +134,7 @@
  	}
  	getStringCommentRegexpRangesInLine(lineIndex) {
  		const document = this.options.textDocument;
@@ -570,3 +576,64 @@ diff --git a/dist/highlighter/highlights-editor.js b/dist/highlighter/highlights
  		const captured = /* @__PURE__ */ new Map();
  		this.#capturedLines = captured;
  		try {
+diff --git a/dist/editor/editor.js b/dist/editor/editor.js
+--- a/dist/editor/editor.js
++++ b/dist/editor/editor.js
+@@ -3585,6 +3585,26 @@
+ 		];
+ 		return [left, wrapLine];
+ 	}
++	#measureAsciiWrapOffsets(element, length) {
++		const walker = document.createTreeWalker(element, NodeFilter.SHOW_TEXT);
++		const range = document.createRange();
++		const starts = [];
++		let end = 0;
++		let top;
++		for (let node = walker.nextNode(); node != null; node = walker.nextNode()) {
++			range.selectNodeContents(node);
++			const rects = range.getClientRects();
++			for (let i = 0; i < rects.length; i++) {
++				const rect = rects[i];
++				if (rect.top !== top) {
++					starts.push(end);
++					top = rect.top;
++				}
++				end += Math.round(rect.width / this.#metrics.ch);
++			}
++		}
++		if (starts.length > 0 && end === length) return Uint32Array.from([...starts, end]);
++	}
+ 	#wrapLineText(line) {
+ 		const cachedOffsets = this.#wrapLineOffsetsCache.get(line);
+ 		if (cachedOffsets !== void 0) return cachedOffsets;
+@@ -3597,6 +3617,16 @@
+ 		}
+ 		const contentElement = this.#contentElement;
+ 		if (contentElement == null || !contentElement.isConnected) return;
++		const ascii = lineText.length > 4096 && /^[\x20-\x7e]+$/.test(lineText);
++		const lineElement = ascii ? this.#getLineElement(line) : void 0;
++		if (lineElement?.textContent === lineText) {
++			// Reuse laid-out rows instead of laying out a second copy of an extreme line.
++			const offsets = this.#measureAsciiWrapOffsets(lineElement, lineText.length);
++			if (offsets !== void 0) {
++				this.#wrapLineOffsetsCache.set(line, offsets);
++				return offsets;
++			}
++		}
+ 		const div = h("div", {
+ 			style: {
+ 				position: "absolute",
+@@ -3620,6 +3650,13 @@
+ 		try {
+ 			const divRect = div.getBoundingClientRect();
+ 			if (divRect.width === 0) return;
++			if (ascii) {
++				const offsets = this.#measureAsciiWrapOffsets(div, lineText.length);
++				if (offsets !== void 0) {
++					this.#wrapLineOffsetsCache.set(line, offsets);
++					return offsets;
++				}
++			}
+ 			const unicodeOffsets = getUnicodeMeasurementOffsets(lineText);
+ 			const wrapLineStartLeft = divRect.left + this.#metrics.ch;
+ 			const graphemeCount = unicodeOffsets === void 0 ? lineText.length : unicodeOffsets.length - 1;

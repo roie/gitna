@@ -42,6 +42,9 @@ it.each([
     expect(visibleTail(change)).toBe('END!Z')
     expect(visibleTail(document.undo()![0])).toBe('END!')
     expect(visibleTail(document.redo()![0])).toBe('END!Z')
+    tokenizer.pauseBackgroundTokenize()
+    tokenizer.resumeBackgroundTokenize()
+    await new Promise((resolve) => setTimeout(resolve, 20))
     expect(onDeferTokenize).not.toHaveBeenCalled()
   } finally {
     tokenizer.dispose()

@@ -115,6 +115,43 @@ test('long lines retain whole-file selection, editing and exact saves', async ({
   await expect.poll(() => readFileSync(path, 'utf8')).toBe(content)
 })
 
+for (const chunk of ['aB09', 'const x = 1; ']) {
+  test(`six-megabyte wrapped ${JSON.stringify(chunk)} lines keep whole-file editing`, async ({
+    page,
+    app,
+  }) => {
+    test.setTimeout(60000)
+    const content = chunk.repeat(Math.ceil((6 * 1024 * 1024) / chunk.length)) + 'END!'
+    const path = join(app.repo, 'six-megabyte.txt')
+    writeFileSync(path, content)
+    await page.goto(app.url)
+    await openFile(page, 'six-megabyte.txt')
+    await page.getByRole('button', { name: 'Open anyway' }).click()
+    const editor = page.locator('.code-view [contenteditable="true"]').first()
+    await expect(editor).toBeVisible()
+    await expect
+      .poll(() => editor.evaluate((element) => element.textContent?.length))
+      .toBe(content.length)
+    await editor.focus()
+    await editor.press('Control+End', { timeout: 8000 })
+    await editor.press('Z', { timeout: 8000 })
+    await editor.press('Control+s', { timeout: 8000 })
+    await expect.poll(() => readFileSync(path, 'utf8')).toBe(content + 'Z')
+    await editor.press('Control+a', { timeout: 8000 })
+    await page.context().grantPermissions(['clipboard-read', 'clipboard-write'])
+    await editor.press('Control+c', { timeout: 8000 })
+    await expect.poll(() => page.evaluate(() => navigator.clipboard.readText())).toBe(content + 'Z')
+    await editor.press('ArrowLeft', { timeout: 8000 })
+    await editor.press('Control+Home', { timeout: 8000 })
+    await editor.press('A', { timeout: 8000 })
+    await editor.press('Control+s', { timeout: 8000 })
+    await expect.poll(() => readFileSync(path, 'utf8')).toBe('A' + content + 'Z')
+    await editor.press('Control+z', { timeout: 8000 })
+    await editor.press('Control+s', { timeout: 8000 })
+    await expect.poll(() => readFileSync(path, 'utf8')).toBe(content + 'Z')
+  })
+}
+
 test('heavy TypeScript diffs render and navigate both ends', async ({ page, app }) => {
   const path = join(app.repo, 'heavy.ts')
   const contents = (value: number) =>
