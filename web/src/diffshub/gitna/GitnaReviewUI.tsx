@@ -1,6 +1,6 @@
 import { isHomePath, resolveFolderHref } from './navigation'
 import type { CodeViewLineSelection, DiffIndicators, FileContents } from '@pierre/diffs'
-import { type EditorViewState } from '@pierre/diffs/edit'
+import { EditStateManager, type EditorViewState } from '@pierre/diffs/edit'
 import { type CodeViewHandle, useWorkerPool } from '@pierre/diffs/react'
 import {
   IconBranch,
@@ -880,6 +880,7 @@ function GitnaReviewUIInner({
         const loaded = await repository.api.readWorktreeFile(
           path,
           approvedFileBudgetsRef.current.get(path),
+          worktreeFilesRef.current.get(path),
         )
         const rename = repository.worktreeRename
         const previousPath =
@@ -890,6 +891,10 @@ function GitnaReviewUIInner({
           (previousDraft == null ? undefined : { ...previousDraft, name: path })
         const draft = storedDraft
         if (draft == null) {
+          const previous = worktreeFilesRef.current.get(path)
+          if (previous != null && previous.hash !== loaded.hash) {
+            EditStateManager.clear('file', `worktree:${path}`)
+          }
           setWorktreeFiles((current) => new Map(current).set(path, loaded))
         }
         const baseline =

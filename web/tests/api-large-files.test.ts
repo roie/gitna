@@ -54,6 +54,49 @@ it('keeps default requests bounded and sends consent budgets for read, save, cre
   })
 })
 
+it('revalidates an unchanged file without parsing or replacing its cached contents', async () => {
+  const cached = { path: 'large.txt', content: 'x'.repeat(6 << 20), hash: 'baseline' }
+  const response = new Response(null, { status: 304 })
+  const json = vi.spyOn(response, 'json')
+  const fetch = vi.fn().mockResolvedValue(response)
+  vi.stubGlobal('fetch', fetch)
+  const file = await createApi().readWorktreeFile('large.txt', cached.content.length, cached)
+  expect(file).toBe(cached)
+  expect(json).not.toHaveBeenCalled()
+  expect(fetch.mock.calls[0]![1].headers).toEqual({ 'If-None-Match': '"baseline"' })
+  expect(String(fetch.mock.calls[0]![0])).toContain(`maxBytes=${cached.content.length}`)
+})
+
+it('loads external changes and still reports validation failures when a cached file exists', async () => {
+  const cached = { path: 'large.txt', content: 'before', hash: 'baseline' }
+  const changed = { ...cached, content: 'external edit', hash: 'changed' }
+  const fetch = vi
+    .fn()
+    .mockResolvedValueOnce(Response.json(changed))
+    .mockResolvedValueOnce(
+      Response.json({ error: 'invalid encoding', code: 'unsupported-encoding' }, { status: 415 }),
+    )
+  vi.stubGlobal('fetch', fetch)
+  const api = createApi()
+  expect(await api.readWorktreeFile('large.txt', undefined, cached)).toEqual(changed)
+  await expect(api.readWorktreeFile('large.txt', undefined, cached)).rejects.toMatchObject({
+    code: 'unsupported-encoding',
+  })
+})
+
+it('does not validate a path against another file’s cached contents', async () => {
+  const fetch = vi
+    .fn()
+    .mockResolvedValue(Response.json({ path: 'other.txt', content: 'other', hash: 'other' }))
+  vi.stubGlobal('fetch', fetch)
+  await createApi().readWorktreeFile('other.txt', undefined, {
+    path: 'large.txt',
+    content: 'before',
+    hash: 'baseline',
+  })
+  expect(fetch.mock.calls[0]![1].headers).toBeUndefined()
+})
+
 it('preserves a large-file warning size without treating validation errors as consent', async () => {
   vi.stubGlobal('fetch', async () =>
     Response.json(

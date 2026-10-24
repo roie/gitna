@@ -94,6 +94,12 @@ func (s *Server) handleReadWorktreeFile(w http.ResponseWriter, r *http.Request) 
 		writeWorktreeError(w, r, s, err)
 		return
 	}
+	etag := strconv.Quote(file.Hash)
+	w.Header().Set("ETag", etag)
+	if file.Hash != "" && r.Header.Get("If-None-Match") == etag {
+		w.WriteHeader(http.StatusNotModified)
+		return
+	}
 	writeJSON(w, http.StatusOK, file)
 }
 

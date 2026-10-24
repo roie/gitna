@@ -131,6 +131,42 @@ func TestWorktreeFileRoutesReadAndWrite(t *testing.T) {
 	}
 }
 
+func TestWorktreeFileRevalidatesCachedContents(t *testing.T) {
+	repo := &fakeWorktreeRepo{
+		fakeRepo: &fakeRepo{},
+		file:     protocol.WorktreeFile{Path: "large.txt", Content: strings.Repeat("x", 6<<20), Hash: "original"},
+	}
+	h := newSnapshotServer(repo)
+	read := worktreeRequest(t, h, http.MethodGet, "/worktree/file?path=large.txt", "")
+	etag := read.Header().Get("ETag")
+	if read.Code != http.StatusOK || etag != `"original"` {
+		t.Fatalf("initial read: status = %d, etag = %q", read.Code, etag)
+	}
+	request := func() *httptest.ResponseRecorder {
+		req := httptest.NewRequest(http.MethodGet, "/g/"+testToken+"/api/v1/worktree/file?path=large.txt", nil)
+		req.Host = testHost
+		req.Header.Set("If-None-Match", etag)
+		rec := httptest.NewRecorder()
+		h.ServeHTTP(rec, req)
+		return rec
+	}
+	unchanged := request()
+	if unchanged.Code != http.StatusNotModified || unchanged.Body.Len() != 0 || unchanged.Header().Get("ETag") != etag {
+		t.Fatalf("unchanged: status = %d, bytes = %d, headers = %v", unchanged.Code, unchanged.Body.Len(), unchanged.Header())
+	}
+	repo.file = protocol.WorktreeFile{Path: "large.txt", Content: "external edit", Hash: "changed"}
+	changed := request()
+	if changed.Code != http.StatusOK || !strings.Contains(changed.Body.String(), "external edit") || changed.Header().Get("ETag") == etag {
+		t.Fatalf("external edit: status = %d, body = %s", changed.Code, changed.Body.String())
+	}
+	repo.file.Hash = "original"
+	repo.err = protocol.ErrWorktreeEncoding
+	invalid := request()
+	if invalid.Code != http.StatusUnsupportedMediaType {
+		t.Fatalf("invalid encoding must not reuse cached contents: status = %d", invalid.Code)
+	}
+}
+
 func TestWorktreeCompareRoute(t *testing.T) {
 	repo := &fakeWorktreeRepo{
 		fakeRepo: &fakeRepo{},

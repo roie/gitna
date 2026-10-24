@@ -114,6 +114,38 @@ test('large-file consent supports tab closing, exact saves, undo and durable rec
   expect(readFileSync(path, 'utf8')).toBe(content + 'Z')
 })
 
+test('reopening files revalidates cached contents and notices external changes', async ({
+  page,
+  app,
+}) => {
+  const path = join(app.repo, 'cached.txt')
+  const content = 'cached line\n'.repeat(100000)
+  writeFileSync(path, content)
+  writeFileSync(join(app.repo, 'other.txt'), 'other file')
+  await page.goto(app.url)
+  await openFile(page, 'cached.txt')
+  await page.getByRole('button', { name: 'Open anyway', exact: true }).click()
+  const editor = page.locator('.code-view [contenteditable="true"]').first()
+  await expect(editor).toBeVisible()
+  await openFile(page, 'other.txt')
+  await expect(editor).toHaveText('other file')
+  const unchanged = page.waitForResponse((response) =>
+    response.url().includes('/api/v1/worktree/file?path=cached.txt'),
+  )
+  await page.getByRole('tab', { name: 'cached.txt', exact: true }).click()
+  expect((await unchanged).status()).toBe(304)
+  await expect(editor).toContainText('cached line')
+  await openFile(page, 'other.txt')
+  await expect(editor).toHaveText('other file')
+  writeFileSync(path, 'external change')
+  const changed = page.waitForResponse((response) =>
+    response.url().includes('/api/v1/worktree/file?path=cached.txt'),
+  )
+  await page.getByRole('tab', { name: 'cached.txt', exact: true }).click()
+  expect((await changed).status()).toBe(200)
+  await expect(editor).toHaveText('external change')
+})
+
 test('long lines retain whole-file selection, editing and exact saves', async ({ page, app }) => {
   const content = 'HEAD\r\n' + 'x'.repeat(300000) + '\r\nEND!'
   const path = join(app.repo, 'long-line.txt')

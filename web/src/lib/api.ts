@@ -168,7 +168,11 @@ export interface ApiClient {
       signal?: AbortSignal
     },
   ) => Promise<ContentSearchResults>
-  readWorktreeFile: (path: string, maxBytes?: number) => Promise<WorktreeFile>
+  readWorktreeFile: (
+    path: string,
+    maxBytes?: number,
+    cached?: WorktreeFile,
+  ) => Promise<WorktreeFile>
   compareWorktreeFiles: (
     leftPath: string,
     rightPath: string,
@@ -389,15 +393,22 @@ export function createApi(baseURL?: string): ApiClient {
         )
       return (await res.json()) as ContentSearchResults
     },
-    async readWorktreeFile(path: string, maxBytes?: number): Promise<WorktreeFile> {
-      const res = await expectOK(
-        await fetch(
-          `api/v1/worktree/file?path=${encodeURIComponent(path)}${maxBytes == null ? '' : `&maxBytes=${maxBytes}`}`,
-          {
-            signal: AbortSignal.timeout(FETCH_TIMEOUT),
-          },
-        ),
+    async readWorktreeFile(
+      path: string,
+      maxBytes?: number,
+      cached?: WorktreeFile,
+    ): Promise<WorktreeFile> {
+      const baseline = cached?.path === path && cached.hash !== '' ? cached : undefined
+      const res = await fetch(
+        `api/v1/worktree/file?path=${encodeURIComponent(path)}${maxBytes == null ? '' : `&maxBytes=${maxBytes}`}`,
+        {
+          headers:
+            baseline == null ? undefined : { 'If-None-Match': JSON.stringify(baseline.hash) },
+          signal: AbortSignal.timeout(FETCH_TIMEOUT),
+        },
       )
+      if (res.status === 304 && baseline != null) return baseline
+      await expectOK(res)
       return (await res.json()) as WorktreeFile
     },
     async compareWorktreeFiles(
