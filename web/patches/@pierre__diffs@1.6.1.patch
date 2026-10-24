@@ -579,7 +579,20 @@ diff --git a/dist/highlighter/highlights-editor.js b/dist/highlighter/highlights
 diff --git a/dist/editor/editor.js b/dist/editor/editor.js
 --- a/dist/editor/editor.js
 +++ b/dist/editor/editor.js
-@@ -3547,6 +3547,13 @@
+@@ -1837,7 +1837,11 @@
+ 					const lineIndex = lineNumber - 1;
+ 					if (dirtyLineIndexes.has(lineIndex)) {
+ 						const tokens = dirtyLines.get(lineIndex);
+-						child.replaceChildren(...renderLineTokens(tokens));
++						const edit = change.changes.length === 1 ? change.changes[0] : void 0;
++						const textNode = child.firstChild;
++						if (edit != null && change.lineDelta === 0 && edit.range.start.line === lineIndex && edit.range.end.line === lineIndex && tokens.length === 1 && tokens[0][1] === "" && tokens[0][2].length > 4096 && textNode?.nodeType === Node.TEXT_NODE && child.childNodes.length === 1 && textNode.length + edit.text.length - (edit.range.end.character - edit.range.start.character) === tokens[0][2].length) {
++							textNode.replaceData(edit.range.start.character, edit.range.end.character - edit.range.start.character, edit.text);
++						} else child.replaceChildren(...renderLineTokens(tokens));
+ 						dirtyLineIndexes.delete(lineIndex);
+ 						if (dirtyLineIndexes.size === 0) break;
+ 					}
+@@ -3547,6 +3551,13 @@
  		const offsetLeft = this.#getGutterWidth() + this.#metrics.ch;
  		if (lineText === void 0 || lineText.length === 0 || char <= 0) return [offsetLeft + (this.#activeContentOffset?.left ?? 0), 0];
  		const boundedCharacter = snapTextOffsetToUnicodeBoundary(lineText, Math.min(char, lineText.length));
@@ -593,7 +606,7 @@ diff --git a/dist/editor/editor.js b/dist/editor/editor.js
  		const textBeforeCharacter = lineText.slice(0, boundedCharacter);
  		const asciiColumns = getExpandedAsciiTextColumns(textBeforeCharacter, this.#metrics.tabSize);
  		let left = 0;
-@@ -3585,6 +3592,67 @@
+@@ -3585,6 +3596,67 @@
  		];
  		return [left, wrapLine];
  	}
@@ -661,7 +674,7 @@ diff --git a/dist/editor/editor.js b/dist/editor/editor.js
  	#wrapLineText(line) {
  		const cachedOffsets = this.#wrapLineOffsetsCache.get(line);
  		if (cachedOffsets !== void 0) return cachedOffsets;
-@@ -3597,6 +3665,16 @@
+@@ -3597,6 +3669,16 @@
  		}
  		const contentElement = this.#contentElement;
  		if (contentElement == null || !contentElement.isConnected) return;
@@ -678,7 +691,7 @@ diff --git a/dist/editor/editor.js b/dist/editor/editor.js
  		const div = h("div", {
  			style: {
  				position: "absolute",
-@@ -3620,6 +3698,13 @@
+@@ -3620,6 +3702,13 @@
  		try {
  			const divRect = div.getBoundingClientRect();
  			if (divRect.width === 0) return;

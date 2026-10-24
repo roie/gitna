@@ -252,6 +252,34 @@ for (const chunk of ['aB09', 'const x = 1; ']) {
   })
 }
 
+test('long plain-text replacements, deletions and line splits save and undo exactly', async ({
+  page,
+  app,
+}) => {
+  const content = 'BEGIN ' + 'alpha😀 e\u0301 beta '.repeat(1000)
+  const path = join(app.repo, 'plain-edits.txt')
+  writeFileSync(path, content)
+  await page.goto(app.url)
+  await openFile(page, 'plain-edits.txt')
+  const editor = page.locator('.code-view [contenteditable="true"]').first()
+  await expect(editor).toBeVisible()
+  await editor.focus()
+  await editor.press('Control+Home')
+  for (let index = 0; index < 3; index++) await editor.press('Shift+ArrowRight')
+  await editor.press('X')
+  await editor.press('Control+s')
+  await expect.poll(() => readFileSync(path, 'utf8')).toBe('X' + content.slice(3))
+  await editor.press('Delete')
+  await editor.press('Control+s')
+  await expect.poll(() => readFileSync(path, 'utf8')).toBe('X' + content.slice(4))
+  await editor.press('Enter')
+  await editor.press('Control+s')
+  await expect.poll(() => readFileSync(path, 'utf8')).toBe('X\n' + content.slice(4))
+  for (let index = 0; index < 3; index++) await editor.press('Control+z')
+  await editor.press('Control+s')
+  await expect.poll(() => readFileSync(path, 'utf8')).toBe(content)
+})
+
 test('heavy TypeScript diffs render and navigate both ends', async ({ page, app }) => {
   const path = join(app.repo, 'heavy.ts')
   const contents = (value: number) =>
