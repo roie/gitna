@@ -241,6 +241,36 @@ for (const chunk of ['aB09', 'const x = 1; ']) {
     await page.context().grantPermissions(['clipboard-read', 'clipboard-write'])
     await editor.press('Control+c', { timeout: 8000 })
     await expect.poll(() => page.evaluate(() => navigator.clipboard.readText())).toBe(content + 'Z')
+    if (chunk === 'const x = 1; ') {
+      const scroller = page.locator('.cv-scrollbar')
+      const highlights = page.locator('.code-view [data-selection-range]')
+      for (const fraction of [0.5, 0, 1]) {
+        await scroller.evaluate((element, value) => {
+          element.scrollTop = (element.scrollHeight - element.clientHeight) * value
+        }, fraction)
+        const middle = await scroller.evaluate((element) => {
+          const rect = element.getBoundingClientRect()
+          return (rect.top + rect.bottom) / 2
+        })
+        await expect
+          .poll(() =>
+            highlights.evaluateAll(
+              (elements, y) =>
+                elements.some((element) => {
+                  const rect = element.getBoundingClientRect()
+                  return rect.top <= y && rect.bottom >= y && rect.width > 0
+                }),
+              middle,
+            ),
+          )
+          .toBe(true)
+        expect(await highlights.count()).toBeLessThan(1000)
+      }
+      await editor.press('Control+c', { timeout: 8000 })
+      await expect
+        .poll(() => page.evaluate(() => navigator.clipboard.readText()))
+        .toBe(content + 'Z')
+    }
     await editor.press('ArrowLeft', { timeout: 8000 })
     await editor.press('Control+Home', { timeout: 8000 })
     await editor.press('A', { timeout: 8000 })

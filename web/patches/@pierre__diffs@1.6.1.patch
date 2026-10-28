@@ -259,10 +259,32 @@ index eb34dd4a774cb06add3280fe6abd5f0dc292505e..60900da5becfa1c24e5361b3a01ab5a7
  		const { ghostTextRowsByIndex } = this.cache;
  		const measureAllRows = overflow !== "scroll" || this.lineAnnotations.length > 0 || this.isResizeDebuggingEnabled();
 diff --git a/dist/editor/editor.js b/dist/editor/editor.js
-index bf17cea32f39ee60ff7520b17f44d99a8e7e98aa..d4ecda48eec5798ec7f4cf236e191e735dc0956c 100644
+index bf17cea32f39ee60ff7520b17f44d99a8e7e98aa..0003116eea71c774a029d8e197dd4a2435a3c002 100644
 --- a/dist/editor/editor.js
 +++ b/dist/editor/editor.js
-@@ -1837,7 +1837,11 @@ var Editor = class {
+@@ -1036,6 +1036,10 @@ var Editor = class {
+ 	#preserveEditorSelectionsForGutterGesture() {
+ 		this.#suppressNativeSelectionSync = this.#selections !== void 0;
+ 	}
++	#hasClippedWrappedSelection = false;
++	#refreshClippedWrappedSelection = () => {
++		if (this.#hasClippedWrappedSelection && this.#contentElement?.isConnected) this.#updateSelections(this.#selections ?? []);
++	};
+ 	#listenContentElement(contentEl, gutterEl) {
+ 		const { onFocus, onBlur } = this.#options;
+ 		const targetIsContentElement = (e) => {
+@@ -1044,6 +1048,10 @@ var Editor = class {
+ 		};
+ 		this.#editorEventDisposes?.forEach((dispose) => dispose());
+ 		this.#editorEventDisposes = [
++			() => dequeueRender(this.#refreshClippedWrappedSelection),
++			addEventListener(this.#getScrollViewport() ?? document, "scroll", () => {
++				if (this.#hasClippedWrappedSelection) queueRender(this.#refreshClippedWrappedSelection);
++			}, { passive: true }),
+ 			addEventListener(contentEl, "focus", () => {
+ 				this.#contentHasFocus = true;
+ 				onFocus?.();
+@@ -1837,7 +1845,11 @@ var Editor = class {
  					const lineIndex = lineNumber - 1;
  					if (dirtyLineIndexes.has(lineIndex)) {
  						const tokens = dirtyLines.get(lineIndex);
@@ -275,7 +297,15 @@ index bf17cea32f39ee60ff7520b17f44d99a8e7e98aa..d4ecda48eec5798ec7f4cf236e191e73
  						dirtyLineIndexes.delete(lineIndex);
  						if (dirtyLineIndexes.size === 0) break;
  					}
-@@ -2953,6 +2957,7 @@ var Editor = class {
+@@ -2755,6 +2767,7 @@ var Editor = class {
+ 		prediction.rendered = true;
+ 	}
+ 	#updateSelections(selections) {
++		this.#hasClippedWrappedSelection = false;
+ 		this.__postponeBgTokenizeToNextFrame();
+ 		const previousSelections = this.#selections;
+ 		let selectionsChanged = previousSelections?.length !== selections.length;
+@@ -2953,10 +2966,24 @@ var Editor = class {
  		}
  	}
  	#renderWrappedSelection(renderCtx, line, lineText, startChar, endChar, isLastLine, type, extraDataset, connectedCaret) {
@@ -283,7 +313,25 @@ index bf17cea32f39ee60ff7520b17f44d99a8e7e98aa..d4ecda48eec5798ec7f4cf236e191e73
  		const wrapOffsets = this.#wrapLineTextOrWholeLine(line);
  		const segmentCount = wrapOffsets.length - 1;
  		const offsetLeft = this.#getGutterWidth() + this.#metrics.ch + (this.#activeContentOffset?.left ?? 0);
-@@ -2973,6 +2978,46 @@ var Editor = class {
+-		for (let wrapLine = 0; wrapLine < segmentCount; wrapLine++) {
++		let firstWrapLine = 0;
++		let endWrapLine = segmentCount;
++		if (type === "selection" && segmentCount > 1000) {
++			const element = this.#getLineElement(line);
++			const viewport = this.#getScrollViewport();
++			if (element != null && viewport != null) {
++				const top = element.getBoundingClientRect().top;
++				const bounds = viewport instanceof HTMLElement ? viewport.getBoundingClientRect() : { top: 0, bottom: viewport.defaultView?.innerHeight ?? 0 };
++				firstWrapLine = Math.max(0, Math.floor((bounds.top - top) / this.#metrics.lineHeight) - 2);
++				endWrapLine = Math.min(segmentCount, Math.ceil((bounds.bottom - top) / this.#metrics.lineHeight) + 2);
++				this.#hasClippedWrappedSelection = true;
++			}
++		}
++		for (let wrapLine = firstWrapLine; wrapLine < endWrapLine; wrapLine++) {
+ 			const segmentStart = wrapOffsets[wrapLine];
+ 			const segmentEnd = wrapOffsets[wrapLine + 1];
+ 			const wrapStartChar = Math.max(startChar, segmentStart);
+@@ -2973,6 +3000,46 @@ var Editor = class {
  			});
  		}
  	}
@@ -330,7 +378,7 @@ index bf17cea32f39ee60ff7520b17f44d99a8e7e98aa..d4ecda48eec5798ec7f4cf236e191e73
  	#segmentTextWidth(lineText, segmentStart, character) {
  		if (character <= segmentStart) return 0;
  		const segmentText = lineText.slice(segmentStart, character);
-@@ -3547,6 +3592,13 @@ var Editor = class {
+@@ -3547,6 +3614,13 @@ var Editor = class {
  		const offsetLeft = this.#getGutterWidth() + this.#metrics.ch;
  		if (lineText === void 0 || lineText.length === 0 || char <= 0) return [offsetLeft + (this.#activeContentOffset?.left ?? 0), 0];
  		const boundedCharacter = snapTextOffsetToUnicodeBoundary(lineText, Math.min(char, lineText.length));
@@ -344,7 +392,7 @@ index bf17cea32f39ee60ff7520b17f44d99a8e7e98aa..d4ecda48eec5798ec7f4cf236e191e73
  		const textBeforeCharacter = lineText.slice(0, boundedCharacter);
  		const asciiColumns = getExpandedAsciiTextColumns(textBeforeCharacter, this.#metrics.tabSize);
  		let left = 0;
-@@ -3585,6 +3637,67 @@ var Editor = class {
+@@ -3585,6 +3659,67 @@ var Editor = class {
  		];
  		return [left, wrapLine];
  	}
@@ -412,7 +460,7 @@ index bf17cea32f39ee60ff7520b17f44d99a8e7e98aa..d4ecda48eec5798ec7f4cf236e191e73
  	#wrapLineText(line) {
  		const cachedOffsets = this.#wrapLineOffsetsCache.get(line);
  		if (cachedOffsets !== void 0) return cachedOffsets;
-@@ -3597,6 +3710,16 @@ var Editor = class {
+@@ -3597,6 +3732,16 @@ var Editor = class {
  		}
  		const contentElement = this.#contentElement;
  		if (contentElement == null || !contentElement.isConnected) return;
@@ -429,7 +477,7 @@ index bf17cea32f39ee60ff7520b17f44d99a8e7e98aa..d4ecda48eec5798ec7f4cf236e191e73
  		const div = h("div", {
  			style: {
  				position: "absolute",
-@@ -3620,6 +3743,13 @@ var Editor = class {
+@@ -3620,6 +3765,13 @@ var Editor = class {
  		try {
  			const divRect = div.getBoundingClientRect();
  			if (divRect.width === 0) return;
