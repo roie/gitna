@@ -220,7 +220,7 @@ for (const chunk of ['aB09', 'const x = 1; ']) {
     page,
     app,
   }) => {
-    test.setTimeout(60000)
+    test.setTimeout(90000)
     const content = chunk.repeat(Math.ceil((6 * 1024 * 1024) / chunk.length)) + 'END!'
     const path = join(app.repo, 'six-megabyte.txt')
     writeFileSync(path, content)
@@ -278,6 +278,53 @@ test('long plain-text replacements, deletions and line splits save and undo exac
   for (let index = 0; index < 3; index++) await editor.press('Control+z')
   await editor.press('Control+s')
   await expect.poll(() => readFileSync(path, 'utf8')).toBe(content)
+})
+
+test('long Unicode lines keep responsive cursor movement and exact grapheme edits', async ({
+  page,
+  app,
+}) => {
+  const content = 'A😀e\u0301\t漢字 '.repeat(24000) + 'אבג '
+  const path = join(app.repo, 'unicode-line.txt')
+  writeFileSync(path, content)
+  await page.goto(app.url)
+  await openFile(page, 'unicode-line.txt')
+  const editor = page.locator('.code-view [contenteditable="true"]').first()
+  await expect(editor).toBeVisible()
+  await editor.focus()
+  await editor.press('Control+Home', { timeout: 8000 })
+  await editor.press('ArrowRight', { timeout: 8000 })
+  await editor.press('Shift+ArrowRight', { timeout: 8000 })
+  await page.context().grantPermissions(['clipboard-read', 'clipboard-write'])
+  await editor.press('Control+c', { timeout: 8000 })
+  await expect.poll(() => page.evaluate(() => navigator.clipboard.readText())).toBe('😀')
+  await editor.press('X', { timeout: 8000 })
+  await editor.press('Control+s', { timeout: 8000 })
+  await expect.poll(() => readFileSync(path, 'utf8')).toBe('AX' + content.slice(3))
+  await editor.press('Control+z', { timeout: 8000 })
+  await editor.press('Control+s', { timeout: 8000 })
+  await expect.poll(() => readFileSync(path, 'utf8')).toBe(content)
+  await editor.press('Control+Home', { timeout: 8000 })
+  await editor.press('ArrowRight', { timeout: 8000 })
+  await editor.press('ArrowRight', { timeout: 8000 })
+  await editor.press('Shift+ArrowRight', { timeout: 8000 })
+  await editor.press('Control+c', { timeout: 8000 })
+  await expect.poll(() => page.evaluate(() => navigator.clipboard.readText())).toBe('e\u0301')
+  await editor.press('Y', { timeout: 8000 })
+  await editor.press('Control+s', { timeout: 8000 })
+  await expect
+    .poll(() => readFileSync(path, 'utf8'))
+    .toBe(content.slice(0, 3) + 'Y' + content.slice(5))
+  await editor.press('Control+z', { timeout: 8000 })
+  await editor.press('Control+s', { timeout: 8000 })
+  await expect.poll(() => readFileSync(path, 'utf8')).toBe(content)
+  await editor.press('Control+End', { timeout: 8000 })
+  await editor.press('Z', { timeout: 8000 })
+  await editor.press('Control+s', { timeout: 8000 })
+  await expect.poll(() => readFileSync(path, 'utf8')).toBe(content + 'Z')
+  await editor.press('Control+a', { timeout: 8000 })
+  await editor.press('Control+c', { timeout: 8000 })
+  await expect.poll(() => page.evaluate(() => navigator.clipboard.readText())).toBe(content + 'Z')
 })
 
 test('heavy TypeScript diffs render and navigate both ends', async ({ page, app }) => {

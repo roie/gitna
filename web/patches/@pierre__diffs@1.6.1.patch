@@ -1,7 +1,8 @@
 diff --git a/dist/components/CodeView.d.ts b/dist/components/CodeView.d.ts
+index 234ec4baa4a9364088917b24a64a6377d16583f8..4d61f2569c92a8c69369593de9aa9577ed62ccc6 100644
 --- a/dist/components/CodeView.d.ts
 +++ b/dist/components/CodeView.d.ts
-@@ -75,6 +75,7 @@
+@@ -75,6 +75,7 @@ interface CodeViewLineSelection {
  interface CodeViewCoordinator<LAnnotation, Caret> {
    hasHeaderRenderers: boolean;
    hasAnnotationRenderer: boolean;
@@ -9,7 +10,7 @@ diff --git a/dist/components/CodeView.d.ts b/dist/components/CodeView.d.ts
    hasGutterRenderer: boolean;
    onSnapshotChange(snapshot: CodeViewSlotSnapshot<LAnnotation, Caret> | undefined): void;
  }
-@@ -113,6 +114,8 @@
+@@ -113,6 +114,8 @@ interface CodeViewOptions<LAnnotation, Caret> extends CodeViewPassThroughOptions
    pointerEventsOnScroll?: boolean;
    smoothScrollSettings?: SmoothScrollSettings;
    stickyHeaders?: boolean;
@@ -19,9 +20,10 @@ diff --git a/dist/components/CodeView.d.ts b/dist/components/CodeView.d.ts
    onSelectedLinesChange?(selection: CodeViewLineSelection | null): void;
    layout?: CodeViewLayout;
 diff --git a/dist/components/CodeView.js b/dist/components/CodeView.js
+index ee5c91c5ab44742994d900a81dbd8e9c508efb49..11a2121f30db772890c4639c977f6a795345a529 100644
 --- a/dist/components/CodeView.js
 +++ b/dist/components/CodeView.js
-@@ -1137,6 +1137,7 @@
+@@ -1137,6 +1137,7 @@ var CodeView = class CodeView {
  			if (state == null) return;
  			return (event) => this.completeFileItemEdit(state, event);
  		});
@@ -29,7 +31,7 @@ diff --git a/dist/components/CodeView.js b/dist/components/CodeView.js
  		for (const key of CODE_VIEW_SHARED_CALLBACK_KEYS) this.defineItemSharedCallback(prototype, "file", key);
  		for (const key of CODE_VIEW_SELECTION_CALLBACK_KEYS) this.defineItemSelectionCallback(prototype, "file", key);
  		return prototype;
-@@ -1157,6 +1158,7 @@
+@@ -1157,6 +1158,7 @@ var CodeView = class CodeView {
  			if (state == null) return;
  			return (event) => this.completeDiffItemEdit(state, event);
  		});
@@ -37,7 +39,7 @@ diff --git a/dist/components/CodeView.js b/dist/components/CodeView.js
  		for (const key of CODE_VIEW_SHARED_CALLBACK_KEYS) this.defineItemSharedCallback(prototype, "diff", key);
  		for (const key of CODE_VIEW_SELECTION_CALLBACK_KEYS) this.defineItemSelectionCallback(prototype, "diff", key);
  		return prototype;
-@@ -2150,9 +2152,9 @@
+@@ -2150,9 +2152,9 @@ function syncRenderedItemOrder(container, element, prevElement) {
  function hasAnnotations(renderedItem) {
  	return (renderedItem.item.annotations?.length ?? 0) > 0 || getCodeViewItemRenderData(renderedItem).lineAnnotations.length > 0;
  }
@@ -50,9 +52,10 @@ diff --git a/dist/components/CodeView.js b/dist/components/CodeView.js
  	const slotSnapshot = [];
  	for (const renderedItem of renderedItems) if (hasAnnotations(renderedItem)) slotSnapshot.push(renderedItem);
 diff --git a/dist/components/File.js b/dist/components/File.js
+index 2ac57c54403465ffba3f825dd7bd353018ce69e7..c14eb8421b6d68a83a9102d05fd7e8d4bff30e1e 100644
 --- a/dist/components/File.js
 +++ b/dist/components/File.js
-@@ -71,6 +71,8 @@
+@@ -71,6 +71,8 @@ var File = class {
  	headerPrefix;
  	headerFilenameSuffix;
  	headerMetadata;
@@ -61,7 +64,7 @@ diff --git a/dist/components/File.js b/dist/components/File.js
  	fileRenderer;
  	resizeManager;
  	interactionManager;
-@@ -587,6 +589,7 @@
+@@ -587,6 +589,7 @@ var File = class {
  		if (editSessionFile == null) throw new Error("File.updateRenderCache: requires an active edit session");
  		this.fileRenderer.beginEditSession(editSessionFile);
  		this.fileRenderer.updateRenderCache(dirtyLines, themeType, options?.lineCountChangeInFlight);
@@ -69,7 +72,7 @@ diff --git a/dist/components/File.js b/dist/components/File.js
  	}
  	render({ file, fileContainer, forceRender = false, preventEmit = false, containerWrapper, deferManagers = false, lineAnnotations, renderRange }) {
  		if (!this.enabled) throw new Error("File.render: attempting to call render after cleaned up");
-@@ -626,6 +629,7 @@
+@@ -626,6 +629,7 @@ var File = class {
  		this.applyCachedThemeState(themeType);
  		if (collapsed) {
  			this.removeRenderedCode();
@@ -77,7 +80,7 @@ diff --git a/dist/components/File.js b/dist/components/File.js
  			this.clearAuxiliaryNodes();
  			try {
  				const fileResult = this.fileRenderer.renderFile(workingFile, EMPTY_RENDER_RANGE);
-@@ -656,6 +660,7 @@
+@@ -656,6 +660,7 @@ var File = class {
  				this.applyFullRender(fileResult, pre);
  				renderedFile = fileResult.file;
  			}
@@ -85,7 +88,7 @@ diff --git a/dist/components/File.js b/dist/components/File.js
  			this.applyBuffers(pre, nextRenderRange);
  			this.injectUnsafeCSS();
  			if (renderedFile != null) this.adoptRenderData(renderedFile);
-@@ -688,6 +693,44 @@
+@@ -688,6 +693,44 @@ var File = class {
  		this.mounted = true;
  		onPostRender?.(fileContainer, this, phase);
  	}
@@ -131,9 +134,10 @@ diff --git a/dist/components/File.js b/dist/components/File.js
  		this.resizeManager.cleanUp();
  		this.interactionManager.cleanUp();
 diff --git a/dist/components/FileDiff.js b/dist/components/FileDiff.js
+index 12f4f8949f3a1907ac9877f83937b53a966c9411..0d4b50e67c5d143f48cbaea070769a27835a07b9 100644
 --- a/dist/components/FileDiff.js
 +++ b/dist/components/FileDiff.js
-@@ -101,6 +101,8 @@
+@@ -101,6 +101,8 @@ var FileDiff = class {
  	headerFilenameSuffix;
  	headerMetadata;
  	headerCustom;
@@ -142,7 +146,7 @@ diff --git a/dist/components/FileDiff.js b/dist/components/FileDiff.js
  	separatorCache = /* @__PURE__ */ new Map();
  	errorWrapper;
  	placeHolder;
-@@ -738,6 +740,7 @@
+@@ -738,6 +740,7 @@ var FileDiff = class {
  		this.applyCachedThemeState(themeType);
  		if (collapsed) {
  			this.removeRenderedCode();
@@ -150,7 +154,7 @@ diff --git a/dist/components/FileDiff.js b/dist/components/FileDiff.js
  			this.clearAuxiliaryNodes();
  			try {
  				const hunksResult = this.hunksRenderer.renderDiff(workingDiff, EMPTY_RENDER_RANGE);
-@@ -780,6 +783,7 @@
+@@ -780,6 +783,7 @@ var FileDiff = class {
  				const renderedDiff = this.getRenderedDiff();
  				if (renderedDiff != null) this.adoptRenderData(renderedDiff);
  			}
@@ -158,7 +162,7 @@ diff --git a/dist/components/FileDiff.js b/dist/components/FileDiff.js
  			this.applyBuffers(pre, nextRenderRange);
  			this.injectUnsafeCSS();
  			this.renderAnnotations();
-@@ -1119,7 +1123,9 @@
+@@ -1119,7 +1123,9 @@ var FileDiff = class {
  		this.detachAdditionLines();
  		this.hunksRenderer.beginEditSession(editSessionDiff);
  		const { shouldRefreshDiffsView, lineCountChangeInFlight } = options;
@@ -169,7 +173,7 @@ diff --git a/dist/components/FileDiff.js b/dist/components/FileDiff.js
  			if (this.refreshViewTimeout != null) {
  				clearTimeout(this.refreshViewTimeout);
  				this.refreshViewTimeout = void 0;
-@@ -1215,6 +1221,44 @@
+@@ -1215,6 +1221,44 @@ var FileDiff = class {
  		this.rerender();
  		this.flushDeferredLineState();
  	};
@@ -215,9 +219,10 @@ diff --git a/dist/components/FileDiff.js b/dist/components/FileDiff.js
  		this.resizeManager.cleanUp();
  		this.scrollSyncManager.cleanUp();
 diff --git a/dist/components/VirtualizedFile.js b/dist/components/VirtualizedFile.js
+index 95d4ca8fdf9e176e23d354094a11022eefdb2321..e83d8ee2adda4f0f07be5d677d865d9c15e38fd1 100644
 --- a/dist/components/VirtualizedFile.js
 +++ b/dist/components/VirtualizedFile.js
-@@ -120,6 +120,15 @@
+@@ -120,6 +120,15 @@ var VirtualizedFile = class extends File {
  		}
  		const { overflow = "scroll" } = this.options;
  		this.top = this.getVirtualizedTop();
@@ -234,9 +239,10 @@ diff --git a/dist/components/VirtualizedFile.js b/dist/components/VirtualizedFil
  		hasHeightChange = this.applyGhostTextRows(ghostTextRows);
  		const measureAllRows = overflow !== "scroll" || this.lineAnnotations.length > 0 || this.isResizeDebuggingEnabled();
 diff --git a/dist/components/VirtualizedFileDiff.js b/dist/components/VirtualizedFileDiff.js
+index eb34dd4a774cb06add3280fe6abd5f0dc292505e..60900da5becfa1c24e5361b3a01ab5a7ab9e0e3a 100644
 --- a/dist/components/VirtualizedFileDiff.js
 +++ b/dist/components/VirtualizedFileDiff.js
-@@ -164,6 +164,15 @@
+@@ -164,6 +164,15 @@ var VirtualizedFileDiff = class extends FileDiff {
  			return hasHeightChange;
  		}
  		this.top = this.getVirtualizedTop();
@@ -252,334 +258,11 @@ diff --git a/dist/components/VirtualizedFileDiff.js b/dist/components/Virtualize
  		hasHeightChange = this.applyGhostTextRows(fileDiff, this.editor?.__getGhostTextRows() ?? NO_GHOST_TEXT_ROWS);
  		const { ghostTextRowsByIndex } = this.cache;
  		const measureAllRows = overflow !== "scroll" || this.lineAnnotations.length > 0 || this.isResizeDebuggingEnabled();
-diff --git a/dist/editor/searchPanel.js b/dist/editor/searchPanel.js
---- a/dist/editor/searchPanel.js
-+++ b/dist/editor/searchPanel.js
-@@ -25,6 +25,9 @@
- 			current: void 0
- 		};
- 		const matchResultElement = h("div", {
-+			id: "editor-search-status",
-+			role: "status",
-+			ariaLive: "polite",
- 			dataset: {
- 				matches: "",
- 				noMatches: ""
-@@ -32,12 +35,24 @@
- 			textContent: "No results"
- 		});
- 		const updateMatches = (options) => {
--			matches.all = searchParams.text !== "" ? textDocument.search(searchParams) : [];
-+			let patternError;
-+			if (searchParams.regex && searchParams.text !== "") {
-+				try {
-+					new RegExp(searchParams.text, `g${searchParams.caseSensitive ? "" : "i"}m`);
-+				} catch (error) {
-+					patternError = error.message;
-+				}
-+			}
-+			this.#inputElement.ariaInvalid = String(patternError != null);
-+			if (patternError != null) this.#inputElement.setAttribute("aria-describedby", matchResultElement.id);
-+			else this.#inputElement.removeAttribute("aria-describedby");
-+			matchResultElement.title = patternError ?? "";
-+			matches.all = patternError == null && searchParams.text !== "" ? textDocument.search(searchParams) : [];
- 			const noMatches = matches.all.length === 0;
- 			prevButton.disabled = noMatches;
- 			nextButton.disabled = noMatches;
- 			if (noMatches) {
--				matchResultElement.textContent = "No results";
-+				matchResultElement.textContent = patternError != null ? "Invalid regex" : "No results";
- 				matchResultElement.dataset.noMatches = "";
- 				matches.current = void 0;
- 				onUpdate([]);
-diff --git a/dist/react/CodeView.d.ts b/dist/react/CodeView.d.ts
---- a/dist/react/CodeView.d.ts
-+++ b/dist/react/CodeView.d.ts
-@@ -62,6 +62,7 @@
-   renderHeaderFilenameSuffix?(item: CodeViewItem<LAnnotation>): ReactNode;
-   renderHeaderMetadata?(item: CodeViewItem<LAnnotation>): ReactNode;
-   renderAnnotation?(...args: CodeViewAnnotationArgs<LAnnotation>): ReactNode;
-+  renderBody?(item: CodeViewItem<LAnnotation>): ReactNode;
-   renderGutterUtility?(getHoveredLine: CodeViewGutterUtilityGetter, item: CodeViewItem<LAnnotation>): ReactNode;
- }
- interface ControlledCodeViewProps<LAnnotation, Caret> extends CodeViewBaseProps<LAnnotation, Caret> {
-diff --git a/dist/react/CodeView.js b/dist/react/CodeView.js
---- a/dist/react/CodeView.js
-+++ b/dist/react/CodeView.js
-@@ -24,16 +24,17 @@
- 	};
- }
- function CodeViewInner(props, ref) {
--	const { className, containerRef, disableWorkerPool = false, editorOptions, getEditStateKey, initialItems, items: controlledItems, onItemEditChange, onItemEditComplete, onScroll, onSelectedLinesChange, options, renderAnnotation, renderCodeViewFooter, renderCodeViewHeader, renderCustomHeader, renderGutterUtility, renderHeaderFilenameSuffix, renderHeaderMetadata, renderHeaderPrefix, selectedLines, style } = props;
-+	const { className, containerRef, disableWorkerPool = false, editorOptions, getEditStateKey, initialItems, items: controlledItems, onItemEditChange, onItemEditComplete, onScroll, onSelectedLinesChange, options, renderAnnotation, renderBody, renderCodeViewFooter, renderCodeViewHeader, renderCustomHeader, renderGutterUtility, renderHeaderFilenameSuffix, renderHeaderMetadata, renderHeaderPrefix, selectedLines, style } = props;
- 	const controlled = controlledItems !== void 0;
- 	const contextCreateEditor = useCreateEditor();
- 	const poolManager = useContext(WorkerPoolContext);
- 	const cachedDataRef = useRef(createDefaultCache(controlled));
- 	const hasCustomHeader = renderCustomHeader != null;
- 	const hasAnnotationRenderer = renderAnnotation != null;
-+	const hasBodyRenderer = renderBody != null;
- 	const hasGutterRenderer = renderGutterUtility != null;
- 	const hasHeaderRenderers = hasCustomHeader || renderHeaderPrefix != null || renderHeaderFilenameSuffix != null || renderHeaderMetadata != null;
--	const hasRenderers = hasHeaderRenderers || hasAnnotationRenderer || hasGutterRenderer;
-+	const hasRenderers = hasHeaderRenderers || hasAnnotationRenderer || hasBodyRenderer || hasGutterRenderer;
- 	const hasCodeViewHeader = renderCodeViewHeader != null;
- 	const hasCodeViewFooter = renderCodeViewFooter != null;
- 	const emitSelectedLinesChange = useStableCallback((selection) => {
-@@ -55,6 +56,7 @@
- 	const managedOptions = useMemo(() => createManagedCodeViewOptions({
- 		options,
- 		hasCustomHeader,
-+		hasBodyRenderer,
- 		hasGutterRenderer,
- 		hasCodeViewHeader,
- 		hasCodeViewFooter,
-@@ -74,6 +76,7 @@
- 		hasCodeViewFooter,
- 		hasCodeViewHeader,
- 		hasCustomHeader,
-+		hasBodyRenderer,
- 		hasGutterRenderer,
- 		getEditStateKey,
- 		onItemEditChange,
-@@ -102,16 +105,18 @@
- 		});
- 	});
- 	const slotCoordinator = useMemo(() => {
--		if (!hasHeaderRenderers && !hasAnnotationRenderer && !hasGutterRenderer && !hasCodeViewHeader && !hasCodeViewFooter) return;
-+		if (!hasHeaderRenderers && !hasAnnotationRenderer && !hasBodyRenderer && !hasGutterRenderer && !hasCodeViewHeader && !hasCodeViewFooter) return;
- 		else return {
- 			hasHeaderRenderers,
- 			hasAnnotationRenderer,
-+			hasBodyRenderer,
- 			hasGutterRenderer,
- 			onSnapshotChange
- 		};
- 	}, [
- 		onSnapshotChange,
- 		hasAnnotationRenderer,
-+		hasBodyRenderer,
- 		hasGutterRenderer,
- 		hasHeaderRenderers,
- 		hasCodeViewHeader,
-@@ -261,6 +266,7 @@
- 		renderHeaderFilenameSuffix,
- 		renderHeaderMetadata,
- 		renderAnnotation,
-+		renderBody,
- 		renderGutterUtility,
- 		renderCodeViewHeader,
- 		renderCodeViewFooter
-@@ -302,7 +308,7 @@
- 		}
- 	};
- }
--function createManagedCodeViewOptions({ options, hasCustomHeader, hasGutterRenderer, hasCodeViewHeader, hasCodeViewFooter, onSelectedLinesChange, controlledSelection, getEditStateKey, createEditor, onItemEditChange, onItemEditComplete }) {
-+function createManagedCodeViewOptions({ options, hasCustomHeader, hasBodyRenderer, hasGutterRenderer, hasCodeViewHeader, hasCodeViewFooter, onSelectedLinesChange, controlledSelection, getEditStateKey, createEditor, onItemEditChange, onItemEditComplete }) {
- 	const managedOptions = {
- 		...options,
- 		controlledSelection,
-@@ -313,12 +319,13 @@
- 	if (onItemEditChange != null) managedOptions.onItemEditChange = onItemEditChange;
- 	if (onItemEditComplete != null) managedOptions.onItemEditComplete = onItemEditComplete;
- 	if (hasCustomHeader) managedOptions.renderCustomHeader = noopRender;
-+	if (hasBodyRenderer) managedOptions.renderBody = noopRender;
- 	if (hasGutterRenderer) managedOptions.renderGutterUtility = noopRender;
- 	if (hasCodeViewHeader) managedOptions.renderCodeViewHeader = noopRender;
- 	if (hasCodeViewFooter) managedOptions.renderCodeViewFooter = noopRender;
- 	return managedOptions;
- }
--const SlotPortals = memo(function SlotPortals({ managedContentStore, renderCustomHeader, renderHeaderPrefix, renderHeaderFilenameSuffix, renderHeaderMetadata, renderAnnotation, renderGutterUtility, renderCodeViewHeader, renderCodeViewFooter }) {
-+const SlotPortals = memo(function SlotPortals({ managedContentStore, renderCustomHeader, renderHeaderPrefix, renderHeaderFilenameSuffix, renderHeaderMetadata, renderAnnotation, renderBody, renderGutterUtility, renderCodeViewHeader, renderCodeViewFooter }) {
- 	"use no memo";
- 	const subscribe = useStableCallback((listener) => managedContentStore.subscribe(listener));
- 	const getSnapshot = useStableCallback(() => managedContentStore.getSnapshot());
-@@ -330,6 +337,7 @@
- 			renderHeaderFilenameSuffix,
- 			renderHeaderMetadata,
- 			renderAnnotation,
-+			renderBody,
- 			renderGutterUtility
- 		};
- 		return snapshot?.items?.map((renderedItem) => createPortal(renderedItem.type === "diff" ? /* @__PURE__ */ jsx(DiffItemSlots, {
-@@ -353,6 +361,7 @@
- 		renderHeaderFilenameSuffix,
- 		renderHeaderMetadata,
- 		renderAnnotation,
-+		renderBody,
- 		renderGutterUtility,
- 		snapshot?.items
- 	]);
-@@ -368,8 +377,8 @@
- 		renderedFooter
- 	] });
- });
--const DiffItemSlots = memo(function DiffItemSlots({ item, fileDiff, lineAnnotations, getHoveredLine, getAnnotationSlotName, renderCustomHeader, renderHeaderPrefix, renderHeaderFilenameSuffix, renderHeaderMetadata, renderAnnotation, renderGutterUtility }) {
--	return renderDiffChildren({
-+const DiffItemSlots = memo(function DiffItemSlots({ item, fileDiff, lineAnnotations, getHoveredLine, getAnnotationSlotName, renderCustomHeader, renderHeaderPrefix, renderHeaderFilenameSuffix, renderHeaderMetadata, renderAnnotation, renderBody, renderGutterUtility }) {
-+	return withCustomBody(renderDiffChildren({
- 		fileDiff,
- 		renderCustomHeader: renderCustomHeader != null ? () => renderCustomHeader(item) : void 0,
- 		renderHeaderPrefix: renderHeaderPrefix != null ? () => renderHeaderPrefix(item) : void 0,
-@@ -380,10 +389,10 @@
- 		renderGutterUtility: renderGutterUtility != null ? (getHoveredLine) => renderGutterUtility(getHoveredLine, item) : void 0,
- 		getHoveredLine,
- 		getAnnotationSlotName
--	});
-+	}), renderBody?.(item));
- });
--const FileItemSlots = memo(function FileItemSlots({ item, file, lineAnnotations, getHoveredLine, getAnnotationSlotName, renderCustomHeader, renderHeaderPrefix, renderHeaderFilenameSuffix, renderHeaderMetadata, renderAnnotation, renderGutterUtility }) {
--	return renderFileChildren({
-+const FileItemSlots = memo(function FileItemSlots({ item, file, lineAnnotations, getHoveredLine, getAnnotationSlotName, renderCustomHeader, renderHeaderPrefix, renderHeaderFilenameSuffix, renderHeaderMetadata, renderAnnotation, renderBody, renderGutterUtility }) {
-+	return withCustomBody(renderFileChildren({
- 		file,
- 		renderCustomHeader: renderCustomHeader != null ? () => renderCustomHeader(item) : void 0,
- 		renderHeaderPrefix: renderHeaderPrefix != null ? () => renderHeaderPrefix(item) : void 0,
-@@ -394,8 +403,11 @@
- 		renderGutterUtility: renderGutterUtility != null ? (getHoveredLine) => renderGutterUtility(getHoveredLine, item) : void 0,
- 		getHoveredLine,
- 		getAnnotationSlotName
--	});
-+	}), renderBody?.(item));
- });
-+function withCustomBody(children, body) {
-+	return body == null ? children : jsxs(Fragment, { children: [children, jsx("div", { slot: "diffs-custom-body", children: body })] });
-+}
- function noopRender() {}
- //#endregion
- export { CodeView };
-diff --git a/dist/renderers/FileRenderer.js b/dist/renderers/FileRenderer.js
---- a/dist/renderers/FileRenderer.js
-+++ b/dist/renderers/FileRenderer.js
-@@ -344,7 +344,13 @@
- 		const result = renderCache?.result;
- 		const previousLines = this.lineCache != null && isLineCacheForFile(this.lineCache, file) ? this.lineCache.lines : linesFromFileContents(file.contents);
- 		const nextLines = linesFromFileContents(textDocument.getText());
--		if (result != null && previousLines.length !== nextLines.length) {
-+		if (result != null && (isFileMassive(previousLines.length, this.getTokenizeMaxLength()) || isFileMassive(nextLines.length, this.getTokenizeMaxLength()))) {
-+			result.code = [];
-+			if (renderCache != null) {
-+				renderCache.renderRange = void 0;
-+				renderCache.isDirty = true;
-+			}
-+		} else if (result != null && previousLines.length !== nextLines.length) {
- 			const maxShared = Math.min(previousLines.length, nextLines.length);
- 			let prefix = 0;
- 			while (prefix < maxShared && previousLines[prefix] === nextLines[prefix]) prefix++;
-@@ -429,7 +435,8 @@
- 		};
- 		const lines = this.getOrCreateLineCache(file);
- 		const hasContent = file.contents.length > 0;
--		const forcePlainText = !hasContent || isFilePlainText(file) || isFileMassive(lines.length, this.getTokenizeMaxLength());
-+		const windowedEdit = this.editSessionActive && isFileMassive(lines.length, this.getTokenizeMaxLength());
-+		const forcePlainText = !hasContent || isFilePlainText(file) || windowedEdit || isFileMassive(lines.length, this.getTokenizeMaxLength());
- 		const canRenderFile = this.canRenderFile(file, options, forcePlainText);
- 		const newContent = !areFileTargetsEqual(file, this.renderCache.file);
- 		const newRenderRange = !areRenderRangesEqual(this.renderCache.renderRange, renderRange);
-@@ -451,14 +458,15 @@
- 			const hasLangs = highlighter != null && areLanguagesAttached(this.computedLang, highlighter);
- 			const canHighlight = !forcePlainText && hasLangs;
- 			const lazyLineAST = Number.isFinite(renderRange.totalLines);
--			if (canRenderFile && highlighter != null && hasThemes && (forceHighlight || forcePlainText || !this.renderCache.highlighted && canHighlight || this.renderCache.result == null)) {
--				const { result, options } = this.renderFileWithHighlighter(file, highlighter, forcePlainText || !hasLangs, lazyLineAST);
-+			const reusePlainTextEditCache = windowedEdit || this.editSessionActive && isFilePlainText(file) && !this.renderCache.highlighted && this.renderCache.renderRange == null;
-+			if (canRenderFile && highlighter != null && hasThemes && (forceHighlight || forcePlainText && !reusePlainTextEditCache || windowedEdit && newRenderRange || !this.renderCache.highlighted && canHighlight || this.renderCache.result == null)) {
-+				const { result, options } = this.renderFileWithHighlighter(file, highlighter, forcePlainText || !hasLangs, lazyLineAST, windowedEdit ? renderRange : void 0);
- 				this.renderCache = {
- 					file,
- 					options,
--					highlighted: canHighlight,
-+					highlighted: canHighlight || windowedEdit,
- 					result,
--					renderRange: void 0
-+					renderRange: windowedEdit ? renderRange : void 0
- 				};
- 				if (canHighlight) this.cacheHighlightResult(file, {
- 					result,
-@@ -491,12 +499,15 @@
- 		if (highlighter == null || !hasThemes || !hasLangs) highlighter = await this.initializeHighlighter();
- 		return this.renderFileWithHighlighter(file, highlighter, forcePlainText, lazyLineAST);
- 	}
--	renderFileWithHighlighter(file, highlighter, forcePlainText = false, lazyLineAST = false) {
-+	renderFileWithHighlighter(file, highlighter, forcePlainText = false, lazyLineAST = false, renderRange) {
- 		const { options } = this.getRenderOptions(file);
- 		return {
- 			result: renderFileWithHighlighter(file, highlighter, options, {
- 				forcePlainText,
--				lazyLineAST
-+				lazyLineAST,
-+				startingLine: renderRange?.startingLine,
-+				totalLines: renderRange?.totalLines,
-+				lines: renderRange != null ? this.getOrCreateLineCache(file) : void 0
- 			}),
- 			options
- 		};
-diff --git a/dist/highlighter/highlights-editor.js b/dist/highlighter/highlights-editor.js
---- a/dist/highlighter/highlights-editor.js
-+++ b/dist/highlighter/highlights-editor.js
-@@ -5,6 +5,7 @@
- 	options;
- 	resolveOptions;
- 	#tokenizer;
-+	#plainText = false;
- 	#version;
- 	#disposed = false;
- 	#returnedRange;
-@@ -18,19 +19,22 @@
- 		this.#tokenizer = this.#createTokenizer();
- 	}
- 	#createTokenizer() {
-+		const options = this.resolveOptions({
-+			lang: this.options.textDocument.languageId,
-+			theme: this.options.theme,
-+			cssVariablePrefix: formatCSSVariablePrefix("token"),
-+			tokenizeMaxLineLength: this.options.tokenizeMaxLineLength ?? 1e3
-+		});
-+		this.#plainText = options.lang === "text";
- 		return new LiveTokenizer({
--			...this.resolveOptions({
--				lang: this.options.textDocument.languageId,
--				theme: this.options.theme,
--				cssVariablePrefix: formatCSSVariablePrefix("token"),
--				tokenizeMaxLineLength: this.options.tokenizeMaxLineLength ?? 1e3
--			}),
--			code: this.options.textDocument.getText(),
-+			...options,
-+			code: this.#plainText ? "" : this.options.textDocument.getText(),
- 			renderRange: [0, 0],
- 			onDeferTokenize: (lines) => this.#deliver(lines)
- 		});
- 	}
- 	#deliver(lines) {
-+		if (this.#plainText) return;
- 		const captured = this.#capturedLines;
- 		if (captured != null) {
- 			for (const [line, tokens] of lines) captured.set(line, tokens);
-@@ -61,6 +65,11 @@
- 		const start = Math.min(renderRange?.startingLine ?? 0, document.lineCount);
- 		const end = Math.min(start + (renderRange?.totalLines ?? Infinity), document.lineCount);
- 		const returnedStart = Math.max(start, change.startLine);
-+		if (this.#plainText) {
-+			const lines = new Map();
-+			for (let line = returnedStart; line < end; line++) lines.set(line, [[0, "", document.getLineText(line)]]);
-+			return lines;
-+		}
- 		this.#paused = false;
- 		let lines;
- 		if (this.#version !== document.version) {
-@@ -125,7 +134,7 @@
- 	}
- 	getStringCommentRegexpRangesInLine(lineIndex) {
- 		const document = this.options.textDocument;
--		if (this.options.matchBrackets === false || lineIndex < 0 || lineIndex >= document.lineCount) return null;
-+		if (this.#plainText || this.options.matchBrackets === false || lineIndex < 0 || lineIndex >= document.lineCount) return null;
- 		const captured = /* @__PURE__ */ new Map();
- 		this.#capturedLines = captured;
- 		try {
 diff --git a/dist/editor/editor.js b/dist/editor/editor.js
+index bf17cea32f39ee60ff7520b17f44d99a8e7e98aa..d4ecda48eec5798ec7f4cf236e191e735dc0956c 100644
 --- a/dist/editor/editor.js
 +++ b/dist/editor/editor.js
-@@ -1837,7 +1837,11 @@
+@@ -1837,7 +1837,11 @@ var Editor = class {
  					const lineIndex = lineNumber - 1;
  					if (dirtyLineIndexes.has(lineIndex)) {
  						const tokens = dirtyLines.get(lineIndex);
@@ -592,11 +275,66 @@ diff --git a/dist/editor/editor.js b/dist/editor/editor.js
  						dirtyLineIndexes.delete(lineIndex);
  						if (dirtyLineIndexes.size === 0) break;
  					}
-@@ -3547,6 +3551,13 @@
+@@ -2953,6 +2957,7 @@ var Editor = class {
+ 		}
+ 	}
+ 	#renderWrappedSelection(renderCtx, line, lineText, startChar, endChar, isLastLine, type, extraDataset, connectedCaret) {
++		if (lineText.length > 4096 && !/^[\x20-\x7e]+$/.test(lineText) && this.#renderDOMSelection(renderCtx, line, lineText, startChar, endChar, isLastLine, type, extraDataset, connectedCaret)) return;
+ 		const wrapOffsets = this.#wrapLineTextOrWholeLine(line);
+ 		const segmentCount = wrapOffsets.length - 1;
+ 		const offsetLeft = this.#getGutterWidth() + this.#metrics.ch + (this.#activeContentOffset?.left ?? 0);
+@@ -2973,6 +2978,46 @@ var Editor = class {
+ 			});
+ 		}
+ 	}
++	#renderDOMSelection(renderCtx, line, text, start, end, isLastLine, type, extraDataset, connectedCaret) {
++		const element = this.#getLineElement(line);
++		if (element == null || element.textContent !== text) return false;
++		const walker = document.createTreeWalker(element, NodeFilter.SHOW_TEXT);
++		let node = walker.nextNode();
++		if (node == null) return false;
++		const range = document.createRange();
++		range.setStart(node, 0);
++		range.collapse(true);
++		const origin = range.getClientRects().item(0);
++		if (origin == null) return false;
++		let offset = 0;
++		while (start > offset + node.length) {
++			offset += node.length;
++			node = walker.nextNode();
++			if (node == null) return false;
++		}
++		range.setStart(node, start - offset);
++		while (end > offset + node.length) {
++			offset += node.length;
++			node = walker.nextNode();
++			if (node == null) return false;
++		}
++		range.setEnd(node, end - offset);
++		const rects = range.getClientRects();
++		const offsetLeft = this.#getGutterWidth() - element.getBoundingClientRect().left + (this.#activeContentOffset?.left ?? 0);
++		for (let i = 0; i < rects.length; i++) {
++			const rect = rects[i];
++			const wrapLine = Math.round((rect.top - origin.top) / this.#metrics.lineHeight);
++			this.#renderSelectionBlock(renderCtx, type, line, wrapLine, offsetLeft + rect.left, rect.width, extraDataset, {
++				start: connectedCaret?.line === line && connectedCaret.character === start && i === 0,
++				end: connectedCaret?.line === line && connectedCaret.character === end && i === rects.length - 1
++			});
++		}
++		if (!isLastLine && type === "selection") {
++			const [left, wrapLine] = this.#getCharX(line, end);
++			this.#renderSelectionBlock(renderCtx, type, line, wrapLine, left, this.#metrics.ch, extraDataset);
++		}
++		return true;
++	}
+ 	#segmentTextWidth(lineText, segmentStart, character) {
+ 		if (character <= segmentStart) return 0;
+ 		const segmentText = lineText.slice(segmentStart, character);
+@@ -3547,6 +3592,13 @@ var Editor = class {
  		const offsetLeft = this.#getGutterWidth() + this.#metrics.ch;
  		if (lineText === void 0 || lineText.length === 0 || char <= 0) return [offsetLeft + (this.#activeContentOffset?.left ?? 0), 0];
  		const boundedCharacter = snapTextOffsetToUnicodeBoundary(lineText, Math.min(char, lineText.length));
-+		if (this.#isWrap && lineText.length > 4096 && /^[\x20-\x7e]+$/.test(lineText)) {
++		if (this.#isWrap && lineText.length > 4096) {
 +			const position = this.#getRenderedCharX(line, boundedCharacter, lineText);
 +			if (position !== void 0) {
 +				this.#lastAccessedCharX = [line, char, position[0], position[1]];
@@ -606,7 +344,7 @@ diff --git a/dist/editor/editor.js b/dist/editor/editor.js
  		const textBeforeCharacter = lineText.slice(0, boundedCharacter);
  		const asciiColumns = getExpandedAsciiTextColumns(textBeforeCharacter, this.#metrics.tabSize);
  		let left = 0;
-@@ -3585,6 +3596,67 @@
+@@ -3585,6 +3637,67 @@ var Editor = class {
  		];
  		return [left, wrapLine];
  	}
@@ -631,7 +369,7 @@ diff --git a/dist/editor/editor.js b/dist/editor/editor.js
 +		range.collapse(true);
 +		const rect = range.getClientRects().item(0);
 +		if (rect == null) return;
-+		return [this.#getGutterWidth() + this.#metrics.ch + rect.left - origin.left + (this.#activeContentOffset?.left ?? 0), Math.round((rect.top - origin.top) / this.#metrics.lineHeight)];
++		return [this.#getGutterWidth() + rect.left - element.getBoundingClientRect().left + (this.#activeContentOffset?.left ?? 0), Math.round((rect.top - origin.top) / this.#metrics.lineHeight)];
 +	}
 +	#measureAsciiWrapOffsets(element, length) {
 +		const walker = document.createTreeWalker(element, NodeFilter.SHOW_TEXT);
@@ -674,7 +412,7 @@ diff --git a/dist/editor/editor.js b/dist/editor/editor.js
  	#wrapLineText(line) {
  		const cachedOffsets = this.#wrapLineOffsetsCache.get(line);
  		if (cachedOffsets !== void 0) return cachedOffsets;
-@@ -3597,6 +3669,16 @@
+@@ -3597,6 +3710,16 @@ var Editor = class {
  		}
  		const contentElement = this.#contentElement;
  		if (contentElement == null || !contentElement.isConnected) return;
@@ -691,7 +429,7 @@ diff --git a/dist/editor/editor.js b/dist/editor/editor.js
  		const div = h("div", {
  			style: {
  				position: "absolute",
-@@ -3620,6 +3702,13 @@
+@@ -3620,6 +3743,13 @@ var Editor = class {
  		try {
  			const divRect = div.getBoundingClientRect();
  			if (divRect.width === 0) return;
@@ -705,3 +443,332 @@ diff --git a/dist/editor/editor.js b/dist/editor/editor.js
  			const unicodeOffsets = getUnicodeMeasurementOffsets(lineText);
  			const wrapLineStartLeft = divRect.left + this.#metrics.ch;
  			const graphemeCount = unicodeOffsets === void 0 ? lineText.length : unicodeOffsets.length - 1;
+diff --git a/dist/editor/searchPanel.js b/dist/editor/searchPanel.js
+index df1ba637c2f7834f21f087eba7a416c802f4ac68..db85a80fbcdc2e599abac954246c64d739c41aba 100644
+--- a/dist/editor/searchPanel.js
++++ b/dist/editor/searchPanel.js
+@@ -25,6 +25,9 @@ var SearchPanelWidget = class {
+ 			current: void 0
+ 		};
+ 		const matchResultElement = h("div", {
++			id: "editor-search-status",
++			role: "status",
++			ariaLive: "polite",
+ 			dataset: {
+ 				matches: "",
+ 				noMatches: ""
+@@ -32,12 +35,24 @@ var SearchPanelWidget = class {
+ 			textContent: "No results"
+ 		});
+ 		const updateMatches = (options) => {
+-			matches.all = searchParams.text !== "" ? textDocument.search(searchParams) : [];
++			let patternError;
++			if (searchParams.regex && searchParams.text !== "") {
++				try {
++					new RegExp(searchParams.text, `g${searchParams.caseSensitive ? "" : "i"}m`);
++				} catch (error) {
++					patternError = error.message;
++				}
++			}
++			this.#inputElement.ariaInvalid = String(patternError != null);
++			if (patternError != null) this.#inputElement.setAttribute("aria-describedby", matchResultElement.id);
++			else this.#inputElement.removeAttribute("aria-describedby");
++			matchResultElement.title = patternError ?? "";
++			matches.all = patternError == null && searchParams.text !== "" ? textDocument.search(searchParams) : [];
+ 			const noMatches = matches.all.length === 0;
+ 			prevButton.disabled = noMatches;
+ 			nextButton.disabled = noMatches;
+ 			if (noMatches) {
+-				matchResultElement.textContent = "No results";
++				matchResultElement.textContent = patternError != null ? "Invalid regex" : "No results";
+ 				matchResultElement.dataset.noMatches = "";
+ 				matches.current = void 0;
+ 				onUpdate([]);
+diff --git a/dist/highlighter/highlights-editor.js b/dist/highlighter/highlights-editor.js
+index 1c28b317c963657aedd4487c889b65c8609a5b74..3a5792b0528e8cee56102af36080ef6610ded275 100644
+--- a/dist/highlighter/highlights-editor.js
++++ b/dist/highlighter/highlights-editor.js
+@@ -5,6 +5,7 @@ var HighlightsEditorTokenizer = class {
+ 	options;
+ 	resolveOptions;
+ 	#tokenizer;
++	#plainText = false;
+ 	#version;
+ 	#disposed = false;
+ 	#returnedRange;
+@@ -18,19 +19,22 @@ var HighlightsEditorTokenizer = class {
+ 		this.#tokenizer = this.#createTokenizer();
+ 	}
+ 	#createTokenizer() {
++		const options = this.resolveOptions({
++			lang: this.options.textDocument.languageId,
++			theme: this.options.theme,
++			cssVariablePrefix: formatCSSVariablePrefix("token"),
++			tokenizeMaxLineLength: this.options.tokenizeMaxLineLength ?? 1e3
++		});
++		this.#plainText = options.lang === "text";
+ 		return new LiveTokenizer({
+-			...this.resolveOptions({
+-				lang: this.options.textDocument.languageId,
+-				theme: this.options.theme,
+-				cssVariablePrefix: formatCSSVariablePrefix("token"),
+-				tokenizeMaxLineLength: this.options.tokenizeMaxLineLength ?? 1e3
+-			}),
+-			code: this.options.textDocument.getText(),
++			...options,
++			code: this.#plainText ? "" : this.options.textDocument.getText(),
+ 			renderRange: [0, 0],
+ 			onDeferTokenize: (lines) => this.#deliver(lines)
+ 		});
+ 	}
+ 	#deliver(lines) {
++		if (this.#plainText) return;
+ 		const captured = this.#capturedLines;
+ 		if (captured != null) {
+ 			for (const [line, tokens] of lines) captured.set(line, tokens);
+@@ -61,6 +65,11 @@ var HighlightsEditorTokenizer = class {
+ 		const start = Math.min(renderRange?.startingLine ?? 0, document.lineCount);
+ 		const end = Math.min(start + (renderRange?.totalLines ?? Infinity), document.lineCount);
+ 		const returnedStart = Math.max(start, change.startLine);
++		if (this.#plainText) {
++			const lines = new Map();
++			for (let line = returnedStart; line < end; line++) lines.set(line, [[0, "", document.getLineText(line)]]);
++			return lines;
++		}
+ 		this.#paused = false;
+ 		let lines;
+ 		if (this.#version !== document.version) {
+@@ -125,7 +134,7 @@ var HighlightsEditorTokenizer = class {
+ 	}
+ 	getStringCommentRegexpRangesInLine(lineIndex) {
+ 		const document = this.options.textDocument;
+-		if (this.options.matchBrackets === false || lineIndex < 0 || lineIndex >= document.lineCount) return null;
++		if (this.#plainText || this.options.matchBrackets === false || lineIndex < 0 || lineIndex >= document.lineCount) return null;
+ 		const captured = /* @__PURE__ */ new Map();
+ 		this.#capturedLines = captured;
+ 		try {
+diff --git a/dist/react/CodeView.d.ts b/dist/react/CodeView.d.ts
+index 12e12c50cd0442c230fb5a9ac00fb097f6dfb01e..9b1c9c83975001d5c6dc8b66347f3590a77d2290 100644
+--- a/dist/react/CodeView.d.ts
++++ b/dist/react/CodeView.d.ts
+@@ -62,6 +62,7 @@ interface CodeViewBaseProps<LAnnotation, Caret> {
+   renderHeaderFilenameSuffix?(item: CodeViewItem<LAnnotation>): ReactNode;
+   renderHeaderMetadata?(item: CodeViewItem<LAnnotation>): ReactNode;
+   renderAnnotation?(...args: CodeViewAnnotationArgs<LAnnotation>): ReactNode;
++  renderBody?(item: CodeViewItem<LAnnotation>): ReactNode;
+   renderGutterUtility?(getHoveredLine: CodeViewGutterUtilityGetter, item: CodeViewItem<LAnnotation>): ReactNode;
+ }
+ interface ControlledCodeViewProps<LAnnotation, Caret> extends CodeViewBaseProps<LAnnotation, Caret> {
+diff --git a/dist/react/CodeView.js b/dist/react/CodeView.js
+index 4dfed6bd0af6511b7325620ae78d25a8857cfa8b..72d14caf614fb657fa42a94c1fb04ccdc42dc7a6 100644
+--- a/dist/react/CodeView.js
++++ b/dist/react/CodeView.js
+@@ -24,16 +24,17 @@ function createDefaultCache(controlled) {
+ 	};
+ }
+ function CodeViewInner(props, ref) {
+-	const { className, containerRef, disableWorkerPool = false, editorOptions, getEditStateKey, initialItems, items: controlledItems, onItemEditChange, onItemEditComplete, onScroll, onSelectedLinesChange, options, renderAnnotation, renderCodeViewFooter, renderCodeViewHeader, renderCustomHeader, renderGutterUtility, renderHeaderFilenameSuffix, renderHeaderMetadata, renderHeaderPrefix, selectedLines, style } = props;
++	const { className, containerRef, disableWorkerPool = false, editorOptions, getEditStateKey, initialItems, items: controlledItems, onItemEditChange, onItemEditComplete, onScroll, onSelectedLinesChange, options, renderAnnotation, renderBody, renderCodeViewFooter, renderCodeViewHeader, renderCustomHeader, renderGutterUtility, renderHeaderFilenameSuffix, renderHeaderMetadata, renderHeaderPrefix, selectedLines, style } = props;
+ 	const controlled = controlledItems !== void 0;
+ 	const contextCreateEditor = useCreateEditor();
+ 	const poolManager = useContext(WorkerPoolContext);
+ 	const cachedDataRef = useRef(createDefaultCache(controlled));
+ 	const hasCustomHeader = renderCustomHeader != null;
+ 	const hasAnnotationRenderer = renderAnnotation != null;
++	const hasBodyRenderer = renderBody != null;
+ 	const hasGutterRenderer = renderGutterUtility != null;
+ 	const hasHeaderRenderers = hasCustomHeader || renderHeaderPrefix != null || renderHeaderFilenameSuffix != null || renderHeaderMetadata != null;
+-	const hasRenderers = hasHeaderRenderers || hasAnnotationRenderer || hasGutterRenderer;
++	const hasRenderers = hasHeaderRenderers || hasAnnotationRenderer || hasBodyRenderer || hasGutterRenderer;
+ 	const hasCodeViewHeader = renderCodeViewHeader != null;
+ 	const hasCodeViewFooter = renderCodeViewFooter != null;
+ 	const emitSelectedLinesChange = useStableCallback((selection) => {
+@@ -55,6 +56,7 @@ function CodeViewInner(props, ref) {
+ 	const managedOptions = useMemo(() => createManagedCodeViewOptions({
+ 		options,
+ 		hasCustomHeader,
++		hasBodyRenderer,
+ 		hasGutterRenderer,
+ 		hasCodeViewHeader,
+ 		hasCodeViewFooter,
+@@ -74,6 +76,7 @@ function CodeViewInner(props, ref) {
+ 		hasCodeViewFooter,
+ 		hasCodeViewHeader,
+ 		hasCustomHeader,
++		hasBodyRenderer,
+ 		hasGutterRenderer,
+ 		getEditStateKey,
+ 		onItemEditChange,
+@@ -102,16 +105,18 @@ function CodeViewInner(props, ref) {
+ 		});
+ 	});
+ 	const slotCoordinator = useMemo(() => {
+-		if (!hasHeaderRenderers && !hasAnnotationRenderer && !hasGutterRenderer && !hasCodeViewHeader && !hasCodeViewFooter) return;
++		if (!hasHeaderRenderers && !hasAnnotationRenderer && !hasBodyRenderer && !hasGutterRenderer && !hasCodeViewHeader && !hasCodeViewFooter) return;
+ 		else return {
+ 			hasHeaderRenderers,
+ 			hasAnnotationRenderer,
++			hasBodyRenderer,
+ 			hasGutterRenderer,
+ 			onSnapshotChange
+ 		};
+ 	}, [
+ 		onSnapshotChange,
+ 		hasAnnotationRenderer,
++		hasBodyRenderer,
+ 		hasGutterRenderer,
+ 		hasHeaderRenderers,
+ 		hasCodeViewHeader,
+@@ -261,6 +266,7 @@ function CodeViewInner(props, ref) {
+ 		renderHeaderFilenameSuffix,
+ 		renderHeaderMetadata,
+ 		renderAnnotation,
++		renderBody,
+ 		renderGutterUtility,
+ 		renderCodeViewHeader,
+ 		renderCodeViewFooter
+@@ -302,7 +308,7 @@ function createSlotContentStore() {
+ 		}
+ 	};
+ }
+-function createManagedCodeViewOptions({ options, hasCustomHeader, hasGutterRenderer, hasCodeViewHeader, hasCodeViewFooter, onSelectedLinesChange, controlledSelection, getEditStateKey, createEditor, onItemEditChange, onItemEditComplete }) {
++function createManagedCodeViewOptions({ options, hasCustomHeader, hasBodyRenderer, hasGutterRenderer, hasCodeViewHeader, hasCodeViewFooter, onSelectedLinesChange, controlledSelection, getEditStateKey, createEditor, onItemEditChange, onItemEditComplete }) {
+ 	const managedOptions = {
+ 		...options,
+ 		controlledSelection,
+@@ -313,12 +319,13 @@ function createManagedCodeViewOptions({ options, hasCustomHeader, hasGutterRende
+ 	if (onItemEditChange != null) managedOptions.onItemEditChange = onItemEditChange;
+ 	if (onItemEditComplete != null) managedOptions.onItemEditComplete = onItemEditComplete;
+ 	if (hasCustomHeader) managedOptions.renderCustomHeader = noopRender;
++	if (hasBodyRenderer) managedOptions.renderBody = noopRender;
+ 	if (hasGutterRenderer) managedOptions.renderGutterUtility = noopRender;
+ 	if (hasCodeViewHeader) managedOptions.renderCodeViewHeader = noopRender;
+ 	if (hasCodeViewFooter) managedOptions.renderCodeViewFooter = noopRender;
+ 	return managedOptions;
+ }
+-const SlotPortals = memo(function SlotPortals({ managedContentStore, renderCustomHeader, renderHeaderPrefix, renderHeaderFilenameSuffix, renderHeaderMetadata, renderAnnotation, renderGutterUtility, renderCodeViewHeader, renderCodeViewFooter }) {
++const SlotPortals = memo(function SlotPortals({ managedContentStore, renderCustomHeader, renderHeaderPrefix, renderHeaderFilenameSuffix, renderHeaderMetadata, renderAnnotation, renderBody, renderGutterUtility, renderCodeViewHeader, renderCodeViewFooter }) {
+ 	"use no memo";
+ 	const subscribe = useStableCallback((listener) => managedContentStore.subscribe(listener));
+ 	const getSnapshot = useStableCallback(() => managedContentStore.getSnapshot());
+@@ -330,6 +337,7 @@ const SlotPortals = memo(function SlotPortals({ managedContentStore, renderCusto
+ 			renderHeaderFilenameSuffix,
+ 			renderHeaderMetadata,
+ 			renderAnnotation,
++			renderBody,
+ 			renderGutterUtility
+ 		};
+ 		return snapshot?.items?.map((renderedItem) => createPortal(renderedItem.type === "diff" ? /* @__PURE__ */ jsx(DiffItemSlots, {
+@@ -353,6 +361,7 @@ const SlotPortals = memo(function SlotPortals({ managedContentStore, renderCusto
+ 		renderHeaderFilenameSuffix,
+ 		renderHeaderMetadata,
+ 		renderAnnotation,
++		renderBody,
+ 		renderGutterUtility,
+ 		snapshot?.items
+ 	]);
+@@ -368,8 +377,8 @@ const SlotPortals = memo(function SlotPortals({ managedContentStore, renderCusto
+ 		renderedFooter
+ 	] });
+ });
+-const DiffItemSlots = memo(function DiffItemSlots({ item, fileDiff, lineAnnotations, getHoveredLine, getAnnotationSlotName, renderCustomHeader, renderHeaderPrefix, renderHeaderFilenameSuffix, renderHeaderMetadata, renderAnnotation, renderGutterUtility }) {
+-	return renderDiffChildren({
++const DiffItemSlots = memo(function DiffItemSlots({ item, fileDiff, lineAnnotations, getHoveredLine, getAnnotationSlotName, renderCustomHeader, renderHeaderPrefix, renderHeaderFilenameSuffix, renderHeaderMetadata, renderAnnotation, renderBody, renderGutterUtility }) {
++	return withCustomBody(renderDiffChildren({
+ 		fileDiff,
+ 		renderCustomHeader: renderCustomHeader != null ? () => renderCustomHeader(item) : void 0,
+ 		renderHeaderPrefix: renderHeaderPrefix != null ? () => renderHeaderPrefix(item) : void 0,
+@@ -380,10 +389,10 @@ const DiffItemSlots = memo(function DiffItemSlots({ item, fileDiff, lineAnnotati
+ 		renderGutterUtility: renderGutterUtility != null ? (getHoveredLine) => renderGutterUtility(getHoveredLine, item) : void 0,
+ 		getHoveredLine,
+ 		getAnnotationSlotName
+-	});
++	}), renderBody?.(item));
+ });
+-const FileItemSlots = memo(function FileItemSlots({ item, file, lineAnnotations, getHoveredLine, getAnnotationSlotName, renderCustomHeader, renderHeaderPrefix, renderHeaderFilenameSuffix, renderHeaderMetadata, renderAnnotation, renderGutterUtility }) {
+-	return renderFileChildren({
++const FileItemSlots = memo(function FileItemSlots({ item, file, lineAnnotations, getHoveredLine, getAnnotationSlotName, renderCustomHeader, renderHeaderPrefix, renderHeaderFilenameSuffix, renderHeaderMetadata, renderAnnotation, renderBody, renderGutterUtility }) {
++	return withCustomBody(renderFileChildren({
+ 		file,
+ 		renderCustomHeader: renderCustomHeader != null ? () => renderCustomHeader(item) : void 0,
+ 		renderHeaderPrefix: renderHeaderPrefix != null ? () => renderHeaderPrefix(item) : void 0,
+@@ -394,8 +403,11 @@ const FileItemSlots = memo(function FileItemSlots({ item, file, lineAnnotations,
+ 		renderGutterUtility: renderGutterUtility != null ? (getHoveredLine) => renderGutterUtility(getHoveredLine, item) : void 0,
+ 		getHoveredLine,
+ 		getAnnotationSlotName
+-	});
++	}), renderBody?.(item));
+ });
++function withCustomBody(children, body) {
++	return body == null ? children : jsxs(Fragment, { children: [children, jsx("div", { slot: "diffs-custom-body", children: body })] });
++}
+ function noopRender() {}
+ //#endregion
+ export { CodeView };
+diff --git a/dist/renderers/FileRenderer.js b/dist/renderers/FileRenderer.js
+index 4c65f0554cbb6403c5e45affb33ff6e8d18adcf3..c065dd806ce82556fe26f679cff0fe2ff4ed3840 100644
+--- a/dist/renderers/FileRenderer.js
++++ b/dist/renderers/FileRenderer.js
+@@ -344,7 +344,13 @@ var FileRenderer = class {
+ 		const result = renderCache?.result;
+ 		const previousLines = this.lineCache != null && isLineCacheForFile(this.lineCache, file) ? this.lineCache.lines : linesFromFileContents(file.contents);
+ 		const nextLines = linesFromFileContents(textDocument.getText());
+-		if (result != null && previousLines.length !== nextLines.length) {
++		if (result != null && (isFileMassive(previousLines.length, this.getTokenizeMaxLength()) || isFileMassive(nextLines.length, this.getTokenizeMaxLength()))) {
++			result.code = [];
++			if (renderCache != null) {
++				renderCache.renderRange = void 0;
++				renderCache.isDirty = true;
++			}
++		} else if (result != null && previousLines.length !== nextLines.length) {
+ 			const maxShared = Math.min(previousLines.length, nextLines.length);
+ 			let prefix = 0;
+ 			while (prefix < maxShared && previousLines[prefix] === nextLines[prefix]) prefix++;
+@@ -429,7 +435,8 @@ var FileRenderer = class {
+ 		};
+ 		const lines = this.getOrCreateLineCache(file);
+ 		const hasContent = file.contents.length > 0;
+-		const forcePlainText = !hasContent || isFilePlainText(file) || isFileMassive(lines.length, this.getTokenizeMaxLength());
++		const windowedEdit = this.editSessionActive && isFileMassive(lines.length, this.getTokenizeMaxLength());
++		const forcePlainText = !hasContent || isFilePlainText(file) || windowedEdit || isFileMassive(lines.length, this.getTokenizeMaxLength());
+ 		const canRenderFile = this.canRenderFile(file, options, forcePlainText);
+ 		const newContent = !areFileTargetsEqual(file, this.renderCache.file);
+ 		const newRenderRange = !areRenderRangesEqual(this.renderCache.renderRange, renderRange);
+@@ -451,14 +458,15 @@ var FileRenderer = class {
+ 			const hasLangs = highlighter != null && areLanguagesAttached(this.computedLang, highlighter);
+ 			const canHighlight = !forcePlainText && hasLangs;
+ 			const lazyLineAST = Number.isFinite(renderRange.totalLines);
+-			if (canRenderFile && highlighter != null && hasThemes && (forceHighlight || forcePlainText || !this.renderCache.highlighted && canHighlight || this.renderCache.result == null)) {
+-				const { result, options } = this.renderFileWithHighlighter(file, highlighter, forcePlainText || !hasLangs, lazyLineAST);
++			const reusePlainTextEditCache = windowedEdit || this.editSessionActive && isFilePlainText(file) && !this.renderCache.highlighted && this.renderCache.renderRange == null;
++			if (canRenderFile && highlighter != null && hasThemes && (forceHighlight || forcePlainText && !reusePlainTextEditCache || windowedEdit && newRenderRange || !this.renderCache.highlighted && canHighlight || this.renderCache.result == null)) {
++				const { result, options } = this.renderFileWithHighlighter(file, highlighter, forcePlainText || !hasLangs, lazyLineAST, windowedEdit ? renderRange : void 0);
+ 				this.renderCache = {
+ 					file,
+ 					options,
+-					highlighted: canHighlight,
++					highlighted: canHighlight || windowedEdit,
+ 					result,
+-					renderRange: void 0
++					renderRange: windowedEdit ? renderRange : void 0
+ 				};
+ 				if (canHighlight) this.cacheHighlightResult(file, {
+ 					result,
+@@ -491,12 +499,15 @@ var FileRenderer = class {
+ 		if (highlighter == null || !hasThemes || !hasLangs) highlighter = await this.initializeHighlighter();
+ 		return this.renderFileWithHighlighter(file, highlighter, forcePlainText, lazyLineAST);
+ 	}
+-	renderFileWithHighlighter(file, highlighter, forcePlainText = false, lazyLineAST = false) {
++	renderFileWithHighlighter(file, highlighter, forcePlainText = false, lazyLineAST = false, renderRange) {
+ 		const { options } = this.getRenderOptions(file);
+ 		return {
+ 			result: renderFileWithHighlighter(file, highlighter, options, {
+ 				forcePlainText,
+-				lazyLineAST
++				lazyLineAST,
++				startingLine: renderRange?.startingLine,
++				totalLines: renderRange?.totalLines,
++				lines: renderRange != null ? this.getOrCreateLineCache(file) : void 0
+ 			}),
+ 			options
+ 		};
