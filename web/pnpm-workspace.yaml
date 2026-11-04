@@ -2,11 +2,12 @@ allowBuilds:
   '@tailwindcss/oxide': true
 minimumReleaseAgeExclude:
   - '@vitejs/plugin-react@6.1.0'
+  - '@pierre/diffs@1.6.4'
 overrides:
   '@pierre/trees>@pierre/theming': 1.0.2
   vite@*: 'catalog:'
 patchedDependencies:
-  '@pierre/diffs@1.6.1': patches/@pierre__diffs@1.6.1.patch
+  '@pierre/diffs@1.6.4': patches/@pierre__diffs@1.6.4.patch
   '@pierre/trees@1.0.0-beta.6': patches/@pierre__trees@1.0.0-beta.6.patch
 catalog:
   vite: npm:@voidzero-dev/vite-plus-core@1.1.0

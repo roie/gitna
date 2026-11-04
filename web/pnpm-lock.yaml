@@ -18,7 +18,7 @@ overrides:
   vite@*: npm:@voidzero-dev/vite-plus-core@1.1.0
 
 patchedDependencies:
-  '@pierre/diffs@1.6.1': e3d7b985370471fb5a0057a052b8051b444d3d1afc11bd777115abcd7e803b29
+  '@pierre/diffs@1.6.4': e3d7b985370471fb5a0057a052b8051b444d3d1afc11bd777115abcd7e803b29
   '@pierre/trees@1.0.0-beta.6': 981eb4adb4b9961b361fdf6352609bc5e616b24534e85cff6f31b177ee55292d
 
 importers:
@@ -26,8 +26,8 @@ importers:
   .:
     dependencies:
       '@pierre/diffs':
-        specifier: 1.6.1
-        version: 1.6.1(patch_hash=e3d7b985370471fb5a0057a052b8051b444d3d1afc11bd777115abcd7e803b29)(@shikijs/themes@4.4.3)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
+        specifier: 1.6.4
+        version: 1.6.4(patch_hash=e3d7b985370471fb5a0057a052b8051b444d3d1afc11bd777115abcd7e803b29)(@shikijs/themes@4.4.3)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
       '@pierre/icons':
         specifier: 0.9.0
         version: 0.9.0(react@19.3.0)
@@ -472,8 +472,8 @@ packages:
     resolution: {integrity: sha512-S0uyoxakDINJ4DPgqxGlEEvrdSMeQb7Z2lKVjxoY2gwsbZbfg2Xr8Klfeo5ZeraHmmdBCELFUHkSe6KEmBpMvg==}
     engines: {node: ^12.22.0 || ^14.17.0 || >=16.0.0}
 
-  '@pierre/diffs@1.6.1':
-    resolution: {integrity: sha512-XTfLW4bFETyosZfFNUoyRh1zPE4tmAijOoxdHx4X805tlaq/7/fuQXIiJSm21+jLkDo8vn5elQ+2O4YtMTKM0Q==}
+  '@pierre/diffs@1.6.4':
+    resolution: {integrity: sha512-RsKoruCOp50qaDM3a7BQan5K77xMkGWT1NF01fiYP1PfT3v4CvIjwytNk5WjZG0BesBkMOP2UbrBIDigB1k0ug==}
     peerDependencies:
       react: ^18.3.1 || ^19.0.0
       react-dom: ^18.3.1 || ^19.0.0
@@ -483,8 +483,8 @@ packages:
       react-dom:
         optional: true
 
-  '@pierre/highlights@0.2.0':
-    resolution: {integrity: sha512-hTpcOU1EzDAP4bYtEhxmMu2jwMvtkUydRUBUpWMSHTs3dw0IaC3Ld5ansMy18L0GE3b6Vfl2OGkLK+pWWpnBmw==}
+  '@pierre/highlights@0.4.0':
+    resolution: {integrity: sha512-2a38H7ep3KweGi1fGQpJk+Krod2OMpDIXagKPlqBd1Y9P460T7zQmc66Wm2JAH1SpIG93wCyyhZVrkc5dnAJVQ==}
 
   '@pierre/icons@0.9.0':
     resolution: {integrity: sha512-lsvXfhb0ynOaQ+eFM54h8n3jS39Glh6Mng8VNFnxdwJTh0Mo8OGmU27mA3u8Ayha7bZNsAqhNw3jaflnPQEH/Q==}
@@ -2607,9 +2607,9 @@ snapshots:
 
   '@oxlint/plugins@1.79.0': {}
 
-  '@pierre/diffs@1.6.1(patch_hash=e3d7b985370471fb5a0057a052b8051b444d3d1afc11bd777115abcd7e803b29)(@shikijs/themes@4.4.3)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)':
+  '@pierre/diffs@1.6.4(patch_hash=e3d7b985370471fb5a0057a052b8051b444d3d1afc11bd777115abcd7e803b29)(@shikijs/themes@4.4.3)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)':
     dependencies:
-      '@pierre/highlights': 0.2.0
+      '@pierre/highlights': 0.4.0
       '@pierre/theme': 2.0.0
       '@pierre/theming': 1.0.2(@pierre/theme@2.0.0)(@shikijs/themes@4.4.3)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)(shiki@4.4.3)
       diff: 9.0.0
@@ -2622,7 +2622,7 @@ snapshots:
     transitivePeerDependencies:
       - '@shikijs/themes'
 
-  '@pierre/highlights@0.2.0': {}
+  '@pierre/highlights@0.4.0': {}
 
   '@pierre/icons@0.9.0(react@19.3.0)':
     dependencies:

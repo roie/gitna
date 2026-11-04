@@ -41,7 +41,10 @@ export function reviewToItems(review: ReviewResponse): ReviewItems {
   const statusByItemId = new Map<string, ReviewItemStatus>()
 
   if (review.patch) {
-    const parsed = parsePatchFiles(review.patch, reviewIdentityKey(review.identity), true)
+    const parsed = parsePatchFiles(review.patch, {
+      cacheKeyPrefix: reviewIdentityKey(review.identity),
+      disableLineMatching: true,
+    })
     for (const patch of parsed) {
       for (const file of patch.files) {
         const id = itemId(review.identity, file)

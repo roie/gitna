@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vite-plus/test'
 import { reviewFileCount, reviewIdentityKey, reviewToItems } from '../src/lib/review-data'
+import { adaptGitnaReview } from '../src/diffshub/gitna/reviewAdapter'
+import { buildDiffsHubData } from '../src/diffshub/lib/diffsHubDataAccumulator'
 import type { ReviewResponse } from '../src/lib/types'
 
 const patch = `diff --git a/a.txt b/a.txt
@@ -50,6 +52,57 @@ describe('review data', () => {
     expect(first.pathToItemId.get('a.txt')).toBe(first.items[0]?.id)
     expect(first.pathToItemId.get('new.txt')).toBe(first.items[1]?.id)
     expect(first.statusByItemId.get(first.items[2]!.id)).toBe('too-large')
+  })
+
+  it('retains stable, isolated worker cache keys for parsed patches', () => {
+    const adapters = [
+      (owner: string) => {
+        const input = review()
+        input.identity = { scope: 'commit', commit: owner }
+        return reviewToItems(input)
+      },
+      (owner: string) => adaptGitnaReview(review(), owner),
+      (owner: string) => buildDiffsHubData(patch, owner),
+    ]
+    for (const adapt of adapters) {
+      const key = (owner: string) => {
+        const item = adapt(owner).items[0]
+        if (item?.type !== 'diff') throw new Error('Expected a parsed diff')
+        return item.fileDiff.cacheKey
+      }
+      expect(key('first')).toBeDefined()
+      expect(key('first')).toBe(key('first'))
+      expect(key('first')).not.toBe(key('second'))
+    }
+  })
+
+  it('preserves Git change blocks instead of realigning similar source lines', () => {
+    const input = review()
+    input.patch = `diff --git a/a.txt b/a.txt
+--- a/a.txt
++++ b/a.txt
+@@ -1,3 +1,4 @@
+-export const alpha = 1;
+-export const beta = 2;
+-export const gamma = 3;
++// inserted heading
++export const alpha = 10;
++export const beta = 20;
++export const gamma = 30;
+`
+    for (const result of [reviewToItems(input), adaptGitnaReview(input)]) {
+      const item = result.items[0]
+      if (item?.type !== 'diff') throw new Error('Expected a parsed diff')
+      expect(item.fileDiff.hunks[0]?.hunkContent).toEqual([
+        {
+          type: 'change',
+          additions: 4,
+          deletions: 3,
+          additionLineIndex: 0,
+          deletionLineIndex: 0,
+        },
+      ])
+    }
   })
 
   it('counts tracked and supplemental files without eager per-file requests', () => {

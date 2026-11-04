@@ -340,11 +340,9 @@ export function buildDiffsHubData(
   patchContent: string,
   githubPath: string
 ): LoadedDiffsHubData {
-  const parsedPatches = parsePatchFiles(
-    patchContent,
-    // Use the url as a cache key
-    encodeURIComponent(githubPath)
-  );
+  const parsedPatches = parsePatchFiles(patchContent, {
+    cacheKeyPrefix: encodeURIComponent(githubPath),
+  });
 
   const accumulator = createDiffsHubDataAccumulator();
   const shouldPrefixTreePaths = parsedPatches.length > 1;

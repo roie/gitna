@@ -194,7 +194,10 @@ export function appendGitnaReviewPage(
   }
   const { accumulator } = assembly
   if (review.patch.length > 0) {
-    const parsed = parsePatchFiles(review.patch, assembly.cacheKey, true)
+    const parsed = parsePatchFiles(review.patch, {
+      cacheKeyPrefix: assembly.cacheKey,
+      disableLineMatching: true,
+    })
     for (const patch of parsed) {
       for (const fileDiff of patch.files) {
         appendFileDiffToDiffsHubData(accumulator, fileDiff, undefined)
