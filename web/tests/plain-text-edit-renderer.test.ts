@@ -78,6 +78,39 @@ describe('plain-text editor viewport rendering', () => {
     renderer.cleanUp()
   })
 
+  it('materializes deferred highlight rows only when rendered without rewriting source', async () => {
+    const contents = Array.from({ length: 2000 }, (_, line) => `line ${line}\r\n`).join('')
+    const { file, renderer } = await fixture(contents)
+    const readText = vi.fn((line: number) => `line ${line}`)
+    const updates = new Map<number, [number, string, string][]>()
+    for (let line = 0; line < 2000; line++) {
+      const token: [number, string, string] = [0, '#ff0000', '']
+      Object.defineProperty(token, 2, { get: () => readText(line) })
+      updates.set(line, [token])
+    }
+    renderer.updateRenderCache(updates, 'dark', false, false)
+    expect(readText).not.toHaveBeenCalled()
+    expect(file.contents).toBe(contents)
+    expect(renderWindow(renderer, file, 1997)).toContain('line 1999')
+    expect(readText).toHaveBeenCalledTimes(3)
+    expect(renderWindow(renderer, file, 0)).toContain('line 0')
+    expect(readText).toHaveBeenCalledTimes(6)
+    expect(file.contents).toBe(contents)
+    const document = new TextDocument<'file', undefined>(file.name, contents)
+    document.applyResolvedEdits([{ start: 0, end: 0, text: 'inserted\r\n' }])
+    renderer.applyDocumentChange(document)
+    const shifted = renderWindow(renderer, file, 1998)
+    expect(shifted).toContain('line 1999')
+    expect(shifted).toContain('data-line="2001"')
+    document.undo()
+    renderer.applyDocumentChange(document)
+    expect(renderWindow(renderer, file, 1997)).toContain('line 1999')
+    renderer.updateRenderCache(new Map([[0, [[0, '', 'edited']]]]), 'dark')
+    expect(renderWindow(renderer, file, 0)).toContain('edited')
+    expect(file.contents).toBe(`edited\r\n${contents.slice(contents.indexOf('\r\n') + 2)}`)
+    renderer.cleanUp()
+  })
+
   it('reveals distant matches without retokenizing the entire unchanged document', async () => {
     const { file, renderer, tokenize } = await fixture()
     const initialCalls = tokenize.mock.calls.length
