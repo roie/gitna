@@ -52,7 +52,7 @@ index ee5c91c5ab44742994d900a81dbd8e9c508efb49..11a2121f30db772890c4639c977f6a79
  	const slotSnapshot = [];
  	for (const renderedItem of renderedItems) if (hasAnnotations(renderedItem)) slotSnapshot.push(renderedItem);
 diff --git a/dist/components/File.js b/dist/components/File.js
-index 2ac57c54403465ffba3f825dd7bd353018ce69e7..c14eb8421b6d68a83a9102d05fd7e8d4bff30e1e 100644
+index e19e178b6e6b717a9a672440ba46176f24c36960..c8f5d77c477cdf21ee00c4706addd9d21c1b59c9 100644
 --- a/dist/components/File.js
 +++ b/dist/components/File.js
 @@ -71,6 +71,8 @@ var File = class {
@@ -64,7 +64,7 @@ index 2ac57c54403465ffba3f825dd7bd353018ce69e7..c14eb8421b6d68a83a9102d05fd7e8d4
  	fileRenderer;
  	resizeManager;
  	interactionManager;
-@@ -587,6 +589,7 @@ var File = class {
+@@ -586,6 +588,7 @@ var File = class {
  		if (editSessionFile == null) throw new Error("File.updateRenderCache: requires an active edit session");
  		this.fileRenderer.beginEditSession(editSessionFile);
  		this.fileRenderer.updateRenderCache(dirtyLines, themeType, options?.lineCountChangeInFlight);
@@ -72,7 +72,7 @@ index 2ac57c54403465ffba3f825dd7bd353018ce69e7..c14eb8421b6d68a83a9102d05fd7e8d4
  	}
  	render({ file, fileContainer, forceRender = false, preventEmit = false, containerWrapper, deferManagers = false, lineAnnotations, renderRange }) {
  		if (!this.enabled) throw new Error("File.render: attempting to call render after cleaned up");
-@@ -626,6 +629,7 @@ var File = class {
+@@ -625,6 +628,7 @@ var File = class {
  		this.applyCachedThemeState(themeType);
  		if (collapsed) {
  			this.removeRenderedCode();
@@ -80,7 +80,7 @@ index 2ac57c54403465ffba3f825dd7bd353018ce69e7..c14eb8421b6d68a83a9102d05fd7e8d4
  			this.clearAuxiliaryNodes();
  			try {
  				const fileResult = this.fileRenderer.renderFile(workingFile, EMPTY_RENDER_RANGE);
-@@ -656,6 +660,7 @@ var File = class {
+@@ -655,6 +659,7 @@ var File = class {
  				this.applyFullRender(fileResult, pre);
  				renderedFile = fileResult.file;
  			}
@@ -88,7 +88,7 @@ index 2ac57c54403465ffba3f825dd7bd353018ce69e7..c14eb8421b6d68a83a9102d05fd7e8d4
  			this.applyBuffers(pre, nextRenderRange);
  			this.injectUnsafeCSS();
  			if (renderedFile != null) this.adoptRenderData(renderedFile);
-@@ -688,6 +693,44 @@ var File = class {
+@@ -687,6 +692,44 @@ var File = class {
  		this.mounted = true;
  		onPostRender?.(fileContainer, this, phase);
  	}
@@ -134,7 +134,7 @@ index 2ac57c54403465ffba3f825dd7bd353018ce69e7..c14eb8421b6d68a83a9102d05fd7e8d4
  		this.resizeManager.cleanUp();
  		this.interactionManager.cleanUp();
 diff --git a/dist/components/FileDiff.js b/dist/components/FileDiff.js
-index 12f4f8949f3a1907ac9877f83937b53a966c9411..0d4b50e67c5d143f48cbaea070769a27835a07b9 100644
+index 6910f5cf0ad189837171c513e422b3d5571fb8fb..681ccb4d84ba49b4dfd24007f09c5d02af0609b1 100644
 --- a/dist/components/FileDiff.js
 +++ b/dist/components/FileDiff.js
 @@ -101,6 +101,8 @@ var FileDiff = class {
@@ -146,7 +146,7 @@ index 12f4f8949f3a1907ac9877f83937b53a966c9411..0d4b50e67c5d143f48cbaea070769a27
  	separatorCache = /* @__PURE__ */ new Map();
  	errorWrapper;
  	placeHolder;
-@@ -738,6 +740,7 @@ var FileDiff = class {
+@@ -737,6 +739,7 @@ var FileDiff = class {
  		this.applyCachedThemeState(themeType);
  		if (collapsed) {
  			this.removeRenderedCode();
@@ -154,7 +154,7 @@ index 12f4f8949f3a1907ac9877f83937b53a966c9411..0d4b50e67c5d143f48cbaea070769a27
  			this.clearAuxiliaryNodes();
  			try {
  				const hunksResult = this.hunksRenderer.renderDiff(workingDiff, EMPTY_RENDER_RANGE);
-@@ -780,6 +783,7 @@ var FileDiff = class {
+@@ -779,6 +782,7 @@ var FileDiff = class {
  				const renderedDiff = this.getRenderedDiff();
  				if (renderedDiff != null) this.adoptRenderData(renderedDiff);
  			}
@@ -162,7 +162,7 @@ index 12f4f8949f3a1907ac9877f83937b53a966c9411..0d4b50e67c5d143f48cbaea070769a27
  			this.applyBuffers(pre, nextRenderRange);
  			this.injectUnsafeCSS();
  			this.renderAnnotations();
-@@ -1119,7 +1123,9 @@ var FileDiff = class {
+@@ -1118,7 +1122,9 @@ var FileDiff = class {
  		this.detachAdditionLines();
  		this.hunksRenderer.beginEditSession(editSessionDiff);
  		const { shouldRefreshDiffsView, lineCountChangeInFlight } = options;
@@ -173,7 +173,7 @@ index 12f4f8949f3a1907ac9877f83937b53a966c9411..0d4b50e67c5d143f48cbaea070769a27
  			if (this.refreshViewTimeout != null) {
  				clearTimeout(this.refreshViewTimeout);
  				this.refreshViewTimeout = void 0;
-@@ -1215,6 +1221,44 @@ var FileDiff = class {
+@@ -1214,6 +1220,44 @@ var FileDiff = class {
  		this.rerender();
  		this.flushDeferredLineState();
  	};
@@ -239,7 +239,7 @@ index 95d4ca8fdf9e176e23d354094a11022eefdb2321..e83d8ee2adda4f0f07be5d677d865d9c
  		hasHeightChange = this.applyGhostTextRows(ghostTextRows);
  		const measureAllRows = overflow !== "scroll" || this.lineAnnotations.length > 0 || this.isResizeDebuggingEnabled();
 diff --git a/dist/components/VirtualizedFileDiff.js b/dist/components/VirtualizedFileDiff.js
-index eb34dd4a774cb06add3280fe6abd5f0dc292505e..60900da5becfa1c24e5361b3a01ab5a7ab9e0e3a 100644
+index eb8c2831276f18eda0ddcb12967d0182679953a4..188b45ba17dbcbec39b7637a50ee93163ffdfebe 100644
 --- a/dist/components/VirtualizedFileDiff.js
 +++ b/dist/components/VirtualizedFileDiff.js
 @@ -164,6 +164,15 @@ var VirtualizedFileDiff = class extends FileDiff {
@@ -492,7 +492,7 @@ index bf17cea32f39ee60ff7520b17f44d99a8e7e98aa..0003116eea71c774a029d8e197dd4a24
  			const wrapLineStartLeft = divRect.left + this.#metrics.ch;
  			const graphemeCount = unicodeOffsets === void 0 ? lineText.length : unicodeOffsets.length - 1;
 diff --git a/dist/editor/searchPanel.js b/dist/editor/searchPanel.js
-index df1ba637c2f7834f21f087eba7a416c802f4ac68..db85a80fbcdc2e599abac954246c64d739c41aba 100644
+index 807ac9f685815f71a9fdeb3f47cdcd9c03374cf7..ee8ed74063d6629e9a46846443abc38b70098f12 100644
 --- a/dist/editor/searchPanel.js
 +++ b/dist/editor/searchPanel.js
 @@ -25,6 +25,9 @@ var SearchPanelWidget = class {
@@ -754,10 +754,10 @@ index 4dfed6bd0af6511b7325620ae78d25a8857cfa8b..72d14caf614fb657fa42a94c1fb04ccd
  //#endregion
  export { CodeView };
 diff --git a/dist/renderers/FileRenderer.js b/dist/renderers/FileRenderer.js
-index 4c65f0554cbb6403c5e45affb33ff6e8d18adcf3..c065dd806ce82556fe26f679cff0fe2ff4ed3840 100644
+index 4c65f0554cbb6403c5e45affb33ff6e8d18adcf3..27ff802e0aebb42c63a67995483bf5b5d4eba668 100644
 --- a/dist/renderers/FileRenderer.js
 +++ b/dist/renderers/FileRenderer.js
-@@ -344,7 +344,13 @@ var FileRenderer = class {
+@@ -344,7 +344,14 @@ var FileRenderer = class {
  		const result = renderCache?.result;
  		const previousLines = this.lineCache != null && isLineCacheForFile(this.lineCache, file) ? this.lineCache.lines : linesFromFileContents(file.contents);
  		const nextLines = linesFromFileContents(textDocument.getText());
@@ -765,6 +765,7 @@ index 4c65f0554cbb6403c5e45affb33ff6e8d18adcf3..c065dd806ce82556fe26f679cff0fe2f
 +		if (result != null && (isFileMassive(previousLines.length, this.getTokenizeMaxLength()) || isFileMassive(nextLines.length, this.getTokenizeMaxLength()))) {
 +			result.code = [];
 +			if (renderCache != null) {
++				renderCache.highlighted = false;
 +				renderCache.renderRange = void 0;
 +				renderCache.isDirty = true;
 +			}
@@ -772,7 +773,7 @@ index 4c65f0554cbb6403c5e45affb33ff6e8d18adcf3..c065dd806ce82556fe26f679cff0fe2f
  			const maxShared = Math.min(previousLines.length, nextLines.length);
  			let prefix = 0;
  			while (prefix < maxShared && previousLines[prefix] === nextLines[prefix]) prefix++;
-@@ -429,7 +435,8 @@ var FileRenderer = class {
+@@ -429,7 +436,8 @@ var FileRenderer = class {
  		};
  		const lines = this.getOrCreateLineCache(file);
  		const hasContent = file.contents.length > 0;
@@ -782,7 +783,7 @@ index 4c65f0554cbb6403c5e45affb33ff6e8d18adcf3..c065dd806ce82556fe26f679cff0fe2f
  		const canRenderFile = this.canRenderFile(file, options, forcePlainText);
  		const newContent = !areFileTargetsEqual(file, this.renderCache.file);
  		const newRenderRange = !areRenderRangesEqual(this.renderCache.renderRange, renderRange);
-@@ -451,14 +458,15 @@ var FileRenderer = class {
+@@ -451,14 +459,15 @@ var FileRenderer = class {
  			const hasLangs = highlighter != null && areLanguagesAttached(this.computedLang, highlighter);
  			const canHighlight = !forcePlainText && hasLangs;
  			const lazyLineAST = Number.isFinite(renderRange.totalLines);
@@ -802,7 +803,7 @@ index 4c65f0554cbb6403c5e45affb33ff6e8d18adcf3..c065dd806ce82556fe26f679cff0fe2f
  				};
  				if (canHighlight) this.cacheHighlightResult(file, {
  					result,
-@@ -491,12 +499,15 @@ var FileRenderer = class {
+@@ -491,12 +500,15 @@ var FileRenderer = class {
  		if (highlighter == null || !hasThemes || !hasLangs) highlighter = await this.initializeHighlighter();
  		return this.renderFileWithHighlighter(file, highlighter, forcePlainText, lazyLineAST);
  	}

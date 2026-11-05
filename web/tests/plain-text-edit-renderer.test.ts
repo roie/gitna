@@ -35,6 +35,23 @@ async function fixture(
 }
 
 describe('plain-text editor viewport rendering', () => {
+  it('renders replacement and undo across the windowed-edit threshold', () => {
+    const original = 'const value = 1;\n'.repeat(5)
+    const file: FileContents = { name: 'source.js', contents: original }
+    const renderer = new FileRenderer({ theme: 'github-dark', tokenizeMaxLength: 2 })
+    renderer.beginEditSession(file)
+    expect(renderWindow(renderer, file, 0)).toContain('const')
+    renderer.applyDocumentChange(new TextDocument<'file', undefined>(file.name, 'x'))
+    expect(renderWindow(renderer, file, 0)).toContain('x')
+    expect(file.contents).toBe('x')
+    renderer.applyDocumentChange(new TextDocument<'file', undefined>(file.name, original))
+    expect(renderWindow(renderer, file, 3)).toContain('const')
+    expect(file.contents).toBe(original)
+    renderer.applyDocumentChange(new TextDocument<'file', undefined>(file.name, 'x'))
+    expect(renderWindow(renderer, file, 0)).toContain('x')
+    renderer.cleanUp()
+  })
+
   it('renders million-line edit sessions in bounded windows', async () => {
     const { file, renderer, tokenize } = await fixture('x\r\n'.repeat(999999) + 'END!')
     expect(renderer.editorRenderReady()).toBe(true)
