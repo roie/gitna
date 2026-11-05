@@ -282,6 +282,70 @@ for (const chunk of ['aB09', 'const x = 1; ']) {
   })
 }
 
+for (const chunk of ['alpha beta ', '世界 👩🏽‍💻 שלום العربية é\t']) {
+  test(`wrapped ${JSON.stringify(chunk)} selections paint only the viewport after scroll and resize`, async ({
+    page,
+    app,
+  }) => {
+    const content = chunk.repeat(1500)
+    writeFileSync(join(app.repo, 'wrapped-selection.txt'), content)
+    await page.goto(app.url)
+    await openFile(page, 'wrapped-selection.txt')
+    const editor = page.locator('.code-view [contenteditable="true"]').first()
+    await expect(editor).toBeVisible()
+    await editor.focus()
+    await editor.press('Control+a')
+    const scroller = page.locator('.cv-scrollbar')
+    for (const mode of ['selection', 'search']) {
+      if (mode === 'search') {
+        await editor.press('Control+f')
+        await page.locator('[data-search-panel] input[data-search]').fill(chunk.split(' ')[0]!)
+        await expect(page.locator('[data-search-panel] [data-matches]')).toContainText('1500')
+      }
+      const highlights = page.locator(
+        `.code-view [data-${mode === 'selection' ? 'selection' : 'match'}-range]`,
+      )
+      for (const width of [1000, 760]) {
+        await page.setViewportSize({ width, height: 720 })
+        for (const fraction of [0, 0.5, 1]) {
+          await scroller.evaluate((element, value) => {
+            element.scrollTop = (element.scrollHeight - element.clientHeight) * value
+          }, fraction)
+          await expect
+            .poll(async () => {
+              const bounds = await scroller.boundingBox()
+              if (!bounds) return false
+              return highlights.evaluateAll((elements, viewport) => {
+                const rects = elements.map((element) => element.getBoundingClientRect())
+                const middle = viewport.y + viewport.height / 2
+                return (
+                  rects.some(
+                    (rect) => rect.top <= middle && rect.bottom >= middle && rect.width > 0,
+                  ) &&
+                  rects.every(
+                    (rect) =>
+                      rect.bottom >= viewport.y - 80 &&
+                      rect.top <= viewport.y + viewport.height + 80,
+                  )
+                )
+              }, bounds)
+            })
+            .toBe(true)
+        }
+      }
+      if (mode === 'selection') {
+        expect(
+          await editor.evaluate((element) => {
+            const clipboardData = new DataTransfer()
+            element.dispatchEvent(new ClipboardEvent('copy', { bubbles: true, clipboardData }))
+            return clipboardData.getData('text/plain')
+          }),
+        ).toBe(content)
+      }
+    }
+  })
+}
+
 test('long plain-text replacements, deletions and line splits save and undo exactly', async ({
   page,
   app,
