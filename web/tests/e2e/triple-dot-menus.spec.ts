@@ -201,15 +201,17 @@ test('Hunk actions reload after partial staging and across scopes', async ({ pag
   const applyHunk = async (label: 'Stage' | 'Unstage') => {
     await expect(async () => {
       await loadHunks(label)
-      const response = page.waitForResponse(
-        (response) =>
-          response.request().method() === 'POST' &&
-          new URL(response.url()).searchParams.get('op') === 'patch',
-      )
-      await page
-        .getByRole('menuitem', { name: `${label} hunk 1 in two-hunk.txt`, exact: true })
-        .click()
-      const result = await response
+      const [result] = await Promise.all([
+        page.waitForResponse(
+          (response) =>
+            response.request().method() === 'POST' &&
+            new URL(response.url()).searchParams.get('op') === 'patch',
+          { timeout: 2000 },
+        ),
+        page
+          .getByRole('menuitem', { name: `${label} hunk 1 in two-hunk.txt`, exact: true })
+          .click({ timeout: 2000 }),
+      ])
       if (result.status() === 409) {
         expect((await result.json()).code).toBe('stale-patch')
       }
