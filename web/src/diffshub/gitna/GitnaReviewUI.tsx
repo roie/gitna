@@ -63,6 +63,7 @@ import { GlobalToastHost } from './ConnectionStatus'
 import { FolderLoadingScreen, folderDisplayName } from './FolderLoadingScreen'
 import { GitnaHome } from './GitnaHome'
 import { Blame } from './Blame'
+import { ChangeGutter } from './ChangeGutter'
 import { GitnaSourceControl } from './SourceControlWorkflow'
 import { Confirm } from './Modal'
 import { UntitledSaveAsModal } from './UntitledSaveAsModal'
@@ -2457,6 +2458,22 @@ function GitnaReviewUIInner({
                         }
                       />
                     </div>
+                    {target?.filePath != null &&
+                      repository.snapshot?.repository === true &&
+                      gitnaEditorActions != null &&
+                      (previewPath == null || previewMode !== 'preview') && (
+                        <ChangeGutter
+                          key={`${repository.snapshot.root}:${target.filePath}`}
+                          path={target.filePath}
+                          generation={repository.generation}
+                          contents={
+                            worktreeDrafts.get(target.filePath)?.contents ??
+                            worktreeFiles.get(target.filePath)?.content
+                          }
+                          api={repository.api}
+                          scrollRef={scrollRef}
+                        />
+                      )}
                     {inlineBlame &&
                       target?.filePath != null &&
                       repository.snapshot?.repository === true &&

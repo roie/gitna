@@ -33,6 +33,37 @@ export const CODE_VIEW_CUSTOM_CSS = `
   box-shadow: var(--gitna-overlay-shadow, none) !important;
 }
 
+[data-file][data-disable-line-numbers] [data-gutter] > [data-column-number] {
+  min-inline-size: 7px;
+}
+[data-file] [data-gitna-change]::before {
+  content: '';
+  position: absolute;
+  inset-inline-start: 0;
+  inset-block: 0;
+  inline-size: 3px;
+  background: var(--diffs-addition-base);
+  pointer-events: none;
+}
+[data-file] [data-gitna-change='modified']::before {
+  background: var(--diffs-modified-base);
+}
+[data-file] [data-gitna-deletion]::after {
+  content: '';
+  position: absolute;
+  inset-inline-start: 0;
+  inset-block-end: 0;
+  inline-size: 7px;
+  block-size: 6px;
+  background: var(--diffs-deletion-base);
+  clip-path: polygon(0 0, 100% 50%, 0 100%);
+  pointer-events: none;
+}
+[data-file] [data-gitna-deletion='before']::after {
+  inset-block-start: 0;
+  inset-block-end: auto;
+}
+
 @container sticky-header scroll-state(stuck: top) {
   [data-diffs-header]::after {
     position: absolute;
