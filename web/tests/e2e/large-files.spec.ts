@@ -47,6 +47,41 @@ test('approving a large file shows loading without a retry error flash', async (
   ).toEqual([])
 })
 
+test('switching back to an approved large file never flashes a warning or retry error', async ({
+  page,
+  app,
+}) => {
+  writeFileSync(join(app.repo, 'switch-large.txt'), 'x'.repeat((2 << 20) + 1))
+  writeFileSync(join(app.repo, 'pending-large.txt'), 'y'.repeat((2 << 20) + 1))
+  await page.goto(app.url)
+  await openFile(page, 'switch-large.txt')
+  await page.getByRole('button', { name: 'Open anyway' }).click()
+  const editor = page.locator('.code-view [contenteditable="true"]').first()
+  await expect(editor).toBeVisible()
+  await openFile(page, 'pending-large.txt')
+  await expect(page.getByRole('heading', { name: 'Open large file?' })).toBeVisible()
+  await page.evaluate(() => {
+    const warningFlashes: string[] = []
+    Object.assign(window, { warningFlashes })
+    new MutationObserver(() => {
+      for (const alert of document.querySelectorAll('[role="alert"]')) {
+        warningFlashes.push(alert.textContent ?? '')
+      }
+    }).observe(document.body, { childList: true, subtree: true, characterData: true })
+  })
+  await page.getByRole('tab', { name: 'switch-large.txt', exact: true }).click()
+  await expect(editor).toContainText('xxxxxxxx')
+  expect(
+    await page.evaluate(
+      () => (window as typeof window & { warningFlashes?: string[] }).warningFlashes,
+    ),
+  ).toEqual([])
+  await page.getByRole('tab', { name: 'pending-large.txt', exact: true }).click()
+  await expect(page.getByRole('heading', { name: 'Open large file?' })).toBeVisible()
+  await page.getByRole('button', { name: 'Open anyway' }).click()
+  await expect(editor).toContainText('yyyyyyyy')
+})
+
 test('large-file consent supports tab closing, exact saves, undo and durable recovery', async ({
   page,
   app,

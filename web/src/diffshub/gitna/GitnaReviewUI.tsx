@@ -468,6 +468,7 @@ function GitnaReviewUIInner({
   const [themesHydrated, setThemesHydrated] = useState(false)
   const [loadState, setLoadState] = useState<ViewerLoadState>('fetching')
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
+  const [failedTargetKey, setFailedTargetKey] = useState<string | null>(null)
   const [fileErrorCode, setFileErrorCode] = useState<string | null>(null)
   const [largeFileWarning, setLargeFileWarning] = useState<{
     path: string
@@ -1042,6 +1043,7 @@ function GitnaReviewUIInner({
           setFileErrorCode(
             target.filePath != null && error instanceof ApiError ? (error.code ?? null) : null,
           )
+          setFailedTargetKey(target.key)
           setErrorMessage(nextError)
           setLoadState('error')
         }
@@ -1342,7 +1344,9 @@ function GitnaReviewUIInner({
     ? 'fetching'
     : comparisonError != null
       ? 'error'
-      : loadState
+      : loadState === 'error' && (failedTargetKey !== target?.key || errorMessage == null)
+        ? 'fetching'
+        : loadState
   const viewerAvailable =
     workerReady && themesHydrated && surfaceState === 'ready' && reviewData != null
 
