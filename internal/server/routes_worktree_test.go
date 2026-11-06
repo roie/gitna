@@ -17,6 +17,7 @@ type fakeWorktreeRepo struct {
 	*fakeRepo
 	file          protocol.WorktreeFile
 	comparison    protocol.FileDiff
+	lineHistory   protocol.LineHistory
 	err           error
 	createdPath   string
 	createdDir    bool
@@ -30,6 +31,10 @@ func (f *fakeWorktreeRepo) ReadWorktreeFile(context.Context, string, ...int64) (
 
 func (f *fakeWorktreeRepo) CompareWorktreeFiles(context.Context, string, string) (protocol.FileDiff, error) {
 	return f.comparison, f.err
+}
+
+func (f *fakeWorktreeRepo) LineHistory(context.Context, string, int) (protocol.LineHistory, error) {
+	return f.lineHistory, f.err
 }
 
 func (f *fakeWorktreeRepo) WriteWorktreeFile(_ context.Context, path, content, _ string, _ ...int64) (protocol.WorktreeFile, error) {
@@ -186,6 +191,31 @@ func TestWorktreeCompareRoute(t *testing.T) {
 	}
 	if comparison.Before.Path != "left.txt" || comparison.After.Path != "right.txt" {
 		t.Fatalf("comparison = %#v", comparison)
+	}
+}
+
+func TestWorktreeLineHistoryRoute(t *testing.T) {
+	repo := &fakeWorktreeRepo{
+		fakeRepo: &fakeRepo{},
+		lineHistory: protocol.LineHistory{
+			Path: "notes.txt", CommitPath: "old-notes.txt", Line: 2, OID: "0123456789012345678901234567890123456789", ShortOID: "0123456", Author: "Test", Summary: "change notes",
+		},
+	}
+	h := newSnapshotServer(repo)
+	rec := worktreeRequest(t, h, http.MethodGet, "/worktree/line-history?path=notes.txt&line=2", "")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, body = %s", rec.Code, rec.Body.String())
+	}
+	var history protocol.LineHistory
+	if err := json.Unmarshal(rec.Body.Bytes(), &history); err != nil {
+		t.Fatal(err)
+	}
+	if history.Path != "notes.txt" || history.CommitPath != "old-notes.txt" || history.Line != 2 || history.Generation != 1 {
+		t.Fatalf("history = %#v", history)
+	}
+	invalid := worktreeRequest(t, h, http.MethodGet, "/worktree/line-history?path=notes.txt&line=zero", "")
+	if invalid.Code != http.StatusBadRequest || !strings.Contains(invalid.Body.String(), "invalid-line") {
+		t.Fatalf("invalid status = %d, body = %s", invalid.Code, invalid.Body.String())
 	}
 }
 

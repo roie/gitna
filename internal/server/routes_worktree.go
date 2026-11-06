@@ -123,6 +123,31 @@ func (s *Server) handleCompareWorktreeFiles(w http.ResponseWriter, r *http.Reque
 	writeJSON(w, http.StatusOK, comparison)
 }
 
+func (s *Server) handleLineHistory(w http.ResponseWriter, r *http.Request) {
+	repo, ok := s.repo.(interface {
+		LineHistory(context.Context, string, int) (protocol.LineHistory, error)
+	})
+	if !ok {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "line history unavailable"})
+		return
+	}
+	line, err := strconv.Atoi(r.URL.Query().Get("line"))
+	if err != nil || line < 1 {
+		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "line must be a positive integer", "code": "invalid-line"})
+		return
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), LineHistoryTimeout)
+	defer cancel()
+	generation := s.gen.Load()
+	history, err := repo.LineHistory(ctx, r.URL.Query().Get("path"), line)
+	if err != nil {
+		writeWorktreeError(w, r, s, err)
+		return
+	}
+	history.Generation = generation
+	writeJSON(w, http.StatusOK, history)
+}
+
 func (s *Server) handleWriteWorktreeFile(w http.ResponseWriter, r *http.Request) {
 	repo, ok := s.worktreeRepository()
 	if !ok {

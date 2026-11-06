@@ -10,6 +10,7 @@ import type {
   FileSearchResults,
   GraphCount,
   GraphPage,
+  LineHistory,
   OpenFolderResult,
   RepositoryFileCount,
   RepositoryFiles,
@@ -173,6 +174,7 @@ export interface ApiClient {
     maxBytes?: number,
     cached?: WorktreeFile,
   ) => Promise<WorktreeFile>
+  lineHistory: (path: string, line: number, signal?: AbortSignal) => Promise<LineHistory>
   compareWorktreeFiles: (
     leftPath: string,
     rightPath: string,
@@ -410,6 +412,18 @@ export function createApi(baseURL?: string): ApiClient {
       if (res.status === 304 && baseline != null) return baseline
       await expectOK(res)
       return (await res.json()) as WorktreeFile
+    },
+    async lineHistory(path: string, line: number, signal?: AbortSignal): Promise<LineHistory> {
+      const params = new URLSearchParams({ path, line: String(line) })
+      const res = await expectOK(
+        await fetch(`api/v1/worktree/line-history?${params}`, {
+          signal:
+            signal == null
+              ? AbortSignal.timeout(FETCH_TIMEOUT)
+              : AbortSignal.any([signal, AbortSignal.timeout(FETCH_TIMEOUT)]),
+        }),
+      )
+      return (await res.json()) as LineHistory
     },
     async compareWorktreeFiles(
       leftPath: string,

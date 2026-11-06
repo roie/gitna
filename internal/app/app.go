@@ -35,6 +35,9 @@ type repoAdapter struct {
 	directories      folderDirectoryIndexCache
 	observeDirectory func(string) protocol.WatchCoverage
 
+	historyOnce sync.Once
+	historySlot chan struct{}
+
 	mu   sync.RWMutex
 	repo gitx.Repository
 }
@@ -134,6 +137,18 @@ func (a *repoAdapter) ReadWorktreeFile(ctx context.Context, path string, budget 
 
 func (a *repoAdapter) CompareWorktreeFiles(ctx context.Context, leftPath, rightPath string) (protocol.FileDiff, error) {
 	return a.current().CompareWorktreeFiles(ctx, leftPath, rightPath)
+}
+
+func (a *repoAdapter) LineHistory(ctx context.Context, path string, line int) (protocol.LineHistory, error) {
+	a.historyOnce.Do(func() { a.historySlot = make(chan struct{}, 1) })
+	select {
+	case a.historySlot <- struct{}{}:
+		defer func() { <-a.historySlot }()
+	case <-ctx.Done():
+		return protocol.LineHistory{}, ctx.Err()
+	}
+	// Blame is read-only: never hold up saves or Git mutations in their queue.
+	return a.current().LineHistory(ctx, a.runner, path, line)
 }
 
 func (a *repoAdapter) WriteWorktreeFile(ctx context.Context, path, content, expectedHash string, budget ...int64) (protocol.WorktreeFile, error) {

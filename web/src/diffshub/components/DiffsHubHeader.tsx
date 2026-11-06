@@ -107,6 +107,8 @@ interface HeaderProps {
   setOverflow: Dispatch<SetStateAction<'wrap' | 'scroll'>>;
   setShowBackgrounds: Dispatch<SetStateAction<boolean>>;
   showBackgrounds: boolean;
+  inlineBlame?: boolean;
+  setInlineBlame?: (enabled: boolean) => void;
 }
 
 function LocalFolderForm({
@@ -470,6 +472,8 @@ export const DiffsHubHeader = memo(function DiffsHubHeader({
   setOverflow,
   setShowBackgrounds,
   showBackgrounds,
+  inlineBlame,
+  setInlineBlame,
 }: HeaderProps) {
   const [currentUrl, setCurrentUrl] = useState(initialUrl);
   // Only show the external-link button when the input still reflects the
@@ -729,6 +733,21 @@ export const DiffsHubHeader = memo(function DiffsHubHeader({
                     />
                   </label>
                 </DropdownMenuItem>
+                {localRepository && setInlineBlame != null && (
+                  <DropdownMenuItem
+                    className="cursor-default p-0"
+                    onSelect={(e) => e.preventDefault()}
+                  >
+                    <label className={SETTING_ROW_CLASS}>
+                      <span className="min-w-0 flex-1">Inline blame</span>
+                      <Switch
+                        aria-label="Inline blame"
+                        checked={inlineBlame}
+                        onCheckedChange={setInlineBlame}
+                      />
+                    </label>
+                  </DropdownMenuItem>
+                )}
                 <DropdownMenuItem
                   className="w-full px-2 focus:bg-transparent"
                   onSelect={(e) => e.preventDefault()}

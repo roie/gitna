@@ -75,6 +75,7 @@ import {
 import { expandRepositoryFolders } from './expandRepositoryFolders'
 import { Confirm, Modal } from './Modal'
 import { RepositoryEntryModal } from './RepositoryEntryModal'
+import { CommitInfo } from './CommitInfo'
 import { useRepository } from './repository'
 
 interface PendingConfirm {
@@ -2766,25 +2767,6 @@ function graphLaneColor(column: number): string {
   return GRAPH_LANE_COLORS[column % GRAPH_LANE_COLORS.length]!
 }
 
-function relativeCommitTime(value: string): string {
-  const elapsedSeconds = Math.round((new Date(value).getTime() - Date.now()) / 1000)
-  const units: Array<[Intl.RelativeTimeFormatUnit, number]> = [
-    ['year', 31_536_000],
-    ['month', 2_592_000],
-    ['week', 604_800],
-    ['day', 86_400],
-    ['hour', 3_600],
-    ['minute', 60],
-  ]
-  const formatter = new Intl.RelativeTimeFormat(undefined, { numeric: 'auto' })
-  for (const [unit, seconds] of units) {
-    if (Math.abs(elapsedSeconds) >= seconds) {
-      return formatter.format(Math.round(elapsedSeconds / seconds), unit)
-    }
-  }
-  return formatter.format(elapsedSeconds, 'second')
-}
-
 type GraphTreeExpansionCache = WeakMap<
   readonly CommitFile[],
   Partial<Record<RepositoryViewMode, readonly string[]>>
@@ -3307,8 +3289,8 @@ const GraphCommitRow = memo(function GraphCommitRow({
 }) {
   const repository = useRepository()
   const open = repository.expanded[row.commit.oid] === true
-  const disabledReason = repository.getActionDisabledReason()
   const shortOid = row.commit.oid.slice(0, 8)
+  const disabledReason = repository.getActionDisabledReason()
   const files = repository.commitFiles[row.commit.oid]
   const filesLoading = repository.filesLoading[row.commit.oid] === true
   const filesLoadingVisible = useDelayedRefreshIndicator(open && filesLoading)
@@ -3336,14 +3318,12 @@ const GraphCommitRow = memo(function GraphCommitRow({
     },
     [files, treeExpansionCache, view],
   )
-  const [commitOidCopied, setCommitOidCopied] = useState(false)
   const selectedPath =
     repository.commitDiff?.oid === row.commit.oid ? repository.commitDiff.path : null
   const refs = row.commit.refs.filter(
     (ref, index, all) => all.findIndex((candidate) => candidate.name === ref.name) === index,
   )
   const visibleRefs = refs.slice(0, 2)
-  const authorTime = new Date(row.commit.authorTime)
   return (
     <div
       className="graph-row-content"
@@ -3398,71 +3378,11 @@ const GraphCommitRow = memo(function GraphCommitRow({
             </button>
           </TooltipTrigger>
           <TooltipContent side="right" align="start">
-            <div className="flex flex-wrap items-baseline gap-x-1.5 gap-y-0.5">
-              <strong className="font-medium">{row.commit.authorName}</strong>
-              <span className="text-muted-foreground">
-                {relativeCommitTime(row.commit.authorTime)} ({authorTime.toLocaleString()})
-              </span>
-            </div>
-            <p className="mt-2 font-medium">
-              {row.commit.subject.trim() || `No commit message (${row.commit.oid.slice(0, 7)})`}
-            </p>
-            {refs.length > 0 && (
-              <div className="mt-2 flex flex-wrap gap-1">
-                {refs.map((ref) => (
-                  <span
-                    key={`${ref.kind}:${ref.name}`}
-                    className="rounded-full border border-border px-1.5 py-0.5 text-[10px]"
-                  >
-                    {ref.name}
-                  </span>
-                ))}
-              </div>
-            )}
-            <div className="mt-2 flex items-center gap-2 border-t border-border pt-2 text-[11px]">
-              {stats == null ? (
-                <span className="text-muted-foreground">
-                  {repository.filesError[row.commit.oid] ?? 'Loading statistics…'}
-                </span>
-              ) : (
-                <>
-                  <span className="text-muted-foreground">
-                    {stats.files} {stats.files === 1 ? 'file' : 'files'}
-                  </span>
-                  <span className="font-medium text-emerald-600 dark:text-emerald-400">
-                    +{stats.additions}
-                  </span>
-                  <span className="font-medium text-red-600 dark:text-red-400">
-                    −{stats.deletions}
-                  </span>
-                  {stats.binaryFiles > 0 && (
-                    <span className="text-muted-foreground">
-                      {stats.binaryFiles} {stats.binaryFiles === 1 ? 'binary' : 'binaries'}
-                    </span>
-                  )}
-                </>
-              )}
-              <button
-                type="button"
-                className="ml-auto cursor-pointer rounded-sm px-1 font-mono text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
-                aria-label={
-                  commitOidCopied ? `Copied commit ID ${shortOid}` : `Copy commit ID ${shortOid}`
-                }
-                aria-live="polite"
-                title="Copy full commit ID"
-                onClick={() => {
-                  void navigator.clipboard
-                    .writeText(row.commit.oid)
-                    .then(() => {
-                      setCommitOidCopied(true)
-                      window.setTimeout(() => setCommitOidCopied(false), 1500)
-                    })
-                    .catch(() => undefined)
-                }}
-              >
-                {commitOidCopied ? 'Copied!' : shortOid}
-              </button>
-            </div>
+            <CommitInfo
+              commit={row.commit}
+              stats={stats}
+              error={repository.filesError[row.commit.oid]}
+            />
           </TooltipContent>
         </Tooltip>
         <DropdownMenu

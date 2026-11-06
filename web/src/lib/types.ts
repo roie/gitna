@@ -199,6 +199,19 @@ export interface WorktreeFile {
   hash: string
 }
 
+export interface LineHistory {
+  path: string
+  commitPath?: string
+  line: number
+  generation: number
+  oid?: string
+  shortOid?: string
+  author?: string
+  authoredAt?: string
+  summary?: string
+  uncommitted: boolean
+}
+
 export interface RepoSnapshot {
   appVersion: string
   repository: boolean

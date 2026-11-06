@@ -127,6 +127,22 @@ type WorktreeFile struct {
 	Hash    string `json:"hash"`
 }
 
+// LineHistory describes the commit responsible for one worktree file line.
+// Uncommitted is true for unborn repositories, untracked files, and working
+// tree lines that do not yet belong to a commit.
+type LineHistory struct {
+	Path        string     `json:"path"`
+	CommitPath  string     `json:"commitPath,omitempty"`
+	Line        int        `json:"line"`
+	Generation  uint64     `json:"generation"`
+	OID         string     `json:"oid,omitempty"`
+	ShortOID    string     `json:"shortOid,omitempty"`
+	Author      string     `json:"author,omitempty"`
+	AuthoredAt  *time.Time `json:"authoredAt,omitempty"`
+	Summary     string     `json:"summary,omitempty"`
+	Uncommitted bool       `json:"uncommitted"`
+}
+
 // Folder describes one local folder in Gitna's bounded recent-folder
 // catalog. Repository is false for ordinary folders once non-Git folders
 // are enabled.

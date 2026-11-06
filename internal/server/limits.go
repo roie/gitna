@@ -21,6 +21,7 @@ const (
 	ContentSearchTimeout = 10 * time.Second
 	GraphTimeout         = 15 * time.Second
 	GraphCountTimeout    = 2 * time.Second
+	LineHistoryTimeout   = 3 * time.Second
 	ReadTimeout          = 15 * time.Second // branches, stashes, tags, conflicts, compare, commit-files
 
 	// Mutation timeouts.

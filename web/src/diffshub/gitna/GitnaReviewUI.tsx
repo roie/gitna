@@ -62,6 +62,7 @@ import type { GitnaPaletteCommand } from './GitnaCommandPalette'
 import { GlobalToastHost } from './ConnectionStatus'
 import { FolderLoadingScreen, folderDisplayName } from './FolderLoadingScreen'
 import { GitnaHome } from './GitnaHome'
+import { Blame } from './Blame'
 import { GitnaSourceControl } from './SourceControlWorkflow'
 import { Confirm } from './Modal'
 import { UntitledSaveAsModal } from './UntitledSaveAsModal'
@@ -440,6 +441,20 @@ function GitnaReviewUIInner({
   const [recentFilePaths, setRecentFilePaths] = useState<readonly string[]>([])
   const [overflow, setOverflow] = useState<'wrap' | 'scroll'>('wrap')
   const [showBackgrounds, setShowBackgrounds] = useState(true)
+  const [inlineBlame, setInlineBlame] = useState(() => {
+    try {
+      return localStorage.getItem('gitna:inline-blame') !== 'false'
+    } catch {
+      return true
+    }
+  })
+  useEffect(() => {
+    try {
+      localStorage.setItem('gitna:inline-blame', String(inlineBlame))
+    } catch {
+      // Keep the setting usable when browser storage is unavailable.
+    }
+  }, [inlineBlame])
   const [diffIndicators, setDiffIndicators] = useState<DiffIndicators>('bars')
   const [lineNumbers, setLineNumbers] = useState(true)
   const [filePreviewModes, setFilePreviewModes] = useState<Map<string, FilePreviewMode>>(
@@ -2297,6 +2312,8 @@ function GitnaReviewUIInner({
               setLightThemeName={setLightThemeName}
               setLineNumbers={setLineNumbers}
               setOverflow={setOverflow}
+              inlineBlame={inlineBlame}
+              setInlineBlame={setInlineBlame}
               setShowBackgrounds={setShowBackgrounds}
               showBackgrounds={showBackgrounds}
             />
@@ -2440,6 +2457,39 @@ function GitnaReviewUIInner({
                         }
                       />
                     </div>
+                    {inlineBlame &&
+                      target?.filePath != null &&
+                      repository.snapshot?.repository === true &&
+                      gitnaEditorActions != null &&
+                      (previewPath == null || previewMode === 'editor') && (
+                        <Blame
+                          key={`${repository.snapshot.root}:${target.filePath}`}
+                          path={target.filePath}
+                          generation={repository.generation}
+                          dirty={dirtyPaths.has(target.filePath)}
+                          api={repository.api}
+                          scrollRef={scrollRef}
+                          viewerRef={viewerRef}
+                          onOpenCommit={async (history) => {
+                            if (history.oid == null) return
+                            await repository.loadCommitDetails(history.oid)
+                            const files = repository.commitFiles[history.oid]
+                            if (files == null)
+                              throw new Error(
+                                repository.filesError[history.oid] ?? 'Commit details unavailable',
+                              )
+                            const path = history.commitPath ?? history.path
+                            const file = files.find(
+                              (file) => file.path === path || file.oldPath === path,
+                            ) ?? { path, kind: 'modified' as const }
+                            repository.selectCommitFile(
+                              history.oid,
+                              history.summary ?? history.oid,
+                              file,
+                            )
+                          }}
+                        />
+                      )}
                     {previewPath != null &&
                       (previewMode !== 'editor' || cachedPreviewPath === previewPath) && (
                         <div

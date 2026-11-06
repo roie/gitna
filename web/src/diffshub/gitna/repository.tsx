@@ -296,6 +296,7 @@ export class GitnaRepository {
   commitStats: Record<string, CommitStats> = {}
   filesLoading: Record<string, boolean> = {}
   filesError: Record<string, string> = {}
+  private commitDetailRequests = new Map<string, Promise<void>>()
   activeReview: 'compare' | 'commit' | null = null
   private tabHistory: Array<'compare' | 'commit' | 'file-comparison' | `file:${string}`> = []
   commitDiff: CommitDiffTarget | null = null
@@ -1143,6 +1144,7 @@ export class GitnaRepository {
 
   private invalidateGitLoading(): void {
     this.gitDetailEpoch += 1
+    this.commitDetailRequests.clear()
     this.compareRequest += 1
     this.conflictsRequest += 1
     this.filesLoading = {}
@@ -1840,7 +1842,19 @@ export class GitnaRepository {
   }
 
   async loadCommitDetails(oid: string): Promise<void> {
-    if (this.commitFiles[oid] != null || this.filesLoading[oid]) return
+    if (this.commitFiles[oid] != null) return
+    const pending = this.commitDetailRequests.get(oid)
+    if (pending != null) return pending
+    const request = this.fetchCommitDetails(oid)
+    this.commitDetailRequests.set(oid, request)
+    try {
+      await request
+    } finally {
+      if (this.commitDetailRequests.get(oid) === request) this.commitDetailRequests.delete(oid)
+    }
+  }
+
+  private async fetchCommitDetails(oid: string): Promise<void> {
     const epoch = this.gitDetailEpoch
     this.filesLoading = { ...this.filesLoading, [oid]: true }
     const { [oid]: _previous, ...remainingErrors } = this.filesError
@@ -2047,10 +2061,10 @@ export class GitnaRepository {
 
   async openCommit(oid: string, subject: string, reveal = false): Promise<void> {
     const epoch = this.repositoryEpoch
-    const { files, stats } = await this.api.commitFiles(oid)
+    await this.loadCommitDetails(oid)
     if (epoch !== this.repositoryEpoch) return
-    this.commitFiles = { ...this.commitFiles, [oid]: files }
-    if (stats != null) this.commitStats = { ...this.commitStats, [oid]: stats }
+    const files = this.commitFiles[oid]
+    if (files == null) throw new Error(this.filesError[oid] ?? 'Commit details unavailable')
     if (reveal) this.expanded = { ...this.expanded, [oid]: true }
     this.selectCommitFile(oid, subject, files[0] ?? { path: '', kind: 'modified' }, true)
     this.graphReveal = reveal ? { oid } : null

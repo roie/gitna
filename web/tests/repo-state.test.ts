@@ -140,6 +140,9 @@ const auxApi: ApiClient = {
   async readWorktreeFile() {
     throw new Error('readWorktreeFile not used')
   },
+  async lineHistory() {
+    throw new Error('lineHistory not used')
+  },
   async compareWorktreeFiles() {
     throw new Error('compareWorktreeFiles not used')
   },
@@ -1088,6 +1091,43 @@ describe('createRepoState', () => {
     expect(commitFiles).toHaveBeenCalledTimes(1)
     expect(state.commitFiles.abc?.[0]?.path).toBe('a.txt')
     expect(state.commitStats.abc).toEqual({ files: 1, additions: 12, deletions: 3, binaryFiles: 0 })
+  })
+
+  it('shares pending graph details with commit navigation and reuses the result', async () => {
+    let finish!: () => void
+    const pending = new Promise<void>((resolve) => {
+      finish = resolve
+    })
+    const commitFiles = vi.fn(async () => {
+      await pending
+      return { files: [commitFile('a.txt')] }
+    })
+    const state = createRepoState({ api: { ...auxApi, commitFiles } })
+
+    const hover = state.loadCommitDetails('abc')
+    const open = state.openCommit('abc', 'Example')
+    expect(commitFiles).toHaveBeenCalledTimes(1)
+    expect(state.commitDiff).toBeNull()
+    finish()
+    await Promise.all([hover, open])
+    expect(state.commitDiff).toMatchObject({ oid: 'abc', path: 'a.txt' })
+
+    await state.openCommit('abc', 'Example')
+    expect(commitFiles).toHaveBeenCalledTimes(1)
+  })
+
+  it('allows retrying failed shared commit details without opening an empty diff', async () => {
+    const commitFiles = vi
+      .fn()
+      .mockRejectedValueOnce(new Error('Details failed'))
+      .mockResolvedValueOnce({ files: [commitFile('a.txt')] })
+    const state = createRepoState({ api: { ...auxApi, commitFiles } })
+
+    await expect(state.openCommit('abc', 'Example')).rejects.toThrow('Details failed')
+    expect(state.commitDiff).toBeNull()
+    await state.openCommit('abc', 'Example')
+    expect(state.commitDiff).toMatchObject({ oid: 'abc', path: 'a.txt' })
+    expect(commitFiles).toHaveBeenCalledTimes(2)
   })
 
   it('ignores stale responses whose generation is not newer', async () => {
