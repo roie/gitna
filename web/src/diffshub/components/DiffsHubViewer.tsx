@@ -753,8 +753,16 @@ function WorktreeHeaderActions({
         <>
           <FileHeaderAction
             type="button"
-            aria-label={`Open ${actions.previewLabel ?? 'Markdown'} preview`}
-            title={`Open ${actions.previewLabel ?? 'Markdown'} preview`}
+            aria-label={
+              previewMode === 'preview'
+                ? 'Return to editor'
+                : `Open ${actions.previewLabel ?? 'Markdown'} preview`
+            }
+            title={
+              previewMode === 'preview'
+                ? 'Return to editor'
+                : `Open ${actions.previewLabel ?? 'Markdown'} preview`
+            }
             aria-pressed={previewMode === 'preview'}
             className={previewMode === 'preview' ? 'bg-accent text-foreground' : undefined}
             onClick={() =>
@@ -765,8 +773,16 @@ function WorktreeHeaderActions({
           </FileHeaderAction>
           <FileHeaderAction
             type="button"
-            aria-label={`Open ${actions.previewLabel ?? 'Markdown'} preview to the side`}
-            title={`Open ${actions.previewLabel ?? 'Markdown'} preview to the side`}
+            aria-label={
+              previewMode === 'split'
+                ? 'Close preview'
+                : `Open ${actions.previewLabel ?? 'Markdown'} preview to the side`
+            }
+            title={
+              previewMode === 'split'
+                ? 'Close preview'
+                : `Open ${actions.previewLabel ?? 'Markdown'} preview to the side`
+            }
             aria-pressed={previewMode === 'split'}
             className={previewMode === 'split' ? 'bg-accent text-foreground' : undefined}
             onClick={() =>

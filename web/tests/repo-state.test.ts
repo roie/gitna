@@ -1730,7 +1730,8 @@ describe('createRepoState', () => {
     })
 
     state.select('unstaged', 'x.txt')
-    expect(state.commitDiff).toBeNull()
+    expect(state.activeReview).toBeNull()
+    expect(state.commitDiff?.oid).toBe('c2')
   })
 })
 
@@ -2010,6 +2011,152 @@ describe('stash, tag, compare, and history operations', () => {
     expect(state.compare).toBeNull()
     expect(state.compareFiles).toEqual([])
     expect(state.compareDiff).toBeNull()
+  })
+
+  it('returns to the previous file after exiting a ref comparison', async () => {
+    const state = createRepoState({
+      api: {
+        ...auxApi,
+        async compare() {
+          return { files: [commitFile('a.txt')] }
+        },
+      },
+    })
+    state.repositoryPaths = ['a.txt']
+    state.selectRepositoryFile('a.txt')
+    await state.openCompare('main', 'HEAD', 'main..HEAD')
+    state.selectCompareFile(commitFile('a.txt'))
+    state.clearCompare()
+    expect(state.repositoryFilePath).toBe('a.txt')
+    expect(state.repositoryOpenPaths).toEqual(['a.txt'])
+    expect(state.compareLoading).toBe(false)
+  })
+
+  it.each(['file', 'change', 'commit', 'working tree'] as const)(
+    'keeps the comparison tab and its pending response when navigating to %s',
+    async (destination) => {
+      let resolve!: (value: { files: CommitFile[] }) => void
+      const state = createRepoState({
+        api: {
+          ...auxApi,
+          compare: () =>
+            new Promise((done) => {
+              resolve = done
+            }),
+        },
+      })
+      state.repositoryPaths = ['a.txt']
+      state.snapshot = snapshot({ unstaged: [change('unstaged', 'a.txt')] })
+      const pending = state.openCompare('main', 'HEAD', 'main..HEAD')
+      if (destination === 'file') state.selectRepositoryFile('a.txt')
+      else if (destination === 'change') state.select('unstaged', 'a.txt')
+      else if (destination === 'commit') state.selectCommitFile('c1', 'one', commitFile('a.txt'))
+      else state.select('unstaged', null)
+      expect(state.activeReview).toBe(destination === 'commit' ? 'commit' : null)
+      expect(state.compare).not.toBeNull()
+      expect(state.compareLoading).toBe(true)
+      resolve({ files: [commitFile('a.txt')] })
+      await pending
+      expect(state.compareFiles).toEqual([commitFile('a.txt')])
+      state.activateReviewTab('compare')
+      expect(state.activeReview).toBe('compare')
+    },
+  )
+
+  it('returns from commit review without closing open files', () => {
+    const state = createRepoState({ api: auxApi })
+    state.repositoryPaths = ['a.txt']
+    state.selectRepositoryFile('a.txt')
+    state.selectCommitFile('c1', 'one', commitFile('a.txt'))
+    state.closeCommitReview()
+    expect(state.commitDiff).toBeNull()
+    expect(state.repositoryFilePath).toBe('a.txt')
+    expect(state.activeReview).toBeNull()
+    expect(state.repositoryOpenPaths).toEqual(['a.txt'])
+  })
+
+  it('restores review tabs in activation order and preserves their selected files', async () => {
+    const state = createRepoState({ api: auxApi })
+    state.repositoryPaths = ['a.txt', 'b.txt']
+    state.selectRepositoryFile('a.txt')
+    await state.openCompare('main', 'HEAD', 'main..HEAD')
+    state.selectCompareFile(commitFile('b.txt'))
+    state.selectCommitFile('c1', 'one', commitFile('a.txt'))
+    state.selectRepositoryFile('b.txt')
+    expect(state.activeReview).toBeNull()
+    expect(state.commitDiff?.oid).toBe('c1')
+    expect(state.compareDiff?.path).toBe('b.txt')
+    state.activateReviewTab('compare')
+    state.activateReviewTab('commit')
+    state.closeCommitReview()
+    expect(state.activeReview).toBe('compare')
+    expect(state.compareDiff?.path).toBe('b.txt')
+    state.clearCompare()
+    expect(state.activeReview).toBeNull()
+    expect(state.repositoryFilePath).toBe('b.txt')
+  })
+
+  it('closing an inactive review does not change the active file', async () => {
+    const state = createRepoState({ api: auxApi })
+    state.repositoryPaths = ['a.txt']
+    await state.openCompare('main', 'HEAD', 'main..HEAD')
+    state.selectCommitFile('c1', 'one', commitFile('a.txt'))
+    state.selectRepositoryFile('a.txt')
+    state.clearCompare()
+    state.closeCommitReview()
+    expect(state.activeReview).toBeNull()
+    expect(state.repositoryFilePath).toBe('a.txt')
+  })
+
+  it('switches between ref and two-file comparisons without closing either', async () => {
+    const state = createRepoState({ api: auxApi })
+    state.repositoryPaths = ['a.txt', 'b.txt']
+    state.selectRepositoryFile('a.txt')
+    state.setRepositorySelectedPaths(['a.txt', 'b.txt'])
+    state.openRepositoryFileComparison()
+    await state.openCompare('main', 'HEAD', 'main..HEAD')
+    state.activateRepositoryFileComparison()
+    expect(state.activeReview).toBeNull()
+    expect(state.compare).not.toBeNull()
+    state.closeRepositoryFileComparison()
+    expect(state.activeReview).toBe('compare')
+    state.clearCompare()
+    expect(state.repositoryFilePath).toBe('a.txt')
+  })
+
+  it('bulk tab close includes both review tabs', async () => {
+    const state = createRepoState({ api: auxApi })
+    state.repositoryPaths = ['a.txt']
+    state.selectRepositoryFile('a.txt')
+    await state.openCompare('main', 'HEAD', 'main..HEAD')
+    state.selectCommitFile('c1', 'one', commitFile('a.txt'))
+    state.closeRepositoryFiles([], true)
+    expect(state.compare).toBeNull()
+    expect(state.commitDiff).toBeNull()
+    expect(state.activeReview).toBeNull()
+    expect(state.repositoryFilePath).toBe('a.txt')
+    expect(state.repositoryOpenPaths).toEqual(['a.txt'])
+  })
+
+  it('closing a comparison invalidates its pending response', async () => {
+    let resolve!: (value: { files: CommitFile[] }) => void
+    const state = createRepoState({
+      api: {
+        ...auxApi,
+        compare: () =>
+          new Promise((done) => {
+            resolve = done
+          }),
+      },
+    })
+    const pending = state.openCompare('main', 'HEAD', 'main..HEAD')
+    state.clearCompare()
+    resolve({ files: [commitFile('a.txt')] })
+    await pending
+    expect(state.compare).toBeNull()
+    expect(state.compareFiles).toEqual([])
+    expect(state.compareLoading).toBe(false)
+    expect(state.activeReview).toBeNull()
   })
 
   it('records a compare error when the refs are invalid', async () => {

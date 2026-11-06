@@ -296,6 +296,8 @@ export class GitnaRepository {
   commitStats: Record<string, CommitStats> = {}
   filesLoading: Record<string, boolean> = {}
   filesError: Record<string, string> = {}
+  activeReview: 'compare' | 'commit' | null = null
+  private tabHistory: Array<'compare' | 'commit' | 'file-comparison' | `file:${string}`> = []
   commitDiff: CommitDiffTarget | null = null
 
   branches: Branch[] = []
@@ -419,7 +421,7 @@ export class GitnaRepository {
   }
 
   get selectedChange(): FileChange | null {
-    return this.selection?.change ?? null
+    return this.activeReview == null ? (this.selection?.change ?? null) : null
   }
 
   subscribe = (listener: () => void): (() => void) => {
@@ -1172,6 +1174,8 @@ export class GitnaRepository {
     this.expanded = {}
     this.commitFiles = {}
     this.commitStats = {}
+    this.activeReview = null
+    this.tabHistory = []
     this.commitDiff = null
     this.compare = null
     this.compareFiles = []
@@ -1693,7 +1697,7 @@ export class GitnaRepository {
         !this.commitDiff.fromSearch &&
         !present.has(this.commitDiff.oid)
       ) {
-        this.commitDiff = null
+        this.closeCommitReview()
       }
       if (page.tip !== '' && this.graphTotal == null) {
         void this.loadGraphCount(page.tip, page.generation, countRequest, epoch, countRecovery)
@@ -1880,9 +1884,10 @@ export class GitnaRepository {
 
   select(scope: ChangeScope, path: string | null): void {
     if (path == null) {
+      this.rememberActiveTab()
+      this.activeReview = null
       this.selection = null
       this.repositoryFilePath = null
-      this.commitDiff = null
       this.repositoryFileComparisonActive = false
       this.emit()
       return
@@ -1892,10 +1897,10 @@ export class GitnaRepository {
         ? undefined
         : changeList(this.snapshot, scope).find((candidate) => candidate.path === path)
     if (change == null) return
+    this.rememberActiveTab()
+    this.activeReview = null
     this.selection = { scope, change }
     this.repositoryFilePath = null
-    this.commitDiff = null
-    this.compareDiff = null
     this.repositoryFileComparisonActive = false
     this.emit()
   }
@@ -1927,9 +1932,9 @@ export class GitnaRepository {
     )
       return
     if (!this.canOpenRepositoryFile(path) && !this.repositoryOpenPaths.includes(path)) return
+    this.rememberActiveTab()
+    this.activeReview = null
     this.selection = null
-    this.commitDiff = null
-    this.compareDiff = null
     this.repositoryFileComparisonActive = false
     this.repositoryFilePath = path
     this.repositorySelectedPaths = [path]
@@ -1961,11 +1966,9 @@ export class GitnaRepository {
     ) {
       return
     }
+    this.rememberActiveTab()
+    this.activeReview = null
     this.selection = null
-    this.commitDiff = null
-    this.compare = null
-    this.compareFiles = []
-    this.compareDiff = null
     this.repositoryFileComparison = { leftPath, rightPath, version: 0 }
     this.repositoryFileComparisonActive = true
     this.emit()
@@ -1973,11 +1976,9 @@ export class GitnaRepository {
 
   activateRepositoryFileComparison(): void {
     if (this.repositoryFileComparison == null || this.repositoryFileComparisonActive) return
+    this.rememberActiveTab()
+    this.activeReview = null
     this.selection = null
-    this.commitDiff = null
-    this.compare = null
-    this.compareFiles = []
-    this.compareDiff = null
     this.repositoryFileComparisonActive = true
     this.emit()
   }
@@ -1985,6 +1986,8 @@ export class GitnaRepository {
   swapRepositoryFileComparison(): void {
     const comparison = this.repositoryFileComparison
     if (comparison == null) return
+    this.rememberActiveTab()
+    this.activeReview = null
     this.repositoryFileComparison = {
       leftPath: comparison.rightPath,
       rightPath: comparison.leftPath,
@@ -1997,8 +2000,10 @@ export class GitnaRepository {
 
   closeRepositoryFileComparison(): void {
     if (this.repositoryFileComparison == null) return
+    const active = this.repositoryFileComparisonActive
     this.repositoryFileComparison = null
     this.repositoryFileComparisonActive = false
+    if (active) this.restorePreviousTab()
     this.emit()
   }
 
@@ -2006,10 +2011,16 @@ export class GitnaRepository {
     const closing = new Set(paths)
     if (
       !this.repositoryOpenPaths.some((path) => closing.has(path)) &&
-      !(closeComparison && this.repositoryFileComparison != null)
+      !(
+        closeComparison &&
+        (this.repositoryFileComparison != null || this.compare != null || this.commitDiff != null)
+      )
     )
       return
     if (closeComparison) {
+      this.activeReview = null
+      this.resetCompareState()
+      this.commitDiff = null
       this.repositoryFileComparison = null
       this.repositoryFileComparisonActive = false
     }
@@ -2018,6 +2029,9 @@ export class GitnaRepository {
     const currentIndex = currentPath == null ? -1 : openPaths.indexOf(currentPath)
     const nextOpenPaths = openPaths.filter((path) => !closing.has(path))
     this.repositoryOpenPaths = nextOpenPaths
+    this.tabHistory = this.tabHistory.filter(
+      (tab) => !tab.startsWith('file:') || !closing.has(tab.slice('file:'.length)),
+    )
     if (currentPath != null && closing.has(currentPath)) {
       const nextPath = openPaths.slice(currentIndex + 1).find((path) => !closing.has(path))
       const previousPath = openPaths.slice(0, currentIndex).findLast((path) => !closing.has(path))
@@ -2035,7 +2049,6 @@ export class GitnaRepository {
     const epoch = this.repositoryEpoch
     const { files, stats } = await this.api.commitFiles(oid)
     if (epoch !== this.repositoryEpoch) return
-    this.compare = null
     this.commitFiles = { ...this.commitFiles, [oid]: files }
     if (stats != null) this.commitStats = { ...this.commitStats, [oid]: stats }
     if (reveal) this.expanded = { ...this.expanded, [oid]: true }
@@ -2045,26 +2058,19 @@ export class GitnaRepository {
   }
 
   selectCommitFile(oid: string, subject: string, file: CommitFile, fromSearch = false): void {
-    this.selection = null
-    this.repositoryFilePath = null
-    this.compareDiff = null
-    this.repositoryFileComparisonActive = false
     this.commitDiff = { oid, subject, ...file, ...(fromSearch ? { fromSearch: true } : {}) }
+    this.activateReviewTab('commit')
     this.emit()
   }
 
   selectCompareFile(file: CommitFile): void {
     if (this.compare == null) return
-    this.selection = null
-    this.repositoryFilePath = null
-    this.commitDiff = null
-    this.repositoryFileComparisonActive = false
     this.compareDiff = {
       from: this.compare.from,
       to: this.compare.to,
       ...file,
     }
-    this.emit()
+    this.activateReviewTab('compare')
   }
 
   async refreshBranches(): Promise<ReadResult> {
@@ -2532,10 +2538,11 @@ export class GitnaRepository {
     const request = ++this.compareRequest
     const epoch = this.repositoryEpoch
     this.compare = { from, to, label }
+    this.compareFiles = []
     this.compareLoading = true
     this.compareError = null
     this.compareDiff = null
-    this.emit()
+    this.activateReviewTab('compare')
     try {
       const { files } = await this.api.compare(from, to)
       if (request === this.compareRequest && epoch === this.repositoryEpoch) {
@@ -2554,13 +2561,67 @@ export class GitnaRepository {
     }
   }
 
+  activateReviewTab(kind: 'compare' | 'commit'): void {
+    if (kind === 'compare' ? this.compare == null : this.commitDiff == null) return
+    this.rememberActiveTab()
+    this.activeReview = kind
+    this.repositoryFileComparisonActive = false
+    this.emit()
+  }
+
+  private rememberActiveTab(): void {
+    const tab =
+      this.activeReview ??
+      (this.repositoryFileComparisonActive
+        ? 'file-comparison'
+        : this.repositoryFilePath == null
+          ? null
+          : (`file:${this.repositoryFilePath}` as const))
+    if (tab == null) return
+    this.tabHistory = [...this.tabHistory.filter((previous) => previous !== tab), tab]
+  }
+
+  private restorePreviousTab(): void {
+    this.activeReview = null
+    while (this.tabHistory.length > 0) {
+      const tab = this.tabHistory.pop()
+      if (tab == null) break
+      if (tab === 'compare' || tab === 'commit') {
+        if (tab === 'compare' ? this.compare == null : this.commitDiff == null) continue
+        this.activateReviewTab(tab)
+      } else if (tab === 'file-comparison') {
+        if (this.repositoryFileComparison == null) continue
+        this.activateRepositoryFileComparison()
+      } else {
+        const path = tab.slice('file:'.length)
+        if (!this.repositoryOpenPaths.includes(path)) continue
+        this.selectRepositoryFile(path)
+      }
+      return
+    }
+  }
+
+  closeCommitReview(): void {
+    const active = this.activeReview === 'commit'
+    this.commitDiff = null
+    if (active) this.restorePreviousTab()
+    this.emit()
+  }
+
   clearCompare(): void {
+    const active = this.activeReview === 'compare'
+    this.resetCompareState()
+    if (active) this.restorePreviousTab()
+    this.emit()
+  }
+
+  private resetCompareState(): void {
     this.compareRequest += 1
     this.compare = null
     this.compareFiles = []
     this.compareDiff = null
     this.compareError = null
-    this.emit()
+    this.compareLoading = false
   }
 }
 

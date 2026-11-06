@@ -81,3 +81,61 @@ test('wheel scrolling over an image continues through the review', async ({ page
     .poll(() => scroller.evaluate((element) => element.scrollTop))
     .toBeGreaterThan(before + 100)
 })
+
+test('ref comparison is a closable tab that preserves file drafts', async ({ page, app }) => {
+  await page.goto(app.url)
+  await page.getByRole('button', { name: 'Open command palette' }).click()
+  await page.getByLabel('Search files and commands').fill('main.txt')
+  await page.getByRole('option').click()
+  const editor = page.getByRole('textbox', { name: 'main.txt', exact: true })
+  await editor.focus()
+  await page.keyboard.press('Control+End')
+  await page.keyboard.insertText('NavigationDraft')
+
+  const compare = async () => {
+    await page.getByRole('button', { name: 'More actions', exact: true }).click()
+    await page.getByRole('menuitem', { name: 'Compare refs…', exact: true }).click()
+    const dialog = page.getByRole('dialog', { name: 'Compare references', exact: true })
+    await dialog.getByRole('combobox', { name: 'Compare to', exact: true }).selectOption('feature')
+    await dialog.getByRole('button', { name: 'Compare', exact: true }).click()
+    await expect(dialog.getByText(/changed files loaded/)).toBeVisible()
+    await dialog.getByRole('button', { name: 'Close dialog' }).click()
+    await expect(page.getByRole('tab', { name: 'HEAD ↔ feature', exact: true })).toHaveAttribute(
+      'aria-selected',
+      'true',
+    )
+  }
+
+  await compare()
+  const reviewTab = page.getByRole('tab', { name: 'HEAD ↔ feature', exact: true })
+  await page.getByRole('tab', { name: /main.txt/ }).click()
+  await expect(reviewTab).toHaveAttribute('aria-selected', 'false')
+  await expect(editor).toContainText('NavigationDraft')
+  await reviewTab.click()
+  await expect(editor).toHaveCount(0)
+  await expect(reviewTab).toHaveAttribute('aria-selected', 'true')
+  await page
+    .getByRole('button', { name: 'Close ref comparison HEAD ↔ feature', exact: true })
+    .click()
+  await expect(reviewTab).toHaveCount(0)
+  await expect(page.getByRole('tab', { name: /main.txt/ })).toBeFocused()
+  await expect(editor).toContainText('NavigationDraft')
+  await expect(page.getByRole('button', { name: 'Exit comparison', exact: true })).toHaveCount(0)
+})
+
+test('commit review closes back to the working tree when no file tab was active', async ({
+  page,
+  app,
+}) => {
+  await page.goto(app.url)
+  await page.getByRole('button', { name: 'Open command palette' }).click()
+  await page.getByLabel('Search files and commands').fill('#base fixture')
+  await page.getByRole('option').click()
+  const reviewTab = page.getByRole('tab', { name: /· base fixture/ })
+  await expect(reviewTab).toHaveAttribute('aria-selected', 'true')
+  await page.getByRole('button', { name: /Close commit review .*· base fixture/ }).click()
+  await expect(reviewTab).toHaveCount(0)
+  await expect(
+    page.getByRole('button', { name: 'Stage file modified.txt', exact: true }),
+  ).toBeVisible()
+})

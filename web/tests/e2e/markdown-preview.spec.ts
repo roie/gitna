@@ -101,7 +101,7 @@ test('long Markdown scrolls in preview and editor after switching modes', async 
   await expect
     .poll(() => previewScroll.evaluate((element) => element.scrollTop))
     .toBeGreaterThan(previewBeforeEditorWheel + 100)
-  await splitButton.click()
+  await page.getByRole('button', { name: 'Close preview', exact: true }).click()
   await expect
     .poll(() => scroller.evaluate((element) => getComputedStyle(element).scrollbarWidth))
     .not.toBe('none')
@@ -191,7 +191,7 @@ test('Markdown preview follows the live editor and keeps its undo state across m
   await expect(nativeHeader).toBeVisible()
   await expect(splitHeader).toHaveCount(0)
   await expect(page.getByRole('textbox', { name: 'docs/notes.md', exact: true })).toHaveCount(0)
-  await previewButton.click()
+  await page.getByRole('button', { name: 'Return to editor', exact: true }).click()
   await expect(preview).toHaveCount(0)
   await editor.focus()
   await page.keyboard.press('Control+End')
@@ -225,7 +225,7 @@ test('Markdown preview follows the live editor and keeps its undo state across m
       return w.markdownReopenState.stale
     }),
   ).toBe(false)
-  await splitButton.click()
+  await page.getByRole('button', { name: 'Close preview', exact: true }).click()
   await editor.focus()
   await page.keyboard.press('Control+z')
   await page.keyboard.press('Control+z')

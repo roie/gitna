@@ -328,7 +328,7 @@ function useReviewTarget(): ReviewTarget | null {
       key: `file-compare:${comparison.leftPath}:${comparison.rightPath}:${comparison.version}`,
     }
   }
-  if (repository.compare != null) {
+  if (repository.activeReview === 'compare' && repository.compare != null) {
     return {
       key: `compare:${repository.compare.from}:${repository.compare.to}`,
       request: {
@@ -340,7 +340,7 @@ function useReviewTarget(): ReviewTarget | null {
       oldPath: repository.compareDiff?.oldPath,
     }
   }
-  if (repository.commitDiff != null) {
+  if (repository.activeReview === 'commit' && repository.commitDiff != null) {
     return {
       key: `commit:${repository.commitDiff.oid}`,
       request: { scope: 'commit', commit: repository.commitDiff.oid },
@@ -1506,7 +1506,7 @@ function GitnaReviewUIInner({
           disabledReason: backendDisabledReason,
         }
 
-  const graphFile = repository.commitDiff
+  const graphFile = repository.activeReview === 'commit' ? repository.commitDiff : null
   const graphPath = graphFile?.path
   const gitnaOpenFileAction =
     graphFile == null || graphPath == null || graphFile.kind === 'deleted'
@@ -2789,17 +2789,44 @@ function RepositoryFileTabs({
   } | null>(null)
   const openPaths = repository.repositoryOpenPaths
   const comparison = repository.repositoryFileComparison
+  const reviewTabs = [
+    ...(repository.compare == null
+      ? []
+      : [
+          {
+            kind: 'compare' as const,
+            label: `${repository.compare.from} ↔ ${repository.compare.to}`,
+          },
+        ]),
+    ...(repository.commitDiff == null
+      ? []
+      : [
+          {
+            kind: 'commit' as const,
+            label: `${repository.commitDiff.oid.slice(0, 7)} · ${repository.commitDiff.subject}`,
+          },
+        ]),
+  ]
+  const hasReviewTabs = comparison != null || reviewTabs.length > 0
   useEffect(() => {
-    const selector = repository.repositoryFileComparisonActive
-      ? '[data-comparison-tab="true"]'
-      : `[data-tab-index="${openPaths.indexOf(repository.repositoryFilePath ?? '')}"]`
+    const selector =
+      repository.activeReview != null
+        ? `[data-review-tab="${repository.activeReview}"]`
+        : repository.repositoryFileComparisonActive
+          ? '[data-comparison-tab="true"]'
+          : `[data-tab-index="${openPaths.indexOf(repository.repositoryFilePath ?? '')}"]`
     queueMicrotask(() =>
       tablistRef.current
         ?.querySelector<HTMLElement>(selector)
         ?.scrollIntoView({ block: 'nearest', inline: 'nearest' }),
     )
-  }, [openPaths, repository.repositoryFileComparisonActive, repository.repositoryFilePath])
-  if (openPaths.length === 0 && comparison == null) return null
+  }, [
+    openPaths,
+    repository.activeReview,
+    repository.repositoryFileComparisonActive,
+    repository.repositoryFilePath,
+  ])
+  if (openPaths.length === 0 && !hasReviewTabs) return null
   const openContextMenu = (
     path: string,
     index: number,
@@ -2809,6 +2836,15 @@ function RepositoryFileTabs({
   const closeFromMenu = (paths: readonly string[], closeComparison = false) => {
     setContextMenu(null)
     onClose(paths, closeComparison)
+  }
+  const closeReviewTab = (kind: 'compare' | 'commit') => {
+    if (kind === 'compare') repository.clearCompare()
+    else repository.closeCommitReview()
+    queueMicrotask(() =>
+      tablistRef.current
+        ?.querySelector<HTMLButtonElement>('[role="tab"][aria-selected="true"]')
+        ?.focus(),
+    )
   }
   return (
     <div className="flex h-9 shrink-0 items-center border-b border-border bg-muted/20">
@@ -2827,6 +2863,51 @@ function RepositoryFileTabs({
           if (event.currentTarget.scrollLeft !== previousScrollLeft) event.preventDefault()
         }}
       >
+        {reviewTabs.map(({ kind, label }) => (
+          <div
+            key={kind}
+            data-review-tab={kind}
+            className={cn(
+              'group/tab flex h-7 max-w-72 shrink-0 items-center rounded-md text-xs',
+              repository.activeReview === kind
+                ? 'bg-muted text-foreground'
+                : 'text-muted-foreground hover:bg-muted/60 hover:text-foreground',
+            )}
+            onAuxClick={(event) => {
+              if (event.button !== 1) return
+              event.preventDefault()
+              closeReviewTab(kind)
+            }}
+            onMouseDown={(event) => {
+              if (event.button === 1) event.preventDefault()
+            }}
+          >
+            <button
+              type="button"
+              role="tab"
+              aria-selected={repository.activeReview === kind}
+              className="flex min-w-0 flex-1 cursor-pointer items-center gap-1.5 py-1 ps-2.5 text-start active:bg-muted focus-visible:outline-2 focus-visible:outline-offset-2"
+              title={label}
+              onClick={() => repository.activateReviewTab(kind)}
+            >
+              <IconDiffSplit className="size-4 shrink-0" />
+              <span className="truncate">{label}</span>
+            </button>
+            <button
+              type="button"
+              className="me-1 flex size-5 shrink-0 cursor-pointer items-center justify-center rounded text-muted-foreground opacity-0 hover:bg-background/70 hover:text-foreground active:bg-muted focus-visible:outline-2 focus-visible:outline-offset-2 group-focus-within/tab:opacity-100 group-hover/tab:opacity-100 [@media(hover:none)]:opacity-100"
+              aria-label={
+                kind === 'compare'
+                  ? `Close ref comparison ${label}`
+                  : `Close commit review ${label}`
+              }
+              title={kind === 'compare' ? 'Close ref comparison' : 'Close commit review'}
+              onClick={() => closeReviewTab(kind)}
+            >
+              <IconX className="size-3" />
+            </button>
+          </div>
+        ))}
         {comparison != null && (
           <div
             data-comparison-tab="true"
@@ -2864,7 +2945,9 @@ function RepositoryFileTabs({
         )}
         {openPaths.map((path, index) => {
           const active =
-            !repository.repositoryFileComparisonActive && repository.repositoryFilePath === path
+            repository.activeReview == null &&
+            !repository.repositoryFileComparisonActive &&
+            repository.repositoryFilePath === path
           const name = repository.isUntitledPath(path)
             ? (repository.untitledDocument(path)?.label ?? 'Untitled')
             : (path.split('/').at(-1) ?? path)
@@ -3010,7 +3093,7 @@ function RepositoryFileTabs({
               Close
             </DropdownMenuItem>
             <DropdownMenuItem
-              disabled={openPaths.length === 1 && comparison == null}
+              disabled={openPaths.length === 1 && !hasReviewTabs}
               onSelect={() =>
                 closeFromMenu(
                   openPaths.filter((path) => path !== contextMenu.path),
@@ -3022,7 +3105,7 @@ function RepositoryFileTabs({
             </DropdownMenuItem>
             <DropdownMenuSeparator />
             <DropdownMenuItem
-              disabled={contextMenu.index === 0 && comparison == null}
+              disabled={contextMenu.index === 0 && !hasReviewTabs}
               onSelect={() => closeFromMenu(openPaths.slice(0, contextMenu.index), true)}
             >
               Close Left
@@ -3035,7 +3118,7 @@ function RepositoryFileTabs({
             </DropdownMenuItem>
             <DropdownMenuSeparator />
             <DropdownMenuItem
-              disabled={comparison == null && openPaths.every((path) => dirtyPaths.has(path))}
+              disabled={!hasReviewTabs && openPaths.every((path) => dirtyPaths.has(path))}
               onSelect={() =>
                 closeFromMenu(
                   openPaths.filter((path) => !dirtyPaths.has(path)),

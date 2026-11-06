@@ -53,7 +53,7 @@ test('preview layouts are remembered independently for each file', async ({ page
   await expect(page.getByRole('textbox', { name: 'second.md', exact: true })).toBeVisible()
 
   await tabs.getByRole('tab', { name: 'first.md', exact: true }).click()
-  await markdownSplit.click()
+  await page.getByRole('button', { name: 'Close preview', exact: true }).click()
   await expect(markdown).toHaveCount(0)
   await tabs.getByRole('tab', { name: 'picture.svg', exact: true }).click()
   await expect(svg.getByRole('img')).toBeVisible()

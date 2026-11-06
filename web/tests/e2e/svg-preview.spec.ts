@@ -42,7 +42,7 @@ test('SVG preview follows unsaved edits, keeps undo, and supports both layouts',
   await full.click()
   await expect(image).toBeVisible()
   await expect(editor).toHaveCount(0)
-  await full.click()
+  await page.getByRole('button', { name: 'Return to editor', exact: true }).click()
   await expect(preview).toHaveCount(0)
   await editor.focus()
   await page.keyboard.press('Control+z')
