@@ -14,7 +14,35 @@ async function openFile(page: Page, name: string) {
   await option.click()
 }
 
-test('approving a large file shows loading without a retry error flash', async ({ page, app }) => {
+test('a file ready before 200 ms never shows a loading indicator', async ({ page, app }) => {
+  writeFileSync(join(app.repo, 'instant.txt'), 'ready immediately\n')
+  await page.goto(app.url)
+  await page.getByRole('button', { name: 'Open command palette' }).click()
+  const palette = page.getByRole('dialog', { name: 'Command palette' })
+  await palette.getByRole('combobox', { name: 'Search files and commands' }).fill('instant.txt')
+  const option = palette.getByRole('option', { name: /^instant\.txt / })
+  await expect(option).toHaveAttribute('aria-disabled', 'false')
+  const now = Date.now()
+  await page.clock.install({ time: now })
+  await page.clock.pauseAt(now + 1000)
+  try {
+    await option.evaluate((element) => {
+      if (element instanceof HTMLElement) element.click()
+    })
+    await expect(page.locator('.code-view').first()).toBeVisible()
+    await page.clock.runFor(32)
+    await expect(page.locator('.code-view [contenteditable="true"]').first()).toContainText(
+      'ready immediately',
+    )
+    await expect(page.getByRole('heading', { name: 'Opening file', exact: true })).toHaveCount(0)
+    await page.clock.runFor(168)
+    await expect(page.getByRole('heading', { name: 'Opening file', exact: true })).toHaveCount(0)
+  } finally {
+    await page.clock.resume()
+  }
+})
+
+test('large-file loading waits 200 ms without a retry error flash', async ({ page, app }) => {
   writeFileSync(join(app.repo, 'loading.txt'), 'x'.repeat((2 << 20) + 1))
   await page.goto(app.url)
   await openFile(page, 'loading.txt')
@@ -34,14 +62,25 @@ test('approving a large file shows loading without a retry error flash', async (
       }
     }).observe(document.body, { childList: true, subtree: true, characterData: true })
   })
+  const now = Date.now()
+  await page.clock.install({ time: now })
+  await page.clock.pauseAt(now + 1000)
   try {
-    await page.getByRole('button', { name: 'Open anyway' }).click()
+    await page.getByRole('button', { name: 'Open anyway' }).evaluate((button) => {
+      if (button instanceof HTMLElement) button.click()
+    })
+    await expect(page.getByRole('heading', { name: 'Open large file?' })).toHaveCount(0)
+    await page.clock.runFor(199)
+    await expect(page.getByRole('heading', { name: 'Opening file', exact: true })).toHaveCount(0)
+    await page.clock.runFor(1)
     await expect(page.getByRole('heading', { name: 'Opening file', exact: true })).toBeVisible()
     await expect(page.getByRole('button', { name: 'Try again', exact: true })).toHaveCount(0)
   } finally {
     releaseRead()
+    await page.clock.resume()
   }
   await expect(page.locator('.code-view [contenteditable="true"]').first()).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Opening file', exact: true })).toHaveCount(0)
   expect(
     await page.evaluate(() => (window as typeof window & { retryFlashes?: string[] }).retryFlashes),
   ).toEqual([])

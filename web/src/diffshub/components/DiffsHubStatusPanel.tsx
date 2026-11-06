@@ -2,6 +2,7 @@
 // Modified from the pinned DiffsHub donor: localRepository uses truthful
 // local-Git loading copy while retaining every donor state and layout.
 import { IconCiWarningFill, IconRefresh } from '@pierre/icons';
+import { useEffect, useState } from 'react';
 
 import { useChromeThemeProps } from './useChromeThemeProps';
 import { Button } from '@/components/Button';
@@ -37,6 +38,15 @@ export function DiffsHubStatusPanel({
   const themeChromeStyle =
     Object.keys(chromeStyle).length > 0 ? chromeStyle : undefined;
   const isError = state === 'error';
+  const [loadingVisible, setLoadingVisible] = useState(false);
+  useEffect(() => {
+    if (isError) {
+      setLoadingVisible(false);
+      return;
+    }
+    const timer = window.setTimeout(() => setLoadingVisible(true), 200);
+    return () => window.clearTimeout(timer);
+  }, [isError]);
   if (isError && suppressError) return null;
   const fileContent = contentKind === 'file';
   const title = isError
@@ -79,6 +89,7 @@ export function DiffsHubStatusPanel({
       style={themeChromeStyle}
     >
       <section
+        hidden={!isError && !loadingVisible}
         role={isError ? 'alert' : 'status'}
         aria-live="polite"
         aria-busy={!isError || undefined}
