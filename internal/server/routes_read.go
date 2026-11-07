@@ -53,6 +53,8 @@ func (s *Server) apiRoutes() http.Handler {
 			s.handleCompareWorktreeFiles(w, r)
 		case r.Method == http.MethodGet && p == "/worktree/line-history":
 			s.handleLineHistory(w, r)
+		case r.Method == http.MethodGet && p == "/worktree/blame":
+			s.handleFileBlame(w, r)
 		case r.Method == http.MethodPut && p == "/worktree/file":
 			s.handleWriteWorktreeFile(w, r)
 		case r.Method == http.MethodPost && p == "/worktree/file":

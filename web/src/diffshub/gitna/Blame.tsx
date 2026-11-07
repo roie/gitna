@@ -1,11 +1,11 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type RefObject } from 'react'
 import type { CodeViewHandle } from '@pierre/diffs/react'
 import type { ApiClient } from '../../lib/api'
-import type { LineHistory } from '../../lib/types'
+import type { FileBlame, LineHistory } from '../../lib/types'
 import type { CommentMetadata } from '../lib/types'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '../components/Tooltip'
 import { CommitInfo } from './CommitInfo'
-import { formatLineHistoryAge } from './lineHistory'
+import { formatLineHistoryAge, lineHistoryFromBlame } from './lineHistory'
 import { useRepository } from './repository'
 
 export function Blame({
@@ -34,6 +34,7 @@ export function Blame({
   const [history, setHistory] = useState<LineHistory | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [tooltipOpen, setTooltipOpen] = useState(false)
+  const [fileBlame, setFileBlame] = useState<FileBlame | 'loading' | 'failed'>('loading')
   const displayRef = useRef({ history, dirty, generation })
   const positionRef = useRef<(() => void) | null>(null)
 
@@ -132,9 +133,33 @@ export function Blame({
   }, [path, scrollRef, viewerRef])
 
   useEffect(() => {
+    if (dirty) return
+    if (api.fileBlame == null) {
+      setFileBlame('failed')
+      return
+    }
+    setFileBlame('loading')
+    const controller = new AbortController()
+    void api.fileBlame(path, controller.signal, maxBytes).then(
+      (result) => {
+        if (!controller.signal.aborted)
+          setFileBlame(result.generation === generation ? result : 'failed')
+      },
+      () => {
+        if (!controller.signal.aborted) setFileBlame('failed')
+      },
+    )
+    return () => controller.abort()
+  }, [api, path, generation, dirty, maxBytes])
+
+  useEffect(() => {
     setTooltipOpen(false)
     setError(null)
-    if (line == null || dirty) return
+    if (line == null || dirty || fileBlame === 'loading') return
+    if (fileBlame !== 'failed') {
+      setHistory(lineHistoryFromBlame(fileBlame, line))
+      return
+    }
     const cached = cache.get(line)
     if (cached != null) {
       setHistory(cached)
@@ -158,7 +183,7 @@ export function Blame({
       clearTimeout(timer)
       controller.abort()
     }
-  }, [api, path, line, generation, dirty, maxBytes, cache])
+  }, [api, path, line, generation, dirty, maxBytes, cache, fileBlame])
 
   const committed = history != null && !history.uncommitted && history.oid != null
   const age = history?.authoredAt == null ? null : formatLineHistoryAge(history.authoredAt)

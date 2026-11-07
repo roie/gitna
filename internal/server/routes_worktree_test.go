@@ -19,6 +19,7 @@ type fakeWorktreeRepo struct {
 	comparison    protocol.FileDiff
 	lineHistory   protocol.LineHistory
 	historyBudget []int64
+	fileBlame     protocol.FileBlame
 	err           error
 	createdPath   string
 	createdDir    bool
@@ -37,6 +38,11 @@ func (f *fakeWorktreeRepo) CompareWorktreeFiles(context.Context, string, string)
 func (f *fakeWorktreeRepo) LineHistory(_ context.Context, _ string, _ int, budget ...int64) (protocol.LineHistory, error) {
 	f.historyBudget = budget
 	return f.lineHistory, f.err
+}
+
+func (f *fakeWorktreeRepo) FileBlame(_ context.Context, _ string, budget ...int64) (protocol.FileBlame, error) {
+	f.historyBudget = budget
+	return f.fileBlame, f.err
 }
 
 func (f *fakeWorktreeRepo) WriteWorktreeFile(_ context.Context, path, content, _ string, _ ...int64) (protocol.WorktreeFile, error) {
@@ -221,6 +227,32 @@ func TestWorktreeLineHistoryRoute(t *testing.T) {
 	invalid := worktreeRequest(t, h, http.MethodGet, "/worktree/line-history?path=notes.txt&line=zero", "")
 	if invalid.Code != http.StatusBadRequest || !strings.Contains(invalid.Body.String(), "invalid-line") {
 		t.Fatalf("invalid status = %d, body = %s", invalid.Code, invalid.Body.String())
+	}
+}
+
+func TestWorktreeFileBlameRoute(t *testing.T) {
+	repo := &fakeWorktreeRepo{
+		fakeRepo: &fakeRepo{},
+		fileBlame: protocol.FileBlame{
+			Path:    "notes.txt",
+			Commits: map[string]protocol.BlameCommit{"0123456789012345678901234567890123456789": {Author: "Test", Summary: "change notes"}},
+			Ranges:  []protocol.BlameRange{{Start: 1, Count: 2, OID: "0123456789012345678901234567890123456789"}},
+		},
+	}
+	h := newSnapshotServer(repo)
+	rec := worktreeRequest(t, h, http.MethodGet, "/worktree/blame?path=notes.txt&maxBytes=2000000", "")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, body = %s", rec.Code, rec.Body.String())
+	}
+	var blame protocol.FileBlame
+	if err := json.Unmarshal(rec.Body.Bytes(), &blame); err != nil {
+		t.Fatal(err)
+	}
+	if blame.Generation != 1 || len(blame.Ranges) != 1 || blame.Commits[blame.Ranges[0].OID].Author != "Test" {
+		t.Fatalf("blame = %#v", blame)
+	}
+	if len(repo.historyBudget) != 1 || repo.historyBudget[0] != 2000000 {
+		t.Fatalf("budget = %v", repo.historyBudget)
 	}
 }
 

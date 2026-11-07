@@ -409,3 +409,27 @@ type ConflictEntry struct {
 	Mode           string `json:"mode,omitempty"`
 	CanResolveBoth bool   `json:"canResolveBoth"`
 }
+
+// FileBlame attributes every committed line of one worktree file. Lines not
+// covered by Ranges are uncommitted.
+type FileBlame struct {
+	Path       string                 `json:"path"`
+	Generation uint64                 `json:"generation"`
+	Commits    map[string]BlameCommit `json:"commits"`
+	Ranges     []BlameRange           `json:"ranges"`
+}
+
+// BlameCommit is the commit metadata shared by every range it owns.
+type BlameCommit struct {
+	Author     string     `json:"author"`
+	AuthoredAt *time.Time `json:"authoredAt,omitempty"`
+	Summary    string     `json:"summary"`
+}
+
+// BlameRange maps Count lines starting at the 1-based Start line to OID.
+type BlameRange struct {
+	Start      int    `json:"start"`
+	Count      int    `json:"count"`
+	OID        string `json:"oid"`
+	CommitPath string `json:"commitPath,omitempty"`
+}

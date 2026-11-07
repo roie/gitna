@@ -3,6 +3,7 @@ package gitx
 import (
 	"context"
 	"fmt"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -134,4 +135,100 @@ func parseLineHistoryPath(value string) (string, error) {
 		return "", fmt.Errorf("gitx: malformed line history filename")
 	}
 	return path, nil
+}
+
+// FileBlame attributes every line of a bounded regular text worktree file in
+// one git blame pass, so callers can look lines up without further requests.
+func (r Repository) FileBlame(ctx context.Context, runner Runner, path string, budget ...int64) (protocol.FileBlame, error) {
+	if !r.IsGit() {
+		return protocol.FileBlame{}, ErrNotRepository
+	}
+	if _, err := r.ReadWorktreeFile(ctx, path, budget...); err != nil {
+		return protocol.FileBlame{}, err
+	}
+	blame := protocol.FileBlame{Path: path, Commits: map[string]protocol.BlameCommit{}, Ranges: []protocol.BlameRange{}}
+	head, err := runner.Run(ctx, r.Root, "rev-parse", "--verify", "--quiet", "HEAD")
+	if err != nil {
+		return protocol.FileBlame{}, err
+	}
+	if head.ExitCode != 0 {
+		return blame, nil
+	}
+	tracked, err := runner.Run(ctx, r.Root, "ls-files", "--error-unmatch", "--", path)
+	if err != nil {
+		return protocol.FileBlame{}, err
+	}
+	if tracked.ExitCode != 0 {
+		return blame, nil
+	}
+	result, err := runner.Run(ctx, r.Root, "blame", "--incremental", "--", path)
+	if err != nil {
+		return protocol.FileBlame{}, err
+	}
+	if result.ExitCode != 0 {
+		return protocol.FileBlame{}, fmt.Errorf("gitx: file blame failed: %s", strings.TrimSpace(string(result.Stderr)))
+	}
+	if err := parseIncrementalBlame(result.Stdout, &blame); err != nil {
+		return protocol.FileBlame{}, err
+	}
+	return blame, nil
+}
+
+func parseIncrementalBlame(output []byte, blame *protocol.FileBlame) error {
+	var current *protocol.BlameRange
+	var commit protocol.BlameCommit
+	for _, entry := range strings.Split(string(output), "\n") {
+		if current == nil {
+			if entry == "" {
+				continue
+			}
+			fields := strings.Fields(entry)
+			if len(fields) != 4 || (len(fields[0]) != 40 && len(fields[0]) != 64) {
+				return fmt.Errorf("gitx: malformed blame header %q", entry)
+			}
+			start, err := strconv.Atoi(fields[2])
+			if err != nil {
+				return fmt.Errorf("gitx: malformed blame line %q", entry)
+			}
+			count, err := strconv.Atoi(fields[3])
+			if err != nil {
+				return fmt.Errorf("gitx: malformed blame count %q", entry)
+			}
+			current = &protocol.BlameRange{Start: start, Count: count, OID: fields[0]}
+			commit = blame.Commits[current.OID]
+			continue
+		}
+		key, value, _ := strings.Cut(entry, " ")
+		switch key {
+		case "author":
+			commit.Author = value
+		case "author-time":
+			seconds, err := strconv.ParseInt(value, 10, 64)
+			if err != nil {
+				return fmt.Errorf("gitx: malformed blame author time")
+			}
+			authoredAt := time.Unix(seconds, 0).UTC()
+			commit.AuthoredAt = &authoredAt
+		case "summary":
+			commit.Summary = value
+		case "filename":
+			commitPath, err := parseLineHistoryPath(value)
+			if err != nil {
+				return err
+			}
+			if strings.Trim(current.OID, "0") != "" {
+				if commitPath != blame.Path {
+					current.CommitPath = commitPath
+				}
+				blame.Commits[current.OID] = commit
+				blame.Ranges = append(blame.Ranges, *current)
+			}
+			current = nil
+		}
+	}
+	if current != nil {
+		return fmt.Errorf("gitx: incomplete blame output")
+	}
+	slices.SortFunc(blame.Ranges, func(a, b protocol.BlameRange) int { return a.Start - b.Start })
+	return nil
 }

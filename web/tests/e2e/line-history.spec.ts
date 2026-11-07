@@ -129,11 +129,7 @@ test('inline blame hides uncommitted lines and untracked files', async ({ page, 
   await openFile('two-hunk.txt')
   await row(2).click({ position: { x: 20, y: 8 } })
   await expect(annotation).toBeVisible()
-  const changed = page.waitForResponse((response) =>
-    response.url().includes('/worktree/line-history?path=two-hunk.txt&line=2'),
-  )
   await row(1).click({ position: { x: 20, y: 8 } })
-  expect(await (await changed).json()).toMatchObject({ uncommitted: true })
   await expect(annotation).toBeHidden()
   await expect(page.getByText('Not committed yet', { exact: true })).toHaveCount(0)
   await row(2).click({ position: { x: 20, y: 8 } })
@@ -141,29 +137,25 @@ test('inline blame hides uncommitted lines and untracked files', async ({ page, 
   await row(1).click({ position: { x: 20, y: 8 } })
   await expect(annotation).toBeHidden()
 
-  await openFile('untracked.txt')
   const untracked = page.waitForResponse((response) =>
-    response.url().includes('/worktree/line-history?path=untracked.txt&line=1'),
+    response.url().includes('/worktree/blame?path=untracked.txt'),
   )
+  await openFile('untracked.txt')
   await row(0).click({ position: { x: 20, y: 8 } })
-  expect(await (await untracked).json()).toMatchObject({ uncommitted: true })
+  expect(await (await untracked).json()).toMatchObject({ ranges: [] })
   await expect(annotation).toBeHidden()
   await expect(page.getByText('Not committed yet', { exact: true })).toHaveCount(0)
 })
 
 test('inline blame truncates the message before author and relative age', async ({ page, app }) => {
   const summary = 'Explain why this line changed '.repeat(20)
-  await page.route('**/worktree/line-history?*', async (route) => {
+  await page.route('**/worktree/blame?*', async (route) => {
     const response = await route.fetch()
-    const history = await response.json()
-    await route.fulfill({
-      response,
-      json: {
-        ...history,
-        summary,
-        authoredAt: new Date(Date.now() - 90 * 86400_000).toISOString(),
-      },
-    })
+    const blame = await response.json()
+    const authoredAt = new Date(Date.now() - 90 * 86400_000).toISOString()
+    for (const commit of Object.values(blame.commits as Record<string, object>))
+      Object.assign(commit, { summary, authoredAt })
+    await route.fulfill({ response, json: blame })
   })
   await page.goto(app.url)
   await page.getByRole('button', { name: 'Open command palette' }).click()

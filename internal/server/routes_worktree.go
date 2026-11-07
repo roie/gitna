@@ -153,6 +153,31 @@ func (s *Server) handleLineHistory(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, history)
 }
 
+func (s *Server) handleFileBlame(w http.ResponseWriter, r *http.Request) {
+	repo, ok := s.repo.(interface {
+		FileBlame(context.Context, string, ...int64) (protocol.FileBlame, error)
+	})
+	if !ok {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "file blame unavailable"})
+		return
+	}
+	limit, err := worktreeRequestLimit(r, gitx.DefaultDiffBytes)
+	if err != nil {
+		writeMutationDecodeError(w, err)
+		return
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), ReadTimeout)
+	defer cancel()
+	generation := s.gen.Load()
+	blame, err := repo.FileBlame(ctx, r.URL.Query().Get("path"), limit)
+	if err != nil {
+		writeWorktreeError(w, r, s, err)
+		return
+	}
+	blame.Generation = generation
+	writeJSON(w, http.StatusOK, blame)
+}
+
 func (s *Server) handleWriteWorktreeFile(w http.ResponseWriter, r *http.Request) {
 	repo, ok := s.worktreeRepository()
 	if !ok {

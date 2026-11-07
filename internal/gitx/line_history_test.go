@@ -150,3 +150,74 @@ func TestLineHistoryUsesApprovedLargeFileBudget(t *testing.T) {
 		t.Fatalf("history = %+v", history)
 	}
 }
+
+func TestFileBlameMatchesLineHistoryForEveryLine(t *testing.T) {
+	root := initTestRepo(t)
+	write := func(name, content string) {
+		t.Helper()
+		if err := os.WriteFile(filepath.Join(root, name), []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	write("old.txt", "one\ntwo\nthree\nfour\n")
+	runGit(t, root, "add", "--", "old.txt")
+	runGit(t, root, "commit", "-qm", "first")
+	runGit(t, root, "mv", "old.txt", "notes.txt")
+	write("notes.txt", "one\nTWO\nthree\nfour\nfive\n")
+	runGit(t, root, "add", "--", "notes.txt")
+	runGit(t, root, "commit", "-qm", "second")
+	write("notes.txt", "one\nTWO\nchanged\nfour\nfive\nsix\n")
+	write("untracked.txt", "new\n")
+
+	repo := Repository{Root: root, GitDir: filepath.Join(root, ".git")}
+	runner := &ExecRunner{}
+	blame, err := repo.FileBlame(t.Context(), runner, "notes.txt")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for line := 1; line <= 6; line++ {
+		want, err := repo.LineHistory(t.Context(), runner, "notes.txt", line)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var got *protocol.BlameRange
+		for index := range blame.Ranges {
+			r := &blame.Ranges[index]
+			if line >= r.Start && line < r.Start+r.Count {
+				got = r
+			}
+		}
+		if want.Uncommitted {
+			if got != nil {
+				t.Fatalf("line %d: want uncommitted, got %+v", line, *got)
+			}
+			continue
+		}
+		if got == nil {
+			t.Fatalf("line %d: missing range, want %s", line, want.OID)
+		}
+		commit := blame.Commits[got.OID]
+		wantPath := want.CommitPath
+		if wantPath == "notes.txt" {
+			wantPath = ""
+		}
+		if got.OID != want.OID || got.CommitPath != wantPath || commit.Author != want.Author || commit.Summary != want.Summary || !commit.AuthoredAt.Equal(*want.AuthoredAt) {
+			t.Fatalf("line %d: got %+v %+v, want %+v", line, *got, commit, want)
+		}
+	}
+	if blame.Ranges[0].CommitPath != "old.txt" {
+		t.Fatalf("renamed line path = %q", blame.Ranges[0].CommitPath)
+	}
+
+	untracked, err := repo.FileBlame(t.Context(), runner, "untracked.txt")
+	if err != nil || len(untracked.Ranges) != 0 {
+		t.Fatalf("untracked = %+v, %v", untracked, err)
+	}
+	write("binary.dat", "a\x00b")
+	if _, err := repo.FileBlame(t.Context(), runner, "binary.dat"); !errors.Is(err, protocol.ErrWorktreeBinary) {
+		t.Fatalf("binary error = %v", err)
+	}
+	if _, err := repo.FileBlame(t.Context(), runner, "../escape"); !errors.Is(err, protocol.ErrInvalidPath) {
+		t.Fatalf("escape error = %v", err)
+	}
+}

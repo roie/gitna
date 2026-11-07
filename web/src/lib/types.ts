@@ -199,6 +199,13 @@ export interface WorktreeFile {
   hash: string
 }
 
+export interface FileBlame {
+  path: string
+  generation: number
+  commits: Record<string, { author: string; authoredAt?: string; summary: string }>
+  ranges: { start: number; count: number; oid: string; commitPath?: string }[]
+}
+
 export interface LineHistory {
   path: string
   commitPath?: string

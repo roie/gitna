@@ -151,6 +151,17 @@ func (a *repoAdapter) LineHistory(ctx context.Context, path string, line int, bu
 	return a.current().LineHistory(ctx, a.runner, path, line, budget...)
 }
 
+func (a *repoAdapter) FileBlame(ctx context.Context, path string, budget ...int64) (protocol.FileBlame, error) {
+	a.historyOnce.Do(func() { a.historySlot = make(chan struct{}, 1) })
+	select {
+	case a.historySlot <- struct{}{}:
+		defer func() { <-a.historySlot }()
+	case <-ctx.Done():
+		return protocol.FileBlame{}, ctx.Err()
+	}
+	return a.current().FileBlame(ctx, a.runner, path, budget...)
+}
+
 func (a *repoAdapter) WriteWorktreeFile(ctx context.Context, path, content, expectedHash string, budget ...int64) (protocol.WorktreeFile, error) {
 	var file protocol.WorktreeFile
 	err := a.queue.Do(ctx, func(ctx context.Context) error {
