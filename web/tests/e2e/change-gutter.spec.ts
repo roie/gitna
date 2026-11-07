@@ -31,62 +31,19 @@ test('file gutters track the index, unsaved edits, undo, and staging', async ({ 
     1,
   )
 
-  const caretDiag = async (label: string) => {
-    const info = await page.evaluate(() => {
-      const host =
-        document.querySelector('[data-file]')?.closest('diffs-container') ??
-        document.querySelector('diffs-container')
-      const root = (host as HTMLElement | null)?.shadowRoot ?? null
-      const selection =
-        (root as unknown as { getSelection?: () => Selection | null } | null)?.getSelection?.() ??
-        document.getSelection()
-      const anchor = selection?.anchorNode
-      const anchorElement = anchor instanceof Element ? anchor : anchor?.parentElement
-      const editable = (root ?? document).querySelector(
-        '[contenteditable="true"]',
-      ) as HTMLElement | null
-      const active = document.activeElement
-      return {
-        caretLine: anchorElement?.closest('[data-line]')?.getAttribute('data-line') ?? null,
-        caretOffset: selection?.anchorOffset,
-        editableMarker: editable?.dataset.diagMarker ?? null,
-        activeTag: active?.tagName,
-        activeInShadow: root?.activeElement?.tagName ?? null,
-        hasFocus: document.hasFocus(),
-      }
-    })
-    console.log(`CDIAG ${label} ${JSON.stringify(info)}`)
-  }
-  await page.evaluate(() => {
-    const host =
-      document.querySelector('[data-file]')?.closest('diffs-container') ??
-      document.querySelector('diffs-container')
-    const root = (host as HTMLElement | null)?.shadowRoot ?? document
-    const editable = root.querySelector('[contenteditable="true"]') as HTMLElement | null
-    if (editable != null) editable.dataset.diagMarker = 'before-click'
-  })
-  await caretDiag('before-click')
-  const target = await row(2).boundingBox()
-  const hit = await page.evaluate(
-    ([x, y]) => {
-      const outer = document.elementFromPoint(x, y)
-      const inner = (outer as HTMLElement | null)?.shadowRoot?.elementFromPoint(x, y) ?? outer
-      return {
-        outer: outer?.tagName,
-        inner: inner?.tagName,
-        innerLine: inner?.closest('[data-line]')?.getAttribute('data-line') ?? null,
-        innerAttrs: inner == null ? null : [...inner.attributes].map((a) => a.name).join(','),
-      }
-    },
-    [target!.x + 20, target!.y + 8],
-  )
-  console.log(`CDIAG hit ${JSON.stringify({ box: target, hit })}`)
   await row(2).click({ position: { x: 20, y: 8 } })
-  await caretDiag('after-click')
-  await page.waitForTimeout(150)
-  await caretDiag('after-click+150ms')
-  await page.waitForTimeout(500)
-  await caretDiag('after-click+650ms')
+  await expect
+    .poll(() =>
+      page.evaluate(() => {
+        const root = document.querySelector('diffs-container')?.shadowRoot as
+          | (ShadowRoot & { getSelection?: () => Selection | null })
+          | undefined
+        const anchor = (root?.getSelection?.() ?? document.getSelection())?.anchorNode
+        const element = anchor instanceof Element ? anchor : anchor?.parentElement
+        return element?.closest('[data-line]')?.getAttribute('data-line')
+      }),
+    )
+    .toBe('3')
   await page.keyboard.press('Home')
   await page.keyboard.press('Shift+ArrowDown')
   await page.keyboard.press('Backspace')

@@ -31,7 +31,7 @@ for (const dirtySibling of [false, true]) {
     const editor = page.locator('.code-view').locator('[contenteditable="true"], textarea').first()
     await expect(editor).toBeVisible()
     await editor.click()
-    await page.keyboard.insertText('untitled draft')
+    await editor.pressSequentially('untitled draft')
     await expect(untitledTab.getByLabel('Unsaved changes')).toBeVisible()
     await untitledTab.click({ button: 'right' })
     await page.getByRole('menuitem', { name: 'Close All', exact: true }).click()
