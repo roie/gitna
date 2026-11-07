@@ -13,6 +13,7 @@ on:
         options:
           - all
           - windows-browser
+          - linux-browser
         default: all
 
 concurrency:
@@ -161,7 +162,7 @@ jobs:
     needs: source
     strategy:
       fail-fast: false
-      matrix: ${{ fromJSON((github.event_name == 'workflow_dispatch' && inputs.suite == 'windows-browser') && '{"include":[{"name":"windows","runner":"windows-2025","binary":"gitna-e2e.exe"}]}' || '{"include":[{"name":"ubuntu","runner":"ubuntu-24.04","binary":"gitna-e2e"},{"name":"windows","runner":"windows-2025","binary":"gitna-e2e.exe"}]}') }}
+      matrix: ${{ fromJSON((github.event_name == 'workflow_dispatch' && inputs.suite == 'windows-browser') && '{"include":[{"name":"windows","runner":"windows-2025","binary":"gitna-e2e.exe"}]}' || (github.event_name == 'workflow_dispatch' && inputs.suite == 'linux-browser') && '{"include":[{"name":"ubuntu","runner":"ubuntu-24.04","binary":"gitna-e2e"}]}' || '{"include":[{"name":"ubuntu","runner":"ubuntu-24.04","binary":"gitna-e2e"},{"name":"windows","runner":"windows-2025","binary":"gitna-e2e.exe"}]}') }}
     runs-on: ${{ matrix.runner }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
