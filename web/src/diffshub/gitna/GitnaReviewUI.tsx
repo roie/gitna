@@ -1787,7 +1787,7 @@ function GitnaReviewUIInner({
     },
     [repository],
   )
-  const saveWorktreeFile = useCallback(
+  const saveWorktreeFileNow = useCallback(
     async (path: string): Promise<boolean> => {
       const baseline = worktreeFilesRef.current.get(path)
       const draft = worktreeDraftsRef.current.get(path)
@@ -1842,6 +1842,25 @@ function GitnaReviewUIInner({
       return !worktreeDraftsRef.current.has(path)
     },
     [repository],
+  )
+  const saveInFlightRef = useRef<Promise<boolean> | null>(null)
+  const saveWorktreeFile = useCallback(
+    async (path: string): Promise<boolean> => {
+      let waited = false
+      while (saveInFlightRef.current != null) {
+        waited = true
+        await saveInFlightRef.current.catch(() => false)
+      }
+      if (waited && !worktreeDraftsRef.current.has(path)) return true
+      const save = saveWorktreeFileNow(path)
+      saveInFlightRef.current = save
+      try {
+        return await save
+      } finally {
+        if (saveInFlightRef.current === save) saveInFlightRef.current = null
+      }
+    },
+    [saveWorktreeFileNow],
   )
   const savePendingTabs = useCallback(async () => {
     const pending = pendingTabClose

@@ -148,3 +148,32 @@ for (const mode of ['append', 'undo', 'undo-failure']) {
     }
   })
 }
+
+test('saving during an in-flight save writes the newer draft', async ({ page, app }) => {
+  await page.goto(app.url)
+  await page.locator('[data-section="repository"]').click()
+  let releaseFirstSave: (() => void) | undefined
+  const firstSaveHeld = new Promise<void>((resolve) => {
+    releaseFirstSave = resolve
+  })
+  let writes = 0
+  await page.route('**/api/v1/worktree/file**', async (route) => {
+    if (route.request().method() !== 'PUT') return route.continue()
+    writes++
+    const response = await route.fetch()
+    if (writes === 1) await firstSaveHeld
+    await route.fulfill({ response })
+  })
+  const editor = await editFile(page, 'main.txt')
+  await page.keyboard.press('Control+s')
+  await expect.poll(() => writes).toBe(1)
+  await editor.click()
+  await page.keyboard.press('Control+End')
+  await page.keyboard.insertText(' and newer')
+  await page.keyboard.press('Control+s')
+  releaseFirstSave!()
+  await expect
+    .poll(() => readFileSync(join(app.repo, 'main.txt'), 'utf8'))
+    .toMatch(/ draft to keep and newer$/)
+  await expect(page.getByRole('tab', { name: /main\.txt Unsaved changes/ })).toHaveCount(0)
+})
