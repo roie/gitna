@@ -14,6 +14,7 @@ test('preview layouts are remembered independently for each file', async ({ page
   async function openFile(path: string) {
     await page.getByRole('button', { name: 'Open command palette' }).click()
     await page.getByLabel('Search files and commands').fill(path)
+    await expect(page.getByRole('option')).toHaveCount(1)
     await page.getByRole('option').click()
     await expect(page.getByRole('textbox', { name: path, exact: true })).toBeVisible()
   }

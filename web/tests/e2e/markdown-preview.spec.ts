@@ -253,6 +253,7 @@ test('Markdown worker failure leaves the editor usable and shows a render error'
   await page.goto(app.url)
   await page.getByRole('button', { name: 'Open command palette' }).click()
   await page.locator('[aria-label="Search files and commands"]').fill('worker.md')
+  await expect(page.getByRole('option')).toHaveCount(1)
   await page.getByRole('option').click()
   await page.getByRole('button', { name: 'Open Markdown preview to the side' }).click()
   await expect(page.getByRole('alert')).toContainText('Markdown parser worker failed')
