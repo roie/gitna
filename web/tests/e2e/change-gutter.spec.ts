@@ -32,6 +32,18 @@ test('file gutters track the index, unsaved edits, undo, and staging', async ({ 
   )
 
   await row(2).click({ position: { x: 20, y: 8 } })
+  await expect
+    .poll(() =>
+      page.evaluate(() => {
+        const root = document.querySelector('diffs-container')?.shadowRoot as
+          | (ShadowRoot & { getSelection?: () => Selection | null })
+          | undefined
+        const anchor = (root?.getSelection?.() ?? document.getSelection())?.anchorNode
+        const element = anchor instanceof Element ? anchor : anchor?.parentElement
+        return element?.closest('[data-line]')?.getAttribute('data-line')
+      }),
+    )
+    .toBe('3')
   await page.keyboard.press('Home')
   await page.keyboard.press('Shift+ArrowDown')
   await page.keyboard.press('Backspace')

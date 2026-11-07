@@ -40,9 +40,11 @@ test('expanded commit trees keep their height and folders across virtual remount
   await graph.evaluate((element) => {
     element.scrollTop = 160
   })
+  // hover() may scroll the graph to reveal the folder, so compare against the position after it.
   await folder.hover()
+  let start = await graph.evaluate((element) => element.scrollTop)
   await page.mouse.wheel(0, 120)
-  await expect.poll(() => graph.evaluate((element) => element.scrollTop)).toBeGreaterThan(160)
+  await expect.poll(() => graph.evaluate((element) => element.scrollTop)).toBeGreaterThan(start)
 
   await graph.evaluate((element) => {
     element.scrollTop = 160
@@ -54,15 +56,16 @@ test('expanded commit trees keep their height and folders across virtual remount
   })
   const treeScroller = row.locator('[data-file-tree-virtualized-scroll]')
   await folder.hover()
+  start = await graph.evaluate((element) => element.scrollTop)
   await page.mouse.wheel(0, 80)
   await expect.poll(() => treeScroller.evaluate((element) => element.scrollTop)).toBeGreaterThan(0)
-  expect(await graph.evaluate((element) => element.scrollTop)).toBe(160)
+  expect(await graph.evaluate((element) => element.scrollTop)).toBe(start)
 
   await treeScroller.evaluate((element) => {
     element.scrollTop = element.scrollHeight
   })
   await page.mouse.wheel(0, 80)
-  await expect.poll(() => graph.evaluate((element) => element.scrollTop)).toBeGreaterThan(160)
+  await expect.poll(() => graph.evaluate((element) => element.scrollTop)).toBeGreaterThan(start)
 
   await graph.evaluate((element) => {
     element.scrollTop = 160
@@ -71,8 +74,9 @@ test('expanded commit trees keep their height and folders across virtual remount
     element.scrollTop = 0
   })
   await folder.hover()
+  start = await graph.evaluate((element) => element.scrollTop)
   await page.mouse.wheel(0, -80)
-  await expect.poll(() => graph.evaluate((element) => element.scrollTop)).toBeLessThan(160)
+  await expect.poll(() => graph.evaluate((element) => element.scrollTop)).toBeLessThan(start)
 
   await graph.evaluate((element) => {
     element.scrollTop = 160
