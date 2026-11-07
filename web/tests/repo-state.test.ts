@@ -491,6 +491,35 @@ describe('createRepoState', () => {
     expect(state.repositoryPaths).toHaveLength(2_001)
   })
 
+  it('keeps loaded ordinary directory pages across a refresh', async () => {
+    let generation = 1
+    let names = ['a.txt', 'b.txt', 'c.txt', 'd.txt']
+    const directoryEntries = vi.fn(async (directory: string, cursor?: string) => {
+      const start = cursor == null ? 0 : Number(cursor)
+      const entries = names
+        .slice(start, start + 2)
+        .map((name) => ({ name, path: name, kind: 'file' as const }))
+      const next = start + 2 < names.length ? String(start + 2) : undefined
+      return { generation, directory, entries, truncated: next != null, nextCursor: next }
+    })
+    const state = createRepoState({ api: { ...auxApi, directoryEntries } })
+    state.snapshot = snapshot({ repository: false })
+    state.generation = 1
+
+    await state.loadOrdinaryDirectory('')
+    await state.loadMoreOrdinaryDirectory('')
+    expect(state.repositoryPaths).toEqual(['a.txt', 'b.txt', 'c.txt', 'd.txt'])
+
+    generation = 2
+    names = ['a.txt', 'aa.txt', 'b.txt', 'c.txt', 'd.txt']
+    directoryEntries.mockClear()
+    await state.refreshRepositoryFiles()
+
+    expect(directoryEntries.mock.calls.map((call) => call[1])).toEqual([undefined, '2'])
+    expect(state.repositoryPaths).toEqual(['a.txt', 'aa.txt', 'b.txt', 'c.txt'])
+    expect(state.ordinaryPagedDirectories).toEqual(new Set(['']))
+  })
+
   it('searches ordinary folders on the server and hydrates result ancestors', async () => {
     const directories: string[] = []
     const state = createRepoState({
