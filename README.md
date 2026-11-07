@@ -50,12 +50,13 @@ Folders backed by Git automatically gain source control, history, branches, stas
 
 - Start from Home, reopen recent folders, and switch folders without restarting Gitna
 - Explore huge ordinary folders through lazy directory loading and bounded watching
-- Press `Cmd/Ctrl+K` to search every indexed file, or type `>` to run commands from the unified command palette
-- Review staged and unstaged changes with Pierre-powered split or unified diffs
-- Preview PNG, JPEG, WebP, and GIF changes alongside text diffs
+- Edit files in tabs, including new untitled documents; unsaved drafts are backed up and recoverable after a restart
+- Search from the `Cmd/Ctrl+K` palette: files, `>` commands, `#` commits by message, author, or hash, and `:` line numbers; press `Cmd/Ctrl+Shift+F` for **Find in Files** with case, whole-word, regex, and include/exclude filters
+- Preview Markdown and SVG live as you edit, and PNG, JPEG, WebP, and GIF changes alongside text diffs
 - Preview PDFs and play supported audio and video with browser-native controls and a download fallback
-- Browse and edit working-tree files in repository tabs
+- Review staged and unstaged changes with Pierre-powered split or unified diffs
 - Select two Explorer files with `Cmd/Ctrl`-click, then right-click and choose **Compare Selected**
+- Turn on **Inline blame** to see the commit behind the current line
 - Stage and unstage files, folders, or individual hunks
 - Commit and amend while preserving normal Git hook behavior
 - Scroll continuously through a virtualized commit Graph with an exact HEAD-reachable count

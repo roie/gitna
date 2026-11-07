@@ -28,4 +28,3 @@ These scripts use the project-local Vite+ toolchain. You can also run
 `pnpm check` retains the explicit TypeScript project checks.
 
 Node.js and pnpm versions are managed by the root `mise.toml`, not Vite+.
-Pierre versions, patches, and the worker decoder workaround remain unchanged.

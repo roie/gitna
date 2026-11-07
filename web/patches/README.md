@@ -3,9 +3,9 @@
 Only the active patches listed in `web/pnpm-workspace.yaml` belong here.
 Previous patch versions remain available in Git history.
 
-## Diffs 1.6.1
+## Diffs 1.6.4
 
-`@pierre__diffs@1.6.1.patch` carries Gitna's raster preview slots, editor theme
+`@pierre__diffs@1.6.4.patch` carries Gitna's raster preview slots, editor theme
 updates, invalid-regex feedback, and bounded large-file rendering. It also
 refreshes plain-text edits without full-document background tokenization.
 
