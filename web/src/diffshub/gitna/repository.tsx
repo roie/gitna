@@ -1053,7 +1053,17 @@ export class GitnaRepository {
           // turn its now-obsolete child request into a Repository-wide error.
           if (directory !== '' && !this.ordinaryDirectoryChildren.has(directory)) continue
           try {
-            const refreshed = await this.loadOrdinaryDirectory(directory, true, operationEpoch)
+            const loadedCount = this.ordinaryDirectoryChildren.get(directory)?.length ?? 0
+            let refreshed = await this.loadOrdinaryDirectory(directory, true, operationEpoch)
+            // Refresh restarts from the first page; follow fresh cursors to keep loaded pages.
+            while (
+              refreshed != null &&
+              refreshed.length < loadedCount &&
+              operationEpoch === this.repositoryEpoch &&
+              this.ordinaryDirectoryCursors.has(directory)
+            ) {
+              refreshed = await this.loadMoreOrdinaryDirectory(directory)
+            }
             if (operationEpoch !== this.repositoryEpoch) return
             if (
               refreshed == null &&
