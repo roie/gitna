@@ -36,6 +36,19 @@ describe('current line history', () => {
     expect(init?.signal).toBeInstanceOf(AbortSignal)
   })
 
+  it('sends an approved large-file budget', async () => {
+    const fetch = vi.fn(
+      async (_input: RequestInfo | URL, _init?: RequestInit) =>
+        new Response(JSON.stringify(response), { status: 200 }),
+    )
+    vi.stubGlobal('fetch', fetch)
+
+    await createApi().lineHistory('big.txt', 3, undefined, 2_000_000)
+    expect(fetch.mock.calls[0]![0]).toBe(
+      'api/v1/worktree/line-history?path=big.txt&line=3&maxBytes=2000000',
+    )
+  })
+
   it('formats recent history without hiding the exact server timestamp', () => {
     const now = Date.parse('2026-08-29T12:30:00Z')
     expect(formatLineHistoryAge('2026-08-29T12:00:00Z', now)).toMatch(/30 minutes? ago/)

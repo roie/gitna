@@ -4,6 +4,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/roie/gitna/internal/protocol"
@@ -124,5 +125,28 @@ func TestLineHistoryHandlesUntrackedUnbornAndUnsafeFiles(t *testing.T) {
 	}
 	if _, err := repo.LineHistory(t.Context(), runner, "untracked.txt", 2); !errors.Is(err, protocol.ErrInvalidPath) {
 		t.Fatalf("out-of-range error = %v", err)
+	}
+}
+
+func TestLineHistoryUsesApprovedLargeFileBudget(t *testing.T) {
+	root := initTestRepo(t)
+	content := strings.Repeat("x\n", DefaultDiffBytes/2+1024)
+	if err := os.WriteFile(filepath.Join(root, "large.txt"), []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	runGit(t, root, "add", "--", "large.txt")
+	runGit(t, root, "commit", "-q", "-m", "add large file")
+	repo := Repository{Root: root, GitDir: filepath.Join(root, ".git")}
+	runner := &ExecRunner{}
+	if _, err := repo.LineHistory(t.Context(), runner, "large.txt", 1); !errors.Is(err, protocol.ErrWorktreeFileTooLarge) {
+		t.Fatalf("default budget error = %v", err)
+	}
+	last := DefaultDiffBytes/2 + 1024
+	history, err := repo.LineHistory(t.Context(), runner, "large.txt", last, int64(len(content)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if history.Uncommitted || history.Summary != "add large file" {
+		t.Fatalf("history = %+v", history)
 	}
 }

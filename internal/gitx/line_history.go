@@ -10,19 +10,17 @@ import (
 	"github.com/roie/gitna/internal/protocol"
 )
 
-const maxLineHistoryLine = DefaultDiffBytes
-
 // LineHistory returns the commit responsible for exactly one line in a
 // bounded regular text worktree file. Unborn repositories, untracked files,
 // and working-tree lines Git cannot attribute are reported as uncommitted.
-func (r Repository) LineHistory(ctx context.Context, runner Runner, path string, line int) (protocol.LineHistory, error) {
+func (r Repository) LineHistory(ctx context.Context, runner Runner, path string, line int, budget ...int64) (protocol.LineHistory, error) {
 	if !r.IsGit() {
 		return protocol.LineHistory{}, ErrNotRepository
 	}
-	if line < 1 || line > maxLineHistoryLine {
+	if line < 1 || int64(line) > worktreeContentLimit(budget) {
 		return protocol.LineHistory{}, fmt.Errorf("%w: invalid line %d", protocol.ErrInvalidPath, line)
 	}
-	file, err := r.ReadWorktreeFile(ctx, path)
+	file, err := r.ReadWorktreeFile(ctx, path, budget...)
 	if err != nil {
 		return protocol.LineHistory{}, err
 	}

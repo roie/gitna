@@ -12,6 +12,7 @@ export function Blame({
   path,
   generation,
   dirty,
+  maxBytes,
   api,
   scrollRef,
   viewerRef,
@@ -20,6 +21,7 @@ export function Blame({
   path: string
   generation: number
   dirty: boolean
+  maxBytes?: number
   api: ApiClient
   scrollRef: RefObject<HTMLDivElement | null>
   viewerRef: RefObject<CodeViewHandle<CommentMetadata, undefined> | null>
@@ -140,7 +142,7 @@ export function Blame({
     }
     const controller = new AbortController()
     const timer = window.setTimeout(() => {
-      void api.lineHistory(path, line, controller.signal).then(
+      void api.lineHistory(path, line, controller.signal, maxBytes).then(
         (result) => {
           if (!controller.signal.aborted && result.generation === generation) {
             cache.set(line, result)
@@ -156,7 +158,7 @@ export function Blame({
       clearTimeout(timer)
       controller.abort()
     }
-  }, [api, path, line, generation, dirty, cache])
+  }, [api, path, line, generation, dirty, maxBytes, cache])
 
   const committed = history != null && !history.uncommitted && history.oid != null
   const age = history?.authoredAt == null ? null : formatLineHistoryAge(history.authoredAt)

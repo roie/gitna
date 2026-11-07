@@ -2484,6 +2484,7 @@ function GitnaReviewUIInner({
                           path={target.filePath}
                           generation={repository.generation}
                           dirty={dirtyPaths.has(target.filePath)}
+                          maxBytes={approvedFileBudgetsRef.current.get(target.filePath)}
                           api={repository.api}
                           scrollRef={scrollRef}
                           viewerRef={viewerRef}

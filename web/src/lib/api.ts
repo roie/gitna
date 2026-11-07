@@ -174,7 +174,12 @@ export interface ApiClient {
     maxBytes?: number,
     cached?: WorktreeFile,
   ) => Promise<WorktreeFile>
-  lineHistory: (path: string, line: number, signal?: AbortSignal) => Promise<LineHistory>
+  lineHistory: (
+    path: string,
+    line: number,
+    signal?: AbortSignal,
+    maxBytes?: number,
+  ) => Promise<LineHistory>
   compareWorktreeFiles: (
     leftPath: string,
     rightPath: string,
@@ -413,8 +418,14 @@ export function createApi(baseURL?: string): ApiClient {
       await expectOK(res)
       return (await res.json()) as WorktreeFile
     },
-    async lineHistory(path: string, line: number, signal?: AbortSignal): Promise<LineHistory> {
+    async lineHistory(
+      path: string,
+      line: number,
+      signal?: AbortSignal,
+      maxBytes?: number,
+    ): Promise<LineHistory> {
       const params = new URLSearchParams({ path, line: String(line) })
+      if (maxBytes != null) params.set('maxBytes', String(maxBytes))
       const res = await expectOK(
         await fetch(`api/v1/worktree/line-history?${params}`, {
           signal:

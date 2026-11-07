@@ -18,6 +18,7 @@ type fakeWorktreeRepo struct {
 	file          protocol.WorktreeFile
 	comparison    protocol.FileDiff
 	lineHistory   protocol.LineHistory
+	historyBudget []int64
 	err           error
 	createdPath   string
 	createdDir    bool
@@ -33,7 +34,8 @@ func (f *fakeWorktreeRepo) CompareWorktreeFiles(context.Context, string, string)
 	return f.comparison, f.err
 }
 
-func (f *fakeWorktreeRepo) LineHistory(context.Context, string, int) (protocol.LineHistory, error) {
+func (f *fakeWorktreeRepo) LineHistory(_ context.Context, _ string, _ int, budget ...int64) (protocol.LineHistory, error) {
+	f.historyBudget = budget
 	return f.lineHistory, f.err
 }
 
@@ -212,6 +214,9 @@ func TestWorktreeLineHistoryRoute(t *testing.T) {
 	}
 	if history.Path != "notes.txt" || history.CommitPath != "old-notes.txt" || history.Line != 2 || history.Generation != 1 {
 		t.Fatalf("history = %#v", history)
+	}
+	if large := worktreeRequest(t, h, http.MethodGet, "/worktree/line-history?path=notes.txt&line=2&maxBytes=2000000", ""); large.Code != http.StatusOK || len(repo.historyBudget) != 1 || repo.historyBudget[0] != 2000000 {
+		t.Fatalf("large status = %d, budget = %v", large.Code, repo.historyBudget)
 	}
 	invalid := worktreeRequest(t, h, http.MethodGet, "/worktree/line-history?path=notes.txt&line=zero", "")
 	if invalid.Code != http.StatusBadRequest || !strings.Contains(invalid.Body.String(), "invalid-line") {

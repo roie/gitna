@@ -125,7 +125,7 @@ func (s *Server) handleCompareWorktreeFiles(w http.ResponseWriter, r *http.Reque
 
 func (s *Server) handleLineHistory(w http.ResponseWriter, r *http.Request) {
 	repo, ok := s.repo.(interface {
-		LineHistory(context.Context, string, int) (protocol.LineHistory, error)
+		LineHistory(context.Context, string, int, ...int64) (protocol.LineHistory, error)
 	})
 	if !ok {
 		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "line history unavailable"})
@@ -136,10 +136,15 @@ func (s *Server) handleLineHistory(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "line must be a positive integer", "code": "invalid-line"})
 		return
 	}
+	limit, err := worktreeRequestLimit(r, gitx.DefaultDiffBytes)
+	if err != nil {
+		writeMutationDecodeError(w, err)
+		return
+	}
 	ctx, cancel := context.WithTimeout(r.Context(), LineHistoryTimeout)
 	defer cancel()
 	generation := s.gen.Load()
-	history, err := repo.LineHistory(ctx, r.URL.Query().Get("path"), line)
+	history, err := repo.LineHistory(ctx, r.URL.Query().Get("path"), line, limit)
 	if err != nil {
 		writeWorktreeError(w, r, s, err)
 		return

@@ -139,7 +139,7 @@ func (a *repoAdapter) CompareWorktreeFiles(ctx context.Context, leftPath, rightP
 	return a.current().CompareWorktreeFiles(ctx, leftPath, rightPath)
 }
 
-func (a *repoAdapter) LineHistory(ctx context.Context, path string, line int) (protocol.LineHistory, error) {
+func (a *repoAdapter) LineHistory(ctx context.Context, path string, line int, budget ...int64) (protocol.LineHistory, error) {
 	a.historyOnce.Do(func() { a.historySlot = make(chan struct{}, 1) })
 	select {
 	case a.historySlot <- struct{}{}:
@@ -148,7 +148,7 @@ func (a *repoAdapter) LineHistory(ctx context.Context, path string, line int) (p
 		return protocol.LineHistory{}, ctx.Err()
 	}
 	// Blame is read-only: never hold up saves or Git mutations in their queue.
-	return a.current().LineHistory(ctx, a.runner, path, line)
+	return a.current().LineHistory(ctx, a.runner, path, line, budget...)
 }
 
 func (a *repoAdapter) WriteWorktreeFile(ctx context.Context, path, content, expectedHash string, budget ...int64) (protocol.WorktreeFile, error) {
