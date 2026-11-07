@@ -2647,8 +2647,11 @@ test('repository files can be edited, created in folders, and renamed', async ({
   // The tab updates before Explorer finishes replacing the old source row.
   await expect(repositoryTree.locator('[data-item-path="feature.txt"]')).toHaveCount(0)
   await expect(repositoryTree.locator('[data-item-path="archive/feature.txt"]')).toBeVisible()
-  await mainTreeItem.click()
   const mainEditor = page.getByRole('textbox', { name: 'main.txt' })
+  await expect(async () => {
+    await mainTreeItem.click()
+    await expect(mainEditor).toBeVisible({ timeout: 1_000 })
+  }).toPass()
   await expect(async () => {
     await mainEditor.click()
     await page.keyboard.press('Control+End')
