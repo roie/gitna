@@ -1,7 +1,9 @@
 package gitx
 
 import (
+	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"regexp"
 	"strconv"
@@ -11,6 +13,8 @@ import (
 )
 
 var commitSearchHash = regexp.MustCompile(`^[a-fA-F0-9]{1,64}$`)
+
+var errCommitSearchFull = errors.New("gitx: commit search page full")
 
 func (r Repository) SearchCommits(ctx context.Context, runner Runner, query string, all bool, skip int) (protocol.GraphPage, error) {
 	const pageSize = 100
@@ -59,38 +63,47 @@ func (r Repository) SearchCommits(ctx context.Context, runner Runner, query stri
 		}
 	}
 	if commitSearchHash.MatchString(query) {
-		const batchSize = 10000
-		prefix := strings.ToLower(query)
+		prefix := []byte(strings.ToLower(query))
 		matches := 0
-		for offset := 0; matches < count; offset += batchSize {
-			args := []string{"log", "--format=%H", "--max-count=" + strconv.Itoa(batchSize), "--skip=" + strconv.Itoa(offset), scope}
-			if all {
-				args = append(args, "--ignore-missing", "HEAD")
+		visit := func(id []byte) error {
+			if !bytes.HasPrefix(id, prefix) {
+				return nil
 			}
-			args = append(args, "--")
-			res, err := runner.Run(ctx, r.Root, args...)
-			if err != nil {
-				return protocol.GraphPage{}, err
+			matches++
+			if key := string(id); !seen[key] {
+				ids = append(ids, key)
+				seen[key] = true
 			}
-			if res.ExitCode != 0 {
-				return protocol.GraphPage{}, fmt.Errorf("gitx: commit search failed: %s", strings.TrimSpace(string(res.Stderr)))
+			if matches == count {
+				return errCommitSearchFull
 			}
-			batch := strings.Fields(string(res.Stdout))
-			for _, id := range batch {
-				if strings.HasPrefix(id, prefix) {
-					matches++
-					if !seen[id] {
-						ids = append(ids, id)
-						seen[id] = true
-					}
-					if matches == count {
-						break
-					}
+			return nil
+		}
+		// A single history pass; paging with --skip re-walks history and grows quadratically.
+		args := []string{"log", "-z", "--format=%H", scope}
+		if all {
+			args = append(args, "--ignore-missing", "HEAD")
+		}
+		args = append(args, "--")
+		var res Result
+		var err error
+		if streamer, ok := runner.(nulRecordRunner); ok {
+			res, err = streamer.RunNUL(ctx, r.Root, visit, args...)
+		} else if res, err = runner.Run(ctx, r.Root, args...); err == nil && res.ExitCode == 0 {
+			for id := range bytes.SplitSeq(res.Stdout, []byte{0}) {
+				if err = visit(bytes.TrimSpace(id)); err != nil {
+					break
 				}
 			}
-			if len(batch) < batchSize {
-				break
-			}
+		}
+		if errors.Is(err, errCommitSearchFull) {
+			err, res = nil, Result{}
+		}
+		if err != nil {
+			return protocol.GraphPage{}, err
+		}
+		if res.ExitCode != 0 {
+			return protocol.GraphPage{}, fmt.Errorf("gitx: commit search failed: %s", strings.TrimSpace(string(res.Stderr)))
 		}
 	}
 	if len(ids) == 0 {

@@ -171,3 +171,30 @@ func TestCommitSearchPagination(t *testing.T) {
 		seen[commit.OID] = true
 	}
 }
+
+func TestCommitSearchHashPrefixWithoutStreamingRunner(t *testing.T) {
+	root := initTestRepo(t)
+	for i := range 20 {
+		runGit(t, root, "commit", "-q", "--allow-empty", "-m", fmt.Sprintf("commit %d", i))
+	}
+	repo, runner := historyDiscover(t, root)
+	plain := struct{ Runner }{runner}
+	for _, prefix := range []string{"a", "f", "0"} {
+		streamed, err := repo.SearchCommits(t.Context(), runner, prefix, false, 0)
+		if err != nil {
+			t.Fatal(err)
+		}
+		buffered, err := repo.SearchCommits(t.Context(), plain, prefix, false, 0)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(streamed.Commits) != len(buffered.Commits) {
+			t.Fatalf("prefix %q: streamed %d, buffered %d", prefix, len(streamed.Commits), len(buffered.Commits))
+		}
+		for i := range streamed.Commits {
+			if streamed.Commits[i].OID != buffered.Commits[i].OID {
+				t.Fatalf("prefix %q: commit %d differs", prefix, i)
+			}
+		}
+	}
+}
