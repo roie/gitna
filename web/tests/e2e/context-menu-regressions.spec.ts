@@ -26,10 +26,14 @@ for (const dirtySibling of [false, true]) {
       page.getByRole('option', { name: /New File Create an untitled file in memory/ }),
     ).toBeVisible()
     await search.press('Enter')
+    const untitledTab = page.getByRole('tab', { name: /Untitled/ })
+    await expect(untitledTab).toHaveAttribute('aria-selected', 'true')
     const editor = page.locator('.code-view').locator('[contenteditable="true"], textarea').first()
+    await expect(editor).toBeVisible()
     await editor.click()
     await page.keyboard.insertText('untitled draft')
-    await page.getByRole('tab', { name: /Untitled/ }).click({ button: 'right' })
+    await expect(untitledTab.getByLabel('Unsaved changes')).toBeVisible()
+    await untitledTab.click({ button: 'right' })
     await page.getByRole('menuitem', { name: 'Close All', exact: true }).click()
     const confirmation = page.getByRole(dirtySibling ? 'alertdialog' : 'dialog', {
       name: dirtySibling
