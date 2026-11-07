@@ -3,7 +3,7 @@ import { mkdirSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { expect, test } from './fixtures.js'
 
-test.only('expanded commit trees keep their height and folders across virtual remounts', async ({
+test('expanded commit trees keep their height and folders across virtual remounts', async ({
   page,
   app,
 }) => {
@@ -22,33 +22,6 @@ test.only('expanded commit trees keep their height and folders across virtual re
   const oid = git('rev-parse', 'HEAD')
   for (let index = 0; index < 6; index += 1) git('commit', '--allow-empty', '-qm', `newer ${index}`)
 
-  const graphDiag = async (label: string) => {
-    const info = await page.evaluate(() => {
-      const graph = document.querySelector('[data-pane-body="graph"]') as HTMLElement | null
-      const tree = document.querySelector(
-        '[data-file-tree-virtualized-scroll]',
-      ) as HTMLElement | null
-      const folder = [...document.querySelectorAll('[role="treeitem"]')].find(
-        (element) =>
-          element.getAttribute('aria-label') === 'nested' ||
-          element.textContent?.trim() === 'nested',
-      ) as HTMLElement | undefined
-      const box = (element: Element | null | undefined) => {
-        const rect = element?.getBoundingClientRect()
-        return rect == null ? null : [Math.round(rect.top), Math.round(rect.bottom)]
-      }
-      return {
-        graphTop: graph?.scrollTop,
-        graphMax: graph == null ? null : graph.scrollHeight - graph.clientHeight,
-        graphBox: box(graph),
-        treeTop: tree?.scrollTop,
-        folderBox: box(folder),
-        dpr: window.devicePixelRatio,
-        viewport: [window.innerWidth, window.innerHeight],
-      }
-    })
-    console.log(`GDIAG ${label} ${JSON.stringify(info)}`)
-  }
   await page.goto(app.url)
   await page.locator('[data-section="graph"]').click()
   const row = page.locator(`[data-graph-oid="${oid}"]`)
@@ -67,9 +40,11 @@ test.only('expanded commit trees keep their height and folders across virtual re
   await graph.evaluate((element) => {
     element.scrollTop = 160
   })
+  // hover() may scroll the graph to reveal the folder, so compare against the position after it.
   await folder.hover()
+  let start = await graph.evaluate((element) => element.scrollTop)
   await page.mouse.wheel(0, 120)
-  await expect.poll(() => graph.evaluate((element) => element.scrollTop)).toBeGreaterThan(160)
+  await expect.poll(() => graph.evaluate((element) => element.scrollTop)).toBeGreaterThan(start)
 
   await graph.evaluate((element) => {
     element.scrollTop = 160
@@ -80,22 +55,17 @@ test.only('expanded commit trees keep their height and folders across virtual re
     element.scrollTop = 160
   })
   const treeScroller = row.locator('[data-file-tree-virtualized-scroll]')
-  await graphDiag('after-set-160')
-  await page.waitForTimeout(300)
-  await graphDiag('after-set-160+300ms')
   await folder.hover()
-  await graphDiag('after-hover')
+  start = await graph.evaluate((element) => element.scrollTop)
   await page.mouse.wheel(0, 80)
-  await graphDiag('after-wheel')
   await expect.poll(() => treeScroller.evaluate((element) => element.scrollTop)).toBeGreaterThan(0)
-  await graphDiag('after-tree-scrolled')
-  expect(await graph.evaluate((element) => element.scrollTop)).toBe(160)
+  expect(await graph.evaluate((element) => element.scrollTop)).toBe(start)
 
   await treeScroller.evaluate((element) => {
     element.scrollTop = element.scrollHeight
   })
   await page.mouse.wheel(0, 80)
-  await expect.poll(() => graph.evaluate((element) => element.scrollTop)).toBeGreaterThan(160)
+  await expect.poll(() => graph.evaluate((element) => element.scrollTop)).toBeGreaterThan(start)
 
   await graph.evaluate((element) => {
     element.scrollTop = 160
@@ -104,8 +74,9 @@ test.only('expanded commit trees keep their height and folders across virtual re
     element.scrollTop = 0
   })
   await folder.hover()
+  start = await graph.evaluate((element) => element.scrollTop)
   await page.mouse.wheel(0, -80)
-  await expect.poll(() => graph.evaluate((element) => element.scrollTop)).toBeLessThan(160)
+  await expect.poll(() => graph.evaluate((element) => element.scrollTop)).toBeLessThan(start)
 
   await graph.evaluate((element) => {
     element.scrollTop = 160

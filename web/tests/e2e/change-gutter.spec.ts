@@ -1,10 +1,7 @@
 import { execFileSync } from 'node:child_process'
 import { expect, test } from './fixtures.js'
 
-test.only('file gutters track the index, unsaved edits, undo, and staging', async ({
-  page,
-  app,
-}) => {
+test('file gutters track the index, unsaved edits, undo, and staging', async ({ page, app }) => {
   await page.goto(app.url)
   const openFile = async (path: string) => {
     await page.getByRole('button', { name: 'Open command palette' }).click()
