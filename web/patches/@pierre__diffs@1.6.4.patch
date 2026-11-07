@@ -541,8 +541,8 @@ index bf17cea32f39ee60ff7520b17f44d99a8e7e98aa..1eadb5392fa24ac87f3aa4333e8a444d
 +			if (delta !== 0) {
 +				let largest = 0;
 +				for (let i = 1; i < rects.length; i++) if (rects[i].width > rects[largest].width) largest = i;
-+				if (Math.abs(delta) > 1) return;
-+				// Blink loses sub-character precision on very wide overflow fragments.
++				if (counts[largest] + delta < 1) return;
++				// Blink loses precision on very wide overflow fragments, by several characters with fractional widths; the row checks below verify the correction.
 +				counts[largest] += delta;
 +				const boundary = counts.slice(0, largest + 1).reduce((sum, count) => sum + count, 0);
 +				range.setStart(node, boundary - 1);
