@@ -130,16 +130,13 @@ for (const file of ['ordinary-2.tsx', 'ordinary-8.tsx', 'wrapped-6.txt']) {
     await page.keyboard.press('Control+z')
     await expect(page.locator('[data-gitna-change]')).toHaveCount(0)
     const firstRow = page.locator('[data-line][data-line-index="0"]')
-    const firstTop = (await firstRow.boundingBox())!.y
+    const scroller = page.locator('.code-view.cv-scrollbar')
+    const scrollBefore = await scroller.evaluate((element) => element.scrollTop)
     await firstRow.hover({ position: { x: 20, y: 8 } })
     await page.mouse.wheel(0, 2000)
     await expect
-      .poll(async () => {
-        if ((await firstRow.count()) === 0) return true
-        const bounds = await firstRow.boundingBox()
-        return bounds == null || bounds.y < firstTop - 100
-      })
-      .toBe(true)
+      .poll(() => scroller.evaluate((element) => element.scrollTop))
+      .toBeGreaterThan(scrollBefore + 100)
     await page.keyboard.press('Control+Home')
     await openFile(page, 'main.txt')
     await expect(page.getByRole('textbox', { name: 'main.txt', exact: true })).toBeVisible()

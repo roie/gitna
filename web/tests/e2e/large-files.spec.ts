@@ -163,10 +163,11 @@ test('large-file consent supports tab closing, exact saves, undo and durable rec
   await editor.click()
   await editor.press('Control+End')
   const backup = page.waitForResponse(
-    (response) =>
+    async (response) =>
       response.request().method() === 'POST' &&
       response.url().includes('/api/v1/drafts?maxBytes=') &&
-      response.request().postDataJSON().contents === content + 'ZR',
+      response.ok() &&
+      (await response.json()).contents === content + 'ZR',
   )
   await editor.pressSequentially('R')
   await expect(editor).toContainText('END!ZR')

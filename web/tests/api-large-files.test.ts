@@ -1,8 +1,14 @@
 import { afterEach, expect, it, vi } from 'vite-plus/test'
-import { ApiError, createApi, type ApiClient } from '../src/lib/api'
+import { ApiError, createApi, type ApiClient, type DraftRecord } from '../src/lib/api'
+import { serializeDraft } from '../src/lib/draftSerialization'
 import { GitnaRepository } from '../src/diffshub/gitna/repository'
 
-afterEach(() => vi.unstubAllGlobals())
+vi.mock('../src/lib/draftSerialization', () => ({ serializeDraft: vi.fn() }))
+
+afterEach(() => {
+  vi.unstubAllGlobals()
+  vi.resetAllMocks()
+})
 
 it('restores an approved draft as a dirty copy with its budget', async () => {
   const readWorktreeFile = vi
@@ -34,7 +40,7 @@ it('keeps default requests bounded and sends consent budgets for read, save, cre
   await api.readWorktreeFile('large.txt', 8388609)
   await api.writeWorktreeFile('large.txt', '😀', 'hash', 8388613)
   await api.createWorktreeFile('recovered.txt', '😀', 8388613)
-  await api.putDraft!({
+  const draft: DraftRecord = {
     schema: 1,
     documentId: 'id',
     clientId: 'client',
@@ -43,7 +49,12 @@ it('keeps default requests bounded and sends consent budgets for read, save, cre
     contents: '😀',
     maxBytes: 8388613,
     updatedAt: new Date().toISOString(),
-  })
+  }
+  const body = new Blob([JSON.stringify(draft)], { type: 'application/json' })
+  vi.mocked(serializeDraft).mockResolvedValue({ body, maxBytes: draft.maxBytes })
+  await api.putDraft!(draft)
+  expect(serializeDraft).toHaveBeenCalledExactlyOnceWith(draft)
+  expect(fetch.mock.calls[4]![1].body).toBe(body)
   expect(
     fetch.mock.calls.map(([url]) => new URL(String(url)).searchParams.get('maxBytes')),
   ).toEqual([null, '8388609', '8388613', '8388613', '8388613'])
@@ -52,6 +63,36 @@ it('keeps default requests bounded and sends consent budgets for read, save, cre
     content: '😀',
     expectedHash: 'hash',
   })
+})
+
+it('uses the serialized backup budget after UTF-8 growth without changing the draft', async () => {
+  const draft: DraftRecord = {
+    schema: 1,
+    documentId: 'id',
+    clientId: 'client',
+    label: 'large.txt',
+    revision: 1,
+    contents: '😀',
+    maxBytes: 1,
+    updatedAt: '2026-01-01T00:00:00Z',
+  }
+  const body = new Blob([JSON.stringify({ ...draft, maxBytes: 4 })], {
+    type: 'application/json',
+  })
+  vi.mocked(serializeDraft).mockResolvedValue({ body, maxBytes: 4 })
+  const fetch = vi.fn().mockResolvedValue(Response.json({ ...draft, maxBytes: 4 }))
+  vi.stubGlobal('fetch', fetch)
+  await expect(createApi().putDraft!(draft)).resolves.toEqual({ ...draft, maxBytes: 4 })
+  expect(serializeDraft).toHaveBeenCalledExactlyOnceWith(draft)
+  expect(fetch).toHaveBeenCalledExactlyOnceWith(
+    'api/v1/drafts?maxBytes=4',
+    expect.objectContaining({
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body,
+    }),
+  )
+  expect(draft.maxBytes).toBe(1)
 })
 
 it('revalidates an unchanged file without parsing or replacing its cached contents', async () => {

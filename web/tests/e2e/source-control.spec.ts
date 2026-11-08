@@ -1107,12 +1107,17 @@ test('folder switches and browser history reuse the document and workers without
   writeFileSync(join(nextRepo, 'next.txt'), 'PERSISTENT_DESTINATION_DIFF\n')
   await page.addInitScript(() => {
     const OriginalWorker = window.Worker
-    const state = window as unknown as Window & { gitnaWorkerStarts: number }
+    const state = window as unknown as Window & {
+      gitnaWorkerStarts: number
+      gitnaGutterWorkerStarts: number
+    }
     state.gitnaWorkerStarts = 0
+    state.gitnaGutterWorkerStarts = 0
     window.Worker = class extends OriginalWorker {
       constructor(url: string | URL, options?: WorkerOptions) {
         super(url, options)
         state.gitnaWorkerStarts += 1
+        if (String(url).includes('changeGutterWorker')) state.gitnaGutterWorkerStarts += 1
       }
     }
   })
@@ -1157,6 +1162,15 @@ test('folder switches and browser history reuse the document and workers without
   await editor.click()
   await page.keyboard.press('Control+End')
   await page.keyboard.type('unsaved destination draft')
+  await expect
+    .poll(() =>
+      page.evaluate(
+        () => (window as unknown as { gitnaGutterWorkerStarts: number }).gitnaGutterWorkerStarts,
+      ),
+    )
+    .toBe(1)
+  const editingLifetime = await lifetime()
+  expect(editingLifetime).toEqual({ ...initial, workers: initial.workers + 1 })
   const destinationURL = page.url()
   await page.evaluate(() => {
     const link = document.createElement('a')
@@ -1167,18 +1181,18 @@ test('folder switches and browser history reuse the document and workers without
   await page.getByRole('link', { name: 'Jump to review section' }).click()
   await expect(page).toHaveURL(`${destinationURL}#review-section`)
   await expect(editor).toContainText('unsaved destination draft')
-  expect(await lifetime()).toEqual(initial)
+  expect(await lifetime()).toEqual(editingLifetime)
   await page.goBack()
   await expect(page).toHaveURL(destinationURL)
   await expect(editor).toContainText('unsaved destination draft')
-  expect(await lifetime()).toEqual(initial)
+  expect(await lifetime()).toEqual(editingLifetime)
   const dialog = page.waitForEvent('dialog')
   const goingBack = page.goBack()
   await (await dialog).dismiss()
   await goingBack
   await expect(page).toHaveURL(destinationURL)
   await expect(editor).toContainText('unsaved destination draft')
-  expect(await lifetime()).toEqual(initial)
+  expect(await lifetime()).toEqual(editingLifetime)
   expect(readFileSync(join(nextRepo, 'next.txt'), 'utf8')).toBe('PERSISTENT_DESTINATION_DIFF\n')
 
   const leaveDialog = page.waitForEvent('dialog')
@@ -1186,7 +1200,7 @@ test('folder switches and browser history reuse the document and workers without
   await (await leaveDialog).accept()
   await leaving
   await expect(page).toHaveTitle(`${basename(app.repo)} - Gitna`)
-  expect(await lifetime()).toEqual(initial)
+  expect(await lifetime()).toEqual(editingLifetime)
 })
 
 test('persistent workers render the destination content for identical file paths and generations', async ({
