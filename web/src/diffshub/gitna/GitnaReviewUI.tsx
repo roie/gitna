@@ -648,13 +648,7 @@ function GitnaReviewUIInner({
             revision: draft.revision,
             contents: draft.contents,
             baselineHash: draft.baselineHash,
-            maxBytes:
-              repository.draftMaxBytes(`untitled:${draft.id}`) == null
-                ? undefined
-                : Math.max(
-                    repository.draftMaxBytes(`untitled:${draft.id}`)!,
-                    new TextEncoder().encode(draft.contents).length,
-                  ),
+            maxBytes: repository.draftMaxBytes(`untitled:${draft.id}`),
             updatedAt: new Date().toISOString(),
           }).catch((error: unknown) => {
             setReviewActionError(
@@ -688,7 +682,7 @@ function GitnaReviewUIInner({
             revision: (previous?.record.revision ?? 0) + 1,
             contents: draft.contents,
             baselineHash: baseline.hash,
-            maxBytes: Math.max(budget, new TextEncoder().encode(draft.contents).length),
+            maxBytes: budget,
             updatedAt: new Date().toISOString(),
           }
           const pending = (previous?.pending ?? Promise.resolve())

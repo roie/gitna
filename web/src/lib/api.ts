@@ -1,4 +1,5 @@
 import { readContentSearchStream } from './contentSearchStream'
+import { serializeDraft } from './draftSerialization'
 import type {
   Branch,
   CommitFiles,
@@ -542,13 +543,17 @@ export function createApi(baseURL?: string): ApiClient {
       return (await res.json()) as DraftRecord[]
     },
     async putDraft(record: DraftRecord): Promise<DraftRecord> {
+      const serialized =
+        record.maxBytes != null || record.contents.length > 64 * 1024
+          ? await serializeDraft(record)
+          : { body: JSON.stringify(record), maxBytes: record.maxBytes }
       const res = await expectOK(
         await fetch(
-          `api/v1/drafts${record.maxBytes == null ? '' : `?maxBytes=${record.maxBytes}`}`,
+          `api/v1/drafts${serialized.maxBytes == null ? '' : `?maxBytes=${serialized.maxBytes}`}`,
           {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(record),
+            body: serialized.body,
             signal: AbortSignal.timeout(MUTATE_TIMEOUT),
           },
         ),
