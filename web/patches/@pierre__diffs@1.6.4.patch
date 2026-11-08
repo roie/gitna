@@ -52,19 +52,20 @@ index ee5c91c5ab44742994d900a81dbd8e9c508efb49..11a2121f30db772890c4639c977f6a79
  	const slotSnapshot = [];
  	for (const renderedItem of renderedItems) if (hasAnnotations(renderedItem)) slotSnapshot.push(renderedItem);
 diff --git a/dist/components/File.d.ts b/dist/components/File.d.ts
-index 591dce0f350da014cd37ac570f940b20cc87eb8c..a9a5261241d74b975c0cd427b3cb09998e970a03 100644
+index 591dce0f350da014cd37ac570f940b20cc87eb8c..3d8cb5968b74bc5c58f67e14526fade3d4261f04 100644
 --- a/dist/components/File.d.ts
 +++ b/dist/components/File.d.ts
-@@ -204,6 +204,7 @@ declare class File<LAnnotation = undefined, Caret = undefined> {
+@@ -204,6 +204,8 @@ declare class File<LAnnotation = undefined, Caret = undefined> {
    applySuspendedDocumentChange(textDocument: TextDocument<'file', LAnnotation>, newLineAnnotations?: LineAnnotation<LAnnotation>[]): void;
    updateRenderCache(dirtyLines: Map<number, Array<HighlightedToken>>, themeType: 'dark' | 'light', options?: {
      lineCountChangeInFlight?: boolean;
 +    textChanged?: boolean;
++    getDocumentText?: () => string;
    }): void;
    render({ file, fileContainer, forceRender, preventEmit, containerWrapper, deferManagers, lineAnnotations, renderRange }: FileRenderProps<LAnnotation>): boolean;
    protected finalizeRender(): void;
 diff --git a/dist/components/File.js b/dist/components/File.js
-index e19e178b6e6b717a9a672440ba46176f24c36960..c987239b1f0806b3cdb0144e2f546846e49d0a09 100644
+index e19e178b6e6b717a9a672440ba46176f24c36960..8f8c15aa14d75c13f919a588c253b030ae158eff 100644
 --- a/dist/components/File.js
 +++ b/dist/components/File.js
 @@ -71,6 +71,8 @@ var File = class {
@@ -81,7 +82,7 @@ index e19e178b6e6b717a9a672440ba46176f24c36960..c987239b1f0806b3cdb0144e2f546846
  		if (editSessionFile == null) throw new Error("File.updateRenderCache: requires an active edit session");
  		this.fileRenderer.beginEditSession(editSessionFile);
 -		this.fileRenderer.updateRenderCache(dirtyLines, themeType, options?.lineCountChangeInFlight);
-+		this.fileRenderer.updateRenderCache(dirtyLines, themeType, options?.lineCountChangeInFlight, options?.textChanged);
++		this.fileRenderer.updateRenderCache(dirtyLines, themeType, options?.lineCountChangeInFlight, options?.textChanged, options?.getDocumentText);
 +		if (this.fileContainer != null && this.appliedThemeCSS != null) this.applyThemeState(this.fileContainer, this.appliedThemeCSS.themeStyles, themeType, themeType);
  	}
  	render({ file, fileContainer, forceRender = false, preventEmit = false, containerWrapper, deferManagers = false, lineAnnotations, renderRange }) {
@@ -285,7 +286,7 @@ index eb8c2831276f18eda0ddcb12967d0182679953a4..188b45ba17dbcbec39b7637a50ee9316
  		const { ghostTextRowsByIndex } = this.cache;
  		const measureAllRows = overflow !== "scroll" || this.lineAnnotations.length > 0 || this.isResizeDebuggingEnabled();
 diff --git a/dist/editor/editor.js b/dist/editor/editor.js
-index bf17cea32f39ee60ff7520b17f44d99a8e7e98aa..1eadb5392fa24ac87f3aa4333e8a444d22803543 100644
+index bf17cea32f39ee60ff7520b17f44d99a8e7e98aa..5b5be0f18a2a7c32ca834cadf1d076cfef8c0ab1 100644
 --- a/dist/editor/editor.js
 +++ b/dist/editor/editor.js
 @@ -90,6 +90,7 @@ var Editor = class {
@@ -356,7 +357,17 @@ index bf17cea32f39ee60ff7520b17f44d99a8e7e98aa..1eadb5392fa24ac87f3aa4333e8a444d
  						dirtyLineIndexes.delete(lineIndex);
  						if (dirtyLineIndexes.size === 0) break;
  					}
-@@ -2755,6 +2770,7 @@ var Editor = class {
+@@ -1901,7 +1916,8 @@ var Editor = class {
+ 			shouldRefreshDiffsView: this.#isDiff && !didLineCountChange,
+ 			lineCountChangeInFlight: didLineCountChange,
+ 			changedDocumentLines: this.#isDiff && !didLineCountChange ? getChangedDocumentLines(textDocument, change) : void 0,
+-			documentLineCount: textDocument.lineCount
++			documentLineCount: textDocument.lineCount,
++			getDocumentText: () => textDocument.getText()
+ 		});
+ 		if (didLineCountChange) applyDocumentChange(textDocument, newLineAnnotations, shouldUpdateBuffer);
+ 		if (didLineCountChange || this.#isDiff && this.#diffSyle === "unified") this.#resetCache();
+@@ -2755,6 +2771,7 @@ var Editor = class {
  		prediction.rendered = true;
  	}
  	#updateSelections(selections) {
@@ -364,7 +375,7 @@ index bf17cea32f39ee60ff7520b17f44d99a8e7e98aa..1eadb5392fa24ac87f3aa4333e8a444d
  		this.__postponeBgTokenizeToNextFrame();
  		const previousSelections = this.#selections;
  		let selectionsChanged = previousSelections?.length !== selections.length;
-@@ -2933,7 +2949,7 @@ var Editor = class {
+@@ -2933,7 +2950,7 @@ var Editor = class {
  			if (this.#isWrap) {
  				const contentWidth = this.#getContentWidth();
  				const lineText = this.#editSession?.document.getLineText(line);
@@ -373,7 +384,7 @@ index bf17cea32f39ee60ff7520b17f44d99a8e7e98aa..1eadb5392fa24ac87f3aa4333e8a444d
  					this.#renderWrappedSelection(renderCtx, line, lineText, startChar, endChar, isLastLine, type, extraDataset, connectedCaret);
  					continue;
  				}
-@@ -2953,10 +2969,27 @@ var Editor = class {
+@@ -2953,10 +2970,27 @@ var Editor = class {
  		}
  	}
  	#renderWrappedSelection(renderCtx, line, lineText, startChar, endChar, isLastLine, type, extraDataset, connectedCaret) {
@@ -402,7 +413,7 @@ index bf17cea32f39ee60ff7520b17f44d99a8e7e98aa..1eadb5392fa24ac87f3aa4333e8a444d
  			const segmentStart = wrapOffsets[wrapLine];
  			const segmentEnd = wrapOffsets[wrapLine + 1];
  			const wrapStartChar = Math.max(startChar, segmentStart);
-@@ -2973,6 +3006,74 @@ var Editor = class {
+@@ -2973,6 +3007,74 @@ var Editor = class {
  			});
  		}
  	}
@@ -477,7 +488,7 @@ index bf17cea32f39ee60ff7520b17f44d99a8e7e98aa..1eadb5392fa24ac87f3aa4333e8a444d
  	#segmentTextWidth(lineText, segmentStart, character) {
  		if (character <= segmentStart) return 0;
  		const segmentText = lineText.slice(segmentStart, character);
-@@ -3547,6 +3648,13 @@ var Editor = class {
+@@ -3547,6 +3649,13 @@ var Editor = class {
  		const offsetLeft = this.#getGutterWidth() + this.#metrics.ch;
  		if (lineText === void 0 || lineText.length === 0 || char <= 0) return [offsetLeft + (this.#activeContentOffset?.left ?? 0), 0];
  		const boundedCharacter = snapTextOffsetToUnicodeBoundary(lineText, Math.min(char, lineText.length));
@@ -491,7 +502,7 @@ index bf17cea32f39ee60ff7520b17f44d99a8e7e98aa..1eadb5392fa24ac87f3aa4333e8a444d
  		const textBeforeCharacter = lineText.slice(0, boundedCharacter);
  		const asciiColumns = getExpandedAsciiTextColumns(textBeforeCharacter, this.#metrics.tabSize);
  		let left = 0;
-@@ -3555,7 +3663,7 @@ var Editor = class {
+@@ -3555,7 +3664,7 @@ var Editor = class {
  		else left = offsetLeft + this.#metrics.measureTextWidth(textBeforeCharacter);
  		if (this.#isWrap) {
  			const contentWidth = this.#getContentWidth();
@@ -500,7 +511,7 @@ index bf17cea32f39ee60ff7520b17f44d99a8e7e98aa..1eadb5392fa24ac87f3aa4333e8a444d
  				const wrapOffsets = this.#wrapLineText(line);
  				if (wrapOffsets == null) return [left + (this.#activeContentOffset?.left ?? 0), 0];
  				for (let w = 0; w + 1 < wrapOffsets.length; w++) {
-@@ -3585,6 +3693,67 @@ var Editor = class {
+@@ -3585,6 +3694,67 @@ var Editor = class {
  		];
  		return [left, wrapLine];
  	}
@@ -568,7 +579,7 @@ index bf17cea32f39ee60ff7520b17f44d99a8e7e98aa..1eadb5392fa24ac87f3aa4333e8a444d
  	#wrapLineText(line) {
  		const cachedOffsets = this.#wrapLineOffsetsCache.get(line);
  		if (cachedOffsets !== void 0) return cachedOffsets;
-@@ -3597,6 +3766,16 @@ var Editor = class {
+@@ -3597,6 +3767,16 @@ var Editor = class {
  		}
  		const contentElement = this.#contentElement;
  		if (contentElement == null || !contentElement.isConnected) return;
@@ -585,7 +596,7 @@ index bf17cea32f39ee60ff7520b17f44d99a8e7e98aa..1eadb5392fa24ac87f3aa4333e8a444d
  		const div = h("div", {
  			style: {
  				position: "absolute",
-@@ -3620,6 +3799,13 @@ var Editor = class {
+@@ -3620,6 +3800,13 @@ var Editor = class {
  		try {
  			const divRect = div.getBoundingClientRect();
  			if (divRect.width === 0) return;
@@ -896,7 +907,7 @@ index 4dfed6bd0af6511b7325620ae78d25a8857cfa8b..72d14caf614fb657fa42a94c1fb04ccd
  //#endregion
  export { CodeView };
 diff --git a/dist/renderers/FileRenderer.d.ts b/dist/renderers/FileRenderer.d.ts
-index 8010448a800f9e84ef4fc26268c9ae747aedbd09..54939c829264d867f748464ea24b8f04397f6b58 100644
+index 8010448a800f9e84ef4fc26268c9ae747aedbd09..105cf8936324f74f7907bcfa06a2d50d11aafca0 100644
 --- a/dist/renderers/FileRenderer.d.ts
 +++ b/dist/renderers/FileRenderer.d.ts
 @@ -37,6 +37,7 @@ declare class FileRenderer<LAnnotation = undefined> {
@@ -912,12 +923,12 @@ index 8010448a800f9e84ef4fc26268c9ae747aedbd09..54939c829264d867f748464ea24b8f04
    getOrCreateLineCache(file: FileContents): string[];
    getLineCount(file: FileContents): number;
 -  updateRenderCache(dirtyLines: Map<number, Array<HighlightedToken>>, themeType: 'dark' | 'light', lineCountChangeInFlight?: boolean): void;
-+  updateRenderCache(dirtyLines: Map<number, Array<HighlightedToken>>, themeType: 'dark' | 'light', lineCountChangeInFlight?: boolean, textChanged?: boolean): void;
++  updateRenderCache(dirtyLines: Map<number, Array<HighlightedToken>>, themeType: 'dark' | 'light', lineCountChangeInFlight?: boolean, textChanged?: boolean, getDocumentText?: () => string): void;
    applyDocumentChange(textDocument: TextDocument<'file', LAnnotation>): void;
    private ownRow;
    renderFile(file?: FileContents | undefined, renderRange?: RenderRange): FileRenderResult | undefined;
 diff --git a/dist/renderers/FileRenderer.js b/dist/renderers/FileRenderer.js
-index 4c65f0554cbb6403c5e45affb33ff6e8d18adcf3..f59e736911d6013954b55e7ea5094964faa053ec 100644
+index 4c65f0554cbb6403c5e45affb33ff6e8d18adcf3..ae9f18cb69f8c11b1c876c007aeb24df7ee91b35 100644
 --- a/dist/renderers/FileRenderer.js
 +++ b/dist/renderers/FileRenderer.js
 @@ -42,6 +42,7 @@ var FileRenderer = class {
@@ -933,11 +944,11 @@ index 4c65f0554cbb6403c5e45affb33ff6e8d18adcf3..f59e736911d6013954b55e7ea5094964
  		return this.textDocumentCache.get(file)?.lineCount ?? lines.length;
  	}
 -	updateRenderCache(dirtyLines, themeType, lineCountChangeInFlight = false) {
-+	updateRenderCache(dirtyLines, themeType, lineCountChangeInFlight = false, textChanged = true) {
++	updateRenderCache(dirtyLines, themeType, lineCountChangeInFlight = false, textChanged = true, getDocumentText) {
  		this.pendingStructuralRows = void 0;
  		const { renderCache } = this;
  		if (renderCache == null) return;
-@@ -285,53 +286,32 @@ var FileRenderer = class {
+@@ -285,54 +286,33 @@ var FileRenderer = class {
  		const pendingStructuralRows = lineCountChangeInFlight ? /* @__PURE__ */ new Map() : void 0;
  		this.pendingStructuralRows = pendingStructuralRows;
  		const lineCache = this.lineCache != null && isLineCacheForFile(this.lineCache, file) ? this.lineCache : void 0;
@@ -1006,10 +1017,12 @@ index 4c65f0554cbb6403c5e45affb33ff6e8d18adcf3..f59e736911d6013954b55e7ea5094964
  		result.baseThemeType = themeType;
  		renderCache.isDirty = true;
 -		if (pendingStructuralRows == null && lineCache != null) {
+-			file.contents = lineCache.lines.join("");
 +		if (textChanged && pendingStructuralRows == null && lineCache != null) {
- 			file.contents = lineCache.lines.join("");
++			file.contents = getDocumentText?.() ?? lineCache.lines.join("");
  			lineCache.sourceContents = file.contents;
  		}
+ 	}
 @@ -344,7 +324,14 @@ var FileRenderer = class {
  		const result = renderCache?.result;
  		const previousLines = this.lineCache != null && isLineCacheForFile(this.lineCache, file) ? this.lineCache.lines : linesFromFileContents(file.contents);

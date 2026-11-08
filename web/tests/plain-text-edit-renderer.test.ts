@@ -35,6 +35,33 @@ async function fixture(
 }
 
 describe('plain-text editor viewport rendering', () => {
+  it.each(['\n', '\r\n'])(
+    'reuses the document snapshot instead of joining every line with %j',
+    async (eol) => {
+      const original = Array.from({ length: 2000 }, (_, line) => `line ${line}${eol}`).join('')
+      const { file, renderer } = await fixture(original)
+      const lines = renderer.getOrCreateLineCache(file)
+      const join = vi.spyOn(lines, 'join')
+      const dirty = new Map<number, [number, string, string][]>([[0, [[0, '', 'edited']]]])
+      renderer.updateRenderCache(dirty, 'dark')
+      expect(join).toHaveBeenCalledOnce()
+      const contents = file.contents
+      join.mockClear()
+      const snapshot = vi.fn(() => contents)
+      renderer.updateRenderCache(dirty, 'dark', false, true, snapshot)
+      expect(snapshot).toHaveBeenCalledOnce()
+      expect(join).not.toHaveBeenCalled()
+      expect(file.contents).toBe(
+        `edited${eol}${original.slice(original.indexOf(eol) + eol.length)}`,
+      )
+      expect(renderWindow(renderer, file, 1997)).toContain('line 1999')
+      snapshot.mockClear()
+      renderer.updateRenderCache(dirty, 'dark', false, false, snapshot)
+      expect(snapshot).not.toHaveBeenCalled()
+      renderer.cleanUp()
+    },
+  )
+
   it('renders replacement and undo across the windowed-edit threshold', () => {
     const original = 'const value = 1;\n'.repeat(5)
     const file: FileContents = { name: 'source.js', contents: original }
