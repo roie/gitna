@@ -35,6 +35,7 @@ type repoAdapter struct {
 	directories      folderDirectoryIndexCache
 	observeDirectory func(string) protocol.WatchCoverage
 
+	baselines   gitx.IndexBaselineCache
 	historyOnce sync.Once
 	historySlot chan struct{}
 
@@ -61,7 +62,12 @@ func (a *repoAdapter) switchTo(ctx context.Context, repo gitx.Repository) error 
 func (a *repoAdapter) Snapshot(ctx context.Context) (protocol.RepoSnapshot, error) {
 	repo := a.current()
 	if repo.IsGit() {
-		return repo.Status(ctx, a.runner)
+		snapshot, err := repo.Status(ctx, a.runner)
+		if err != nil {
+			return protocol.RepoSnapshot{}, err
+		}
+		snapshot.IndexRevision, err = a.baselines.Revision(repo)
+		return snapshot, err
 	}
 	return protocol.RepoSnapshot{
 		Root:       repo.Root,

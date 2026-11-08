@@ -199,7 +199,18 @@ export interface WorktreeFile {
   hash: string
 }
 
+export interface EditorBaseline {
+  path: string
+  oid?: string
+  present: boolean
+  content: string
+  binary: boolean
+  tooLarge: boolean
+}
+
 export interface FileBlame {
+  contentHash?: string
+  headOid?: string
   path: string
   generation: number
   commits: Record<string, { author: string; authoredAt?: string; summary: string }>
@@ -232,6 +243,7 @@ export interface RepoSnapshot {
   staged: FileChange[]
   unstaged: FileChange[]
   conflicts?: ConflictEntry[]
+  indexRevision?: number
   generation: number
 }
 

@@ -8,20 +8,38 @@ export interface GutterChange {
 export function fileGutterChanges(before: string, after: string): Map<number, GutterChange> {
   const changes = new Map<number, GutterChange>()
   if (before === after) return changes
+  if (!before.slice(0, -1).includes('\n') && !after.slice(0, -1).includes('\n')) {
+    changes.set(
+      1,
+      after === '' ? { deletion: 'before' } : { kind: before === '' ? 'added' : 'modified' },
+    )
+    return changes
+  }
+  const oldLines = before.match(/[^\n]*\n|[^\n]+$/g) ?? []
+  const newLines = after.match(/[^\n]*\n|[^\n]+$/g) ?? []
+  let start = 0
+  while (start < oldLines.length && oldLines[start] === newLines[start]) start++
+  let oldEnd = oldLines.length
+  let newEnd = newLines.length
+  while (oldEnd > start && newEnd > start && oldLines[oldEnd - 1] === newLines[newEnd - 1]) {
+    oldEnd--
+    newEnd--
+  }
+  start = Math.max(0, start - 1)
   const diff = parseDiffFromFile(
-    { name: 'file', contents: before },
-    { name: 'file', contents: after },
+    { name: 'file', contents: oldLines.slice(start, oldEnd + 1).join('') },
+    { name: 'file', contents: newLines.slice(start, newEnd + 1).join('') },
     { disableLineMatching: true },
   )
   for (const hunk of diff.hunks) {
-    let line = hunk.additionStart
+    let line = start + hunk.additionStart
     for (const content of hunk.hunkContent) {
       if (content.type === 'context') {
         line += content.lines
         continue
       }
       for (let offset = 0; offset < content.additions; offset++) {
-        changes.set(line + offset, { kind: content.deletions > 0 ? 'modified' : 'added' })
+        changes.set(line + offset, { kind: offset < content.deletions ? 'modified' : 'added' })
       }
       line += content.additions
       if (content.deletions > content.additions) {
@@ -33,42 +51,74 @@ export function fileGutterChanges(before: string, after: string): Map<number, Gu
   return changes
 }
 
-export function installChangeGutter(
-  container: HTMLElement,
-  changes: ReadonlyMap<number, GutterChange>,
-): () => void {
+export function installChangeGutter(container: HTMLElement) {
+  let changes: ReadonlyMap<number, GutterChange> = new Map()
   let frame: number | undefined
-  const observer = new MutationObserver(() => {
+  const roots = new Map<ShadowRoot, MutationObserver>()
+  const schedule = () => {
     if (frame == null) frame = requestAnimationFrame(paint)
-  })
-  function paint() {
-    frame = undefined
-    observer.disconnect()
-    observer.observe(container, { childList: true, subtree: true })
+  }
+  const discover = () => {
+    for (const [root, observer] of roots) {
+      if (!root.host.isConnected) {
+        observer.disconnect()
+        roots.delete(root)
+      }
+    }
     for (const host of container.querySelectorAll('diffs-container')) {
       const root = host.shadowRoot
-      if (root == null) continue
+      if (root == null || roots.has(root)) continue
+      const observer = new MutationObserver((records) => {
+        if (
+          records.some(
+            (record) =>
+              (record.target instanceof Element &&
+                record.target.closest('[data-gutter]') != null) ||
+              [...record.addedNodes, ...record.removedNodes].some(
+                (node) =>
+                  node instanceof Element &&
+                  (node.matches('[data-gutter], [data-column-number]') ||
+                    node.querySelector('[data-gutter], [data-column-number]') != null),
+              ),
+          )
+        )
+          schedule()
+      })
       observer.observe(root, { childList: true, subtree: true })
+      roots.set(root, observer)
+    }
+  }
+  const observer = new MutationObserver(schedule)
+  observer.observe(container, { childList: true, subtree: true })
+  function attribute(row: Element, name: string, value: string | undefined) {
+    if (value == null) {
+      if (row.hasAttribute(name)) row.removeAttribute(name)
+    } else if (row.getAttribute(name) !== value) row.setAttribute(name, value)
+  }
+  function paint() {
+    frame = undefined
+    discover()
+    for (const root of roots.keys()) {
       for (const row of root.querySelectorAll('[data-gutter] > [data-column-number]')) {
         const change = changes.get(Number(row.getAttribute('data-column-number')))
-        if (change?.kind == null) row.removeAttribute('data-gitna-change')
-        else row.setAttribute('data-gitna-change', change.kind)
-        if (change?.deletion == null) row.removeAttribute('data-gitna-deletion')
-        else row.setAttribute('data-gitna-deletion', change.deletion)
+        attribute(row, 'data-gitna-change', change?.kind)
+        attribute(row, 'data-gitna-deletion', change?.deletion)
       }
     }
   }
-  paint()
-  return () => {
-    observer.disconnect()
-    if (frame != null) cancelAnimationFrame(frame)
-    for (const host of container.querySelectorAll('diffs-container')) {
-      for (const row of host.shadowRoot?.querySelectorAll(
-        '[data-gitna-change], [data-gitna-deletion]',
-      ) ?? []) {
-        row.removeAttribute('data-gitna-change')
-        row.removeAttribute('data-gitna-deletion')
-      }
-    }
+  schedule()
+  return {
+    update(next: ReadonlyMap<number, GutterChange>) {
+      changes = next
+      schedule()
+    },
+    dispose() {
+      if (frame != null) cancelAnimationFrame(frame)
+      changes = new Map()
+      paint()
+      observer.disconnect()
+      for (const rootObserver of roots.values()) rootObserver.disconnect()
+      roots.clear()
+    },
   }
 }

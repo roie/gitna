@@ -11,6 +11,7 @@ import type {
   GraphCount,
   GraphPage,
   FileBlame,
+  EditorBaseline,
   LineHistory,
   OpenFolderResult,
   RepositoryFileCount,
@@ -181,6 +182,7 @@ export interface ApiClient {
     signal?: AbortSignal,
     maxBytes?: number,
   ) => Promise<LineHistory>
+  indexBaseline?: (path: string, signal?: AbortSignal, maxBytes?: number) => Promise<EditorBaseline>
   fileBlame?: (path: string, signal?: AbortSignal, maxBytes?: number) => Promise<FileBlame>
   compareWorktreeFiles: (
     leftPath: string,
@@ -437,6 +439,23 @@ export function createApi(baseURL?: string): ApiClient {
         }),
       )
       return (await res.json()) as LineHistory
+    },
+    async indexBaseline(
+      path: string,
+      signal?: AbortSignal,
+      maxBytes?: number,
+    ): Promise<EditorBaseline> {
+      const params = new URLSearchParams({ path })
+      if (maxBytes != null) params.set('maxBytes', String(maxBytes))
+      const res = await expectOK(
+        await fetch(`api/v1/worktree/baseline?${params}`, {
+          signal:
+            signal == null
+              ? AbortSignal.timeout(FETCH_TIMEOUT)
+              : AbortSignal.any([signal, AbortSignal.timeout(FETCH_TIMEOUT)]),
+        }),
+      )
+      return (await res.json()) as EditorBaseline
     },
     async fileBlame(path: string, signal?: AbortSignal, maxBytes?: number): Promise<FileBlame> {
       const params = new URLSearchParams({ path })

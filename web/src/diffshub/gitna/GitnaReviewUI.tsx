@@ -2482,9 +2482,10 @@ function GitnaReviewUIInner({
                       gitnaEditorActions != null &&
                       (previewPath == null || previewMode !== 'preview') && (
                         <ChangeGutter
-                          key={`${repository.snapshot.root}:${target.filePath}`}
+                          key={repository.snapshot.root}
                           path={target.filePath}
-                          generation={repository.generation}
+                          indexRevision={repository.snapshot.indexRevision ?? repository.generation}
+                          maxBytes={approvedFileBudgetsRef.current.get(target.filePath)}
                           contents={
                             worktreeDrafts.get(target.filePath)?.contents ??
                             worktreeFiles.get(target.filePath)?.content
@@ -2501,7 +2502,8 @@ function GitnaReviewUIInner({
                         <Blame
                           key={`${repository.snapshot.root}:${target.filePath}`}
                           path={target.filePath}
-                          generation={repository.generation}
+                          contentHash={worktreeFiles.get(target.filePath)?.hash}
+                          headOid={repository.snapshot.headOid}
                           dirty={dirtyPaths.has(target.filePath)}
                           maxBytes={approvedFileBudgetsRef.current.get(target.filePath)}
                           api={repository.api}

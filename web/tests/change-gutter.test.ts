@@ -17,11 +17,11 @@ describe('file gutter changes against the index', () => {
     ])
   })
 
-  it('marks replacements blue, including longer replacements', () => {
+  it('marks replacements blue and excess replacement lines green', () => {
     expect(changes('a\nb\nc\n', 'a\nchanged\nc\n')).toEqual([[2, { kind: 'modified' }]])
     expect(changes('old\n', 'new\nextra\n')).toEqual([
       [1, { kind: 'modified' }],
-      [2, { kind: 'modified' }],
+      [2, { kind: 'added' }],
     ])
   })
 
@@ -43,6 +43,13 @@ describe('file gutter changes against the index', () => {
       [1, { kind: 'modified' }],
       [8, { kind: 'added' }],
     ])
+  })
+
+  it('handles very long single lines without parsing a full patch', () => {
+    const before = 'x'.repeat(2 << 20)
+    expect(changes(before, `${before}edited`)).toEqual([[1, { kind: 'modified' }]])
+    expect(changes(`${before}\n`, `${before}edited\n`)).toEqual([[1, { kind: 'modified' }]])
+    expect(changes('line\n', 'line')).toEqual([[1, { kind: 'modified' }]])
   })
 
   it('handles CRLF and missing final newlines', () => {

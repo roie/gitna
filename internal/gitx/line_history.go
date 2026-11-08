@@ -143,25 +143,27 @@ func (r Repository) FileBlame(ctx context.Context, runner Runner, path string, b
 	if !r.IsGit() {
 		return protocol.FileBlame{}, ErrNotRepository
 	}
-	if _, err := r.ReadWorktreeFile(ctx, path, budget...); err != nil {
-		return protocol.FileBlame{}, err
-	}
-	blame := protocol.FileBlame{Path: path, Commits: map[string]protocol.BlameCommit{}, Ranges: []protocol.BlameRange{}}
-	head, err := runner.Run(ctx, r.Root, "rev-parse", "--verify", "--quiet", "HEAD")
+	file, err := r.ReadWorktreeFile(ctx, path, budget...)
 	if err != nil {
 		return protocol.FileBlame{}, err
 	}
-	if head.ExitCode != 0 {
-		return blame, nil
-	}
-	tracked, err := runner.Run(ctx, r.Root, "ls-files", "--error-unmatch", "--", path)
+	blame := protocol.FileBlame{Path: path, ContentHash: file.Hash, Commits: map[string]protocol.BlameCommit{}, Ranges: []protocol.BlameRange{}}
+	headOID, present, err := r.blameHead(ctx, runner, path)
+	blame.HeadOID = headOID
 	if err != nil {
 		return protocol.FileBlame{}, err
 	}
-	if tracked.ExitCode != 0 {
+	if !present || file.Content == "" {
 		return blame, nil
 	}
-	result, err := runner.Run(ctx, r.Root, "blame", "--incremental", "--", path)
+	oid, err := r.indexEntryOID(ctx, runner, path)
+	if err != nil {
+		return protocol.FileBlame{}, err
+	}
+	if oid == "" {
+		return blame, nil
+	}
+	result, err := runner.RunInput(ctx, r.Root, []byte(file.Content), "blame", "--incremental", "--contents", "-", blame.HeadOID, "--", path)
 	if err != nil {
 		return protocol.FileBlame{}, err
 	}
@@ -172,6 +174,36 @@ func (r Repository) FileBlame(ctx context.Context, runner Runner, path string, b
 		return protocol.FileBlame{}, err
 	}
 	return blame, nil
+}
+
+func (r Repository) blameHead(ctx context.Context, runner Runner, path string) (string, bool, error) {
+	expression := "HEAD:" + path
+	result, err := runner.RunInput(ctx, r.Root, []byte("HEAD\x00"+expression+"\x00"), "cat-file", "--batch-check=%(objectname) %(objecttype)", "-z")
+	if err != nil {
+		return "", false, err
+	}
+	if result.ExitCode != 0 {
+		return "", false, opError("resolve blame HEAD", result)
+	}
+	head, blob, ok := strings.Cut(string(result.Stdout), "\n")
+	if !ok {
+		return "", false, fmt.Errorf("gitx: missing blame HEAD metadata")
+	}
+	if head == "HEAD missing" {
+		return "", false, nil
+	}
+	fields := strings.Fields(head)
+	if len(fields) != 2 || fields[1] != "commit" {
+		return "", false, fmt.Errorf("gitx: invalid blame HEAD metadata")
+	}
+	if blob == expression+" missing\n" {
+		return fields[0], false, nil
+	}
+	object := strings.Fields(blob)
+	if len(object) != 2 || object[1] != "blob" {
+		return "", false, fmt.Errorf("gitx: invalid blame blob metadata")
+	}
+	return fields[0], true, nil
 }
 
 func parseIncrementalBlame(output []byte, blame *protocol.FileBlame) error {

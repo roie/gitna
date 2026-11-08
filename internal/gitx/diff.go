@@ -241,19 +241,16 @@ func (r Repository) diffPatch(ctx context.Context, runner Runner, cached bool, p
 // A missing object (the path does not exist in that tree, or the parent of a
 // root commit) reports present=false without an error.
 func (r Repository) readBlob(ctx context.Context, runner Runner, treeish string) ([]byte, bool, error) {
-	res, err := runner.Run(ctx, r.Root, "cat-file", "-s", treeish)
+	_, present, err := r.blobInfo(ctx, runner, treeish)
+	if err != nil || !present {
+		return nil, false, err
+	}
+	res, err := runner.Run(ctx, r.Root, "cat-file", "blob", treeish)
 	if err != nil {
 		return nil, false, err
 	}
 	if res.ExitCode != 0 {
-		return nil, false, nil
-	}
-	res, err = runner.Run(ctx, r.Root, "cat-file", "blob", treeish)
-	if err != nil {
-		return nil, false, err
-	}
-	if res.ExitCode != 0 {
-		return nil, false, nil
+		return nil, false, opError("read blob", res)
 	}
 	return res.Stdout, true, nil
 }

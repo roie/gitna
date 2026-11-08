@@ -168,19 +168,20 @@ type OpenFolderResult struct {
 }
 
 type RepoSnapshot struct {
-	AppVersion string          `json:"appVersion"`
-	Repository bool            `json:"repository"`
-	Root       string          `json:"root"`
-	HeadOID    string          `json:"headOid,omitempty"`
-	HeadBranch string          `json:"headBranch,omitempty"`
-	Upstream   string          `json:"upstream,omitempty"`
-	Ahead      int             `json:"ahead"`
-	Behind     int             `json:"behind"`
-	Operation  string          `json:"operation"`
-	Staged     []FileChange    `json:"staged"`
-	Unstaged   []FileChange    `json:"unstaged"`
-	Conflicts  []ConflictEntry `json:"conflicts,omitempty"`
-	Generation uint64          `json:"generation"`
+	AppVersion    string          `json:"appVersion"`
+	Repository    bool            `json:"repository"`
+	Root          string          `json:"root"`
+	HeadOID       string          `json:"headOid,omitempty"`
+	HeadBranch    string          `json:"headBranch,omitempty"`
+	Upstream      string          `json:"upstream,omitempty"`
+	Ahead         int             `json:"ahead"`
+	Behind        int             `json:"behind"`
+	Operation     string          `json:"operation"`
+	Staged        []FileChange    `json:"staged"`
+	Unstaged      []FileChange    `json:"unstaged"`
+	Conflicts     []ConflictEntry `json:"conflicts,omitempty"`
+	Generation    uint64          `json:"generation"`
+	IndexRevision uint64          `json:"indexRevision"`
 }
 
 // Operation names reported in RepoSnapshot.Operation.
@@ -410,13 +411,24 @@ type ConflictEntry struct {
 	CanResolveBoth bool   `json:"canResolveBoth"`
 }
 
+type EditorBaseline struct {
+	Path     string `json:"path"`
+	OID      string `json:"oid,omitempty"`
+	Present  bool   `json:"present"`
+	Content  string `json:"content"`
+	Binary   bool   `json:"binary"`
+	TooLarge bool   `json:"tooLarge"`
+}
+
 // FileBlame attributes every committed line of one worktree file. Lines not
 // covered by Ranges are uncommitted.
 type FileBlame struct {
-	Path       string                 `json:"path"`
-	Generation uint64                 `json:"generation"`
-	Commits    map[string]BlameCommit `json:"commits"`
-	Ranges     []BlameRange           `json:"ranges"`
+	ContentHash string                 `json:"contentHash"`
+	HeadOID     string                 `json:"headOid"`
+	Path        string                 `json:"path"`
+	Generation  uint64                 `json:"generation"`
+	Commits     map[string]BlameCommit `json:"commits"`
+	Ranges      []BlameRange           `json:"ranges"`
 }
 
 // BlameCommit is the commit metadata shared by every range it owns.

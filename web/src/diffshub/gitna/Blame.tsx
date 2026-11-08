@@ -1,4 +1,5 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type RefObject } from 'react'
+import { flushSync } from 'react-dom'
 import type { CodeViewHandle } from '@pierre/diffs/react'
 import type { ApiClient } from '../../lib/api'
 import type { FileBlame, LineHistory } from '../../lib/types'
@@ -8,9 +9,12 @@ import { CommitInfo } from './CommitInfo'
 import { formatLineHistoryAge, lineHistoryFromBlame } from './lineHistory'
 import { useRepository } from './repository'
 
+const blameCache = new WeakMap<ApiClient, Map<string, FileBlame>>()
+
 export function Blame({
   path,
-  generation,
+  contentHash,
+  headOid,
   dirty,
   maxBytes,
   api,
@@ -19,7 +23,8 @@ export function Blame({
   onOpenCommit,
 }: {
   path: string
-  generation: number
+  contentHash: string | undefined
+  headOid: string | undefined
   dirty: boolean
   maxBytes?: number
   api: ApiClient
@@ -29,27 +34,44 @@ export function Blame({
 }) {
   const repository = useRepository()
   const overlayRef = useRef<HTMLDivElement>(null)
-  const cache = useMemo(() => new Map<number, LineHistory>(), [path, generation, dirty])
+  const indexMissing =
+    repository.snapshot?.staged.some(
+      (change) => change.path === path && change.kind === 'deleted',
+    ) ?? false
+  const key = JSON.stringify([
+    repository.snapshot?.root,
+    path,
+    contentHash,
+    headOid,
+    maxBytes,
+    indexMissing,
+  ])
   const [line, setLine] = useState<number | null>(null)
-  const [history, setHistory] = useState<LineHistory | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [tooltipOpen, setTooltipOpen] = useState(false)
-  const [fileBlame, setFileBlame] = useState<FileBlame | 'loading' | 'failed'>('loading')
-  const displayRef = useRef({ history, dirty, generation })
+  const [result, setResult] = useState<{ key: string; blame: FileBlame } | null>(null)
+  const fileBlame = result?.key === key ? result.blame : null
+  const history = useMemo(
+    () =>
+      fileBlame == null || line == null || dirty || indexMissing
+        ? null
+        : lineHistoryFromBlame(fileBlame, line),
+    [fileBlame, line, dirty, indexMissing],
+  )
+  const displayRef = useRef({ history, dirty, line })
   const positionRef = useRef<(() => void) | null>(null)
 
   useLayoutEffect(() => {
-    displayRef.current = { history, dirty, generation }
+    displayRef.current = { history, dirty, line }
     positionRef.current?.()
-  }, [history, dirty, generation])
+  }, [history, dirty, line])
 
   useEffect(() => {
     const scroller = scrollRef.current
     if (scroller == null) return
     let frame = 0
-    const position = () => {
+    const position = (syncSelection: boolean) => {
       const overlay = overlayRef.current
-      const { history, dirty, generation } = displayRef.current
       if (overlay == null) return
       const hide = () => {
         overlay.style.visibility = 'hidden'
@@ -65,18 +87,25 @@ export function Blame({
         hide()
         return
       }
-      setLine(caret.end.line + 1)
+      const nextLine = caret.end.line + 1
+      if (displayRef.current.line !== nextLine) {
+        if (syncSelection) flushSync(() => setLine(nextLine))
+        else {
+          setLine(nextLine)
+          return
+        }
+      }
+      const { history, dirty } = displayRef.current
       if (
         dirty ||
         history == null ||
         history.uncommitted ||
         history.oid == null ||
-        history.generation !== generation
+        history.line !== caret.end.line + 1
       ) {
         hide()
         return
       }
-      // Keep the previous annotation in place until the next line's result is ready.
       const root = scroller.querySelector('diffs-container')?.shadowRoot
       const row = root?.querySelector<HTMLElement>(
         `[data-line][data-line-index="${history.line - 1}"][data-line-type="context"]`,
@@ -108,9 +137,9 @@ export function Blame({
     }
     const schedule = () => {
       cancelAnimationFrame(frame)
-      frame = requestAnimationFrame(position)
+      frame = requestAnimationFrame(() => position(true))
     }
-    positionRef.current = position
+    positionRef.current = () => position(false)
     document.addEventListener('selectionchange', schedule)
     scroller.addEventListener('pointerup', schedule)
     scroller.addEventListener('keyup', schedule)
@@ -119,10 +148,13 @@ export function Blame({
     root?.addEventListener('scroll', schedule, true)
     const resize = new ResizeObserver(schedule)
     resize.observe(scroller)
-    position()
+    const mutations = new MutationObserver(schedule)
+    if (root != null) mutations.observe(root, { childList: true, subtree: true })
+    position(false)
     return () => {
       cancelAnimationFrame(frame)
       resize.disconnect()
+      mutations.disconnect()
       positionRef.current = null
       document.removeEventListener('selectionchange', schedule)
       scroller.removeEventListener('pointerup', schedule)
@@ -133,57 +165,41 @@ export function Blame({
   }, [path, scrollRef, viewerRef])
 
   useEffect(() => {
-    if (dirty) return
-    if (api.fileBlame == null) {
-      setFileBlame('failed')
+    if (api.fileBlame == null || contentHash == null) return
+    let cache = blameCache.get(api)
+    if (cache == null) {
+      cache = new Map()
+      blameCache.set(api, cache)
+    }
+    const cached = cache.get(key)
+    if (cached != null) {
+      setResult({ key, blame: cached })
       return
     }
-    setFileBlame('loading')
     const controller = new AbortController()
     void api.fileBlame(path, controller.signal, maxBytes).then(
-      (result) => {
-        if (!controller.signal.aborted)
-          setFileBlame(result.generation === generation ? result : 'failed')
+      (blame) => {
+        if (
+          controller.signal.aborted ||
+          blame.contentHash !== contentHash ||
+          blame.headOid !== (headOid ?? '')
+        )
+          return
+        if (cache.size >= 4) cache.clear()
+        cache.set(key, blame)
+        setResult({ key, blame })
       },
       () => {
-        if (!controller.signal.aborted) setFileBlame('failed')
+        if (!controller.signal.aborted) setResult(null)
       },
     )
     return () => controller.abort()
-  }, [api, path, generation, dirty, maxBytes])
+  }, [api, path, key, contentHash, headOid, maxBytes])
 
   useEffect(() => {
     setTooltipOpen(false)
     setError(null)
-    if (line == null || dirty || fileBlame === 'loading') return
-    if (fileBlame !== 'failed') {
-      setHistory(lineHistoryFromBlame(fileBlame, line))
-      return
-    }
-    const cached = cache.get(line)
-    if (cached != null) {
-      setHistory(cached)
-      return
-    }
-    const controller = new AbortController()
-    const timer = window.setTimeout(() => {
-      void api.lineHistory(path, line, controller.signal, maxBytes).then(
-        (result) => {
-          if (!controller.signal.aborted && result.generation === generation) {
-            cache.set(line, result)
-            setHistory(result)
-          }
-        },
-        () => {
-          if (!controller.signal.aborted) setHistory(null)
-        },
-      )
-    }, 200)
-    return () => {
-      clearTimeout(timer)
-      controller.abort()
-    }
-  }, [api, path, line, generation, dirty, maxBytes, cache, fileBlame])
+  }, [key, line, dirty])
 
   const committed = history != null && !history.uncommitted && history.oid != null
   const age = history?.authoredAt == null ? null : formatLineHistoryAge(history.authoredAt)
