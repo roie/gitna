@@ -9,7 +9,7 @@ export function nativeMediaKind(path: string): 'audio' | 'video' | 'pdf' | null 
   return null
 }
 
-export function NativeMediaPreview({ path }: { path: string }) {
+export function NativeMediaPreview({ path, onReady }: { path: string; onReady?: () => void }) {
   const kind = nativeMediaKind(path)
   const source = `api/v1/media?path=${encodeURIComponent(path)}`
   const mediaRef = useRef<HTMLMediaElement | null>(null)
@@ -49,6 +49,10 @@ export function NativeMediaPreview({ path }: { path: string }) {
   }, [source, attempt, kind])
 
   useEffect(() => {
+    if (kind !== 'pdf' && state !== 'loading') onReady?.()
+  }, [kind, state, onReady])
+
+  useEffect(() => {
     const media = mediaRef.current
     return () => {
       // Detached native players can keep playing and fetching byte ranges.
@@ -61,7 +65,7 @@ export function NativeMediaPreview({ path }: { path: string }) {
   if (kind === 'pdf') {
     return (
       <section className="flex h-full min-h-0 flex-col bg-background" aria-label="Media preview">
-        <PDFPreview path={path} />
+        <PDFPreview path={path} onReady={onReady} />
       </section>
     )
   }

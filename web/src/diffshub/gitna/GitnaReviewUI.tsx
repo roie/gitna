@@ -402,6 +402,10 @@ function GitnaReviewUIInner({
 }: GitnaReviewUIProps) {
   const repository = useRepository()
   const target = useReviewTarget()
+  const nativePath =
+    target?.filePath != null && nativeMediaKind(target.filePath) != null ? target.filePath : null
+  const targetKeyRef = useRef(target?.key)
+  targetKeyRef.current = target?.key
   const scopeKnownEmpty =
     (target?.request?.scope === 'staged' && repository.snapshot?.staged.length === 0) ||
     (target?.request?.scope === 'unstaged' && repository.snapshot?.unstaged.length === 0)
@@ -463,7 +467,9 @@ function GitnaReviewUIInner({
   const [filePreviewModes, setFilePreviewModes] = useState<Map<string, FilePreviewMode>>(
     () => new Map(),
   )
-  const previewFilePath = target?.filePath
+  const [reviewData, setReviewData] = useState<LoadedDiffsHubData | null>(null)
+  const previewFile = reviewData?.items[0]
+  const previewFilePath = previewFile?.type === 'file' ? previewFile.file.name : undefined
   const previewMode =
     previewFilePath == null ? 'editor' : (filePreviewModes.get(previewFilePath) ?? 'editor')
   const setPreviewMode = useCallback(
@@ -478,10 +484,10 @@ function GitnaReviewUIInner({
   const previewLayoutMode = previewMode === 'editor' ? cachedPreviewMode : previewMode
   useEffect(() => {
     if (previewMode !== 'editor') {
-      setCachedPreviewPath(target?.filePath ?? null)
+      setCachedPreviewPath(previewFilePath ?? null)
       setCachedPreviewMode(previewMode)
     }
-  }, [previewMode, target?.filePath])
+  }, [previewMode, previewFilePath])
   const [previewHeaderHeight, setPreviewHeaderHeight] = useState(44)
   const [themesHydrated, setThemesHydrated] = useState(false)
   const [loadState, setLoadState] = useState<ViewerLoadState>('fetching')
@@ -496,7 +502,6 @@ function GitnaReviewUIInner({
   const largeDraftBackupsRef = useRef(
     new Map<string, { record: DraftRecord; pending: Promise<void> }>(),
   )
-  const [reviewData, setReviewData] = useState<LoadedDiffsHubData | null>(null)
   const [imageDiff, setImageDiff] = useState<FileDiff | null>(null)
   const [reviewAttempt, setReviewAttempt] = useState(0)
   const [reviewActionError, setReviewActionError] = useState<string | null>(null)
@@ -542,6 +547,12 @@ function GitnaReviewUIInner({
   const reviewDataRef = useRef<LoadedDiffsHubData | null>(null)
   const renderedTargetKeyRef = useRef<string | null>(null)
   const reviewPagingRef = useRef<ReviewPagingState | null>(null)
+  const handleNativeReady = useCallback(() => {
+    if (targetKeyRef.current !== target?.key) return
+    reviewDataRef.current = null
+    renderedTargetKeyRef.current = target?.key ?? null
+    setReviewData(null)
+  }, [target?.key])
   const worktreeComparisonRef = useRef<{ key: string; diff: FileDiff } | null>(null)
   // CodeView owns the imperative header root, so its save callback may outlive a React render.
   const savingPathRef = useRef<string | null>(null)
@@ -852,10 +863,7 @@ function GitnaReviewUIInner({
       return
     }
     if (target.filePath != null && nativeMediaKind(target.filePath) != null) {
-      reviewDataRef.current = null
-      renderedTargetKeyRef.current = null
       reviewPagingRef.current = null
-      setReviewData(null)
       setErrorMessage(null)
       setLoadState('ready')
       return
@@ -895,6 +903,7 @@ function GitnaReviewUIInner({
           approvedFileBudgetsRef.current.get(path),
           worktreeFilesRef.current.get(path),
         )
+        reviewAbortController.signal.throwIfAborted()
         const rename = repository.worktreeRename
         const previousPath =
           rename == null ? path : previousWorktreePath(path, rename.source, rename.destination)
@@ -1175,11 +1184,11 @@ function GitnaReviewUIInner({
     (element: HTMLElement | null) => {
       previewScrollRef.current = element
       if (element == null || previewMode !== 'split') return
-      if (previousPreviewModeRef.current === 'preview' && target?.filePath != null) {
+      if (previousPreviewModeRef.current === 'preview' && previewFilePath != null) {
         guardScroll('preview')
         viewerRef.current?.scrollTo({
           type: 'line',
-          id: target.filePath,
+          id: previewFilePath,
           lineNumber: sourceLineAtPreviewTop(element) - 1,
           align: 'start',
         })
@@ -1187,7 +1196,7 @@ function GitnaReviewUIInner({
         requestAnimationFrame(syncPreviewFromEditor)
       }
     },
-    [guardScroll, previewMode, syncPreviewFromEditor, target?.filePath],
+    [guardScroll, previewMode, syncPreviewFromEditor, previewFilePath],
   )
 
   const handlePreviewScroll = useCallback(
@@ -1195,18 +1204,18 @@ function GitnaReviewUIInner({
       if (
         previewMode !== 'split' ||
         scrollOriginRef.current === 'editor' ||
-        target?.filePath == null
+        previewFilePath == null
       )
         return
       guardScroll('preview')
       viewerRef.current?.scrollTo({
         type: 'line',
-        id: target.filePath,
+        id: previewFilePath,
         lineNumber: sourceLineAtPreviewTop(element) - 1,
         align: 'start',
       })
     },
-    [guardScroll, previewMode, target?.filePath],
+    [guardScroll, previewMode, previewFilePath],
   )
 
   const handleReviewScroll = useCallback(
@@ -1367,7 +1376,7 @@ function GitnaReviewUIInner({
       !viewerAvailable ||
       reviewData.items.length === 0 ||
       previewMode === 'editor' ||
-      target?.filePath == null
+      previewFilePath == null
     )
       return
     let frame = 0
@@ -1420,7 +1429,7 @@ function GitnaReviewUIInner({
         pre.removeAttribute('aria-hidden')
       }
     }
-  }, [viewerAvailable, reviewData, previewMode, target?.filePath])
+  }, [viewerAvailable, reviewData, previewMode, previewFilePath])
 
   useEffect(() => {
     if (!viewerAvailable || imageDiff == null || selectedImageRequest == null) return
@@ -1905,11 +1914,11 @@ function GitnaReviewUIInner({
     [repository, saveWorktreeFile],
   )
   const markdownPath =
-    target?.filePath != null && /\.(md|markdown|mdown|mkdn)$/i.test(target.filePath)
-      ? target.filePath
+    previewFilePath != null && /\.(md|markdown|mdown|mkdn)$/i.test(previewFilePath)
+      ? previewFilePath
       : null
   const svgPath =
-    target?.filePath != null && /\.svg$/i.test(target.filePath) ? target.filePath : null
+    previewFilePath != null && /\.svg$/i.test(previewFilePath) ? previewFilePath : null
   const previewPath = markdownPath ?? svgPath
   const previewLabel = svgPath != null ? 'SVG' : 'Markdown'
   const previewValue =
@@ -2413,13 +2422,25 @@ function GitnaReviewUIInner({
                 onClose={closeRepositoryFiles}
                 onError={setReviewActionError}
               />
-              <div className="min-h-0 flex-1">
-                {target?.filePath != null && nativeMediaKind(target.filePath) != null ? (
-                  <NativeMediaPreview
-                    key={`${repository.snapshot?.root}:${target.filePath}`}
-                    path={target.filePath}
-                  />
-                ) : repository.snapshot?.repository === false && target == null ? (
+              <div className="relative min-h-0 flex-1">
+                {nativePath != null && (
+                  <div
+                    className={cn(
+                      'h-full min-h-0',
+                      reviewData != null && 'invisible absolute inset-0',
+                    )}
+                    aria-hidden={reviewData != null || undefined}
+                    inert={reviewData != null}
+                  >
+                    <NativeMediaPreview
+                      key={`${repository.snapshot?.root}:${nativePath}`}
+                      path={nativePath}
+                      onReady={handleNativeReady}
+                    />
+                  </div>
+                )}
+                {nativePath != null && reviewData == null ? null : repository.snapshot
+                    ?.repository === false && target == null ? (
                   <FolderEmptyState />
                 ) : surfaceState === 'ready' &&
                   (scopeKnownEmpty || (reviewData != null && reviewData.items.length === 0)) ? (

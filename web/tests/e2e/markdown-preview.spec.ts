@@ -1,6 +1,299 @@
-import { mkdirSync, writeFileSync } from 'node:fs'
+import { copyFileSync, mkdirSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
+import type { Page, Route } from '@playwright/test'
 import { expect, test } from './fixtures.js'
+import { pdfFixture } from './pdf-fixture.js'
+
+test.use({ channel: 'chromium' })
+
+async function openFile(page: Page, path: string) {
+  await page.getByRole('button', { name: 'Open command palette' }).click()
+  const palette = page.getByRole('dialog', { name: 'Command palette' })
+  await palette.getByRole('combobox').fill(path)
+  await palette.getByRole('option').filter({ hasText: path }).first().click()
+}
+
+test('navigation keeps the outgoing Markdown preview until the destination is ready', async ({
+  page,
+  app,
+}) => {
+  writeFileSync(join(app.repo, 'outgoing.md'), '# Outgoing preview\n')
+  writeFileSync(join(app.repo, 'destination.txt'), 'Destination content\n')
+  await page.goto(app.url)
+  await openFile(page, 'outgoing.md')
+  await page.getByRole('button', { name: 'Open Markdown preview', exact: true }).click()
+  const preview = page.getByRole('region', { name: 'Markdown preview' })
+  await expect(preview.getByRole('heading', { name: 'Outgoing preview' })).toBeVisible()
+  await page.evaluate(() => {
+    const frames: string[] = []
+    Object.assign(window, { previewNavigationFrames: frames })
+    const inspect = () => {
+      const outgoing = [...document.querySelectorAll('diffs-container')].some((host) =>
+        host.shadowRoot?.querySelector('[aria-label="outgoing.md"]'),
+      )
+      if (outgoing && document.querySelector('.markdown-preview-open') == null)
+        frames.push('editor')
+      requestAnimationFrame(inspect)
+    }
+    requestAnimationFrame(inspect)
+  })
+  let received!: (route: Route) => void
+  let release!: () => void
+  const request = new Promise<Route>((resolve) => {
+    received = resolve
+  })
+  const waiting = new Promise<void>((resolve) => {
+    release = resolve
+  })
+  await page.route('**/api/v1/worktree/file?*path=destination.txt*', async (route) => {
+    received(route)
+    await waiting
+  })
+  try {
+    await openFile(page, 'destination.txt')
+    const route = await request
+    await expect(preview.getByRole('heading', { name: 'Outgoing preview' })).toBeVisible()
+    await expect(page.getByRole('textbox', { name: 'outgoing.md', exact: true })).toHaveCount(0)
+    await route.continue()
+    release()
+    await expect(page.getByRole('textbox', { name: 'destination.txt', exact: true })).toContainText(
+      'Destination content',
+    )
+    await expect(preview).toHaveCount(0)
+    await openFile(page, 'outgoing.md')
+    await expect(preview.getByRole('heading', { name: 'Outgoing preview' })).toBeVisible()
+    await expect(page.getByRole('textbox', { name: 'outgoing.md', exact: true })).toHaveCount(0)
+    expect(await page.evaluate(() => Reflect.get(window, 'previewNavigationFrames'))).toEqual([])
+  } finally {
+    release()
+  }
+})
+
+test('rapid preview navigation rejects obsolete responses, preserves modes, and recovers from errors', async ({
+  page,
+  app,
+}) => {
+  writeFileSync(join(app.repo, 'first.md'), '# First preview\n')
+  writeFileSync(join(app.repo, 'second.md'), '# Current second preview\n')
+  writeFileSync(join(app.repo, 'failure.md'), '# Unavailable\n')
+  await page.goto(app.url)
+  await openFile(page, 'first.md')
+  await page.getByRole('button', { name: 'Open Markdown preview', exact: true }).click()
+  await expect(page.getByRole('heading', { name: 'First preview' })).toBeVisible()
+
+  let received!: (route: Route) => void
+  let release!: () => void
+  const request = new Promise<Route>((resolve) => {
+    received = resolve
+  })
+  const waiting = new Promise<void>((resolve) => {
+    release = resolve
+  })
+  let requests = 0
+  await page.route('**/api/v1/worktree/file?*path=second.md*', async (route) => {
+    if (++requests > 1) return route.continue()
+    received(route)
+    await waiting
+  })
+  try {
+    await openFile(page, 'second.md')
+    const obsolete = await request
+    await expect(page.getByRole('heading', { name: 'First preview' })).toBeVisible()
+    await openFile(page, 'first.md')
+    await expect(page.getByRole('heading', { name: 'First preview' })).toBeVisible()
+    await openFile(page, 'second.md')
+    await expect(page.getByRole('textbox', { name: 'second.md', exact: true })).toContainText(
+      'Current second preview',
+    )
+    await page.getByRole('button', { name: 'Open Markdown preview', exact: true }).click()
+    await expect(page.getByRole('heading', { name: 'Current second preview' })).toBeVisible()
+    await page.clock.install()
+    await obsolete.fulfill({
+      json: { path: 'second.md', content: '# Obsolete preview\n', hash: 'obsolete' },
+    })
+    release()
+    await page.clock.runFor(1000)
+    await expect(page.getByRole('heading', { name: 'Current second preview' })).toBeVisible()
+    await expect(page.getByRole('heading', { name: 'Obsolete preview' })).toHaveCount(0)
+
+    await page.route('**/api/v1/worktree/file?*path=failure.md*', (route) =>
+      route.fulfill({
+        status: 503,
+        json: { error: { message: 'Preview navigation failed' } },
+      }),
+    )
+    await openFile(page, 'failure.md')
+    await expect(page.getByRole('alert').filter({ hasText: 'Couldn’t open file' })).toBeVisible()
+    await expect(page.getByRole('region', { name: 'Markdown preview' })).toHaveCount(0)
+    await openFile(page, 'second.md')
+    await expect(page.getByRole('heading', { name: 'Current second preview' })).toBeVisible()
+    await expect(page.getByRole('textbox', { name: 'second.md', exact: true })).toHaveCount(0)
+    for (const path of ['first.md', 'second.md', 'first.md', 'second.md']) {
+      await openFile(page, path)
+      await expect(
+        page.getByRole('heading', {
+          name: path === 'first.md' ? 'First preview' : 'Current second preview',
+        }),
+      ).toBeVisible()
+      await expect(page.getByRole('textbox', { name: path, exact: true })).toHaveCount(0)
+    }
+  } finally {
+    release()
+  }
+})
+
+test('SVG preview navigation keeps the outgoing image instead of exposing its editor', async ({
+  page,
+  app,
+}) => {
+  writeFileSync(
+    join(app.repo, 'outgoing.svg'),
+    '<svg xmlns="http://www.w3.org/2000/svg" width="240" height="120"><rect width="240" height="120" fill="red"/></svg>',
+  )
+  writeFileSync(join(app.repo, 'destination.md'), '# Markdown destination\n')
+  await page.goto(app.url)
+  await openFile(page, 'outgoing.svg')
+  await page.getByRole('button', { name: 'Open SVG preview', exact: true }).click()
+  const image = page.getByRole('region', { name: 'SVG preview' }).getByRole('img')
+  await expect(image).toHaveJSProperty('naturalWidth', 240)
+  let received!: (route: Route) => void
+  let release!: () => void
+  const request = new Promise<Route>((resolve) => {
+    received = resolve
+  })
+  const waiting = new Promise<void>((resolve) => {
+    release = resolve
+  })
+  await page.route('**/api/v1/worktree/file?*path=destination.md*', async (route) => {
+    received(route)
+    await waiting
+  })
+  try {
+    await openFile(page, 'destination.md')
+    const route = await request
+    await expect(image).toBeVisible()
+    await expect(page.getByRole('textbox', { name: 'outgoing.svg', exact: true })).toHaveCount(0)
+    await expect(page.getByRole('status').filter({ hasText: 'Opening file' })).toBeVisible()
+    await expect(image).toHaveJSProperty('naturalWidth', 240)
+    const largestStatusSurface = await page
+      .getByRole('status')
+      .filter({ hasText: 'Opening file' })
+      .evaluate((element) => {
+        const viewer = element.closest('.markdown-file-view')!
+        let largest = 0
+        for (
+          let node: Element | null = element;
+          node != null && node !== viewer;
+          node = node.parentElement
+        ) {
+          if (getComputedStyle(node).backgroundColor === 'rgba(0, 0, 0, 0)') continue
+          const bounds = node.getBoundingClientRect()
+          largest = Math.max(largest, bounds.width * bounds.height)
+        }
+        return largest
+      })
+    const viewerBounds = (await page.locator('.markdown-file-view').boundingBox())!
+    expect(largestStatusSurface).toBeLessThan((viewerBounds.width * viewerBounds.height) / 10)
+    await page.screenshot({ path: test.info().outputPath('retained-svg-pending.png') })
+    await route.continue()
+    release()
+    await page.unroute('**/api/v1/worktree/file?*path=destination.md*')
+    await expect(page.getByRole('textbox', { name: 'destination.md', exact: true })).toContainText(
+      'Markdown destination',
+    )
+    await expect(image).toHaveCount(0)
+    await page.getByRole('button', { name: 'Open Markdown preview', exact: true }).click()
+    await expect(page.getByRole('heading', { name: 'Markdown destination' })).toBeVisible()
+    await openFile(page, 'outgoing.svg')
+    await expect(image).toBeVisible()
+    await expect(page.getByRole('textbox', { name: 'outgoing.svg', exact: true })).toHaveCount(0)
+    await openFile(page, 'destination.md')
+    await expect(page.getByRole('heading', { name: 'Markdown destination' })).toBeVisible()
+  } finally {
+    release()
+  }
+})
+
+test.describe('native preview navigation', () => {
+  for (const extension of ['mp3', 'mp4', 'pdf']) {
+    test(`retains Markdown through pending ${extension} authorization, cancellation, and failure`, async ({
+      page,
+      app,
+    }) => {
+      writeFileSync(join(app.repo, 'outgoing.md'), '# Retained outgoing preview\n')
+      const path = `destination.${extension}`
+      if (extension === 'pdf') writeFileSync(join(app.repo, path), pdfFixture())
+      else
+        copyFileSync(
+          new URL(
+            `./media-fixtures/${extension === 'mp3' ? 'mp3.mp3' : 'h264.mp4'}`,
+            import.meta.url,
+          ),
+          join(app.repo, path),
+        )
+      await page.goto(app.url)
+      await openFile(page, 'outgoing.md')
+      await page.getByRole('button', { name: 'Open Markdown preview', exact: true }).click()
+      const heading = page.getByRole('heading', { name: 'Retained outgoing preview' })
+      await expect(heading).toBeVisible()
+      const pattern = `**/api/v1/${extension === 'pdf' ? 'pdf-preview' : 'media'}?path=${path}`
+      const method = extension === 'pdf' ? 'POST' : 'HEAD'
+      let received!: (route: Route) => void
+      let release!: () => void
+      const request = new Promise<Route>((resolve) => {
+        received = resolve
+      })
+      const waiting = new Promise<void>((resolve) => {
+        release = resolve
+      })
+      await page.route(pattern, async (route) => {
+        if (route.request().method() !== method) return route.continue()
+        received(route)
+        await waiting
+      })
+      try {
+        await openFile(page, path)
+        const pending = await request
+        await expect(heading).toBeVisible()
+        await expect(page.getByRole('status').filter({ hasText: 'Opening file' })).toBeVisible()
+        await expect(page.getByRole('region', { name: 'Media preview' })).toHaveCount(0)
+        await expect(page.getByRole('textbox', { name: 'outgoing.md', exact: true })).toHaveCount(0)
+        await openFile(page, 'outgoing.md')
+        await pending.continue().catch(() => {})
+        release()
+        await page.unroute(pattern)
+        await expect(heading).toBeVisible()
+        await expect(page.getByRole('region', { name: 'Media preview' })).toHaveCount(0)
+        await openFile(page, path)
+        await expect(page.getByRole('region', { name: 'Media preview' })).toBeVisible()
+        await expect(heading).toHaveCount(0)
+        if (extension === 'pdf')
+          await expect(page.getByTitle(`PDF preview: ${path}`, { exact: true })).toBeVisible()
+        else await expect(page.locator(extension === 'mp3' ? 'audio' : 'video')).toBeVisible()
+        await openFile(page, 'outgoing.md')
+        await expect(heading).toBeVisible()
+        await page.route(pattern, (route) =>
+          route.request().method() === method
+            ? route.fulfill({ status: 503, body: '' })
+            : route.continue(),
+        )
+        await openFile(page, path)
+        await expect(page.getByRole('region', { name: 'Media preview' })).toBeVisible()
+        await expect(
+          page.getByText(
+            extension === 'pdf'
+              ? 'PDF preview is unavailable. Reload it or download the file to open it locally.'
+              : 'Could not load this file. It may have changed or the connection was lost.',
+            { exact: true },
+          ),
+        ).toBeVisible()
+        await expect(heading).toHaveCount(0)
+      } finally {
+        release()
+      }
+    })
+  }
+})
 
 test('long Markdown scrolls in preview and editor after switching modes', async ({ page, app }) => {
   writeFileSync(

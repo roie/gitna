@@ -7,7 +7,15 @@ interface PDFLease {
   expiresAt: string
 }
 
-export function PDFPreview({ path, standalone = false }: { path: string; standalone?: boolean }) {
+export function PDFPreview({
+  path,
+  standalone = false,
+  onReady,
+}: {
+  path: string
+  standalone?: boolean
+  onReady?: () => void
+}) {
   const [attempt, setAttempt] = useState(0)
   const [url, setURL] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -16,6 +24,10 @@ export function PDFPreview({ path, standalone = false }: { path: string; standal
     url == null && error == null,
     `${path}\u0000${attempt}`,
   )
+
+  useEffect(() => {
+    if (url != null || error != null) onReady?.()
+  }, [url, error, onReady])
 
   useEffect(() => {
     if (standalone) document.title = `${path.split('/').pop()} — Gitna`
