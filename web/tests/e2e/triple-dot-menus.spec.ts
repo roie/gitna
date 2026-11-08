@@ -570,6 +570,121 @@ async function hunkMenu(page: Page, label = 'Stage') {
   }).toPass({ timeout: 20000 })
 }
 
+for (const action of ['load', 'stage', 'cancel'] as const) {
+  test(`Open hunk menu survives unrelated refresh before ${action}`, async ({ page, localApp }) => {
+    await page.goto(localApp.url)
+    const trigger = page.getByRole('button', { name: 'More actions for two-hunk.txt', exact: true })
+    if (action === 'load') await trigger.click()
+    else await hunkMenu(page)
+    const menu = page.getByRole('menu')
+    const original = await menu.elementHandle()
+    writeFileSync(join(localApp.repo, 'main.txt'), 'UNRELATED REFRESH\n')
+    await expect(
+      page.locator('.code-view').getByText('UNRELATED REFRESH', { exact: true }),
+    ).toBeVisible()
+    expect(await original!.evaluate((element) => element.isConnected)).toBe(true)
+    await expect(menu).toBeVisible()
+    if (action === 'cancel') {
+      await page.keyboard.press('Escape')
+      await expect(menu).toHaveCount(0)
+      await expect(trigger).toBeFocused()
+      expect(
+        execFileSync('git', ['diff', '--cached'], { cwd: localApp.repo, encoding: 'utf8' }),
+      ).toBe('')
+      return
+    }
+    if (action === 'load') {
+      await page
+        .getByRole('menuitem', { name: 'Show hunk actions for two-hunk.txt', exact: true })
+        .click()
+      await expect(trigger).toHaveAttribute('aria-expanded', 'false')
+      await trigger.click()
+    }
+    await page.getByRole('menuitem', { name: 'Stage hunk 1 in two-hunk.txt', exact: true }).click()
+    await expect
+      .poll(() =>
+        execFileSync('git', ['diff', '--cached'], { cwd: localApp.repo, encoding: 'utf8' }),
+      )
+      .toContain('TWO')
+    const unstaged = execFileSync('git', ['diff'], { cwd: localApp.repo, encoding: 'utf8' })
+    expect(unstaged).toContain('FIFTY')
+    expect(unstaged).toContain('UNRELATED REFRESH')
+    expect(unstaged).not.toContain('+TWO')
+  })
+}
+
+test('Open hunk menu invalidates changed content without applying its stale target', async ({
+  page,
+  localApp,
+}) => {
+  let mutations = 0
+  await page.route('**/api/v1/operations?op=patch', (route) => {
+    mutations++
+    return route.continue()
+  })
+  await page.goto(localApp.url)
+  await hunkMenu(page)
+  const menu = page.getByRole('menu')
+  const original = await menu.elementHandle()
+  writeFileSync(
+    join(localApp.repo, 'two-hunk.txt'),
+    Array.from({ length: 60 }, (_, i) => (i === 1 ? 'REPLACEMENT TWO\n' : `line ${i + 1}\n`)).join(
+      '',
+    ),
+  )
+  await expect(
+    page.locator('.code-view').getByText('REPLACEMENT TWO', { exact: true }),
+  ).toBeVisible()
+  expect(await original!.evaluate((element) => element.isConnected)).toBe(true)
+  await expect(menu).toBeVisible()
+  await expect(page.getByRole('menuitem', { name: /Stage hunk/ })).toHaveCount(0)
+  expect(mutations).toBe(0)
+  await page
+    .getByRole('menuitem', { name: 'Show hunk actions for two-hunk.txt', exact: true })
+    .click()
+  await page.getByRole('button', { name: 'More actions for two-hunk.txt', exact: true }).click()
+  await page.getByRole('menuitem', { name: 'Stage hunk 1 in two-hunk.txt', exact: true }).click()
+  await expect
+    .poll(() => execFileSync('git', ['diff', '--cached'], { cwd: localApp.repo, encoding: 'utf8' }))
+    .toContain('REPLACEMENT TWO')
+  expect(mutations).toBe(1)
+  expect(execFileSync('git', ['diff'], { cwd: localApp.repo, encoding: 'utf8' })).toBe('')
+})
+
+test('Hunk execution refuses content changed after the menu was loaded', async ({
+  page,
+  localApp,
+}) => {
+  let mutations = 0
+  await page.route('**/api/v1/operations?op=patch', (route) => {
+    mutations++
+    return route.continue()
+  })
+  await page.goto(localApp.url)
+  await hunkMenu(page)
+  await page.route('**/api/v1/diff?*', async (route) => {
+    const response = await route.fetch()
+    const diff = await response.json()
+    await route.fulfill({
+      response,
+      json: { ...diff, patch: diff.patch.replace('+TWO', '+REPLACED TWO') },
+    })
+  })
+  await page.getByRole('menuitem', { name: 'Stage hunk 1 in two-hunk.txt', exact: true }).click()
+  await expect(
+    page.getByLabel('Notifications').getByRole('alert').filter({ hasText: 'The hunk changed.' }),
+  ).toBeVisible()
+  expect(mutations).toBe(0)
+  expect(execFileSync('git', ['diff', '--cached'], { cwd: localApp.repo, encoding: 'utf8' })).toBe(
+    '',
+  )
+  await page.getByRole('button', { name: 'More actions for two-hunk.txt', exact: true }).click()
+  await expect(page.getByRole('menuitem', { name: /Stage hunk/ })).toHaveCount(0)
+  await expect(
+    page.getByRole('menuitem', { name: 'Show hunk actions for two-hunk.txt', exact: true }),
+  ).toBeEnabled()
+})
+
 test('Pending hunk load cannot populate a different scope', async ({ page, localApp }) => {
   execFileSync('git', ['add', 'two-hunk.txt'], { cwd: localApp.repo })
   writeFileSync(

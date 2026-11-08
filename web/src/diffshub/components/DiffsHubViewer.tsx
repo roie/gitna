@@ -4,6 +4,7 @@
 // the donor comment affordance when mounted in the Source Control-only shell.
 import {
   areSelectionsEqual,
+  areObjectsEqual,
   type CodeViewDiffItem,
   type CodeViewItem,
   type CodeViewLineSelection,
@@ -578,7 +579,7 @@ export const DiffsHubViewer = memo(function DiffsHubViewer({
       }
       if (gitnaActions != null) return (
         <GitnaHeaderActions
-          key={JSON.stringify([gitnaActions.cacheNamespace, gitnaActions.scope, item.id, item.fileDiff.cacheKey])}
+          key={JSON.stringify([gitnaActions.cacheNamespace, gitnaActions.scope, item.id])}
           actions={gitnaActions}
           item={item}
         />
@@ -862,6 +863,26 @@ function inferGitnaKind(
   }
 }
 
+function sameHunkTarget(before: FileDiffMetadata, after: FileDiffMetadata): boolean {
+  return before === after || (
+    before.name === after.name && before.prevName === after.prevName &&
+    before.type === after.type && before.mode === after.mode && before.prevMode === after.prevMode &&
+    before.newObjectId === after.newObjectId && before.prevObjectId === after.prevObjectId &&
+    before.isPartial === after.isPartial &&
+    before.additionLines.length === after.additionLines.length &&
+    before.deletionLines.length === after.deletionLines.length &&
+    before.additionLines.every((line, index) => line === after.additionLines[index]) &&
+    before.deletionLines.every((line, index) => line === after.deletionLines[index]) &&
+    before.hunks.length === after.hunks.length &&
+    before.hunks.every((hunk, index) => {
+      const next = after.hunks[index];
+      return areObjectsEqual(hunk, next, ['hunkContent']) &&
+        hunk.hunkContent.length === next.hunkContent.length &&
+        hunk.hunkContent.every((segment, segmentIndex) => areObjectsEqual(segment, next.hunkContent[segmentIndex]));
+    })
+  );
+}
+
 function GitnaHeaderActions({
   actions,
   item,
@@ -869,10 +890,21 @@ function GitnaHeaderActions({
   actions: GitnaViewerActions;
   item: CodeViewDiffItem<CommentMetadata>;
 }) {
-  const [hunks, setHunks] = useState<ReturnType<typeof splitHunkPatches> | null>(
-    null
-  );
-  const [patchId, setPatchId] = useState<string | null>(null);
+  const [target, setTarget] = useState({ diff: item.fileDiff, revision: 0 });
+  if (target.diff !== item.fileDiff) {
+    setTarget({
+      diff: item.fileDiff,
+      revision: target.revision + (sameHunkTarget(target.diff, item.fileDiff) ? 0 : 1),
+    });
+  }
+  const revision = target.revision;
+  const [loaded, setLoaded] = useState<{
+    revision: number;
+    hunks: ReturnType<typeof splitHunkPatches>;
+    patchId: string | null;
+  } | null>(null);
+  const hunks = loaded?.revision === revision ? loaded.hunks : null;
+  const patchId = loaded?.revision === revision ? loaded.patchId : null;
   const [menuOpen, setMenuOpen] = useState(false);
   const [loading, setLoading] = useState(false);
   const path = item.fileDiff.name;
@@ -880,10 +912,9 @@ function GitnaHeaderActions({
   const loadingVisible = useLoadingIndicator(loading, `${actions.scope}\u0000${path}`);
   useEffect(() => {
     setLoading(false);
-    setHunks(null);
-    setPatchId(null);
+    setLoaded(null);
     return () => { requestId.current++; };
-  }, [path, actions.scope, item.fileDiff]);
+  }, [revision]);
   const kind = actions.kindForPath(path) ?? inferGitnaKind(item);
   const primary = actions.scope === 'staged' ? 'unstage' : 'stage';
   const primaryLabel = actions.scope === 'staged' ? 'Unstage' : 'Stage';
@@ -897,12 +928,31 @@ function GitnaHeaderActions({
       const diff = await actions.loadDiff(path);
       if (request !== requestId.current) return;
       const next = splitHunkPatches(diff.patch ?? '');
-      setPatchId(diff.patchId ?? null);
-      setHunks(next);
+      setLoaded({ revision, patchId: diff.patchId ?? null, hunks: next });
     } catch (error) {
       if (request === requestId.current) actions.onError(error instanceof Error ? error.message : String(error));
     } finally {
       if (request === requestId.current) setLoading(false);
+    }
+  };
+
+  const applyHunk = async (index: number, patch: string) => {
+    const request = ++requestId.current;
+    setMenuOpen(false);
+    try {
+      const diff = await actions.loadDiff(path);
+      if (request !== requestId.current) return;
+      if (diff.patchId == null || splitHunkPatches(diff.patch ?? '')[index]?.patch !== patch) {
+        throw new Error('The hunk changed. Reload hunk actions before trying again.');
+      }
+      await actions.onPatch({
+        op: 'patch', patch, patchId: diff.patchId,
+        scope: actions.scope, path, reverse: actions.scope === 'staged',
+      });
+    } catch (error) {
+      if (request !== requestId.current) return;
+      setLoaded(null);
+      actions.onError(error instanceof Error ? error.message : String(error));
     }
   };
 
@@ -956,18 +1006,7 @@ function GitnaHeaderActions({
               disabled={patchId == null || actions.disabledReason != null}
               aria-label={`${primaryLabel} hunk ${index + 1} in ${path}${actions.disabledReason == null ? '' : `. ${actions.disabledReason}`}`}
               title={actions.disabledReason ?? hunk.range}
-              onSelect={() => {
-                if (patchId == null) return;
-                setMenuOpen(false);
-                void actions.onPatch({
-                  op: 'patch', patch: hunk.patch, patchId,
-                  scope: actions.scope, path, reverse: actions.scope === 'staged',
-                }).catch((error: unknown) => {
-                  setHunks(null);
-                  setPatchId(null);
-                  actions.onError(error instanceof Error ? error.message : String(error));
-                });
-              }}
+              onSelect={() => { if (patchId != null) void applyHunk(index, hunk.patch); }}
             >
               {primaryLabel} hunk {index + 1}
             </DropdownMenuItem>
