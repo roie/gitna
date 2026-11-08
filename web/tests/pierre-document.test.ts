@@ -4,7 +4,7 @@ import { TextDocument } from '@pierre/diffs/edit'
 const source = 'Hello 👩🏽‍💻 क्ष 각 שלום العربية\r\n世界 é\nlast\rtail'
 
 describe('Pierre document text snapshots', () => {
-  it('reuses unchanged text and invalidates after edits, undo, redo and history branches', () => {
+  it('avoids full-buffer joins and preserves snapshots across edits and history branches', () => {
     const document = new TextDocument<'file', undefined>('file:///test.txt', source)
     document.applyResolvedEdits([{ start: 0, end: 0, text: 'A' }])
     const join = Array.prototype.join
@@ -24,7 +24,7 @@ describe('Pierre document text snapshots', () => {
       spy.mockRestore()
     }
     expect(snapshots).toEqual(Array<string>(5).fill(`A${source}`))
-    expect(materializations).toBe(1)
+    expect(materializations).toBe(0)
     document.undo()
     expect(document.getText()).toBe(source)
     document.redo()

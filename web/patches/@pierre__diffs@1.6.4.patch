@@ -611,7 +611,7 @@ index bf17cea32f39ee60ff7520b17f44d99a8e7e98aa..5b5be0f18a2a7c32ca834cadf1d076cf
  			const wrapLineStartLeft = divRect.left + this.#metrics.ch;
  			const graphemeCount = unicodeOffsets === void 0 ? lineText.length : unicodeOffsets.length - 1;
 diff --git a/dist/editor/pieceTable.js b/dist/editor/pieceTable.js
-index 902520e95510b5be381ba4ccdbbad6752fa6abc0..fd9377b69d926259e8a48a8c40001058aa1cae82 100644
+index 902520e95510b5be381ba4ccdbbad6752fa6abc0..233707292dd90046532d72f21cbce7c547578998 100644
 --- a/dist/editor/pieceTable.js
 +++ b/dist/editor/pieceTable.js
 @@ -82,6 +82,7 @@ var PieceNode = class {
@@ -626,13 +626,15 @@ index 902520e95510b5be381ba4ccdbbad6752fa6abc0..fd9377b69d926259e8a48a8c40001058
  		return piece.length;
  	}
  	#textFromPieces() {
+-		const chunks = [];
 +		if (this.#materializedText !== void 0) return this.#materializedText;
- 		const chunks = [];
++		let text = "";
  		this.#forEachPieceSegment((segment) => {
- 			chunks.push(segment.text.slice(segment.start, segment.end));
+-			chunks.push(segment.text.slice(segment.start, segment.end));
++			text += segment.text.slice(segment.start, segment.end);
  		});
 -		return chunks.join("");
-+		return this.#materializedText = chunks.join("");
++		return this.#materializedText = text;
  	}
  	#forEachPieceSegment(callback) {
  		this.#walk(this.#root, (node) => {
