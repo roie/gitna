@@ -25,14 +25,13 @@ export function fileGutterChanges(before: string, after: string): Map<number, Gu
     oldEnd--
     newEnd--
   }
-  start = Math.max(0, start - 1)
   const diff = parseDiffFromFile(
-    { name: 'file', contents: oldLines.slice(start, oldEnd + 1).join('') },
-    { name: 'file', contents: newLines.slice(start, newEnd + 1).join('') },
+    { name: 'file', contents: oldLines.slice(start, oldEnd).join('') },
+    { name: 'file', contents: newLines.slice(start, newEnd).join('') },
     { disableLineMatching: true },
   )
   for (const hunk of diff.hunks) {
-    let line = start + hunk.additionStart
+    let line = start + Math.max(1, hunk.additionStart)
     for (const content of hunk.hunkContent) {
       if (content.type === 'context') {
         line += content.lines

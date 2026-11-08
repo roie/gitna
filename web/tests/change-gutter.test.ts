@@ -52,6 +52,13 @@ describe('file gutter changes against the index', () => {
     expect(changes('line\n', 'line')).toEqual([[1, { kind: 'modified' }]])
   })
 
+  it('marks a changed repeated line as modified rather than inserting and deleting context', () => {
+    const line = 'export const line = <div>Some ordinary source code</div>\n'
+    const before = line.repeat(3)
+    expect(changes(before, `xyz${before}`)).toEqual([[1, { kind: 'modified' }]])
+    expect(changes(before, `${line}xyz${line}${line}`)).toEqual([[2, { kind: 'modified' }]])
+  })
+
   it('handles CRLF and missing final newlines', () => {
     expect(changes('a\r\nb\r\n', 'a\r\nnew\r\n')).toEqual([[2, { kind: 'modified' }]])
     expect(changes('a\nb', 'a\nnew')).toEqual([[2, { kind: 'modified' }]])
