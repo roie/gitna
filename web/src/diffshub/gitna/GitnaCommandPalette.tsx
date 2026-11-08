@@ -15,6 +15,7 @@ import type { ApiClient } from '../../lib/api'
 import type { GraphPage } from '../../lib/types'
 
 import { cn } from '../lib/cn'
+import { useLoadingIndicator } from '../lib/loading'
 import { splitPaletteFileMatchIndices, paletteTextMatches } from './commandPalette'
 
 import { FileTypeIcon, FileTypeIconSprite } from './FileTypeIcon'
@@ -216,7 +217,6 @@ export function GitnaCommandPalette({
   const [includeIgnored, setIncludeIgnored] = useState(true)
   const [activeIndex, setActiveIndex] = useState(0)
   const [refusal, setRefusal] = useState<string | null>(null)
-  const [showFileSearchBusy, setShowFileSearchBusy] = useState(false)
   const listboxId = useId()
   const [allBranches, setAllBranches] = useState(false)
   const [commitPage, setCommitPage] = useState<{ key: string; page: GraphPage } | null>(null)
@@ -384,14 +384,11 @@ export function GitnaCommandPalette({
     }
   }, [open, commitMode, commitKey, commitQuery, allBranches, commitSkip, searchCommits])
 
-  useEffect(() => {
-    if (!open || !fileSearchBusy) {
-      setShowFileSearchBusy(false)
-      return
-    }
-    const timer = window.setTimeout(() => setShowFileSearchBusy(true), 200)
-    return () => window.clearTimeout(timer)
-  }, [open, fileSearchBusy])
+  const showFileSearchBusy = useLoadingIndicator(open && fileSearchBusy, fileRequestKey)
+  const showCommitBusy = useLoadingIndicator(
+    open && commitMode && commitLoading,
+    `${commitKey}\u0000${commitSkip}`,
+  )
 
   useLayoutEffect(() => {
     const dialog = dialogRef.current
@@ -537,17 +534,19 @@ export function GitnaCommandPalette({
             }
           }}
         />
-        {((fileSearchBusy && showFileSearchBusy) || (commitMode && commitLoading)) && (
-          <span className="flex shrink-0 items-center text-muted-foreground" role="status">
-            <LoaderCircle
-              aria-hidden="true"
-              className="size-3.5 animate-spin motion-reduce:animate-none"
-            />
-            <span className="sr-only">
-              {commitMode ? 'Searching commits' : searching ? 'Searching files' : 'Scanning folder'}
-            </span>
+        <span
+          className="flex size-3.5 shrink-0 items-center text-muted-foreground"
+          style={{ visibility: showFileSearchBusy || showCommitBusy ? 'visible' : 'hidden' }}
+          role={showFileSearchBusy || showCommitBusy ? 'status' : undefined}
+        >
+          <LoaderCircle
+            aria-hidden="true"
+            className="size-3.5 animate-spin motion-reduce:animate-none"
+          />
+          <span className="sr-only">
+            {commitMode ? 'Searching commits' : searching ? 'Searching files' : 'Scanning folder'}
           </span>
-        )}
+        </span>
         {commitMode && (
           <button
             type="button"

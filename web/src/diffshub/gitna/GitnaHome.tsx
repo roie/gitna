@@ -16,6 +16,7 @@ import { Input } from '../components/Input'
 import { ThemedSurface } from '../components/ThemedSurface'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '../components/Tooltip'
 import { GitnaLogo } from './GitnaLogo'
+import { useLoadingIndicator } from '../lib/loading'
 import { formatOpenedAt } from './homeTime'
 
 interface GitnaHomeProps {
@@ -244,6 +245,7 @@ export function GitnaHome({
     type: 'new-tab' | 'remove'
   } | null>(null)
   const [recentActionError, setRecentActionError] = useState<string | null>(null)
+  const loadingVisible = useLoadingIndicator(loading && error == null)
   const [removalFocusIndex, setRemovalFocusIndex] = useState<number | null>(null)
   const openFolderInputRef = useRef<HTMLInputElement>(null)
   const recentListRef = useRef<HTMLUListElement>(null)
@@ -501,7 +503,7 @@ export function GitnaHome({
               </p>
             )}
 
-            {loading && (
+            {loadingVisible && (
               <p className="mt-3 text-sm text-muted-foreground" role="status">
                 {catalog == null ? 'Loading recent folders…' : 'Refreshing…'}
               </p>

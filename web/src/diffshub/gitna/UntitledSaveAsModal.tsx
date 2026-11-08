@@ -4,6 +4,7 @@ import type { WorktreeFile } from '../../lib/types'
 import { Button } from '../components/Button'
 import { Input } from '../components/Input'
 import { Modal } from './Modal'
+import { useLoadingIndicator } from '../lib/loading'
 import { useRepository } from './repository'
 
 interface UntitledSaveAsModalProps {
@@ -24,6 +25,7 @@ export function UntitledSaveAsModal({
   const repository = useRepository()
   const [path, setPath] = useState(initialPath)
   const [submitting, setSubmitting] = useState(false)
+  const submittingVisible = useLoadingIndicator(submitting)
   const inputRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => {
@@ -83,7 +85,7 @@ export function UntitledSaveAsModal({
             size="sm"
             disabled={path.trim().length === 0 || submitting || disabledReason != null}
           >
-            {submitting ? 'Saving…' : 'Save'}
+            {submittingVisible ? 'Saving…' : 'Save'}
           </Button>
         </div>
       </form>

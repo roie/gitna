@@ -45,6 +45,13 @@
         background: #0a0a0a;
         color: #fafafa;
       }
+      @keyframes show-loading {
+        from { visibility: hidden; }
+        to { visibility: visible; }
+      }
+      [data-startup-loading][aria-busy="true"] .startup-content {
+        animation: show-loading 0s 200ms both;
+      }
       .startup-content {
         min-width: 0;
         max-width: 100%;

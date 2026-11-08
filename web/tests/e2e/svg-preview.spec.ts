@@ -103,5 +103,6 @@ test('invalid and oversized SVG show errors without removing the editor', async 
     `<svg xmlns="http://www.w3.org/2000/svg"><!--${'x'.repeat(512 * 1024)}--></svg>`,
   )
   await expect(preview.getByRole('alert')).toContainText('limited to 512 KiB')
+  await expect(preview.getByRole('img')).toHaveCount(0)
   await expect(editor).toBeVisible()
 })

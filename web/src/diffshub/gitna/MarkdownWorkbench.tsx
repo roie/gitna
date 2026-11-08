@@ -5,6 +5,7 @@ import { toJsxRuntime } from 'hast-util-to-jsx-runtime'
 import { Fragment, jsx, jsxs } from 'react/jsx-runtime'
 import type { MarkdownTree } from './markdownParser'
 import { MarkdownWorkerClient } from './markdownWorkerClient'
+import { useLoadingIndicator } from '../lib/loading'
 
 export type MarkdownViewMode = 'editor' | 'preview' | 'split'
 
@@ -79,6 +80,10 @@ export function MarkdownWorkbench({
   const parsed = useParsedMarkdown(markdown, active && value != null && !tooLarge && error == null)
   // Hidden previews and the debounce window can retain an older parsed revision.
   const rendering = parsed.loading || parsed.value !== value
+  const loadingVisible = useLoadingIndicator(
+    active && error == null && !tooLarge && rendering && parsed.error == null,
+    value,
+  )
   const markdownComponents = useMemo<Components>(
     () => ({
       h1: ({ node, ...props }) => <h1 {...props} data-source-line={node?.position?.start.line} />,
@@ -146,15 +151,18 @@ export function MarkdownWorkbench({
   )
 
   return (
-    <section className="flex h-full min-h-0 flex-col bg-background" aria-label="Markdown preview">
+    <section
+      className="relative flex h-full min-h-0 flex-col bg-background"
+      aria-label="Markdown preview"
+    >
       {error == null ? (
         value == null ? (
           <div
             className="grid flex-1 place-items-center text-sm text-muted-foreground"
-            role="status"
+            role={loadingVisible ? 'status' : undefined}
             aria-busy="true"
           >
-            Loading Markdown…
+            {loadingVisible && 'Loading Markdown…'}
           </div>
         ) : tooLarge ? (
           <div className="m-4 rounded border p-4 text-sm" role="alert">
@@ -172,10 +180,16 @@ export function MarkdownWorkbench({
             <div className="mx-auto w-full max-w-3xl">
               {parsed.error != null ? (
                 <div role="alert">Unable to render this Markdown file: {parsed.error}</div>
-              ) : rendering ? (
-                <div role="status">Rendering Markdown…</div>
               ) : (
                 rendered
+              )}
+              {loadingVisible && (
+                <div
+                  className="absolute inset-bs-0 inset-e-0 bg-background p-2 text-muted-foreground"
+                  role="status"
+                >
+                  Rendering Markdown…
+                </div>
               )}
             </div>
           </article>

@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { useLoadingIndicator } from '../lib/loading'
 import type { CommitStats, GraphCommit } from '../../lib/types'
 
 function relativeCommitTime(value: string): string {
@@ -30,6 +31,7 @@ export function CommitInfo({
   error?: string
 }) {
   const [commitOidCopied, setCommitOidCopied] = useState(false)
+  const loadingVisible = useLoadingIndicator(stats == null && error == null, commit.oid)
   const shortOid = commit.oid.slice(0, 8)
   const authorTime = new Date(commit.authorTime)
   const refs = commit.refs.filter(
@@ -60,7 +62,9 @@ export function CommitInfo({
       )}
       <div className="mt-2 flex items-center gap-2 border-t border-border pt-2 text-[11px]">
         {stats == null ? (
-          <span className="text-muted-foreground">{error ?? 'Loading statistics…'}</span>
+          <span className="text-muted-foreground">
+            {error ?? (loadingVisible ? 'Loading statistics…' : null)}
+          </span>
         ) : (
           <>
             <span className="text-muted-foreground">

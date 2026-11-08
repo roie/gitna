@@ -16,6 +16,7 @@ import { Button } from '../components/Button'
 import { Input } from '../components/Input'
 import { StatusRow } from '../components/StatusRow'
 import { cn } from '../lib/cn'
+import { useLoadingIndicator } from '../lib/loading'
 import { FileTypeIconSprite } from './FileTypeIcon'
 import { SearchResults } from './SearchResults'
 
@@ -71,6 +72,19 @@ export function FindInFilesPanel({
   const [searchTick, setSearchTick] = useState(0)
   const inputRef = useRef<HTMLInputElement>(null)
   const [resultsFocusRequest, setResultsFocusRequest] = useState(0)
+  const loadingVisible = useLoadingIndicator(
+    active && query.length > 0 && loading && error == null,
+    JSON.stringify([
+      query,
+      caseSensitive,
+      useRegex,
+      wholeWord,
+      includeIgnored,
+      include,
+      exclude,
+      searchTick,
+    ]),
+  )
 
   useEffect(() => {
     onResultsChange(active ? files : [])
@@ -292,10 +306,12 @@ export function FindInFilesPanel({
           <p role="status" className="min-w-0 flex-1 text-xs text-muted-foreground">
             {!query || error
               ? ''
-              : loading
+              : loadingVisible
                 ? 'Searching…'
                 : matchCount === 0
-                  ? 'No results found.'
+                  ? loading
+                    ? ''
+                    : 'No results found.'
                   : `${matchCount} ${matchCount === 1 ? 'result' : 'results'} in ${files.length} ${files.length === 1 ? 'file' : 'files'}`}
           </p>
           <SearchButton

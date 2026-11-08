@@ -39,6 +39,7 @@ import {
 } from 'react';
 
 import { Button } from './Button';
+import { useLoadingIndicator } from '../lib/loading';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -733,12 +734,13 @@ function WorktreeHeaderActions({
   path: string;
 }) {
   const dirty = actions.dirtyPaths.has(path);
+  const savingVisible = useLoadingIndicator(dirty && actions.saving, path);
   const recentlySaved = actions.recentlySavedPath === path;
   const previewMode = actions.previewMode;
   const scopes = actions.changeScopes(path);
   const openChange = (scope: ChangeScope) => actions.onOpenChange(scope, path);
   let saveLabel: ReactNode = 'Save';
-  if (dirty && actions.saving) saveLabel = 'Saving…';
+  if (savingVisible) saveLabel = 'Saving…';
   else if (!dirty && recentlySaved) {
     saveLabel = (
       <span className="flex items-center gap-1" role="status">
@@ -874,6 +876,14 @@ function GitnaHeaderActions({
   const [menuOpen, setMenuOpen] = useState(false);
   const [loading, setLoading] = useState(false);
   const path = item.fileDiff.name;
+  const requestId = useRef(0);
+  const loadingVisible = useLoadingIndicator(loading, `${actions.scope}\u0000${path}`);
+  useEffect(() => {
+    setLoading(false);
+    setHunks(null);
+    setPatchId(null);
+    return () => { requestId.current++; };
+  }, [path, actions.scope, item.fileDiff]);
   const kind = actions.kindForPath(path) ?? inferGitnaKind(item);
   const primary = actions.scope === 'staged' ? 'unstage' : 'stage';
   const primaryLabel = actions.scope === 'staged' ? 'Unstage' : 'Stage';
@@ -881,16 +891,18 @@ function GitnaHeaderActions({
   const destructiveLabel = kind === 'untracked' ? 'Delete' : 'Discard';
 
   const loadHunks = async () => {
+    const request = ++requestId.current;
     setLoading(true);
     try {
       const diff = await actions.loadDiff(path);
+      if (request !== requestId.current) return;
       const next = splitHunkPatches(diff.patch ?? '');
       setPatchId(diff.patchId ?? null);
       setHunks(next);
     } catch (error) {
-      actions.onError(error instanceof Error ? error.message : String(error));
+      if (request === requestId.current) actions.onError(error instanceof Error ? error.message : String(error));
     } finally {
-      setLoading(false);
+      if (request === requestId.current) setLoading(false);
     }
   };
 
@@ -935,7 +947,7 @@ function GitnaHeaderActions({
           )}
           {item.fileDiff.hunks.length > 0 && kind === 'modified' && hunks == null && (
             <DropdownMenuItem aria-label={`Show hunk actions for ${path}`} disabled={loading} onSelect={() => { setMenuOpen(false); void loadHunks(); }}>
-              {loading ? 'Loading…' : 'Show hunk actions'}
+              {loadingVisible ? 'Loading…' : 'Show hunk actions'}
             </DropdownMenuItem>
           )}
           {hunks?.map((hunk, index) => (

@@ -1,10 +1,18 @@
 import { GitnaLogo } from './GitnaLogo'
+import { useLoadingIndicator } from '../lib/loading'
 
 export function folderDisplayName(path: string): string {
   return path.split(/[\\/]/).filter(Boolean).at(-1) ?? path
 }
 
-export function FolderLoadingScreen({ path }: { path: string }) {
+export function FolderLoadingScreen({
+  path,
+  startup = false,
+}: {
+  path: string
+  startup?: boolean
+}) {
+  const visible = useLoadingIndicator(true, path, startup ? 0 : undefined)
   const name = folderDisplayName(path)
   return (
     <main
@@ -13,7 +21,10 @@ export function FolderLoadingScreen({ path }: { path: string }) {
       className="fixed inset-0 z-[100] grid min-h-dvh place-items-center bg-background px-6 text-foreground"
       data-folder-loading
     >
-      <div className="flex min-w-0 max-w-full flex-col items-center text-center">
+      <div
+        style={{ visibility: visible ? undefined : 'hidden' }}
+        className="flex min-w-0 max-w-full flex-col items-center text-center"
+      >
         <div className="flex items-center gap-2.5 text-base font-semibold">
           <GitnaLogo className="size-10" />
           <span>Gitna</span>

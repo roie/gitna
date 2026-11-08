@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { useLoadingIndicator } from '../lib/loading'
 
 interface PDFLease {
   token: string
@@ -10,6 +11,11 @@ export function PDFPreview({ path, standalone = false }: { path: string; standal
   const [attempt, setAttempt] = useState(0)
   const [url, setURL] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
+
+  const loadingVisible = useLoadingIndicator(
+    url == null && error == null,
+    `${path}\u0000${attempt}`,
+  )
 
   useEffect(() => {
     if (standalone) document.title = `${path.split('/').pop()} — Gitna`
@@ -130,9 +136,13 @@ export function PDFPreview({ path, standalone = false }: { path: string; standal
           {error}
         </p>
       ) : url == null ? (
-        <p role="status" className="m-auto p-4 text-sm text-muted-foreground">
-          Loading PDF…
-        </p>
+        <div className="flex min-h-0 flex-1">
+          {loadingVisible && (
+            <p role="status" className="m-auto p-4 text-sm text-muted-foreground">
+              Loading PDF…
+            </p>
+          )}
+        </div>
       ) : (
         // Native PDF plugins do not run in sandboxed iframes. This URL belongs
         // to a separate PDF-only origin, never the privileged application.

@@ -61,6 +61,7 @@ import { cn } from '../lib/cn'
 import type { GitnaPaletteCommand } from './GitnaCommandPalette'
 import { GlobalToastHost } from './ConnectionStatus'
 import { FolderLoadingScreen, folderDisplayName } from './FolderLoadingScreen'
+import { LoadingIndicator, LOADING_INDICATOR_DELAY_MS } from '../lib/loading'
 import { GitnaHome } from './GitnaHome'
 import { Blame } from './Blame'
 import { ChangeGutter } from './ChangeGutter'
@@ -221,7 +222,8 @@ function renderFolderLoadingDocument(newTab: Window, path: string, colorMode: Co
     }
     * { box-sizing: border-box; }
     body { margin: 0; min-height: 100vh; display: grid; place-items: center; background: var(--bg); color: var(--fg); font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
-    main { display: flex; max-width: calc(100vw - 3rem); flex-direction: column; align-items: center; text-align: center; }
+    @keyframes show-loading { from { visibility: hidden; } to { visibility: visible; } }
+    main { animation: show-loading 0s ${LOADING_INDICATOR_DELAY_MS}ms both; display: flex; max-width: calc(100vw - 3rem); flex-direction: column; align-items: center; text-align: center; }
     .brand { display: flex; align-items: center; gap: .625rem; font-size: 1rem; font-weight: 600; }
     .brand img { width: 40px; height: 40px; }
     h1 { max-width: 28rem; margin: 1.25rem 0 0; overflow: hidden; text-overflow: ellipsis; font-size: 1.125rem; font-weight: 600; white-space: nowrap; }
@@ -2294,7 +2296,7 @@ function GitnaReviewUIInner({
               fileTreeOverlayOpen={fileTreeOverlayOpen}
               githubTokenActive={false}
               homeButtonRef={homeButtonRef}
-              initialUrl={repository.snapshot?.root ?? 'Loading repository…'}
+              initialUrl={repository.snapshot?.root ?? ''}
               localRepository
               lightThemeName={lightThemeName}
               lineNumbers={lineNumbers}
@@ -2366,7 +2368,13 @@ function GitnaReviewUIInner({
                 scrollRef={scrollRef}
               >
                 {(searchMounted || sidebarMode === 'search') && (
-                  <Suspense fallback={<div role="status">Loading search…</div>}>
+                  <Suspense
+                    fallback={
+                      <LoadingIndicator>
+                        <div role="status">Loading search…</div>
+                      </LoadingIndicator>
+                    }
+                  >
                     <FindInFilesPanel
                       key={repository.snapshot?.root}
                       active={sidebarMode === 'search'}
@@ -2431,6 +2439,17 @@ function GitnaReviewUIInner({
                       { '--markdown-header-height': `${previewHeaderHeight}px` } as CSSProperties
                     }
                   >
+                    {target != null && renderedTargetKeyRef.current !== target.key && (
+                      <LoadingIndicator operation={target.key}>
+                        <div
+                          role="status"
+                          className="pointer-events-none absolute z-20 max-w-full rounded border border-border bg-background px-3 py-2 text-xs text-muted-foreground shadow-sm"
+                          style={{ insetBlockEnd: '0.75rem', insetInlineEnd: '0.75rem' }}
+                        >
+                          {target.filePath == null ? 'Fetching diff…' : 'Opening file…'}
+                        </div>
+                      </LoadingIndicator>
+                    )}
                     <div
                       className="h-full min-h-0"
                       onWheelCapture={() => claimScroll('editor')}
@@ -2559,9 +2578,11 @@ function GitnaReviewUIInner({
                           <div className="min-h-0 flex-1">
                             <Suspense
                               fallback={
-                                <div className="p-4 text-sm" role="status">
-                                  Loading preview…
-                                </div>
+                                <LoadingIndicator operation={previewPath}>
+                                  <div className="p-4 text-sm" role="status">
+                                    Loading preview…
+                                  </div>
+                                </LoadingIndicator>
                               }
                             >
                               {svgPath != null ? (
@@ -2597,6 +2618,7 @@ function GitnaReviewUIInner({
                 ) : (
                   <div className="grid h-full min-h-0 [&>*]:h-full">
                     <DiffsHubStatusPanel
+                      operation={target?.key}
                       contentKind={target?.filePath == null ? 'diff' : 'file'}
                       errorMessage={
                         largeFileWarning != null && largeFileWarning.path === target?.filePath
@@ -2821,7 +2843,12 @@ function GitnaReviewUIInner({
           />
         )}
       </div>
-      {loadingPath != null && <FolderLoadingScreen path={loadingPath} />}
+      {loadingPath != null && (
+        <FolderLoadingScreen
+          path={loadingPath}
+          startup={folderSwitchTransition == null && startupLoading}
+        />
+      )}
     </>
   )
 }

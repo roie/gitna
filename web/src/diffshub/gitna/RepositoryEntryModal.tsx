@@ -3,6 +3,7 @@ import { type SyntheticEvent, useEffect, useRef, useState } from 'react'
 import { Button } from '../components/Button'
 import { Input } from '../components/Input'
 import { Modal } from './Modal'
+import { useLoadingIndicator } from '../lib/loading'
 import { useRepository } from './repository'
 
 interface RepositoryEntryModalProps {
@@ -25,6 +26,7 @@ export function RepositoryEntryModal({
   const repository = useRepository()
   const [path, setPath] = useState(initialPath)
   const [submitting, setSubmitting] = useState(false)
+  const submittingVisible = useLoadingIndicator(submitting)
   const [error, setError] = useState<string | null>(null)
   const mounted = useRef(true)
   useEffect(() => {
@@ -111,7 +113,7 @@ export function RepositoryEntryModal({
               path.trim().length === 0 || submitting || repository.getActionDisabledReason() != null
             }
           >
-            {submitting ? 'Working…' : kind === 'rename' ? 'Rename' : 'Create'}
+            {submittingVisible ? 'Working…' : kind === 'rename' ? 'Rename' : 'Create'}
           </Button>
         </div>
       </form>

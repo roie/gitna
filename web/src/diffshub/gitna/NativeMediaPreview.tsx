@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { PDFPreview } from './PDFPreview'
+import { useLoadingIndicator } from '../lib/loading'
 
 export function nativeMediaKind(path: string): 'audio' | 'video' | 'pdf' | null {
   if (/\.pdf$/i.test(path)) return 'pdf'
@@ -16,6 +17,10 @@ export function NativeMediaPreview({ path }: { path: string }) {
     'loading',
   )
   const [attempt, setAttempt] = useState(0)
+  const loadingVisible = useLoadingIndicator(
+    kind !== 'pdf' && state === 'loading',
+    `${source}\u0000${attempt}`,
+  )
 
   useEffect(() => {
     if (kind === 'pdf') return
@@ -78,9 +83,11 @@ export function NativeMediaPreview({ path }: { path: string }) {
       </header>
       <div className="flex min-h-0 flex-1 flex-col items-center justify-center gap-4 overflow-auto p-4">
         {state === 'loading' ? (
-          <p role="status" className="text-sm text-muted-foreground">
-            Loading media…
-          </p>
+          loadingVisible && (
+            <p role="status" className="text-sm text-muted-foreground">
+              Loading media…
+            </p>
+          )
         ) : failed ? (
           <>
             <p role="alert" className="text-sm text-muted-foreground">

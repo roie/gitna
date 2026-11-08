@@ -2,7 +2,7 @@
 // Modified from the pinned DiffsHub donor: localRepository uses truthful
 // local-Git loading copy while retaining every donor state and layout.
 import { IconCiWarningFill, IconRefresh } from '@pierre/icons';
-import { useEffect, useState } from 'react';
+import { useLoadingIndicator } from '../lib/loading';
 
 import { useChromeThemeProps } from './useChromeThemeProps';
 import { Button } from '@/components/Button';
@@ -11,6 +11,7 @@ import { diffshubChromeMapping } from '@/lib/theme/diffshubChromeMapping';
 import type { ViewerLoadState } from '@/lib/types';
 
 interface DiffsHubStatusPanelProps {
+  operation?: unknown;
   contentKind?: 'diff' | 'file';
   errorMessage: string | null;
   localRepository?: boolean;
@@ -21,6 +22,7 @@ interface DiffsHubStatusPanelProps {
 }
 
 export function DiffsHubStatusPanel({
+  operation,
   contentKind = 'diff',
   errorMessage,
   localRepository = false,
@@ -38,15 +40,7 @@ export function DiffsHubStatusPanel({
   const themeChromeStyle =
     Object.keys(chromeStyle).length > 0 ? chromeStyle : undefined;
   const isError = state === 'error';
-  const [loadingVisible, setLoadingVisible] = useState(false);
-  useEffect(() => {
-    if (isError) {
-      setLoadingVisible(false);
-      return;
-    }
-    const timer = window.setTimeout(() => setLoadingVisible(true), 200);
-    return () => window.clearTimeout(timer);
-  }, [isError]);
+  const loadingVisible = useLoadingIndicator(!isError, operation);
   if (isError && suppressError) return null;
   const fileContent = contentKind === 'file';
   const title = isError
@@ -86,7 +80,7 @@ export function DiffsHubStatusPanel({
         'col-span-full flex min-h-0 items-center justify-center p-6',
         themeChromeStyle == null && 'bg-background'
       )}
-      style={themeChromeStyle}
+      style={{ ...themeChromeStyle, visibility: !isError && !loadingVisible ? 'hidden' : undefined }}
     >
       <section
         hidden={!isError && !loadingVisible}

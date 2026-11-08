@@ -65,6 +65,7 @@ import { StatusRow } from '../components/StatusRow'
 import { Switch } from '../components/Switch'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '../components/Tooltip'
 import { cn } from '../lib/cn'
+import { LoadingIndicator, useLoadingIndicator } from '../lib/loading'
 import { CODE_VIEW_FILE_TREE_SEARCH_OPEN_HEIGHT } from '../lib/constants'
 import type { DiffsHubFileTreeSource } from '../lib/types'
 import {
@@ -436,23 +437,6 @@ function useNaturalTreeHeight(model: FileTree | null, enabled = true): number {
   return height
 }
 
-const REFRESH_INDICATOR_DELAY_MS = 1_000
-
-function useDelayedRefreshIndicator(refreshing: boolean): boolean {
-  const [visible, setVisible] = useState(false)
-
-  useEffect(() => {
-    if (!refreshing) {
-      setVisible(false)
-      return
-    }
-    const timer = window.setTimeout(() => setVisible(true), REFRESH_INDICATOR_DELAY_MS)
-    return () => window.clearTimeout(timer)
-  }, [refreshing])
-
-  return visible
-}
-
 function useObservedHeight(ref: React.RefObject<HTMLElement | null>): number {
   const [height, setHeight] = useState(0)
   useEffect(() => {
@@ -568,10 +552,10 @@ function GitnaSourceControlInner({
   const changedPathCount = new Set(
     [...staged, ...unstaged, ...(snapshot?.conflicts ?? [])].map((change) => change.path),
   ).size
-  const workflowRefreshVisible = useDelayedRefreshIndicator(repository.loading)
+  const workflowRefreshVisible = useLoadingIndicator(repository.loading)
   const repositoryRefreshing =
     repository.repositoryFilesLoading || repository.repositoryFileCountLoading
-  const repositoryRefreshVisible = useDelayedRefreshIndicator(repositoryRefreshing)
+  const repositoryRefreshVisible = useLoadingIndicator(repositoryRefreshing)
   const headTitle =
     snapshot?.headBranch ??
     (snapshot?.headOid == null ? 'Detached HEAD' : `Detached at ${snapshot.headOid.slice(0, 8)}`)
@@ -914,7 +898,8 @@ function GitnaSourceControlInner({
   if (snapshot == null) {
     return (
       <div className="flex h-full items-center justify-center px-4 text-sm text-muted-foreground">
-        {connectionHealthy ? (repository.error ?? 'Loading repository…') : null}
+        {connectionHealthy &&
+          (repository.error ?? <LoadingIndicator>Loading repository…</LoadingIndicator>)}
       </div>
     )
   }
@@ -1073,7 +1058,11 @@ function GitnaSourceControlInner({
           footer={
             <>
               {repository.repositoryFilesLoading && repository.repositoryPaths.length === 0 && (
-                <p className="px-8 py-2 text-xs text-muted-foreground">Loading files…</p>
+                <LoadingIndicator>
+                  <p className="px-8 py-2 text-xs text-muted-foreground" role="status">
+                    Loading files…
+                  </p>
+                </LoadingIndicator>
               )}
               {connectionHealthy && repository.repositoryFilesError != null && (
                 <p className="px-8 py-2 text-xs text-red-500" role="alert">
@@ -1275,7 +1264,7 @@ function SourceControlHeaderActions({
   const [publishBranch, setPublishBranch] = useState<string | null>(null)
   const fetching = repository.activeOp === 'Fetching'
   const disabledReason = repository.getActionDisabledReason()
-  const fetchRefreshVisible = useDelayedRefreshIndicator(fetching)
+  const fetchRefreshVisible = useLoadingIndicator(fetching)
   const [publishRemote, setPublishRemote] = useState('')
   const normalizedBranchQuery = branchQuery.trim().toLocaleLowerCase()
   const localBranches = repository.branches.filter(
@@ -2852,7 +2841,7 @@ function GraphSection({
   const virtualItems = virtualizer.getVirtualItems()
   const graphCount = repository.graphTotal == null ? null : `${repository.graphTotal}`
   const graphRefreshing = repository.graphLoading || repository.graphCountLoading
-  const graphRefreshVisible = useDelayedRefreshIndicator(graphRefreshing)
+  const graphRefreshVisible = useLoadingIndicator(graphRefreshing)
   const graphSetSize =
     repository.graphTotal ?? (repository.graphHasMore ? -1 : repository.graphRows.length)
   const armContinuation = useCallback(() => {
@@ -3146,9 +3135,11 @@ function GraphSection({
               })}
             </div>
             {repository.graphLoading && repository.graphRows.length > 0 && (
-              <p role="status" className="px-2 py-2 text-xs text-muted-foreground">
-                Loading more commits…
-              </p>
+              <LoadingIndicator>
+                <p role="status" className="px-2 py-2 text-xs text-muted-foreground">
+                  Loading more commits…
+                </p>
+              </LoadingIndicator>
             )}
             {repository.connectionState === 'connected' && repository.graphError != null && (
               <div className="space-y-1 px-2 py-2">
@@ -3293,7 +3284,7 @@ const GraphCommitRow = memo(function GraphCommitRow({
   const disabledReason = repository.getActionDisabledReason()
   const files = repository.commitFiles[row.commit.oid]
   const filesLoading = repository.filesLoading[row.commit.oid] === true
-  const filesLoadingVisible = useDelayedRefreshIndicator(open && filesLoading)
+  const filesLoadingVisible = useLoadingIndicator(open && filesLoading, row.commit.oid)
   useEffect(() => {
     if (open) void repository.loadCommitDetails(row.commit.oid)
   }, [open, repository, row.commit.oid])
@@ -3707,6 +3698,7 @@ function OperationModal({ kind, onClose, onConfirm, onError }: OperationModalPro
             Compare
           </Button>
           <ReadStatus
+            operation={`${from}\u0000${to}`}
             loading={repository.compareLoading}
             error={repository.compareError}
             onRetry={() => void repository.openCompare(from, to, `${from}..${to}`)}
@@ -3999,18 +3991,20 @@ function ReadStatus({
   loading,
   error,
   onRetry,
+  operation,
 }: {
   loading: boolean
   error: string | null
   onRetry: () => void
+  operation?: unknown
 }) {
-  if (loading)
+  const loadingVisible = useLoadingIndicator(loading && error == null, operation)
+  if (error == null)
     return (
-      <p className="mb-3 text-xs text-muted-foreground" role="status">
-        Loading… Previous results may remain visible.
+      <p className="mb-3 min-h-4 text-xs text-muted-foreground" role="status">
+        {loadingVisible && 'Loading… Previous results may remain visible.'}
       </p>
     )
-  if (error == null) return null
   return (
     <div className="mb-3 text-xs" role="alert">
       <p>{error} Previous results may remain visible.</p>
