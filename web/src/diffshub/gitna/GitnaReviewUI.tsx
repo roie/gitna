@@ -1341,9 +1341,11 @@ function GitnaReviewUIInner({
       return
     const itemId = reviewData.treeSource.pathToItemId.get(target.selectedPath)
     if (itemId == null || handle?.getItem(itemId) == null) return
-    revealedReviewRef.current = { viewer, targetKey: target.key, path: target.selectedPath }
-    queueMicrotask(() => {
-      if (viewerRef.current?.getInstance() !== viewer) return
+    const reveal = { viewer, targetKey: target.key, path: target.selectedPath }
+    revealedReviewRef.current = reveal
+    requestAnimationFrame(() => {
+      if (revealedReviewRef.current !== reveal || viewerRef.current?.getInstance() !== viewer)
+        return
       handle.scrollTo({
         type: 'item',
         id: itemId,
