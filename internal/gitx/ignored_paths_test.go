@@ -12,8 +12,10 @@ func TestIgnoredPathsUsesGitRulesAndNULDelimitedPaths(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(root, ".gitignore"), []byte("ignored/\n*.log\n!important.log\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.Mkdir(filepath.Join(root, "ignored"), 0o755); err != nil {
-		t.Fatal(err)
+	for _, dir := range []string{"ignored", "src", "empty"} {
+		if err := os.Mkdir(filepath.Join(root, dir), 0o755); err != nil {
+			t.Fatal(err)
+		}
 	}
 	if runtime.GOOS == "windows" {
 		t.Skip("Windows filenames cannot contain newlines")
@@ -23,6 +25,7 @@ func TestIgnoredPathsUsesGitRulesAndNULDelimitedPaths(t *testing.T) {
 		newlinePath:     "ignored",
 		"tracked.log":   "tracked",
 		"important.log": "included",
+		"src/main.go":   "package main",
 	} {
 		if err := os.WriteFile(filepath.Join(root, filepath.FromSlash(path)), []byte(content), 0o644); err != nil {
 			t.Fatal(err)
@@ -35,7 +38,7 @@ func TestIgnoredPathsUsesGitRulesAndNULDelimitedPaths(t *testing.T) {
 	ignored, err := (Repository{Root: root, GitDir: filepath.Join(root, ".git")}).IgnoredPaths(
 		t.Context(),
 		&ExecRunner{},
-		[]string{"ignored/", newlinePath, "tracked.log", "important.log"},
+		[]string{"ignored/", newlinePath, "tracked.log", "important.log", "src/", "src/main.go", "empty/"},
 	)
 	if err != nil {
 		t.Fatal(err)
@@ -45,7 +48,7 @@ func TestIgnoredPathsUsesGitRulesAndNULDelimitedPaths(t *testing.T) {
 			t.Fatalf("ignored paths = %#v, want %q", ignored, path)
 		}
 	}
-	for _, path := range []string{"tracked.log", "important.log"} {
+	for _, path := range []string{"tracked.log", "important.log", "src/", "src/main.go", "empty/"} {
 		if _, ok := ignored[path]; ok {
 			t.Fatalf("ignored paths = %#v, did not want %q", ignored, path)
 		}
