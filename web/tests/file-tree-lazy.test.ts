@@ -1,4 +1,8 @@
-import type { FileTree, FileTreeChildLoadAttempt } from '@pierre/trees'
+import {
+  FileTree,
+  type FileTreeChildLoadAttempt,
+  type FileTreeDirectoryHandle,
+} from '@pierre/trees'
 import { describe, expect, it, vi } from 'vite-plus/test'
 
 import {
@@ -6,6 +10,7 @@ import {
   beginLazyDirectoryLoad,
   buildLazyPathReconciliationOperations,
   filterAlreadyAppliedLazyOperations,
+  resetLazyDirectory,
   resolveFileTreeContextSelection,
   settleKnownEmptyDirectory,
 } from '../src/diffshub/components/DiffsHubFileTree'
@@ -105,6 +110,17 @@ describe('lazy FileTree child reconciliation', () => {
 
     expect(beginLazyDirectoryLoad(model, '.agents/')).toBe(attempt)
     expect(beginChildLoad).toHaveBeenCalledWith('.agents/')
+  })
+
+  it('unloads a settled empty directory after a drop adds children to it', () => {
+    const model = new FileTree({ paths: ['a.txt', 'empty/'], initialExpandedPaths: ['empty/'] })
+    model.move('a.txt', 'empty/a.txt')
+
+    resetLazyDirectory(model, 'empty/')
+
+    expect(model.getItem('empty/a.txt')).toBeNull()
+    expect(model.getDirectoryLoadState('empty/')).toBe('unloaded')
+    expect((model.getItem('empty/') as FileTreeDirectoryHandle).isExpanded()).toBe(true)
   })
 
   it('settles stale unloaded state for an authoritatively empty directory through Pierre', () => {

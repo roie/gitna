@@ -155,6 +155,18 @@ export function settleKnownEmptyDirectory(model: FileTreeModel, path: string): b
   return model.completeChildLoad(attempt);
 }
 
+// Pierre refuses to unload a directory with children, which a drop can add
+// optimistically before the repository has loaded that directory.
+export function resetLazyDirectory(model: FileTreeModel, path: string): void {
+  const expanded = (model.getItem(path) as FileTreeDirectoryHandle).isExpanded();
+  model.batch([
+    { type: 'remove', path, recursive: true },
+    { type: 'add', path },
+  ]);
+  model.markDirectoryUnloaded(path);
+  if (expanded) (model.getItem(path) as FileTreeDirectoryHandle).expand();
+}
+
 const DENSITY_OVERRIDE_STYLES = {
   '--trees-density-override': 0.8,
   '--trees-padding-inline-override': 8,
@@ -442,7 +454,7 @@ export const DiffsHubFileTree = memo(function DiffsHubFileTree({
     for (const path of knownEmptyDirectories ?? []) settleKnownEmptyDirectory(model, path);
     for (const path of lazyDirectories) {
       if (model.getItem(path)?.isDirectory() && model.getDirectoryLoadState(path) === 'loaded') {
-        model.markDirectoryUnloaded(path);
+        resetLazyDirectory(model, path);
       }
     }
   }, [knownEmptyDirectories, lazyDirectories, model, source]);
