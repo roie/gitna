@@ -14,6 +14,7 @@ Gitna is a local application for repositories trusted by the current user. It:
 - protects HTTP and event-stream requests with a per-process capability token;
 - validates repository-relative paths before Git and filesystem operations;
 - serializes repository mutations;
+- serves local coding agents on a separate conversations-only API that refuses browser requests and requires a per-process bearer token, published in a file only the current user can read and never containing the browser capability token;
 - disables interactive Git credential prompts; and
 - applies request, output, and body-size limits.
 

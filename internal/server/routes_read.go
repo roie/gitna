@@ -91,6 +91,8 @@ func (s *Server) apiRoutes() http.Handler {
 			s.handleCommitFiles(w, r)
 		case p == "/drafts":
 			s.handleDrafts(w, r)
+		case p == "/conversations" || strings.HasPrefix(p, "/conversations/"):
+			s.handleConversations(w, r, strings.TrimPrefix(p, "/conversations"))
 		case r.Method == http.MethodGet && p == "/events":
 			s.handleEvents(w, r)
 		case r.Method == http.MethodPost && p == "/worktree/reveal":

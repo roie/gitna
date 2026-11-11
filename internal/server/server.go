@@ -107,6 +107,9 @@ type Options struct {
 	Folders func() protocol.FolderCatalog
 	// RemoveRecentFolder removes one path from shared recent-folder history.
 	RemoveRecentFolder func(context.Context, string) error
+	// Conversations serves this folder's conversations to its human user.
+	// When nil, conversation routes return 503.
+	Conversations *Conversations
 }
 
 // Server serves the embedded frontend and the repository API.
@@ -126,6 +129,7 @@ type Server struct {
 	revealPath         func(context.Context, string) error
 	folders            func() protocol.FolderCatalog
 	removeRecentFolder func(context.Context, string) error
+	conversations      *Conversations
 }
 
 // New creates a Server that serves static assets from staticFS (rooted at the
@@ -151,6 +155,7 @@ func New(staticFS fs.FS, opts Options) (*Server, error) {
 		revealPath:         opts.RevealPath,
 		folders:            opts.Folders,
 		removeRecentFolder: opts.RemoveRecentFolder,
+		conversations:      opts.Conversations,
 		security: Security{
 			Token: opts.Token,
 			Host:  opts.Host,

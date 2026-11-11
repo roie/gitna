@@ -11,6 +11,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/roie/gitna/internal/conversations"
 	"github.com/roie/gitna/internal/drafts"
 	"github.com/roie/gitna/internal/folder"
 	"github.com/roie/gitna/internal/gitx"
@@ -33,11 +34,13 @@ type folderRegistryOptions struct {
 	newWatcher    folderWatcherFactory
 	drafts        *drafts.Journal
 	pdfPreviews   *server.PDFPreviews
+	conversations *conversations.Library
 }
 
 type folderRoute struct {
-	route string
-	root  string
+	route         string
+	root          string
+	conversations *server.Conversations
 
 	mu             sync.Mutex
 	repository     gitx.Repository
@@ -72,6 +75,7 @@ type folderRegistry struct {
 	newWatcher    folderWatcherFactory
 	drafts        *drafts.Journal
 	pdfPreviews   *server.PDFPreviews
+	conversations *conversations.Library
 	closing       atomic.Bool
 	closeOnce     sync.Once
 	closeErr      error
@@ -118,6 +122,7 @@ func newFolderRegistry(
 			config.drafts = options[0].drafts
 		}
 		config.pdfPreviews = options[0].pdfPreviews
+		config.conversations = options[0].conversations
 	}
 	staticServer, err := server.New(static, server.Options{Version: version})
 	if err != nil {
@@ -137,6 +142,7 @@ func newFolderRegistry(
 		newWatcher:    config.newWatcher,
 		drafts:        config.drafts,
 		pdfPreviews:   config.pdfPreviews,
+		conversations: config.conversations,
 		byRoot:        make(map[string]string),
 		byRoute:       make(map[string]*folderRoute),
 	}
@@ -244,10 +250,11 @@ func (r *folderRegistry) removeRecentFolder(_ context.Context, path string) erro
 func (r *folderRegistry) addLocked(repo gitx.Repository) (string, error) {
 	route := r.allocateRouteLocked(folderName(repo.Root))
 	entry := &folderRoute{
-		route:      route,
-		root:       repo.Root,
-		repository: repo,
-		generation: 1,
+		route:         route,
+		root:          repo.Root,
+		conversations: r.newConversations(repo),
+		repository:    repo,
+		generation:    1,
 	}
 	r.byRoot[folder.PathKey(repo.Root)] = route
 	r.byRoute[route] = entry
@@ -277,6 +284,7 @@ func (r *folderRegistry) createBackend(
 		RevealPath:                session.revealPath,
 		Folders:                   session.folderCatalog,
 		RemoveRecentFolder:        r.removeRecentFolder,
+		Conversations:             entry.conversations,
 	})
 	if err != nil {
 		_ = session.close()

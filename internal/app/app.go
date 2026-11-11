@@ -14,7 +14,9 @@ import (
 	"sync"
 	"time"
 
+	"github.com/roie/gitna/internal/agentlink"
 	"github.com/roie/gitna/internal/browser"
+	"github.com/roie/gitna/internal/conversations"
 	"github.com/roie/gitna/internal/drafts"
 	"github.com/roie/gitna/internal/folder"
 	"github.com/roie/gitna/internal/gitx"
@@ -542,6 +544,13 @@ func Run(ctx context.Context, path, version string) error {
 		return fmt.Errorf("app: open draft journal: %w", err)
 	}
 
+	library := conversations.NewLibrary(filepath.Join(configDir, "gitna", "conversations", "v1"))
+	defer library.Close()
+	agentToken, err := session.NewToken()
+	if err != nil {
+		return fmt.Errorf("app: %w", err)
+	}
+
 	basePath := server.CapabilityPath(token)
 	registry, err := newFolderRegistry(
 		ctx,
@@ -555,6 +564,7 @@ func Run(ctx context.Context, path, version string) error {
 			dormancyGrace: defaultFolderDormancyGrace,
 			drafts:        draftJournal,
 			pdfPreviews:   pdfPreviews,
+			conversations: library,
 		},
 	)
 	if err != nil {
@@ -563,12 +573,20 @@ func Run(ctx context.Context, path, version string) error {
 	defer registry.close()
 
 	url := fmt.Sprintf("http://%s%s", host, registry.initialHref())
+	browserHandler := server.Security{
+		Token:     token,
+		Host:      host,
+		PDFOrigin: pdfPreviews.Origin(),
+	}.Wrap(registry)
+	agentHandler := &server.AgentAPI{Token: agentToken, Host: host, Version: version, Resolve: registry.conversationsFor}
 	httpSrv := &http.Server{
-		Handler: server.Security{
-			Token:     token,
-			Host:      host,
-			PDFOrigin: pdfPreviews.Origin(),
-		}.Wrap(registry),
+		Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if strings.HasPrefix(r.URL.Path, server.AgentPathPrefix+"/") {
+				agentHandler.ServeHTTP(w, r)
+				return
+			}
+			browserHandler.ServeHTTP(w, r)
+		}),
 		ReadHeaderTimeout: 5 * time.Second,
 		ReadTimeout:       30 * time.Second,
 		IdleTimeout:       2 * time.Minute,
@@ -587,6 +605,17 @@ func Run(ctx context.Context, path, version string) error {
 	errCh := make(chan error, 2)
 	go func() { errCh <- httpSrv.Serve(ln) }()
 	go func() { errCh <- pdfHTTP.Serve(pdfListener) }()
+
+	if dir, err := agentlink.Dir(); err == nil {
+		unpublish, err := agentlink.Publish(dir, agentlink.Endpoint{
+			PID: os.Getpid(), URL: "http://" + host, Token: agentToken, Version: version,
+		})
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "gitna: agent discovery unavailable: %v\n", err)
+		} else {
+			defer unpublish()
+		}
+	}
 
 	fmt.Printf("Gitna %s\n", version)
 	fmt.Printf("Folder      %s\n", repo.Root)
