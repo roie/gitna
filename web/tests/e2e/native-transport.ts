@@ -25,6 +25,9 @@ export class NativeTransportProxy {
   private readonly upstream: URL
   private readonly server: Server
   private readonly activeStreams = new Set<ServerResponse>()
+  // The conversations stream is severed with the session stream but is not
+  // part of the single-recovery stream count.
+  private readonly conversationStreams = new Set<ServerResponse>()
   private listeningOrigin: string | null = null
   private outage = false
   private snapshotFailure: { status: number; body: string } | null = null
@@ -106,7 +109,7 @@ export class NativeTransportProxy {
   setOutage(value: boolean): void {
     this.outage = value
     if (!value) return
-    for (const stream of this.activeStreams) stream.destroy()
+    for (const stream of [...this.activeStreams, ...this.conversationStreams]) stream.destroy()
   }
 
   /** Fail Snapshot reads until recovery is explicitly enabled. */
@@ -146,10 +149,13 @@ export class NativeTransportProxy {
 
   async close(): Promise<void> {
     this.outage = true
-    for (const stream of this.activeStreams) stream.destroy()
+    for (const stream of [...this.activeStreams, ...this.conversationStreams]) stream.destroy()
     this.snapshotGate?.release()
     this.fileCountGate?.release()
-    await new Promise<void>((resolve) => this.server.close(() => resolve()))
+    const closed = new Promise<void>((resolve) => this.server.close(() => resolve()))
+    // A stream that was still connecting upstream is in neither stream set.
+    this.server.closeAllConnections()
+    await closed
   }
 
   private isSnapshot(pathname: string): boolean {
@@ -242,7 +248,12 @@ export class NativeTransportProxy {
         await gate.gate
         if (this.fileCountGate === gate) this.fileCountGate = null
       }
-      await this.forwardUpstream(incoming, outgoing, target, events)
+      const streams = events
+        ? this.activeStreams
+        : target.pathname.endsWith('/api/v1/conversations/events')
+          ? this.conversationStreams
+          : null
+      await this.forwardUpstream(incoming, outgoing, target, streams)
     } finally {
       if (read) this.activeReads -= 1
     }
@@ -252,7 +263,7 @@ export class NativeTransportProxy {
     incoming: IncomingMessage,
     outgoing: ServerResponse,
     target: URL,
-    events: boolean,
+    streams: Set<ServerResponse> | null,
   ): Promise<void> {
     return new Promise<void>((resolve) => {
       const headers = { ...incoming.headers }
@@ -273,9 +284,9 @@ export class NativeTransportProxy {
           const responseHeaders = { ...upstreamResponse.headers }
           delete responseHeaders.connection
           outgoing.writeHead(upstreamResponse.statusCode ?? 502, responseHeaders)
-          if (events) {
-            this.activeStreams.add(outgoing)
-            const remove = () => this.activeStreams.delete(outgoing)
+          if (streams != null) {
+            streams.add(outgoing)
+            const remove = () => streams.delete(outgoing)
             outgoing.once('close', remove)
             upstreamResponse.once('close', remove)
           }

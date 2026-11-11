@@ -1,4 +1,5 @@
 import { readContentSearchStream } from './contentSearchStream'
+import { createConversationsApi, type ConversationsApi } from './conversations'
 import { serializeDraft } from './draftSerialization'
 import type {
   Branch,
@@ -225,6 +226,7 @@ export interface ApiClient {
   removeRecentFolder: (path: string) => Promise<void>
   revealFolder: () => Promise<void>
   revealPath: (path: string) => Promise<void>
+  conversations?: ConversationsApi
 }
 
 /** Error carrying the HTTP status and server message so callers can react to
@@ -294,6 +296,7 @@ export function createApi(baseURL?: string): ApiClient {
   const fetch = (url: string, options?: RequestInit) =>
     globalThis.fetch(baseURL == null ? url : new URL(url, baseURL), options)
   return {
+    conversations: createConversationsApi(fetch, expectOK, baseURL),
     async snapshot(): Promise<RepoSnapshot> {
       const res = await expectOK(
         await fetch('api/v1/snapshot', { signal: AbortSignal.timeout(FETCH_TIMEOUT) }),
