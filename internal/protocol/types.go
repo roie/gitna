@@ -226,6 +226,10 @@ type ReviewIdentity struct {
 	Commit      string    `json:"commit,omitempty"`
 	CompareFrom string    `json:"from,omitempty"`
 	CompareTo   string    `json:"to,omitempty"`
+	// Before and After are the commit IDs each side was read from, empty for
+	// the index, the worktree, or a missing parent.
+	Before string `json:"before,omitempty"`
+	After  string `json:"after,omitempty"`
 }
 
 // ReviewSupplement carries content that is not represented by the tracked Git

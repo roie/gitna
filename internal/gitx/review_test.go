@@ -218,3 +218,42 @@ func collectReview(t *testing.T, repo Repository, runner Runner, scope protocol.
 		after = page.NextAfter
 	}
 }
+
+func TestReviewIdentityReportsSideCommits(t *testing.T) {
+	root := initTestRepo(t)
+	repo := Repository{Root: root, GitDir: filepath.Join(root, ".git")}
+	runner := &ExecRunner{}
+	initial := strings.TrimSpace(runGit(t, root, "rev-parse", "HEAD"))
+	writeFile(t, filepath.Join(root, "a.txt"), "one\n")
+	runGit(t, root, "add", "a.txt")
+	runGit(t, root, "commit", "-qm", "first")
+	first := strings.TrimSpace(runGit(t, root, "rev-parse", "HEAD"))
+	runGit(t, root, "branch", "base")
+	writeFile(t, filepath.Join(root, "a.txt"), "two\n")
+	runGit(t, root, "commit", "-qam", "second")
+	second := strings.TrimSpace(runGit(t, root, "rev-parse", "HEAD"))
+	writeFile(t, filepath.Join(root, "a.txt"), "three\n")
+	runGit(t, root, "add", "a.txt")
+
+	for _, tc := range []struct {
+		scope         protocol.DiffScope
+		opts          protocol.DiffOptions
+		before, after string
+	}{
+		{protocol.DiffUnstaged, protocol.DiffOptions{}, "", ""},
+		{protocol.DiffStaged, protocol.DiffOptions{}, second, ""},
+		{protocol.DiffCommit, protocol.DiffOptions{Commit: initial}, "", initial},
+		{protocol.DiffCommit, protocol.DiffOptions{Commit: first}, initial, first},
+		{protocol.DiffCommit, protocol.DiffOptions{Commit: "HEAD"}, first, second},
+		{protocol.DiffCompare, protocol.DiffOptions{CompareFrom: "base", CompareTo: "HEAD"}, first, second},
+	} {
+		page, err := repo.Review(context.Background(), runner, tc.scope, tc.opts, "")
+		if err != nil {
+			t.Fatal(err)
+		}
+		identity := page.Response.Identity
+		if identity.Before != tc.before || identity.After != tc.after || identity.Commit != tc.opts.Commit || identity.CompareFrom != tc.opts.CompareFrom {
+			t.Errorf("%s %+v identity = %+v, want before %s after %s", tc.scope, tc.opts, identity, tc.before, tc.after)
+		}
+	}
+}

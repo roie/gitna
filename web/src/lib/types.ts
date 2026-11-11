@@ -95,6 +95,9 @@ export interface ReviewIdentity {
   commit?: string
   from?: string
   to?: string
+  /** Commit IDs each side was read from; absent for the index, the worktree, or a missing parent. */
+  before?: string
+  after?: string
 }
 
 export interface ReviewSupplement {

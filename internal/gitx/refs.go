@@ -44,6 +44,18 @@ func (r Repository) validateCommitRevision(ctx context.Context, runner Runner, v
 	return nil
 }
 
+// resolveCommit returns the commit ID value names, or "" when it names none.
+func (r Repository) resolveCommit(ctx context.Context, runner Runner, value string) (string, error) {
+	if validateRevision(value) != nil {
+		return "", nil
+	}
+	res, err := runner.Run(ctx, r.Root, "rev-parse", "--verify", "--quiet", value+"^{commit}")
+	if err != nil || res.ExitCode != 0 {
+		return "", err
+	}
+	return strings.TrimSpace(string(res.Stdout)), nil
+}
+
 func (r Repository) validateLiteralRef(ctx context.Context, runner Runner, namespace, name string) error {
 	if err := validateRevision(name); err != nil {
 		return err

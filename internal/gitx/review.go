@@ -30,6 +30,9 @@ func (r Repository) Review(ctx context.Context, runner Runner, scope protocol.Di
 		CompareFrom: opts.CompareFrom,
 		CompareTo:   opts.CompareTo,
 	}
+	if err := r.resolveReviewSides(ctx, runner, scope, &identity, &opts); err != nil {
+		return protocol.ReviewPage{}, err
+	}
 	changes, err := r.reviewChanges(ctx, runner, scope, opts)
 	if err != nil {
 		return protocol.ReviewPage{}, err
@@ -88,6 +91,29 @@ func (r Repository) Review(ctx context.Context, runner Runner, scope protocol.Di
 		page.NextAfter = reviewChangeKey(changes[nextIndex-1])
 	}
 	return page, nil
+}
+
+// resolveReviewSides records the commits behind each side and pins opts to
+// them, so the page reads exactly the revisions its identity reports.
+func (r Repository) resolveReviewSides(ctx context.Context, runner Runner, scope protocol.DiffScope, identity *protocol.ReviewIdentity, opts *protocol.DiffOptions) error {
+	var err error
+	switch scope {
+	case protocol.DiffStaged:
+		identity.Before, err = r.resolveCommit(ctx, runner, "HEAD")
+	case protocol.DiffCommit:
+		if identity.After, err = r.resolveCommit(ctx, runner, opts.Commit); err == nil && identity.After != "" {
+			opts.Commit = identity.After
+			identity.Before, err = r.resolveCommit(ctx, runner, identity.After+"^")
+		}
+	case protocol.DiffCompare:
+		if identity.Before, err = r.resolveCommit(ctx, runner, opts.CompareFrom); err != nil {
+			return err
+		}
+		if identity.After, err = r.resolveCommit(ctx, runner, opts.CompareTo); err == nil && identity.Before != "" && identity.After != "" {
+			opts.CompareFrom, opts.CompareTo = identity.Before, identity.After
+		}
+	}
+	return err
 }
 
 // nextReviewChanges keeps only the smallest bounded keyset after the cursor.
