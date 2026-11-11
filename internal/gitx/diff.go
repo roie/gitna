@@ -237,6 +237,12 @@ func (r Repository) diffPatch(ctx context.Context, runner Runner, cached bool, p
 	return string(res.Stdout), nil
 }
 
+// Blob returns the file at path in commit, or in the index when commit is
+// empty. commit must be a full object ID. A missing file reports present=false.
+func (r Repository) Blob(ctx context.Context, runner Runner, commit, path string) ([]byte, bool, error) {
+	return r.readBlob(ctx, runner, commit+":"+path)
+}
+
 // readBlob returns a blob's content from the given treeish:path expression.
 // A missing object (the path does not exist in that tree, or the parent of a
 // root commit) reports present=false without an error.
