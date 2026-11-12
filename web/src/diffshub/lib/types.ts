@@ -13,8 +13,8 @@ export type ViewerLoadState =
 export interface SavedCommentMetadata {
   kind: 'saved';
   key: string;
-  author: string;
-  message: string;
+  /** The persisted Gitna conversation this annotation shows. */
+  conversationId: string;
   range: SelectedLineRange;
 }
 

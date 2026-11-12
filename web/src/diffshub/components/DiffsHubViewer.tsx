@@ -1,9 +1,9 @@
 // Modified by Gitna: declare callbacks as receiver-independent function properties.
 // Modified from the pinned DiffsHub donor: Gitna adds local file and hunk
-// mutation actions to the donor CodeView header metadata slot and can disable
-// the donor comment affordance when mounted in the Source Control-only shell.
+// mutation actions to the donor CodeView header metadata slot, and the donor
+// comment affordance creates persistent Gitna conversations instead of
+// in-memory demo comments.
 import {
-  areSelectionsEqual,
   areObjectsEqual,
   type CodeViewDiffItem,
   type CodeViewItem,
@@ -48,29 +48,27 @@ import {
   DropdownMenuTrigger,
 } from './DropdownMenu';
 import { DraftAnnotation } from './DraftAnnotation';
-import { ExampleAnnotation } from './ExampleAnnotation';
 import { ThemedCodeView } from './ThemedCodeView';
 import { useChromeThemeProps } from './useChromeThemeProps';
 import { ImageAnnotation } from '../gitna/ImageAnnotation';
-import type { AvatarName } from '@/lib/annotation';
 import { buildAnnotationThemeStyle } from '@/lib/annotationThemeStyle';
-import { classifyCommentLineType } from '@/lib/classifyCommentLineType';
 import { cn } from '@/lib/cn';
 import { CODE_VIEW_CUSTOM_CSS, CODE_VIEW_LAYOUT } from '@/lib/constants';
-import { isDiffItem } from '@/lib/isDiffItem';
-import { isDraftAnnotation } from '@/lib/isDraftAnnotation';
 import { isDraftMetadata } from '@/lib/isDraftMetadata';
-import { isSavedAnnotation } from '@/lib/isSavedAnnotation';
 import { diffshubChromeMapping } from '@/lib/theme/diffshubChromeMapping';
-import type {
-  CommentMetadata,
-  DiffsHubDeletedCommentEvent,
-  DiffsHubSavedCommentEvent,
-} from '@/lib/types';
+import type { CommentMetadata, DraftCommentMetadata } from '@/lib/types';
 import type { MutateRequest } from '../../lib/api';
 import { splitHunkPatches } from '../../lib/hunk-patches';
 import type { ChangeKind, ChangeScope, FileDiff, ContentSearchMatch } from '../../lib/types';
 import { installSearchHighlights, type ActiveSearchMatch } from '../gitna/searchHighlights';
+import { ConversationThread } from '../gitna/ConversationThread';
+import {
+  captureLines,
+  type ConversationAnchor,
+  type ConversationSide,
+  type ConversationSurface,
+  type ConversationsModel,
+} from '../../lib/conversations';
 
 export type GitnaFileAction = 'stage' | 'unstage' | 'discard' | 'delete';
 
@@ -102,6 +100,49 @@ export interface GitnaOpenFileAction {
   onOpenFile: (path: string) => void;
 }
 
+export interface GitnaConversationActions {
+  model: ConversationsModel;
+  surface: ConversationSurface;
+}
+
+type ConversationViewItem = CodeViewItem<CommentMetadata>;
+type ConversationAnnotation = LineAnnotation<CommentMetadata> | DiffLineAnnotation<CommentMetadata>;
+
+function sidePath(item: ConversationViewItem, side: ConversationSide): string {
+  if (item.type === 'file') return item.file.name;
+  return side === 'deletions' ? (item.fileDiff.prevName ?? item.fileDiff.name) : item.fileDiff.name;
+}
+
+// A conversation belongs to content, not to a view: it appears on whichever
+// side of whichever view shows the content it was started on.
+function conversationAnnotations(
+  item: ConversationViewItem,
+  { model, surface }: GitnaConversationActions
+): ConversationAnnotation[] {
+  const sides: ConversationSide[] = item.type === 'file' ? ['additions'] : ['deletions', 'additions'];
+  return sides.flatMap((side) => {
+    const content = surface[side];
+    if (content == null) return [];
+    return model.get(content, sidePath(item, side)).filter(({ status }) => status === 'open').map((conversation) => {
+      const start = conversation.location?.startLine ?? conversation.anchor.startLine;
+      const end = conversation.location?.endLine ?? conversation.anchor.endLine;
+      const metadata: CommentMetadata = {
+        kind: 'saved',
+        key: conversation.id,
+        conversationId: conversation.id,
+        range: { start, end, side, endSide: side },
+      };
+      return item.type === 'file' ? { lineNumber: end, metadata } : { side, lineNumber: end, metadata };
+    });
+  });
+}
+
+function annotationSignature(annotations: readonly ConversationAnnotation[]): string {
+  return annotations
+    .map((annotation) => `${annotation.metadata.key}:${'side' in annotation ? annotation.side : ''}:${String(annotation.lineNumber)}`)
+    .join('|');
+}
+
 export interface GitnaViewerActions {
   cacheNamespace: string;
   canOpenFile(path: string): boolean;
@@ -116,26 +157,10 @@ export interface GitnaViewerActions {
   scope: 'staged' | 'unstaged';
 }
 
+// Content loads own the integer versions. In-place updates step between them,
+// so the next load of the same item is never mistaken for one already shown.
 function getNextItemVersion(item: CodeViewItem<CommentMetadata>): number {
-  return typeof item.version === 'number' ? item.version + 1 : 1;
-}
-
-function updateViewerDiffItem(
-  viewer: CodeViewHandle<CommentMetadata, undefined>,
-  itemId: string,
-  updateItem: (item: CodeViewDiffItem<CommentMetadata>) => boolean
-): CodeViewDiffItem<CommentMetadata> | undefined {
-  const item = viewer.getItem(itemId);
-  if (item == null || !isDiffItem(item)) {
-    return undefined;
-  }
-
-  if (!updateItem(item)) {
-    return undefined;
-  }
-
-  item.version = getNextItemVersion(item);
-  return viewer.updateItem(item) ? item : undefined;
+  return (typeof item.version === 'number' ? item.version : 0) + 2 ** -16;
 }
 
 interface ActiveDraftComment {
@@ -145,10 +170,7 @@ interface ActiveDraftComment {
 
 interface DiffsHubViewerProps {
   className?: string;
-  commentsEnabled?: boolean;
   diffStyle: 'split' | 'unified';
-  onCommentDeleted: (comment: DiffsHubDeletedCommentEvent) => void;
-  onCommentSaved: (comment: DiffsHubSavedCommentEvent) => void;
   overflow: 'wrap' | 'scroll';
   showBackgrounds: boolean;
   diffIndicators: DiffIndicators;
@@ -158,7 +180,6 @@ interface DiffsHubViewerProps {
   viewerRef: RefObject<CodeViewHandle<CommentMetadata, undefined> | null>;
   initialItems: CodeViewItem<CommentMetadata>[];
   loadDiffFiles?: FileDiffContentsLoader;
-  onLineLinkChange: (selection: CodeViewLineSelection | null) => void;
   onScroll?: (scrollTop: number) => void;
   onViewerReady: () => void;
   onEditorReady?: () => void;
@@ -168,14 +189,12 @@ interface DiffsHubViewerProps {
   gitnaComparisonActions?: GitnaComparisonActions;
   gitnaEditorActions?: GitnaEditorActions;
   gitnaOpenFileAction?: GitnaOpenFileAction;
+  gitnaConversations?: GitnaConversationActions;
 }
 
 export const DiffsHubViewer = memo(function DiffsHubViewer({
   className,
-  commentsEnabled = true,
   diffStyle,
-  onCommentDeleted,
-  onCommentSaved,
   overflow,
   showBackgrounds,
   diffIndicators,
@@ -185,7 +204,6 @@ export const DiffsHubViewer = memo(function DiffsHubViewer({
   viewerRef,
   initialItems,
   loadDiffFiles,
-  onLineLinkChange,
   onScroll,
   onViewerReady,
   onEditorReady,
@@ -195,6 +213,7 @@ export const DiffsHubViewer = memo(function DiffsHubViewer({
   gitnaComparisonActions,
   gitnaEditorActions,
   gitnaOpenFileAction,
+  gitnaConversations,
 }: DiffsHubViewerProps) {
   useEffect(() => {
     const container = scrollRef.current;
@@ -228,225 +247,158 @@ export const DiffsHubViewer = memo(function DiffsHubViewer({
     }
   );
 
-  const handleToggleCommentSelection = useStableCallback(
-    (selection: CodeViewLineSelection) => {
-      setSelectedLines((prev) =>
-        prev?.id === selection.id &&
-        areSelectionsEqual(prev.range, selection.range)
-          ? null
-          : selection
-      );
-    }
-  );
-
-  const handleLineSelectionEnd = useStableCallback(
-    (range: SelectedLineRange | null, item: CodeViewItem<CommentMetadata>) => {
-      if (range == null || item.type !== 'diff') {
-        onLineLinkChange(null);
-      } else {
-        onLineLinkChange({ id: item.id, range });
-      }
-    }
-  );
-
   const handleViewerRef = useStableCallback(
     (viewer: CodeViewHandle<CommentMetadata, undefined> | null) => {
       viewerRef.current = viewer;
       if (viewer != null) {
         onViewerReady();
+        syncConversationAnnotations();
       }
     }
   );
+
+  const setItemAnnotations = (
+    viewer: CodeViewHandle<CommentMetadata, undefined>,
+    item: ConversationViewItem,
+    keep: (metadata: CommentMetadata) => boolean,
+    added: readonly ConversationAnnotation[]
+  ) => {
+    if (item.type === 'file') {
+      item.annotations = [...(item.annotations ?? []).filter((annotation) => keep(annotation.metadata)), ...added];
+    } else {
+      item.annotations = [
+        ...(item.annotations ?? []).filter((annotation) => keep(annotation.metadata)),
+        ...(added as DiffLineAnnotation<CommentMetadata>[]),
+      ];
+    }
+    item.version = getNextItemVersion(item);
+    viewer.updateItem(item);
+  };
+
+  const syncConversationItem = useStableCallback((id: string) => {
+    const { current: viewer } = viewerRef;
+    const item = viewer?.getItem(id);
+    if (viewer == null || gitnaConversations == null || item == null || (item.type !== 'file' && item.type !== 'diff')) return;
+    const next = conversationAnnotations(item, gitnaConversations);
+    const current = (item.annotations ?? []).filter((annotation) => annotation.metadata.kind === 'saved');
+    if (annotationSignature(current) === annotationSignature(next)) return;
+    setItemAnnotations(viewer, item, (metadata) => metadata.kind !== 'saved', next);
+  });
+
+  const syncConversationAnnotations = useStableCallback(() => {
+    for (const { id } of initialItems) syncConversationItem(id);
+  });
+
+  useEffect(() => {
+    if (gitnaConversations == null) return;
+    syncConversationAnnotations();
+    return gitnaConversations.model.subscribe(syncConversationAnnotations);
+  }, [gitnaConversations, initialItems, syncConversationAnnotations]);
+
+  // Comment affordances exist only where a saved comment is a real conversation.
+  const commenting = gitnaConversations != null;
+
+  const conversationAnchor = (item: ConversationViewItem, range: SelectedLineRange): ConversationAnchor | null => {
+    const surface = gitnaConversations?.surface;
+    const side: ConversationSide = item.type === 'file' ? 'additions' : (range.endSide ?? range.side ?? 'additions');
+    const content = surface?.[side];
+    if (surface == null || content == null) return null;
+    // A conversation belongs to one side's content; old and new line numbers
+    // cannot form one range, so such a selection is refused, not truncated.
+    if (item.type === 'diff' && range.side != null && range.endSide != null && range.side !== range.endSide) {
+      gitnaConversations?.model.reportError('Select lines on one side of the diff to start a conversation.');
+      return null;
+    }
+    const endLine = Math.max(range.start, range.end);
+    const startLine = Math.min(range.start, range.end);
+    // Views holding the whole file record what the reader saw, including
+    // unsaved edits; otherwise Gitna reads the lines from the content itself.
+    let lines: readonly string[] | undefined;
+    if (item.type === 'file') {
+      lines = (viewerRef.current?.getEditor(item.id)?.getText() ?? item.file.contents).split('\n');
+    } else if (!item.fileDiff.isPartial) {
+      lines = side === 'deletions' ? item.fileDiff.deletionLines : item.fileDiff.additionLines;
+    }
+    const opposite = surface[side === 'additions' ? 'deletions' : 'additions'];
+    return {
+      ...content,
+      path: sidePath(item, side),
+      view: surface.view,
+      against: opposite?.source === 'commit' ? opposite.revision : undefined,
+      side,
+      startLine,
+      endLine,
+      ...(lines == null ? {} : captureLines(lines, startLine, endLine)),
+    };
+  };
 
   const handleCreateDraftComment = useStableCallback(
     (range: SelectedLineRange, itemId: string) => {
-      const side = range.endSide ?? range.side;
-      if (side == null) {
-        return;
-      }
-
-      const lineNumber = range.end;
-      const commentKey = `draft-${nextCommentKeyRef.current++}`;
       const { current: viewer } = viewerRef;
-      if (viewer == null) {
+      const item = viewer?.getItem(itemId);
+      if (viewer == null || item == null || (item.type !== 'file' && item.type !== 'diff')) {
         return;
       }
-
-      const draftAnnotation: DiffLineAnnotation<CommentMetadata> = {
-        side,
-        lineNumber,
-        metadata: {
-          kind: 'draft',
-          key: commentKey,
-          message: '',
-          range,
-        },
+      if (conversationAnchor(item, range) == null) {
+        return;
+      }
+      const side = range.endSide ?? range.side ?? 'additions';
+      const lineNumber = Math.max(range.start, range.end);
+      const metadata: CommentMetadata = {
+        kind: 'draft',
+        key: `draft-${nextCommentKeyRef.current++}`,
+        message: '',
+        range,
       };
 
       const { current: activeDraft } = activeDraftRef;
-      if (activeDraft != null && activeDraft.itemId !== itemId) {
-        updateViewerDiffItem(viewer, activeDraft.itemId, (item) => {
-          if (item.annotations == null) {
-            return false;
-          }
-
-          const nextAnnotations = item.annotations.filter(
-            (annotation) => annotation.metadata.key !== activeDraft.key
-          );
-          if (nextAnnotations.length === item.annotations.length) {
-            return false;
-          }
-
-          item.annotations = nextAnnotations;
-          return true;
-        });
+      const previous = activeDraft == null ? undefined : viewer.getItem(activeDraft.itemId);
+      if (activeDraft != null && previous != null && activeDraft.itemId !== itemId && (previous.type === 'file' || previous.type === 'diff')) {
+        setItemAnnotations(viewer, previous, (existing) => existing.key !== activeDraft.key, []);
       }
-
-      const updatedItem = updateViewerDiffItem(viewer, itemId, (item) => {
-        const nonDraftAnnotations = (item.annotations ?? []).filter(
-          (annotation) => !isDraftMetadata(annotation.metadata)
-        );
-        item.annotations = [...nonDraftAnnotations, draftAnnotation];
-        return true;
-      });
-
-      if (updatedItem != null) {
-        activeDraftRef.current = { itemId, key: commentKey };
-      }
+      setItemAnnotations(viewer, item, (existing) => !isDraftMetadata(existing), [
+        item.type === 'file' ? { lineNumber, metadata } : { side, lineNumber, metadata },
+      ]);
+      activeDraftRef.current = { itemId, key: metadata.key };
     }
   );
 
-  const handleRemoveComment = useStableCallback(
+  const handleRemoveDraft = useStableCallback(
     (itemId: string, key: string) => {
       const { current: viewer } = viewerRef;
-      if (viewer == null) {
-        return;
+      const item = viewer?.getItem(itemId);
+      if (viewer != null && item != null && (item.type === 'file' || item.type === 'diff')) {
+        setItemAnnotations(viewer, item, (metadata) => metadata.key !== key, []);
       }
-      const item = viewer.getItem(itemId);
-      const removedAnnotation =
-        item != null && isDiffItem(item)
-          ? item.annotations?.find(
-              (annotation) => annotation.metadata.key === key
-            )
-          : undefined;
-
-      updateViewerDiffItem(viewer, itemId, (item) => {
-        if (item.annotations == null) {
-          return false;
-        }
-
-        const nextAnnotations = item.annotations.filter(
-          (annotation) => annotation.metadata.key !== key
-        );
-
-        if (nextAnnotations.length === item.annotations.length) {
-          return false;
-        }
-
-        item.annotations = nextAnnotations;
-        return true;
-      });
-
       const { current: activeDraft } = activeDraftRef;
       if (activeDraft?.itemId === itemId && activeDraft.key === key) {
         activeDraftRef.current = null;
       }
-
       setSelectedLines(null);
-      onLineLinkChange(null);
-      if (removedAnnotation != null && isSavedAnnotation(removedAnnotation)) {
-        onCommentDeleted({ itemId, key });
-      }
     }
   );
 
-  const handleSaveDraftComment = useStableCallback(
-    (itemId: string, key: string, message: string, author: AvatarName) => {
-      const trimmedMessage = message.trim();
-      const { current: viewer } = viewerRef;
-      if (trimmedMessage.length === 0 || viewer == null) {
+  const handleSaveDraft = useStableCallback(
+    async (itemId: string, key: string, message: string) => {
+      const item = viewerRef.current?.getItem(itemId);
+      const draft = item?.annotations?.find((annotation) => annotation.metadata.key === key)?.metadata;
+      if (gitnaConversations == null || item == null || draft?.kind !== 'draft') {
         return;
       }
-
-      const item = viewer.getItem(itemId);
-      if (item == null || !isDiffItem(item)) {
+      const anchor = conversationAnchor(item, draft.range);
+      if (anchor == null) {
         return;
       }
-
-      const draftAnnotation = item?.annotations?.find(
-        (annotation) => annotation.metadata.key === key
-      );
-      if (draftAnnotation == null || !isDraftAnnotation(draftAnnotation)) {
-        return;
+      const unsaved =
+        anchor.source === 'worktree' &&
+        (gitnaEditorActions?.dirtyPaths.has(anchor.path) === true ||
+          (gitnaComparisonActions != null &&
+            (anchor.side === 'deletions' ? gitnaComparisonActions.leftDirty : gitnaComparisonActions.rightDirty)));
+      if (unsaved) {
+        throw new Error(`Save ${anchor.path} before starting a conversation on it.`);
       }
-
-      const updatedItem = updateViewerDiffItem(viewer, itemId, (item) => {
-        if (item.annotations == null) {
-          return false;
-        }
-
-        const nextAnnotations: DiffLineAnnotation<CommentMetadata>[] =
-          item.annotations.map((annotation) => {
-            if (
-              annotation.metadata.key !== key ||
-              !isDraftAnnotation(annotation)
-            ) {
-              return annotation;
-            }
-
-            return {
-              ...annotation,
-              metadata: {
-                kind: 'saved',
-                key,
-                author,
-                message: trimmedMessage,
-                range: annotation.metadata.range,
-              },
-            };
-          });
-
-        let didChange = false;
-        for (let index = 0; index < nextAnnotations.length; index++) {
-          if (nextAnnotations[index] !== item.annotations[index]) {
-            didChange = true;
-            break;
-          }
-        }
-
-        if (!didChange) {
-          return false;
-        }
-
-        item.annotations = nextAnnotations;
-        return true;
-      });
-
-      if (updatedItem == null) {
-        return;
-      }
-
-      const { current: activeDraft } = activeDraftRef;
-      if (activeDraft?.itemId === itemId && activeDraft.key === key) {
-        activeDraftRef.current = null;
-      }
-
-      setSelectedLines(null);
-      onLineLinkChange(null);
-      onCommentSaved({
-        author,
-        itemId,
-        key,
-        lineNumber: draftAnnotation.lineNumber,
-        lineType: classifyCommentLineType(
-          item.fileDiff,
-          draftAnnotation.side,
-          draftAnnotation.lineNumber
-        ),
-        message: trimmedMessage,
-        range: draftAnnotation.metadata.range,
-        side: draftAnnotation.side,
-      });
+      await gitnaConversations.model.create(anchor, message);
+      handleRemoveDraft(itemId, key);
     }
   );
 
@@ -485,32 +437,27 @@ export const DiffsHubViewer = memo(function DiffsHubViewer({
       _file: FileContents | FileDiffMetadata,
       item: CodeViewItem<CommentMetadata>
     ) => {
-      if ((annotation.metadata.kind === 'image' || annotation.metadata.kind === 'preview') || !commentsEnabled || !('side' in annotation) || item.type !== 'diff') {
+      const { metadata } = annotation;
+      if (gitnaConversations == null) {
         return null;
       }
-
-      if (isDraftAnnotation(annotation)) {
+      if (metadata.kind === 'draft') {
         return (
           <DraftAnnotation
-            annotation={annotation}
+            annotation={annotation as DiffLineAnnotation<DraftCommentMetadata>}
+            author={gitnaConversations.model.participant?.name ?? 'You'}
             itemId={item.id}
-            onCancel={handleRemoveComment}
-            onSave={handleSaveDraftComment}
+            onCancel={handleRemoveDraft}
+            onSave={handleSaveDraft}
           />
         );
       }
-
-      if (!isSavedAnnotation(annotation)) {
+      if (metadata.kind !== 'saved') {
         return null;
       }
-
-      return (
-        <ExampleAnnotation
-          annotation={annotation}
-          itemId={item.id}
-          onDelete={handleRemoveComment}
-          onToggleSelection={handleToggleCommentSelection}
-        />
+      const conversation = gitnaConversations.model.find(metadata.conversationId);
+      return conversation == null ? null : (
+        <ConversationThread conversation={conversation} model={gitnaConversations.model} />
       );
     }
   );
@@ -637,31 +584,31 @@ export const DiffsHubViewer = memo(function DiffsHubViewer({
         disableLineNumbers: !lineNumbers,
         lineHoverHighlight: 'number',
         // hunkSeparators: 'line-info-basic',
-        enableLineSelection: commentsEnabled,
-        enableGutterUtility: commentsEnabled,
+        enableLineSelection: commenting,
+        enableGutterUtility: commenting,
         stickyHeaders: true,
         // Avoid invalidating every rendered file's styles on each scroll event.
         pointerEventsOnScroll: true,
         unsafeCSS: CODE_VIEW_CUSTOM_CSS,
         // FIXME(amadeus): Move all `onX` methods onto the react component maybe?
-        onGutterUtilityClick: commentsEnabled
-          ? (range, context) => {
-              if (context.item.type !== 'diff') {
-                return;
-              }
-              handleCreateDraftComment(range, context.item.id);
-            }
+        onGutterUtilityClick: commenting
+          ? (range, context) => handleCreateDraftComment(range, context.item.id)
           : undefined,
-        onLineSelectionEnd: commentsEnabled
-          ? (range, context) => handleLineSelectionEnd(range, context.item)
+        // The review UI may replace items after this component's effects run;
+        // restore conversation threads on whatever item was just rendered.
+        onPostRender: gitnaConversations != null
+          ? (_node: HTMLElement, _instance: unknown, _phase: unknown, context: { item: { id: string } }) => {
+              queueMicrotask(() => syncConversationItem(context.item.id));
+            }
           : undefined,
       }) satisfies CodeViewOptions<CommentMetadata, undefined>,
     [
-      commentsEnabled,
+      commenting,
       diffIndicators,
       diffStyle,
+      gitnaConversations,
       handleCreateDraftComment,
-      handleLineSelectionEnd,
+      syncConversationItem,
       lineNumbers,
       loadDiffFiles,
       overflow,
@@ -692,7 +639,7 @@ export const DiffsHubViewer = memo(function DiffsHubViewer({
       onItemEditComplete={() => 'accept'}
       onScroll={(scrollTop) => onScroll?.(scrollTop)}
       style={annotationThemeStyle}
-      selectedLines={commentsEnabled ? selectedLines : null}
+      selectedLines={commenting ? selectedLines : null}
       onSelectedLinesChange={handleSetSelection}
       renderAnnotation={renderCommentAnnotation}
       renderBody={renderBody}

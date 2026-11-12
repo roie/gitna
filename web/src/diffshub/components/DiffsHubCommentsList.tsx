@@ -1,11 +1,13 @@
-// Modified by Gitna: declare callbacks as receiver-independent function properties.
+// Modified by Gitna: declare callbacks as receiver-independent function properties,
+// show real authors, and offer reopen on resolved conversations.
 'use client';
 
 import type { AnnotationSide } from '@pierre/diffs';
-import { IconConvoFill, IconPlus } from '@pierre/icons';
+import { IconConvoFill, IconPlus, IconReload } from '@pierre/icons';
 import { memo, type MouseEvent } from 'react';
 
-import { CommentAuthorAvatar } from './CommentAuthorAvatar';
+import { AuthorInitial } from './DraftAnnotation';
+import { Button } from '@/components/Button';
 import { cn } from '@/lib/cn';
 import type {
   CommentLineType,
@@ -17,6 +19,8 @@ interface DiffsHubCommentsListProps {
   commentSections: readonly DiffsHubSavedCommentItem[];
   onSelectComment?: (comment: DiffsHubSavedCommentEntry) => void;
   onSelectItem?: (itemId: string) => void;
+  onReopen?: (comment: DiffsHubSavedCommentEntry) => void;
+  emptyTitle?: string;
 }
 
 function getCommentLineLabel(
@@ -82,19 +86,21 @@ export const DiffsHubCommentsList = memo(function DiffsHubCommentsList({
   commentSections,
   onSelectComment,
   onSelectItem,
+  onReopen,
+  emptyTitle = 'No conversations yet',
 }: DiffsHubCommentsListProps) {
   if (commentSections.length === 0) {
     return (
       <div className="text-muted-foreground flex h-full min-h-0 flex-col items-center justify-center gap-2 px-7 text-center text-sm">
         <IconConvoFill size={24} className="mb-2" />
         <div className="flex flex-col">
-          <strong className="font-medium">No comments yet</strong>
+          <strong className="font-medium">{emptyTitle}</strong>
           <p>
             Hover over a line and click the{' '}
             <span className="light:text-white light:bg-[rgb(0,159,255)] inline-flex h-[20px] w-[20px] items-center justify-center rounded-[4px] align-top dark:bg-[rgb(0,159,255)] dark:text-black">
               <IconPlus />
             </span>{' '}
-            button to add fake code comments.
+            button to start a conversation.
           </p>
         </div>
       </div>
@@ -127,8 +133,11 @@ export const DiffsHubCommentsList = memo(function DiffsHubCommentsList({
           )}
           <div className="rounded-lg border border-[var(--diffshub-card-border,rgb(0_0_0_/_0.1))] dark:border-[var(--diffshub-card-border,rgb(255_255_255_/_0.15))]">
             {section.comments.map((comment) => (
-              <button
+              <div
                 key={comment.key}
+                className="group relative border-b border-[var(--diffshub-card-border,rgb(0_0_0_/_0.1))] first:rounded-t-lg last:rounded-b-lg last:border-b-0 dark:border-[var(--diffshub-card-border,rgb(255_255_255_/_0.15))]"
+              >
+              <button
                 type="button"
                 // Card surface, hover, and border come from the themed
                 // chrome (set on the sidebar wrapper) so cards stay
@@ -142,12 +151,12 @@ export const DiffsHubCommentsList = memo(function DiffsHubCommentsList({
                 // on each card visibly trails the rest of the UI (header,
                 // file tree, diff body) which snap instantly. Hover bg is
                 // snappy enough without an interpolated transition.
-                className="focus-visible:ring-ring flex w-full cursor-pointer items-start gap-2 border-b border-[var(--diffshub-card-border,rgb(0_0_0_/_0.1))] bg-[var(--diffshub-card-bg,var(--color-card))] p-3 text-left text-sm outline-none first:rounded-t-lg last:rounded-b-lg last:border-b-0 hover:bg-[var(--diffshub-card-hover-bg,var(--color-muted))] focus-visible:ring-2 dark:border-[var(--diffshub-card-border,rgb(255_255_255_/_0.15))]"
+                className="focus-visible:ring-ring flex w-full cursor-pointer items-start gap-2 rounded-[inherit] bg-[var(--diffshub-card-bg,var(--color-card))] p-3 text-left text-sm outline-none hover:bg-[var(--diffshub-card-hover-bg,var(--color-muted))] focus-visible:ring-2"
                 onClick={(event) =>
                   handleRowClick(event, () => onSelectComment?.(comment))
                 }
               >
-                <CommentAuthorAvatar seed={comment.author} className="size-5" />
+                <AuthorInitial name={comment.author} className="size-5 text-[11px]" />
                 <div className="flex flex-col items-start gap-0.5 select-text">
                   <div className="text-muted-foreground flex gap-1">
                     {comment.author} commented on{' '}
@@ -169,6 +178,18 @@ export const DiffsHubCommentsList = memo(function DiffsHubCommentsList({
                   </p>
                 </div>
               </button>
+              {onReopen != null && (
+                <Button
+                  variant="default"
+                  size="icon-sm"
+                  aria-label="Reopen conversation"
+                  onClick={() => onReopen(comment)}
+                  className="absolute top-2 right-2 z-1 inline-flex cursor-pointer items-center justify-center rounded-full bg-neutral-500 opacity-0 transition-opacity duration-100 group-focus-within:opacity-100 group-hover:opacity-100"
+                >
+                  <IconReload size={12} />
+                </Button>
+              )}
+              </div>
             ))}
           </div>
         </section>

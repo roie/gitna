@@ -1,5 +1,5 @@
 import { isHomePath, resolveFolderHref } from './navigation'
-import type { CodeViewLineSelection, DiffIndicators, FileContents } from '@pierre/diffs'
+import type { DiffIndicators, FileContents } from '@pierre/diffs'
 import { EditStateManager, type EditorViewState } from '@pierre/diffs/edit'
 import { type CodeViewHandle, useWorkerPool } from '@pierre/diffs/react'
 import {
@@ -31,6 +31,7 @@ import {
   useMemo,
   useRef,
   useState,
+  useSyncExternalStore,
 } from 'react'
 
 import { DiffsHubHeader } from '../components/DiffsHubHeader'
@@ -46,6 +47,7 @@ import { DiffsHubStatusPanel } from '../components/DiffsHubStatusPanel'
 import {
   DiffsHubViewer,
   type GitnaComparisonActions,
+  type GitnaConversationActions,
   type GitnaEditorActions,
   type GitnaFileAction,
   type GitnaViewerActions,
@@ -54,7 +56,11 @@ import { ThemeSourceProvider } from '../components/ThemeSourceProvider'
 import { docsThemeCatalog, themeController } from '../components/themeController'
 import type { CommentMetadata, ViewerLoadState } from '../lib/types'
 import { ApiError, type DiffRequest, type DraftRecord, type ReviewRequest } from '../../lib/api'
-import type { ContentSearchFile, FileDiff, WorktreeFile } from '../../lib/types'
+import {
+  ConversationsModel,
+  type ConversationSurface,
+} from '../../lib/conversations'
+import type { ContentSearchFile, FileDiff, ReviewIdentity, WorktreeFile } from '../../lib/types'
 import type { DarkThemeName, LightThemeName } from '../lib/themeNames'
 import type { LoadedDiffsHubData } from '../lib/diffsHubDataAccumulator'
 import { cn } from '../lib/cn'
@@ -321,6 +327,38 @@ function repositoryFileErrorMessage(error: unknown): string {
     }
   }
   return 'Gitna couldn’t read this file. Try again or select another file.'
+}
+
+/** Names the content each side of the open view shows, or null where code
+ * cannot carry conversations. */
+function conversationSurface(
+  target: ReviewTarget | null,
+  identity: ReviewIdentity | undefined,
+  savedFile: boolean,
+): ConversationSurface | null {
+  if (target == null) return null
+  const worktree = { source: 'worktree' } as const
+  if (target.comparison != null) return { view: 'file', additions: worktree, deletions: worktree }
+  if (target.filePath != null) return savedFile ? { view: 'file', additions: worktree } : null
+  if (identity == null) return null
+  const commit = (revision?: string) =>
+    revision == null ? undefined : ({ source: 'commit', revision } as const)
+  const after = commit(identity.after)
+  switch (identity.scope) {
+    case 'unstaged':
+      return { view: 'worktree', additions: worktree, deletions: { source: 'index' } }
+    case 'staged':
+      return { view: 'index', additions: { source: 'index' }, deletions: commit(identity.before) }
+    case 'commit':
+    case 'compare':
+      return after == null
+        ? null
+        : {
+            view: identity.scope === 'commit' ? 'commit' : 'comparison',
+            additions: after,
+            deletions: commit(identity.before),
+          }
+  }
 }
 
 function useReviewTarget(): ReviewTarget | null {
@@ -997,6 +1035,7 @@ function GitnaReviewUIInner({
     const loadReview = async (): Promise<LoadedDiffsHubData> => {
       const request = { ...target.request!, signal: reviewAbortController.signal }
       let page = await repository.api.review(request)
+      setReviewIdentity({ key: target.key, identity: page.identity })
       // CodeView ignores new content for matching IDs and versions, even across commits.
       const assembly = createGitnaReviewAccumulator(
         page,
@@ -1359,8 +1398,6 @@ function GitnaReviewUIInner({
     handleViewerReady()
   }, [handleViewerReady])
 
-  const handleLineLinkChange = useCallback((_selection: CodeViewLineSelection | null) => {}, [])
-
   const comparisonPending = target?.request?.scope === 'compare' && repository.compareLoading
   const comparisonError = target?.request?.scope === 'compare' ? repository.compareError : null
   const surfaceState = comparisonPending
@@ -1454,6 +1491,26 @@ function GitnaReviewUIInner({
     target?.request?.scope === 'staged' || target?.request?.scope === 'unstaged'
       ? target.request.scope
       : null
+  const [reviewIdentity, setReviewIdentity] = useState<{
+    key: string
+    identity: ReviewIdentity
+  } | null>(null)
+  const [conversationsModel, setConversationsModel] = useState<ConversationsModel | null>(null)
+  useEffect(() => {
+    const api = repository.api.conversations
+    if (api == null || repository.snapshot == null) return
+    const model = new ConversationsModel(api)
+    setConversationsModel(model)
+    return () => {
+      model.dispose()
+      setConversationsModel(null)
+    }
+  }, [repository.api, repository.snapshot == null])
+  const repositoryGeneration = repository.generation
+  useEffect(() => {
+    // File edits move code under existing threads, so relocate them.
+    if (conversationsModel != null) void conversationsModel.load()
+  }, [conversationsModel, repositoryGeneration])
   const gitnaActions: GitnaViewerActions | undefined =
     workingScope == null
       ? undefined
@@ -1954,6 +2011,19 @@ function GitnaReviewUIInner({
             : { previewMode, onPreviewModeChange: setPreviewMode, previewLabel }),
         }
       : undefined
+  const conversationSurfaceKey = JSON.stringify(
+    conversationSurface(
+      target,
+      reviewIdentity?.key === target?.key ? reviewIdentity?.identity : undefined,
+      gitnaEditorActions != null && !repository.isUntitledPath(target?.filePath ?? ''),
+    ),
+  )
+  const gitnaConversations = useMemo<GitnaConversationActions | undefined>(() => {
+    const surface = JSON.parse(conversationSurfaceKey) as ConversationSurface | null
+    return conversationsModel == null || surface == null
+      ? undefined
+      : { model: conversationsModel, surface }
+  }, [conversationsModel, conversationSurfaceKey])
 
   useEffect(() => {
     const path = target?.filePath
@@ -2016,6 +2086,13 @@ function GitnaReviewUIInner({
     return () => window.removeEventListener('keydown', onGoToLine)
   }, [])
 
+  useSyncExternalStore(
+    useCallback(
+      (listener: () => void) => conversationsModel?.subscribe(listener) ?? (() => {}),
+      [conversationsModel],
+    ),
+    () => conversationsModel?.version ?? 0,
+  )
   const paletteCommands = useMemo<GitnaPaletteCommand[]>(() => {
     const commands: GitnaPaletteCommand[] = [
       {
@@ -2481,7 +2558,6 @@ function GitnaReviewUIInner({
                     >
                       <DiffsHubViewer
                         className="code-view h-full"
-                        commentsEnabled={false}
                         diffStyle={diffStyle}
                         overflow={overflow}
                         showBackgrounds={showBackgrounds}
@@ -2495,9 +2571,7 @@ function GitnaReviewUIInner({
                         gitnaComparisonActions={gitnaComparisonActions}
                         gitnaEditorActions={gitnaEditorActions}
                         gitnaOpenFileAction={gitnaOpenFileAction}
-                        onCommentDeleted={() => {}}
-                        onCommentSaved={() => {}}
-                        onLineLinkChange={handleLineLinkChange}
+                        gitnaConversations={gitnaConversations}
                         onScroll={handleReviewScroll}
                         onViewerReady={handleViewerReady}
                         onEditorReady={handleEditorReady}
@@ -2698,6 +2772,36 @@ function GitnaReviewUIInner({
         <GlobalToastHost
           actionError={reviewActionError}
           onDismissActionError={() => setReviewActionError(null)}
+          toasts={[
+            ...(conversationsModel?.error == null
+              ? []
+              : [
+                  {
+                    id: 'conversation-error',
+                    title: conversationsModel.error,
+                    severity: 'error' as const,
+                    onDismiss: () => conversationsModel.dismissError(),
+                  },
+                ]),
+            ...(conversationsModel?.recentlyDeleted == null
+              ? []
+              : [
+                  {
+                    id: 'conversation-deleted',
+                    title: 'Conversation deleted',
+                    severity: 'info' as const,
+                    onDismiss: () => conversationsModel.dismissDeleted(),
+                    action: {
+                      label: 'Undo',
+                      onClick: () =>
+                        void conversationsModel.setDeleted(
+                          conversationsModel.recentlyDeleted!,
+                          false,
+                        ),
+                    },
+                  },
+                ]),
+          ]}
         />
         {(paletteMounted || commandPaletteOpen) && (
           <Suspense fallback={null}>

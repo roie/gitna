@@ -50,9 +50,11 @@ export function connectionStatusDetails(
 export function GlobalToastHost({
   actionError,
   onDismissActionError,
+  toasts: extraToasts = [],
 }: {
   actionError: string | null
   onDismissActionError: () => void
+  toasts?: readonly Toast[]
 }) {
   const repository = useRepository()
   const previousState = useRef(repository.connectionState)
@@ -139,7 +141,7 @@ export function GlobalToastHost({
       >
         <span data-connection-announcement>{announcement}</span>
       </span>
-      <ToastHost toasts={toasts} />
+      <ToastHost toasts={[...toasts, ...extraToasts]} />
     </>
   )
 }

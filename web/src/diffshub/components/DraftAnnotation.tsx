@@ -1,113 +1,154 @@
-// Modified by Gitna: declare callbacks as receiver-independent function properties.
+// Modified by Gitna: declare callbacks as receiver-independent function properties,
+// show the real author, save asynchronously, and share the form as CommentComposer.
 import type { DiffLineAnnotation } from '@pierre/diffs';
 import { IconArrowRight } from '@pierre/icons';
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 
-import { CommentAuthorAvatar } from './CommentAuthorAvatar';
 import { Button } from '@/components/Button';
-import {
-  annotationCardBase,
-  type AvatarName,
-  getRandomPersona,
-} from '@/lib/annotation';
+import { annotationCardBase } from '@/lib/annotation';
 import { cn } from '@/lib/cn';
 import type { DraftCommentMetadata } from '@/lib/types';
 
 interface DraftAnnotationProps {
   annotation: DiffLineAnnotation<DraftCommentMetadata>;
+  author: string;
   itemId: string;
   onCancel: (itemId: string, key: string) => void;
-  onSave: (
-    itemId: string,
-    key: string,
-    message: string,
-    author: AvatarName
-  ) => void;
+  onSave: (itemId: string, key: string, message: string) => void | Promise<void>;
 }
 
-export function DraftAnnotation({
-  annotation,
-  itemId,
+interface CommentComposerProps {
+  avatar: ReactNode;
+  autoFocus?: boolean;
+  className?: string;
+  initialMessage?: string;
+  placeholder?: string;
+  onCancel?: () => void;
+  onSubmit: (message: string) => void | Promise<void>;
+}
+
+// Keep typing and clicks inside a comment from reaching an editable code view.
+const isolate = (event: { stopPropagation(): void }) => event.stopPropagation();
+
+export function CommentComposer({
+  avatar,
+  autoFocus = false,
+  className,
+  initialMessage = '',
+  placeholder = 'Add a comment…',
   onCancel,
-  onSave,
-}: DraftAnnotationProps) {
-  const [message, setMessage] = useState(annotation.metadata.message);
-  const [persona] = useState(getRandomPersona);
+  onSubmit,
+}: CommentComposerProps) {
+  const [message, setMessage] = useState(initialMessage);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const trimmedMessage = message.trim();
 
-  function handleSave() {
-    if (trimmedMessage.length === 0) {
+  async function handleSave() {
+    if (trimmedMessage.length === 0 || busy) {
       return;
     }
-    onSave(itemId, annotation.metadata.key, trimmedMessage, persona.name);
+    setBusy(true);
+    setError(null);
+    try {
+      await onSubmit(trimmedMessage);
+      setMessage('');
+    } catch (failure) {
+      setError(failure instanceof Error ? failure.message : String(failure));
+    } finally {
+      setBusy(false);
+    }
   }
 
   function tryCancel() {
+    if (onCancel == null) {
+      return;
+    }
     if (trimmedMessage.length > 0 && !window.confirm('Discard this comment?')) {
       return;
     }
-    onCancel(itemId, annotation.metadata.key);
+    onCancel();
   }
 
   useEffect(() => {
     const textarea = textareaRef.current;
-    if (textarea == null) {
+    if (!autoFocus || textarea == null) {
       return;
     }
 
     textarea.focus({ preventScroll: true });
     const cursorIndex = textarea.value.length;
     textarea.setSelectionRange(cursorIndex, cursorIndex);
-  }, []);
+  }, [autoFocus]);
 
   return (
     <form
-      className={cn(annotationCardBase, 'flex-col md:flex-row')}
+      className={cn(annotationCardBase, 'flex-col md:flex-row', className)}
+      onKeyDown={isolate}
+      onPointerDown={isolate}
+      onMouseDown={isolate}
+      onBeforeInput={isolate}
+      onPaste={isolate}
       onSubmit={(event) => {
         event.preventDefault();
-        handleSave();
+        void handleSave();
       }}
     >
       <div className="flex w-full gap-2.5">
-        <CommentAuthorAvatar seed={persona.name} />
-        <textarea
-          ref={textareaRef}
-          value={message}
-          onChange={({ currentTarget }) => setMessage(currentTarget.value)}
-          onKeyDown={(event) => {
-            if (event.key === 'Escape') {
+        {avatar}
+        <div className="flex w-full flex-col">
+          <textarea
+            ref={textareaRef}
+            value={message}
+            disabled={busy}
+            aria-label={placeholder}
+            onChange={({ currentTarget }) => setMessage(currentTarget.value)}
+            onKeyDown={(event) => {
+              if (event.key === 'Escape') {
+                event.preventDefault();
+                tryCancel();
+                return;
+              }
+
+              if (
+                (!event.shiftKey && !event.metaKey && !event.ctrlKey) ||
+                event.key !== 'Enter'
+              ) {
+                return;
+              }
+
               event.preventDefault();
-              tryCancel();
-              return;
-            }
-
-            if ((!event.shiftKey && !event.metaKey) || event.key !== 'Enter') {
-              return;
-            }
-
-            event.preventDefault();
-            handleSave();
-          }}
-          placeholder="Add a comment…"
-          rows={2}
-          className="field-sizing-content w-full resize-none rounded-sm bg-transparent py-1.5 text-[14px] text-inherit placeholder:text-[var(--diffshub-popover-muted-fg,var(--color-muted-foreground))] focus:outline-none"
-        />
+              void handleSave();
+            }}
+            placeholder={placeholder}
+            rows={2}
+            className="field-sizing-content w-full resize-none rounded-sm bg-transparent py-1.5 text-[14px] text-inherit placeholder:text-[var(--diffshub-popover-muted-fg,var(--color-muted-foreground))] focus:outline-none"
+          />
+          {error != null && (
+            <p role="alert" className="m-0 text-xs text-red-600 dark:text-red-400">
+              {error}
+            </p>
+          )}
+        </div>
       </div>
       <div className="flex w-full justify-between gap-3 pl-10.5 md:w-auto md:justify-end md:pl-0">
-        <Button
-          type="button"
-          variant="muted"
-          onClick={tryCancel}
-          className="text-muted-foreground hover:text-foreground gap-1 font-normal hover:no-underline md:hidden"
-        >
-          Cancel
-        </Button>
+        {onCancel != null && (
+          <Button
+            type="button"
+            variant="muted"
+            onClick={tryCancel}
+            className="text-muted-foreground hover:text-foreground gap-1 font-normal hover:no-underline md:hidden"
+          >
+            Cancel
+          </Button>
+        )}
         <Button
           type="submit"
           variant="default"
           size="icon-md"
-          disabled={trimmedMessage.length === 0}
+          aria-label="Submit"
+          disabled={busy || trimmedMessage.length === 0}
           className="hidden rounded-full bg-blue-500 hover:bg-blue-600 md:flex"
         >
           <IconArrowRight className="size-4 rotate-[-90deg]" />
@@ -115,7 +156,7 @@ export function DraftAnnotation({
         <Button
           type="submit"
           variant="default"
-          disabled={trimmedMessage.length === 0}
+          disabled={busy || trimmedMessage.length === 0}
           className="gap-1.5 bg-blue-500 hover:bg-blue-600 md:hidden"
         >
           Submit
@@ -123,5 +164,48 @@ export function DraftAnnotation({
         </Button>
       </div>
     </form>
+  );
+}
+
+export function AuthorInitial({
+  name,
+  agent = false,
+  className,
+}: {
+  name: string;
+  agent?: boolean;
+  className?: string;
+}) {
+  return (
+    <span
+      aria-hidden
+      className={cn(
+        'flex size-8 shrink-0 items-center justify-center self-start rounded-full text-[13px] font-semibold uppercase',
+        agent
+          ? 'bg-violet-500/20 text-violet-700 dark:text-violet-300'
+          : 'bg-blue-500/20 text-blue-700 dark:text-blue-300',
+        className
+      )}
+    >
+      {name.slice(0, 1)}
+    </span>
+  );
+}
+
+export function DraftAnnotation({
+  annotation,
+  author,
+  itemId,
+  onCancel,
+  onSave,
+}: DraftAnnotationProps) {
+  return (
+    <CommentComposer
+      autoFocus
+      avatar={<AuthorInitial name={author} />}
+      initialMessage={annotation.metadata.message}
+      onCancel={() => onCancel(itemId, annotation.metadata.key)}
+      onSubmit={(message) => onSave(itemId, annotation.metadata.key, message)}
+    />
   );
 }
