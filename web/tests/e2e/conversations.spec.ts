@@ -1,5 +1,5 @@
 import { execFileSync } from 'node:child_process'
-import { readFileSync } from 'node:fs'
+import { readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import type { Locator, Page } from '@playwright/test'
 import { expect, test, type GitnaFixture } from './fixtures.js'
@@ -188,6 +188,170 @@ test('diff conversations anchor to the content on the commented side', async ({ 
   await expect(page.getByRole('article').filter({ hasText: 'index side' })).toHaveCount(0)
 })
 
+test('the repository pane lists conversations; resolve hides them and delete can be undone', async ({
+  page,
+  app,
+}) => {
+  await page.goto(app.url)
+  const item = (text: string) => page.locator('diffs-container', { hasText: text })
+  const line = item('unstaged change').locator('[data-column-number="1"]').last()
+  await expect(line).toBeVisible()
+  await comment(page, line, null, 'resolve me')
+  const thread = page.getByRole('article').filter({ hasText: 'resolve me' })
+  await expect(thread).toBeVisible()
+
+  // Resolving hides the thread from the code; the Resolved filter can reopen it.
+  await thread.hover()
+  await thread.getByRole('button', { name: 'Resolve conversation' }).click()
+  await expect(thread).toHaveCount(0)
+
+  const pane = page.getByRole('region', { name: 'Source Control workflow' })
+  await pane.getByRole('button', { name: 'Conversations', exact: true }).click()
+  const list = (text: string) => pane.getByRole('button', { name: new RegExp(text) })
+  await expect(list('resolve me')).toHaveCount(0)
+  await pane.getByRole('button', { name: 'Filter conversations' }).click()
+  await page.getByRole('menuitemcheckbox', { name: 'Resolved' }).click()
+  await page.keyboard.press('Escape')
+  await expect(list('resolve me')).toBeVisible()
+  await list('resolve me').hover()
+  await pane.getByRole('button', { name: 'Reopen conversation' }).click()
+  await expect(thread).toBeVisible()
+
+  // Deleting removes it everywhere until Undo restores it.
+  await thread.hover()
+  await thread.getByRole('button', { name: 'Delete conversation' }).click()
+  await expect(thread).toHaveCount(0)
+  expect(await stored(page, app)).toEqual([])
+  await page.getByRole('button', { name: 'Undo' }).click()
+  await expect(thread).toBeVisible()
+  expect((await stored(page, app)).map(({ messages }) => messages[0].body)).toEqual(['resolve me'])
+
+  await thread.hover()
+  await thread.getByRole('button', { name: 'Delete conversation' }).click()
+  await expect(thread).toHaveCount(0)
+  // The agent still receives the message, flagged, so a later restore loses nothing.
+  const pending = JSON.parse(agent(app, 'pending')) as {
+    pending: { conversation: { deleted?: boolean } }[]
+  }
+  expect(pending.pending.map(({ conversation }) => conversation.deleted)).toEqual([true])
+})
+
+test('clean files, commits, ref comparisons and file comparisons anchor to their content', async ({
+  page,
+  app,
+}) => {
+  await page.goto(app.url)
+  const lineIn = (text: string, side: 'first' | 'last') =>
+    page.locator('diffs-container', { hasText: text }).locator('[data-column-number="1"]')[side]()
+
+  // A clean file is the worktree content at HEAD.
+  await openFile(page, 'feature.txt')
+  await expect(lineIn('feature branch', 'last')).toBeVisible()
+  await comment(page, lineIn('feature branch', 'last'), null, 'clean file')
+
+  // A commit diff: both sides are commits.
+  await page.locator('[data-section="graph"]').click()
+  const row = page.locator('.graph-row').filter({
+    has: page.getByRole('button', { name: /^main change/ }),
+  })
+  await row.locator('[data-graph-disclosure]').click()
+  await row.getByRole('treeitem', { name: 'main.txt', exact: true }).click()
+  await expect(lineIn('main branch', 'last')).toBeVisible()
+  await comment(page, lineIn('main branch', 'last'), null, 'commit new')
+  await comment(page, lineIn('main branch', 'first'), null, 'commit old')
+
+  // A ref comparison.
+  await page.getByRole('button', { name: 'More actions', exact: true }).click()
+  await page.getByRole('menuitem', { name: 'Compare refs…', exact: true }).click()
+  const dialog = page.getByRole('dialog', { name: 'Compare references', exact: true })
+  await dialog.getByRole('combobox', { name: 'Compare to', exact: true }).selectOption('feature')
+  await dialog.getByRole('button', { name: 'Compare', exact: true }).click()
+  await expect(dialog.getByText(/changed files loaded/)).toBeVisible()
+  await dialog.getByRole('button', { name: 'Close dialog' }).click()
+  await expect(lineIn('main branch', 'last')).toBeVisible()
+  await comment(page, lineIn('main branch', 'first'), null, 'compare left')
+  await comment(page, lineIn('main branch', 'last'), null, 'compare right')
+
+  // An Explorer file-to-file comparison.
+  const tree = page.locator('#gitna-repository-tree__tree')
+  if (!(await tree.isVisible())) await page.locator('[data-section="repository"]').click()
+  await tree.getByRole('treeitem', { name: 'main.txt', exact: true }).click()
+  await tree
+    .getByRole('treeitem', { name: 'feature.txt', exact: true })
+    .click({ modifiers: ['Control'] })
+  await tree.getByRole('treeitem', { name: 'main.txt', exact: true }).click({ button: 'right' })
+  await page.getByRole('menuitem', { name: 'Compare Selected', exact: true }).click()
+  await expect(page.locator('[data-comparison-tab="true"]')).toBeVisible()
+  await comment(page, lineIn('feature branch', 'first'), null, 'files left')
+  await comment(page, lineIn('feature branch', 'last'), null, 'files right')
+
+  expect(
+    (await stored(page, app)).map(({ anchor, messages }) => [messages[0].body, anchor]),
+  ).toMatchObject([
+    [
+      'clean file',
+      { path: 'feature.txt', view: 'file', source: 'worktree', code: 'feature branch' },
+    ],
+    [
+      'commit new',
+      {
+        path: 'main.txt',
+        view: 'commit',
+        source: 'commit',
+        side: 'additions',
+        code: 'main branch',
+      },
+    ],
+    [
+      'commit old',
+      { path: 'main.txt', view: 'commit', source: 'commit', side: 'deletions', code: 'main base' },
+    ],
+    [
+      'compare left',
+      {
+        view: 'comparison',
+        source: 'commit',
+        revision: app.headOid,
+        side: 'deletions',
+        code: 'main branch',
+      },
+    ],
+    [
+      'compare right',
+      { view: 'comparison', source: 'commit', side: 'additions', code: 'main base' },
+    ],
+    [
+      'files left',
+      {
+        path: 'main.txt',
+        view: 'file',
+        source: 'worktree',
+        side: 'deletions',
+        code: 'main branch',
+      },
+    ],
+    [
+      'files right',
+      {
+        path: 'feature.txt',
+        view: 'file',
+        source: 'worktree',
+        side: 'additions',
+        code: 'feature branch',
+      },
+    ],
+  ])
+
+  // After a reload, the pane reopens each conversation where it was made.
+  await page.reload()
+  const pane = page.getByRole('region', { name: 'Source Control workflow' })
+  await pane.getByRole('button', { name: 'Conversations', exact: true }).click()
+  for (const body of ['commit new', 'compare right', 'clean file']) {
+    await pane.getByRole('button', { name: new RegExp(body) }).click()
+    await expect(page.getByRole('article').filter({ hasText: body })).toBeVisible()
+  }
+})
+
 test('selections across diff sides and unsaved code are refused with a visible reason', async ({
   page,
   app,
@@ -234,4 +398,103 @@ test('selections across diff sides and unsaved code are refused with a visible r
   const [conversation] = await stored(page, app)
   expect(conversation.anchor).toMatchObject({ startLine: 2, code: 'unsaved line' })
   expect((conversation as { location?: { status: string } }).location?.status).toBe('current')
+})
+
+test('conversations follow edited, moved and deleted code and keep the original when it changes', async ({
+  page,
+  app,
+}) => {
+  await page.goto(app.url)
+  const number = (line: number) => page.locator(`[data-file] [data-column-number="${line}"]`)
+  await openFile(page, 'two-hunk.txt')
+  await expect(number(5)).toBeVisible()
+  await comment(page, number(5), null, 'follow me')
+  await openFile(page, 'main.txt')
+  await expect(number(1)).toBeVisible()
+  await comment(page, number(1), null, 'renamed without git')
+  await openFile(page, 'feature.txt')
+  await expect(number(1)).toBeVisible()
+  await comment(page, number(1), null, 'deleted file')
+
+  const twoHunk = join(app.repo, 'two-hunk.txt')
+  writeFileSync(twoHunk, 'new 1\nnew 2\nnew 3\n' + readFileSync(twoHunk, 'utf8'))
+  renameSync(join(app.repo, 'main.txt'), join(app.repo, 'main-moved.txt'))
+  rmSync(join(app.repo, 'feature.txt'))
+  const locations = async () =>
+    Object.fromEntries(
+      (await stored(page, app)).map((conversation) => [
+        conversation.messages[0].body,
+        (conversation as { location?: unknown }).location,
+      ]),
+    )
+  expect(await locations()).toMatchObject({
+    'follow me': { path: 'two-hunk.txt', startLine: 8, status: 'moved' },
+    'renamed without git': { path: 'main-moved.txt', startLine: 1, status: 'current' },
+    'deleted file': { path: 'feature.txt', status: 'missing' },
+  })
+
+  await page.reload()
+  await openFile(page, 'main-moved.txt')
+  await expect(page.getByRole('article').filter({ hasText: 'renamed without git' })).toBeVisible()
+  await openFile(page, 'two-hunk.txt')
+  const followed = page.getByRole('article').filter({ hasText: 'follow me' })
+  await expect(followed).toBeVisible()
+  await expect(followed.locator('pre')).toHaveCount(0)
+
+  // Once the line itself changes, the thread keeps the code it was about.
+  writeFileSync(twoHunk, readFileSync(twoHunk, 'utf8').replace('line 5\n', 'line five\n'))
+  expect(await locations()).toMatchObject({ 'follow me': { status: 'outdated' } })
+  await page.reload()
+  await openFile(page, 'two-hunk.txt')
+  await expect(followed.locator('pre')).toHaveText('line 5')
+
+  const pane = page.getByRole('region', { name: 'Source Control workflow' })
+  await pane.getByRole('button', { name: 'Conversations', exact: true }).click()
+  await expect(pane.getByRole('button', { name: /deleted file/ })).toBeVisible()
+})
+
+test('unread replies are marked until read and live updates keep the reading position', async ({
+  page,
+  app,
+}) => {
+  await page.goto(app.url)
+  const number = (line: number) => page.locator(`[data-file] [data-column-number="${line}"]`)
+  await openFile(page, 'two-hunk.txt')
+  await expect(number(3)).toBeVisible()
+  await comment(page, number(3), null, 'above the fold')
+  const [first] = await stored(page, app)
+
+  // Collapsed threads and the pane button show unread replies.
+  const thread = page.getByRole('article').filter({ hasText: 'above the fold' })
+  await thread.getByRole('button', { expanded: true }).click()
+  agent(app, 'reply', first.id, '--id', 'm-agent-reply', '--body', 'Agent reply')
+  const summary = page.getByRole('button', { expanded: false, name: /above the fold/ })
+  await expect(summary.getByRole('img', { name: 'Unread' })).toBeVisible()
+  const pane = page.getByRole('region', { name: 'Source Control workflow' })
+  const toggle = pane.getByRole('button', { name: 'Conversations', exact: true })
+  await expect(toggle.getByRole('img', { name: 'Unread' })).toBeVisible()
+  await summary.click()
+  await expect(thread.getByText('Agent reply')).toBeVisible()
+  await expect(toggle.getByRole('img', { name: 'Unread' })).toHaveCount(0)
+
+  // A reply growing a thread above the viewport does not move what is being read.
+  await page.locator('[data-file]').first().hover()
+  while (!(await number(40).isVisible())) await page.mouse.wheel(0, 200)
+  await page.mouse.wheel(0, 200)
+  const reading = page.locator('[data-file] [data-line]', { hasText: /^line 40$/ })
+  const before = (await reading.boundingBox())!.y
+  agent(
+    app,
+    'reply',
+    first.id,
+    '--id',
+    'm-agent-longer',
+    '--body',
+    'A longer agent reply\nthat adds\nseveral lines\nabove',
+  )
+  await expect(thread.getByText('several lines')).toBeAttached()
+  await page.evaluate(
+    () => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))),
+  )
+  expect(Math.abs((await reading.boundingBox())!.y - before)).toBeLessThan(2)
 })

@@ -1,6 +1,7 @@
 import {
   IconBranch,
   IconChevronSm,
+  IconComment,
   IconEllipsis,
   IconFileTree,
   IconFilter,
@@ -39,14 +40,17 @@ import {
   useMemo,
   useRef,
   useState,
+  useSyncExternalStore,
 } from 'react'
 import { createPortal } from 'react-dom'
 
 import { ApiError } from '../../lib/api'
+import type { Conversation, ConversationsModel } from '../../lib/conversations'
 import type { GraphRow } from '../../lib/graph-lanes'
 import type { ChangeKind, ChangeScope, CommitFile, ConflictEntry } from '../../lib/types'
 import { Button } from '../components/Button'
 import { CHROME_ICON_BUTTON_CLASS } from '../components/chromeButtonStyles'
+import { DiffsHubCommentsList } from '../components/DiffsHubCommentsList'
 import { DiffsHubFileTree } from '../components/DiffsHubFileTree'
 import {
   DropdownMenu,
@@ -67,7 +71,7 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '../com
 import { cn } from '../lib/cn'
 import { LoadingIndicator, useLoadingIndicator } from '../lib/loading'
 import { CODE_VIEW_FILE_TREE_SEARCH_OPEN_HEIGHT } from '../lib/constants'
-import type { DiffsHubFileTreeSource } from '../lib/types'
+import type { DiffsHubFileTreeSource, DiffsHubSavedCommentItem } from '../lib/types'
 import {
   graphRangeExtractor,
   nextGraphFocusIndex,
@@ -480,17 +484,53 @@ function useNaturalPaneHeight(
   return height
 }
 
+const noConversations: readonly Conversation[] = []
+
+export interface ConversationsPane {
+  model: ConversationsModel
+  onOpen: (conversation: Conversation) => void
+}
+
+function conversationSections(list: readonly Conversation[]): DiffsHubSavedCommentItem[] {
+  const byPath = new Map<string, DiffsHubSavedCommentItem>()
+  for (const conversation of list) {
+    const path = conversation.location?.path ?? conversation.path
+    const start = conversation.location?.startLine ?? conversation.anchor.startLine
+    const end = conversation.location?.endLine ?? conversation.anchor.endLine
+    const { side } = conversation.anchor
+    let section = byPath.get(path)
+    if (section == null) {
+      section = { itemId: path, path, fileOrder: byPath.size, comments: [] }
+      byPath.set(path, section)
+    }
+    section.comments.push({
+      key: conversation.id,
+      itemId: path,
+      author: conversation.messages[0]?.author.name ?? conversation.createdBy.name,
+      message: conversation.messages[0]?.body ?? '',
+      lineNumber: start,
+      lineType: 'context',
+      side,
+      range: { start, end, side },
+    })
+  }
+  return [...byPath.values()]
+}
+
 export function GitnaSourceControl({
   active = true,
+  conversations,
   onSearchCommits,
 }: {
   active?: boolean
+  conversations?: ConversationsPane
   onSearchCommits?: () => void
 }) {
   const [commitMessage, setCommitMessage] = useState('')
   const [amend, setAmend] = useState(false)
   return active ? (
     <GitnaSourceControlInner
+      conversations={conversations}
       onSearchCommits={onSearchCommits}
       commitMessage={commitMessage}
       setCommitMessage={setCommitMessage}
@@ -501,12 +541,14 @@ export function GitnaSourceControl({
 }
 
 function GitnaSourceControlInner({
+  conversations,
   onSearchCommits,
   commitMessage,
   setCommitMessage,
   amend,
   setAmend,
 }: {
+  conversations?: ConversationsPane
   onSearchCommits?: () => void
   commitMessage: string
   setCommitMessage: (message: string) => void
@@ -515,6 +557,23 @@ function GitnaSourceControlInner({
 }) {
   const repository = useRepository()
   const [repositoryOpen, setRepositoryOpen] = useState(false)
+  const conversationsModel = conversations?.model
+  useSyncExternalStore(
+    useCallback(
+      (listener: () => void) => conversationsModel?.subscribe(listener) ?? (() => {}),
+      [conversationsModel],
+    ),
+    () => conversationsModel?.version ?? 0,
+  )
+  const conversationList = conversationsModel?.list() ?? noConversations
+  const [conversationsShown, setConversationsShown] = useState(false)
+  const [conversationFilter, setConversationFilter] = useState<'open' | 'resolved'>('open')
+  const showingConversations = conversationsShown && conversationList.length > 0
+  const shownConversations = useMemo(
+    () =>
+      conversationSections(conversationList.filter(({ status }) => status === conversationFilter)),
+    [conversationList, conversationFilter],
+  )
   const [workflowOpen, setWorkflowOpen] = useState(true)
   const [changesOpen, setChangesOpen] = useState(true)
   const [stagedOpen, setStagedOpen] = useState(true)
@@ -1095,42 +1154,99 @@ function GitnaSourceControlInner({
             </>
           }
           renderContextMenu={renderRepositoryContextMenu}
-          renderHeaderActions={(model) => (
-            <RepositoryHeaderActions
-              availableStatuses={availableRepositoryStatuses}
-              repositoryMode={snapshot.repository}
-              loading={repositoryRefreshing}
-              refreshing={repositoryRefreshVisible}
-              model={model}
-              paths={repositoryView === 'tree' ? filteredRepositoryPaths : []}
-              selectedStatuses={repositoryFilters}
-              showHiddenFiles={showHiddenFiles}
-              showIgnoredFiles={showIgnoredFiles}
-              view={repositoryView}
-              onClearFilters={() => setRepositoryFilters(new Set())}
-              onIsolateFilter={(status) => setRepositoryFilters(new Set([status]))}
-              onCreate={(kind, initialPath) => setRepositoryEntryDialog({ kind, initialPath })}
-              onRefresh={() => void repository.refreshExplorer()}
-              onShowHiddenFilesChange={setShowHiddenFiles}
-              onShowIgnoredFilesChange={setShowIgnoredFiles}
-              onRename={(source) =>
-                setRepositoryEntryDialog({
-                  kind: 'rename',
-                  source: source.replace(/\/$/, ''),
-                  initialPath: source.replace(/\/$/, ''),
-                })
-              }
-              onToggleFilter={(status) =>
-                setRepositoryFilters((current) => {
-                  const next = new Set(current)
-                  if (next.has(status)) next.delete(status)
-                  else next.add(status)
-                  return next
-                })
-              }
-              onViewChange={setRepositoryView}
-            />
-          )}
+          titleAccessory={
+            conversationsModel != null && conversationList.length > 0 ? (
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                aria-label="Conversations"
+                aria-pressed={showingConversations}
+                title="Conversations"
+                className={cn(
+                  CHROME_ICON_BUTTON_CLASS,
+                  'relative w-auto gap-1 px-1.5 text-xs tabular-nums',
+                )}
+                onClick={() => {
+                  setConversationsShown(!showingConversations)
+                  setRepositoryOpen(true)
+                }}
+              >
+                <IconComment className="size-4 md:size-3" />
+                {conversationList.filter(({ status }) => status === 'open').length}
+                {conversationList.some((conversation) =>
+                  conversationsModel.unread(conversation),
+                ) && (
+                  <span
+                    role="img"
+                    aria-label="Unread"
+                    className="absolute -right-0.5 -top-0.5 size-2 rounded-full border-[1px] border-[var(--diffshub-sidebar-bg)] bg-blue-500 dark:bg-blue-400"
+                  />
+                )}
+              </Button>
+            ) : undefined
+          }
+          body={
+            showingConversations && conversations != null ? (
+              <DiffsHubCommentsList
+                commentSections={shownConversations}
+                emptyTitle={`No ${conversationFilter} conversations`}
+                onSelectComment={({ key }) => {
+                  const conversation = conversationsModel?.find(key)
+                  if (conversation != null) conversations.onOpen(conversation)
+                }}
+                onReopen={
+                  conversationFilter === 'resolved'
+                    ? ({ key }) => {
+                        const conversation = conversationsModel?.find(key)
+                        if (conversation != null)
+                          void conversationsModel?.setStatus(conversation, 'open')
+                      }
+                    : undefined
+                }
+              />
+            ) : undefined
+          }
+          renderHeaderActions={(model) =>
+            showingConversations ? (
+              <ConversationFilter value={conversationFilter} onChange={setConversationFilter} />
+            ) : (
+              <RepositoryHeaderActions
+                availableStatuses={availableRepositoryStatuses}
+                repositoryMode={snapshot.repository}
+                loading={repositoryRefreshing}
+                refreshing={repositoryRefreshVisible}
+                model={model}
+                paths={repositoryView === 'tree' ? filteredRepositoryPaths : []}
+                selectedStatuses={repositoryFilters}
+                showHiddenFiles={showHiddenFiles}
+                showIgnoredFiles={showIgnoredFiles}
+                view={repositoryView}
+                onClearFilters={() => setRepositoryFilters(new Set())}
+                onIsolateFilter={(status) => setRepositoryFilters(new Set([status]))}
+                onCreate={(kind, initialPath) => setRepositoryEntryDialog({ kind, initialPath })}
+                onRefresh={() => void repository.refreshExplorer()}
+                onShowHiddenFilesChange={setShowHiddenFiles}
+                onShowIgnoredFilesChange={setShowIgnoredFiles}
+                onRename={(source) =>
+                  setRepositoryEntryDialog({
+                    kind: 'rename',
+                    source: source.replace(/\/$/, ''),
+                    initialPath: source.replace(/\/$/, ''),
+                  })
+                }
+                onToggleFilter={(status) =>
+                  setRepositoryFilters((current) => {
+                    const next = new Set(current)
+                    if (next.has(status)) next.delete(status)
+                    else next.add(status)
+                    return next
+                  })
+                }
+                onViewChange={setRepositoryView}
+              />
+            )
+          }
           icon={<IconFileTree className="size-3" />}
           paneIcon={IconFileTree}
           lazyDirectories={
@@ -1761,6 +1877,7 @@ interface PaneSectionHeaderProps {
   onOpenChange: (open: boolean) => void
   open: boolean
   title: string
+  titleAccessory?: ReactNode
 }
 
 function PaneSectionHeader({
@@ -1774,6 +1891,7 @@ function PaneSectionHeader({
   onOpenChange,
   open,
   title,
+  titleAccessory,
 }: PaneSectionHeaderProps) {
   return (
     <StatusRow
@@ -1800,6 +1918,7 @@ function PaneSectionHeader({
           </span>
         )}
       </button>
+      {titleAccessory}
       {actions != null && (
         <div className="ml-auto flex max-w-full shrink-0 flex-wrap items-center gap-1">
           {actions}
@@ -2078,6 +2197,50 @@ function ChangeContextMenu({
   )
 }
 
+function ConversationFilter({
+  value,
+  onChange,
+}: {
+  value: 'open' | 'resolved'
+  onChange: (value: 'open' | 'resolved') => void
+}) {
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon-only"
+          aria-label="Filter conversations"
+          aria-pressed={value === 'resolved'}
+          className={cn(CHROME_ICON_BUTTON_CLASS, 'relative')}
+          title="Filter conversations"
+        >
+          <IconFilter className="size-4 md:size-3" />
+          {value === 'resolved' && (
+            <span
+              aria-hidden="true"
+              className="absolute -right-0.5 -top-0.5 size-2 rounded-full border-[1px] border-[var(--diffshub-sidebar-bg)] bg-blue-500 dark:bg-blue-400"
+            />
+          )}
+        </Button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end" className="p-2">
+        {(['open', 'resolved'] as const).map((option) => (
+          <DropdownMenuCheckboxItem
+            key={option}
+            checked={value === option}
+            indicatorSide="right"
+            onCheckedChange={() => onChange(option)}
+          >
+            {option === 'open' ? 'Open' : 'Resolved'}
+          </DropdownMenuCheckboxItem>
+        ))}
+      </DropdownMenuContent>
+    </DropdownMenu>
+  )
+}
+
 function RepositoryHeaderActions({
   availableStatuses,
   repositoryMode,
@@ -2313,6 +2476,7 @@ function RepositoryHeaderActions({
 }
 
 interface TreeSectionProps {
+  body?: ReactNode
   count?: ReactNode
   countTitle?: string
   dataSection: string
@@ -2347,9 +2511,11 @@ interface TreeSectionProps {
   selectedPaths?: readonly string[]
   source: DiffsHubFileTreeSource
   title: string
+  titleAccessory?: ReactNode
 }
 
 function TreeSection({
+  body,
   count,
   countTitle,
   dataSection,
@@ -2380,6 +2546,7 @@ function TreeSection({
   selectedPaths,
   source,
   title,
+  titleAccessory,
 }: TreeSectionProps) {
   const [model, setModel] = useState<FileTree | null>(null)
   const [searchOpen, setSearchOpen] = useState(false)
@@ -2404,13 +2571,17 @@ function TreeSection({
           className={headerClassName}
           actions={
             <>
-              {open && model != null && source.pathCount > 0 && lazyDirectories == null && (
-                <TreeSearchToggle
-                  model={model}
-                  title={dataSection === 'repository' ? 'Repository' : title}
-                  onOpenChange={setSearchOpen}
-                />
-              )}
+              {open &&
+                body == null &&
+                model != null &&
+                source.pathCount > 0 &&
+                lazyDirectories == null && (
+                  <TreeSearchToggle
+                    model={model}
+                    title={dataSection === 'repository' ? 'Repository' : title}
+                    onOpenChange={setSearchOpen}
+                  />
+                )}
               {renderHeaderActions?.(model)}
               {headerActions}
             </>
@@ -2425,6 +2596,7 @@ function TreeSection({
           icon={paneIcon ?? IconFileTree}
           open={open}
           title={title}
+          titleAccessory={titleAccessory}
           onOpenChange={onOpenChange}
         />
       ) : (
@@ -2448,8 +2620,9 @@ function TreeSection({
           </span>
         </div>
       )}
+      {open && body != null && <div className="min-h-0 flex-1">{body}</div>}
       {open && (
-        <>
+        <div hidden={body != null} className="contents">
           <div
             data-pane-body={pane ? 'repository' : undefined}
             className={cn(
@@ -2501,7 +2674,7 @@ function TreeSection({
             )}
           </div>
           {footer != null && <div className="shrink-0">{footer}</div>}
-        </>
+        </div>
       )}
     </section>
   )

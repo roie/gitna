@@ -58,6 +58,7 @@ import type { CommentMetadata, ViewerLoadState } from '../lib/types'
 import { ApiError, type DiffRequest, type DraftRecord, type ReviewRequest } from '../../lib/api'
 import {
   ConversationsModel,
+  type Conversation,
   type ConversationSurface,
 } from '../../lib/conversations'
 import type { ContentSearchFile, FileDiff, ReviewIdentity, WorktreeFile } from '../../lib/types'
@@ -2093,6 +2094,61 @@ function GitnaReviewUIInner({
     ),
     () => conversationsModel?.version ?? 0,
   )
+  // Opens the view a conversation was started in, at its file.
+  const openConversation = useCallback(
+    async (conversation: Conversation) => {
+      const { anchor } = conversation
+      const path = conversation.location?.path ?? conversation.path
+      conversationsModel?.setExpanded(conversation.id, true)
+      if (anchor.source === 'worktree') {
+        setPendingSearchReveal({
+          path,
+          line: conversation.location?.startLine ?? anchor.startLine,
+          column: 1,
+        })
+        await repository.openRepositoryFile(path, true)
+        return
+      }
+      const head = repository.snapshot?.headOid
+      if (anchor.view === 'worktree' || (anchor.view === 'index' && anchor.source === 'index')) {
+        repository.select(anchor.view === 'worktree' ? 'unstaged' : 'staged', path)
+        return
+      }
+      if (anchor.view === 'index' && anchor.revision === head) {
+        repository.select('staged', path)
+        return
+      }
+      const [from, to] =
+        anchor.side === 'additions'
+          ? [anchor.against, anchor.revision]
+          : [anchor.revision, anchor.against]
+      const file = { path, kind: 'modified' } as const
+      if (anchor.view === 'comparison' && from != null && to != null) {
+        await repository.openCompare(from.slice(0, 12), to.slice(0, 12), 'Conversation')
+        repository.selectCompareFile(file)
+        return
+      }
+      // A staged-diff anchor on a commit that is no longer HEAD lives on in that commit.
+      const commit = anchor.view === 'commit' ? (to ?? anchor.revision) : anchor.revision
+      if (commit == null) return
+      await repository.openCommit(commit, 'Conversation')
+      repository.selectCommitFile(commit, 'Conversation', file)
+    },
+    [conversationsModel, repository],
+  )
+  const conversationsPane = useMemo(
+    () =>
+      conversationsModel == null
+        ? undefined
+        : {
+            model: conversationsModel,
+            onOpen: (conversation: Conversation) => {
+              setFileTreeOverlayOpen(false)
+              void openConversation(conversation)
+            },
+          },
+    [conversationsModel, openConversation],
+  )
   const paletteCommands = useMemo<GitnaPaletteCommand[]>(() => {
     const commands: GitnaPaletteCommand[] = [
       {
@@ -2488,6 +2544,7 @@ function GitnaReviewUIInner({
                 )}
                 <GitnaSourceControl
                   active={sidebarMode === 'source'}
+                  conversations={conversationsPane}
                   onSearchCommits={() => {
                     setCommandPaletteInitialQuery('#')
                     setCommandPaletteOpen(true)
