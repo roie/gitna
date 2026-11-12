@@ -63,8 +63,29 @@ Folders backed by Git automatically gain source control, history, branches, stas
 - Browse branches, tags, stashes, and commit history
 - Fetch, pull, push, compare, merge, rebase, cherry-pick, and revert
 - Resolve conflicts with explicit ours, theirs, or combined content
+- Comment on lines in files, diffs, commits, and comparisons, and discuss them with your coding agent
 
 PDF previews retain the browser's normal document scripts and forms. Preview support depends on your browser; downloading remains available.
+
+## Conversations
+
+Hover a line number in any code view and click **+**, or drag to select several lines, to start a conversation on that code. Reply beside the code, click the thread's first message to collapse it, ✓ to resolve it, or ✕ to delete it (with Undo). Resolved conversations leave the code view. The speech-bubble count next to the repository name in the sidebar lists every conversation, with a filter for open and resolved ones, and takes you to it. To hide conversations, turn off **Conversations** in Display settings; nothing is deleted.
+
+Conversations are stored on your machine outside the repository, so they survive refreshes and restarts and are never committed. Gitna keeps the original code with each one. When that code moves, the conversation follows it; when it changes or disappears, the conversation is marked outdated and still shows the original lines.
+
+Your existing coding agent joins from its own session through the `gitna conversations` command. Gitna does not launch or manage agents. Install the `gitna` skill so the agent knows how:
+
+```sh
+npx skills add roie/gitna
+```
+
+or print it with `gitna skill` (it installs nothing) and save it where your agent looks for skills, for example for Claude Code:
+
+```sh
+mkdir -p ~/.claude/skills/gitna && gitna skill > ~/.claude/skills/gitna/SKILL.md
+```
+
+The agent joins once and gets its own participant id, so several sessions of the same agent can each have their own inbox while all showing as, say, "Claude". It then reads what you wrote, answers in the same conversation, and picks up anything it missed after a restart. The `gitna conversations` command names are experimental and may change.
 
 ## Install
 
