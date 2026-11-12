@@ -501,6 +501,20 @@ function GitnaReviewUIInner({
       // Keep the setting usable when browser storage is unavailable.
     }
   }, [inlineBlame])
+  const [showConversations, setShowConversations] = useState(() => {
+    try {
+      return localStorage.getItem('gitna:conversations') !== 'false'
+    } catch {
+      return true
+    }
+  })
+  useEffect(() => {
+    try {
+      localStorage.setItem('gitna:conversations', String(showConversations))
+    } catch {
+      // Keep the setting usable when browser storage is unavailable.
+    }
+  }, [showConversations])
   const [diffIndicators, setDiffIndicators] = useState<DiffIndicators>('bars')
   const [lineNumbers, setLineNumbers] = useState(true)
   const [filePreviewModes, setFilePreviewModes] = useState<Map<string, FilePreviewMode>>(
@@ -2021,10 +2035,10 @@ function GitnaReviewUIInner({
   )
   const gitnaConversations = useMemo<GitnaConversationActions | undefined>(() => {
     const surface = JSON.parse(conversationSurfaceKey) as ConversationSurface | null
-    return conversationsModel == null || surface == null
+    return conversationsModel == null || surface == null || !showConversations
       ? undefined
       : { model: conversationsModel, surface }
-  }, [conversationsModel, conversationSurfaceKey])
+  }, [conversationsModel, conversationSurfaceKey, showConversations])
 
   useEffect(() => {
     const path = target?.filePath
@@ -2474,6 +2488,8 @@ function GitnaReviewUIInner({
               setOverflow={setOverflow}
               inlineBlame={inlineBlame}
               setInlineBlame={setInlineBlame}
+              conversations={showConversations}
+              setConversations={conversationsModel == null ? undefined : setShowConversations}
               setShowBackgrounds={setShowBackgrounds}
               showBackgrounds={showBackgrounds}
             />
@@ -2544,7 +2560,7 @@ function GitnaReviewUIInner({
                 )}
                 <GitnaSourceControl
                   active={sidebarMode === 'source'}
-                  conversations={conversationsPane}
+                  conversations={showConversations ? conversationsPane : undefined}
                   onSearchCommits={() => {
                     setCommandPaletteInitialQuery('#')
                     setCommandPaletteOpen(true)

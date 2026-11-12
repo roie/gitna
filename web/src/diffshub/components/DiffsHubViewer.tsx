@@ -278,7 +278,14 @@ export const DiffsHubViewer = memo(function DiffsHubViewer({
   const syncConversationItem = useStableCallback((id: string) => {
     const { current: viewer } = viewerRef;
     const item = viewer?.getItem(id);
-    if (viewer == null || gitnaConversations == null || item == null || (item.type !== 'file' && item.type !== 'diff')) return;
+    if (viewer == null || item == null || (item.type !== 'file' && item.type !== 'diff')) return;
+    if (gitnaConversations == null) {
+      const isConversation = (metadata: CommentMetadata) => metadata.kind === 'saved' || metadata.kind === 'draft';
+      if (item.annotations?.some((annotation) => isConversation(annotation.metadata))) {
+        setItemAnnotations(viewer, item, (metadata) => !isConversation(metadata), []);
+      }
+      return;
+    }
     const next = conversationAnnotations(item, gitnaConversations);
     const current = (item.annotations ?? []).filter((annotation) => annotation.metadata.kind === 'saved');
     if (annotationSignature(current) === annotationSignature(next)) return;
@@ -290,9 +297,8 @@ export const DiffsHubViewer = memo(function DiffsHubViewer({
   });
 
   useEffect(() => {
-    if (gitnaConversations == null) return;
     syncConversationAnnotations();
-    return gitnaConversations.model.subscribe(syncConversationAnnotations);
+    return gitnaConversations?.model.subscribe(syncConversationAnnotations);
   }, [gitnaConversations, initialItems, syncConversationAnnotations]);
 
   // Comment affordances exist only where a saved comment is a real conversation.

@@ -18,6 +18,7 @@ import {
   IconEyeSlash,
   IconFileTreeFill,
   IconGearFill,
+  IconInfo,
   IconShare,
   IconSearch,
   IconSymbolDiffstat,
@@ -109,6 +110,8 @@ interface HeaderProps {
   showBackgrounds: boolean;
   inlineBlame?: boolean;
   setInlineBlame?: (enabled: boolean) => void;
+  conversations?: boolean;
+  setConversations?: (enabled: boolean) => void;
 }
 
 function LocalFolderForm({
@@ -474,6 +477,8 @@ export const DiffsHubHeader = memo(function DiffsHubHeader({
   showBackgrounds,
   inlineBlame,
   setInlineBlame,
+  conversations,
+  setConversations,
 }: HeaderProps) {
   const [currentUrl, setCurrentUrl] = useState(initialUrl);
   // Only show the external-link button when the input still reflects the
@@ -744,6 +749,44 @@ export const DiffsHubHeader = memo(function DiffsHubHeader({
                         aria-label="Inline blame"
                         checked={inlineBlame}
                         onCheckedChange={setInlineBlame}
+                      />
+                    </label>
+                  </DropdownMenuItem>
+                )}
+                {localRepository && setConversations != null && (
+                  <DropdownMenuItem
+                    className="cursor-default p-0"
+                    onSelect={(e) => e.preventDefault()}
+                  >
+                    <label className={SETTING_ROW_CLASS}>
+                      <span className="flex min-w-0 flex-1 items-center gap-1.5">
+                        Conversations
+                        <TooltipProvider delayDuration={200}>
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <span
+                                role="img"
+                                aria-label="About conversations"
+                                tabIndex={0}
+                                className="inline-flex text-muted-foreground"
+                                onClick={(e) => e.preventDefault()}
+                              >
+                                <IconInfo className="size-3" />
+                              </span>
+                            </TooltipTrigger>
+                            <TooltipContent side="bottom" className="max-w-60">
+                              Comment on lines of code and discuss them with
+                              coding agents, who read and reply through the
+                              gitna CLI. Turning this off hides conversations;
+                              nothing is deleted.
+                            </TooltipContent>
+                          </Tooltip>
+                        </TooltipProvider>
+                      </span>
+                      <Switch
+                        aria-label="Conversations"
+                        checked={conversations}
+                        onCheckedChange={setConversations}
                       />
                     </label>
                   </DropdownMenuItem>

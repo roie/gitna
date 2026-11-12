@@ -524,3 +524,58 @@ test('unread replies are marked until read and live updates keep the reading pos
   )
   expect(Math.abs((await reading.boundingBox())!.y - before)).toBeLessThan(2)
 })
+
+test('display settings turn conversations off and on, and explain them', async ({ page, app }) => {
+  writeFileSync(join(app.repo, 'notes.md'), '# Notes\n\nfirst\n')
+  execFileSync('git', ['add', 'notes.md'], { cwd: app.repo })
+  execFileSync(
+    'git',
+    ['-c', 'user.name=t', '-c', 'user.email=t@t', 'commit', '-qm', 'notes', '--', 'notes.md'],
+    {
+      cwd: app.repo,
+    },
+  )
+  const created = await page.request.post(new URL('api/v1/conversations', app.url).href, {
+    headers: { Origin: new URL(app.url).origin },
+    data: { id: 'c-keep', anchor: { path: 'notes.md', startLine: 3, endLine: 3 }, body: 'keep me' },
+  })
+  expect(created.ok()).toBe(true)
+
+  const setting = async (on: boolean) => {
+    await page.getByRole('button', { name: 'Display settings' }).click()
+    const menu = page.getByRole('menu')
+    if (!on) {
+      await menu.getByRole('img', { name: 'About conversations' }).hover()
+      await expect(page.getByRole('tooltip')).toContainText('discuss them with coding agents')
+    }
+    const control = menu.getByRole('switch', { name: 'Conversations' })
+    await expect(control).toHaveAttribute('aria-checked', String(!on))
+    await control.click()
+    await expect(control).toHaveAttribute('aria-checked', String(on))
+    await page.keyboard.press('Escape')
+  }
+  const number = (line: number) => page.locator(`[data-file] [data-column-number="${line}"]`)
+  const thread = page.getByRole('article').filter({ hasText: 'keep me' })
+  const pane = page.getByRole('region', { name: 'Source Control workflow' })
+  const toggle = pane.getByRole('button', { name: 'Conversations', exact: true })
+
+  await page.goto(app.url)
+  await openFile(page, 'notes.md')
+  await expect(thread).toBeVisible()
+  await expect(toggle).toBeVisible()
+
+  await setting(false)
+  await expect(thread).toHaveCount(0)
+  await expect(toggle).toHaveCount(0)
+  await number(2).hover()
+  await expect(page.locator('[data-utility-button]')).toHaveCount(0)
+  await page.reload()
+  await openFile(page, 'notes.md')
+  await expect(number(3)).toBeVisible()
+  await expect(thread).toHaveCount(0)
+
+  await setting(true)
+  await expect(thread).toBeVisible()
+  await expect(toggle).toBeVisible()
+  expect((await stored(page, app)).map(({ messages }) => messages[0].body)).toEqual(['keep me'])
+})
