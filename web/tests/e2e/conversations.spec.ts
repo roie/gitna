@@ -236,6 +236,32 @@ test('the repository pane lists conversations; resolve hides them and delete can
   expect(pending.pending.map(({ conversation }) => conversation.deleted)).toEqual([true])
 })
 
+test('a draft shows its caret and moves to another line from the gutter', async ({ page, app }) => {
+  await page.goto(app.url)
+  await openFile(page, 'two-hunk.txt')
+  const number = (line: number) => page.locator(`[data-file] [data-column-number="${line}"]`)
+  await expect(number(12)).toBeVisible()
+
+  await number(12).hover()
+  await page.locator('[data-utility-button]').click()
+  const draft = page.getByRole('textbox', { name: 'Add a comment…' })
+  await expect(draft).toBeFocused()
+  // The editable code view hides the native caret; the draft must not inherit that.
+  expect(await draft.evaluate((element) => getComputedStyle(element).caretColor)).not.toBe(
+    'rgba(0, 0, 0, 0)',
+  )
+
+  await number(15).hover()
+  const utility = page.locator('[data-utility-button]')
+  await expect(number(15).locator('[data-utility-button]')).toHaveCount(1)
+  await utility.click()
+  await expect(draft).toHaveCount(1)
+  await draft.fill('moved here')
+  await draft.press('Control+Enter')
+  await expect(draft).toHaveCount(0)
+  expect((await stored(page, app)).map(({ anchor }) => anchor.startLine)).toEqual([15])
+})
+
 test('clean files, commits, ref comparisons and file comparisons anchor to their content', async ({
   page,
   app,

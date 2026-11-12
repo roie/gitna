@@ -750,6 +750,37 @@ index 1c28b317c963657aedd4487c889b65c8609a5b74..3a5792b0528e8cee56102af36080ef66
  		const captured = /* @__PURE__ */ new Map();
  		this.#capturedLines = captured;
  		try {
+diff --git a/dist/managers/InteractionManager.js b/dist/managers/InteractionManager.js
+index fbfc10efafa50a07a1b339f6e82baad84c4b70ee..4dadf4b15d226890149a316b8d3e9e7adb8aa38f 100644
+--- a/dist/managers/InteractionManager.js
++++ b/dist/managers/InteractionManager.js
+@@ -361,11 +361,13 @@ var InteractionManager = class {
+ 	startGutterSelectionFromPointerDown(event) {
+ 		const { onGutterUtilityClick } = this.options;
+ 		if (onGutterUtilityClick == null) return;
+-		const selectedEndpoints = this.currentSelectionEnds();
+-		const point = selectedEndpoints?.bottom ?? this.resolveSelectionPoint(event, {
++		const eventPoint = this.resolveSelectionPoint(event, {
+ 			source: "event-path",
+ 			excludeUtility: false
+ 		});
++		let selectedEndpoints = this.currentSelectionEnds();
++		if (eventPoint != null && selectedEndpoints != null && (eventPoint.lineNumber !== selectedEndpoints.bottom.lineNumber || eventPoint.side !== selectedEndpoints.bottom.side)) selectedEndpoints = void 0;
++		const point = selectedEndpoints?.bottom ?? eventPoint;
+ 		const anchor = selectedEndpoints?.top ?? point;
+ 		if (point == null || anchor == null) return;
+ 		event.preventDefault();
+@@ -550,6 +552,10 @@ var InteractionManager = class {
+ 		if (isLinePointerTarget(target) && target.numberColumn) this.showUtilityOnLine(this.toEventBaseProps(target));
+ 	}
+ 	placeUtility() {
++		if (this.hoveredLine != null && this.pointerSession.mode === "idle") {
++			this.showUtilityOnLine(this.hoveredLine);
++			return;
++		}
+ 		if (this.placeUtilityFromSelection()) return;
+ 		if (this.hoveredLine != null) {
+ 			this.showUtilityOnLine(this.hoveredLine);
 diff --git a/dist/react/CodeView.d.ts b/dist/react/CodeView.d.ts
 index 12e12c50cd0442c230fb5a9ac00fb097f6dfb01e..9b1c9c83975001d5c6dc8b66347f3590a77d2290 100644
 --- a/dist/react/CodeView.d.ts

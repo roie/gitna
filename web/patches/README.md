@@ -8,6 +8,10 @@ Previous patch versions remain available in Git history.
 `@pierre__diffs@1.6.4.patch` carries Gitna's raster preview slots, editor theme
 updates, invalid-regex feedback, and bounded large-file rendering. It also
 refreshes plain-text edits without full-document background tokenization.
+While no gutter or line selection is in progress, the gutter **+** follows the
+hovered line instead of staying on an existing selection, and pressing it on a
+line outside that selection starts there, so a comment draft can be moved to
+another line.
 
 ## Trees 1.0.0-beta.6
 

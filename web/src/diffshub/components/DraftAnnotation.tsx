@@ -123,7 +123,7 @@ export function CommentComposer({
             }}
             placeholder={placeholder}
             rows={2}
-            className="field-sizing-content w-full resize-none rounded-sm bg-transparent py-1.5 text-[14px] text-inherit placeholder:text-[var(--diffshub-popover-muted-fg,var(--color-muted-foreground))] focus:outline-none"
+            className="field-sizing-content w-full resize-none [caret-color:auto] rounded-sm bg-transparent py-1.5 text-[14px] text-inherit placeholder:text-[var(--diffshub-popover-muted-fg,var(--color-muted-foreground))] focus:outline-none"
           />
           {error != null && (
             <p role="alert" className="m-0 text-xs text-red-600 dark:text-red-400">
