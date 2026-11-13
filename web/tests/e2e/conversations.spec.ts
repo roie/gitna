@@ -674,3 +674,18 @@ test('with several agents, comments go only to the agent picked or last addresse
   expect(pending(second)).toEqual(['Please review', 'And the tests'])
   expect(pending(first)).toEqual([])
 })
+
+test('an unsent draft survives a refresh from changes on disk', async ({ page, app }) => {
+  await page.goto(app.url)
+  const modified = page.locator('diffs-container', { hasText: 'unstaged change' })
+  const line = modified.locator('[data-column-number="1"]').last()
+  await expect(line).toBeVisible()
+  await line.hover()
+  await page.locator('[data-utility-button]').click()
+  const draft = page.getByRole('textbox', { name: 'Add a comment…' })
+  await draft.fill('still typing')
+
+  writeFileSync(join(app.repo, 'modified.txt'), 'unstaged change\nmore on disk\n')
+  await expect(modified).toContainText('more on disk')
+  await expect(draft).toHaveValue('still typing')
+})

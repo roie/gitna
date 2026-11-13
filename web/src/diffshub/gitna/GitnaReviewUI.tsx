@@ -265,8 +265,22 @@ function renderFolderLoadingDocument(newTab: Window, path: string, colorMode: Co
 function updateViewerItems(
   viewer: CodeViewHandle<CommentMetadata, undefined>,
   current: LoadedDiffsHubData,
-  next: LoadedDiffsHubData,
+  refreshed: LoadedDiffsHubData,
 ): void {
+  // An unsent comment draft lives only on the viewer item, so carry it over.
+  const next = {
+    ...refreshed,
+    items: refreshed.items.map((item) => {
+      const existing = viewer.getItem(item.id)
+      const drafts =
+        existing?.type === item.type
+          ? existing.annotations?.filter(({ metadata }) => metadata.kind === 'draft')
+          : undefined
+      return drafts?.length
+        ? ({ ...item, annotations: [...(item.annotations ?? []), ...drafts] } as typeof item)
+        : item
+    }),
+  }
   const sharedItemsMatch = current.items.every((item, index) => {
     const nextItem = next.items[index]
     return (
