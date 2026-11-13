@@ -1,6 +1,7 @@
 import type { AnnotationSide, SelectedLineRange } from '@pierre/diffs';
 import type { FileTreeGitStatusPatch, GitStatusEntry } from '@pierre/trees';
 
+import type { ConversationAnchor } from '../../lib/conversations';
 import type { ImageContent } from '../../lib/types';
 
 export type ViewerLoadState =
@@ -23,6 +24,12 @@ export interface DraftCommentMetadata {
   key: string;
   message: string;
   range: SelectedLineRange;
+  /** The selected lines as they were when the draft was started. */
+  code: string;
+  /** The anchor captured when the draft was started, saved once the code is gone. */
+  anchor: ConversationAnchor;
+  /** The selected lines no longer hold `code` and it has no single new place. */
+  outdated?: boolean;
 }
 
 export interface ImageAnnotationMetadata {

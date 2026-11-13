@@ -54,6 +54,7 @@ import { ImageAnnotation } from '../gitna/ImageAnnotation';
 import { buildAnnotationThemeStyle } from '@/lib/annotationThemeStyle';
 import { cn } from '@/lib/cn';
 import { CODE_VIEW_CUSTOM_CSS, CODE_VIEW_LAYOUT } from '@/lib/constants';
+import { shownCode } from '@/lib/draftLocation';
 import { isDraftMetadata } from '@/lib/isDraftMetadata';
 import { diffshubChromeMapping } from '@/lib/theme/diffshubChromeMapping';
 import type { CommentMetadata, DraftCommentMetadata } from '@/lib/types';
@@ -346,16 +347,20 @@ export const DiffsHubViewer = memo(function DiffsHubViewer({
       if (viewer == null || item == null || (item.type !== 'file' && item.type !== 'diff')) {
         return;
       }
-      if (conversationAnchor(item, range) == null) {
+      const anchor = conversationAnchor(item, range);
+      if (anchor == null) {
         return;
       }
       const side = range.endSide ?? range.side ?? 'additions';
       const lineNumber = Math.max(range.start, range.end);
+      const code = anchor.code ?? shownCode(item, side, Math.min(range.start, range.end), lineNumber) ?? '';
       const metadata: CommentMetadata = {
         kind: 'draft',
         key: `draft-${nextCommentKeyRef.current++}`,
         message: '',
         range,
+        code,
+        anchor: { ...anchor, code },
       };
 
       const { current: activeDraft } = activeDraftRef;
@@ -392,7 +397,7 @@ export const DiffsHubViewer = memo(function DiffsHubViewer({
       if (gitnaConversations == null || item == null || draft?.kind !== 'draft') {
         return;
       }
-      const anchor = conversationAnchor(item, draft.range);
+      const anchor = draft.outdated === true ? draft.anchor : conversationAnchor(item, draft.range);
       if (anchor == null) {
         return;
       }

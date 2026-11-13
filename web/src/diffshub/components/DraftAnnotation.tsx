@@ -33,6 +33,7 @@ interface CommentComposerProps {
   placeholder?: string;
   recipients?: Recipients | null;
   onCancel?: () => void;
+  onChange?: (message: string) => void;
   onSubmit: (message: string, to?: string) => void | Promise<void>;
 }
 
@@ -47,6 +48,7 @@ export function CommentComposer({
   placeholder = 'Add a comment…',
   recipients,
   onCancel,
+  onChange,
   onSubmit,
 }: CommentComposerProps) {
   const [message, setMessage] = useState(initialMessage);
@@ -114,7 +116,10 @@ export function CommentComposer({
             value={message}
             disabled={busy}
             aria-label={placeholder}
-            onChange={({ currentTarget }) => setMessage(currentTarget.value)}
+            onChange={({ currentTarget }) => {
+              setMessage(currentTarget.value);
+              onChange?.(currentTarget.value);
+            }}
             onKeyDown={(event) => {
               if (event.key === 'Escape') {
                 event.preventDefault();
@@ -227,14 +232,29 @@ export function DraftAnnotation({
   onCancel,
   onSave,
 }: DraftAnnotationProps) {
-  return (
+  const { metadata } = annotation;
+  const composer = (
     <CommentComposer
       autoFocus
       avatar={<AuthorInitial name={author} />}
-      initialMessage={annotation.metadata.message}
+      initialMessage={metadata.message}
       recipients={recipients}
-      onCancel={() => onCancel(itemId, annotation.metadata.key)}
-      onSubmit={(message, to) => onSave(itemId, annotation.metadata.key, message, to)}
+      onCancel={() => onCancel(itemId, metadata.key)}
+      onChange={(message) => {
+        metadata.message = message;
+      }}
+      onSubmit={(message, to) => onSave(itemId, metadata.key, message, to)}
     />
+  );
+  if (metadata.outdated !== true) {
+    return composer;
+  }
+  return (
+    <div className="flex flex-col gap-2">
+      <pre className="m-0 max-h-40 overflow-auto rounded-md border border-border px-2 py-1 font-mono text-xs">
+        {metadata.code}
+      </pre>
+      {composer}
+    </div>
   );
 }

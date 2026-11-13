@@ -675,17 +675,40 @@ test('with several agents, comments go only to the agent picked or last addresse
   expect(pending(first)).toEqual([])
 })
 
-test('an unsent draft survives a refresh from changes on disk', async ({ page, app }) => {
+test('an unsent draft survives refreshes, follows its code, and never moves onto other code', async ({
+  page,
+  app,
+}) => {
   await page.goto(app.url)
   const modified = page.locator('diffs-container', { hasText: 'unstaged change' })
-  const line = modified.locator('[data-column-number="1"]').last()
-  await expect(line).toBeVisible()
-  await line.hover()
-  await page.locator('[data-utility-button]').click()
   const draft = page.getByRole('textbox', { name: 'Add a comment…' })
-  await draft.fill('still typing')
+  const startDraft = async (line: number, body: string) => {
+    await modified.locator(`[data-column-number="${line}"]`).last().hover()
+    await page.locator('[data-utility-button]').click()
+    await draft.fill(body)
+  }
+  const disk = async (contents: string, shown: string) => {
+    writeFileSync(join(app.repo, 'modified.txt'), contents)
+    await expect(modified).toContainText(shown)
+  }
+  const anchor = async (body: string) =>
+    (await stored(page, app)).find(({ messages }) => messages[0].body === body)?.anchor
 
-  writeFileSync(join(app.repo, 'modified.txt'), 'unstaged change\nmore on disk\n')
-  await expect(modified).toContainText('more on disk')
-  await expect(draft).toHaveValue('still typing')
+  await expect(modified.locator('[data-column-number="1"]').last()).toBeVisible()
+  await startDraft(1, 'follows')
+  await disk('inserted\nunstaged change\n', 'inserted')
+  await expect(draft).toHaveValue('follows')
+  await draft.press('Control+Enter')
+  await expect(draft).toHaveCount(0)
+  expect(await anchor('follows')).toMatchObject({ startLine: 2, code: 'unstaged change' })
+
+  await startDraft(2, 'outdated')
+  await disk('inserted\nrewritten\n', 'rewritten')
+  await expect(draft).toHaveValue('outdated')
+  await expect(page.locator('div:has(> form [aria-label="Add a comment…"]) > pre')).toHaveText(
+    'unstaged change',
+  )
+  await draft.press('Control+Enter')
+  await expect(draft).toHaveCount(0)
+  expect(await anchor('outdated')).toMatchObject({ startLine: 2, code: 'unstaged change' })
 })

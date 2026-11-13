@@ -65,6 +65,7 @@ import type { ContentSearchFile, FileDiff, ReviewIdentity, WorktreeFile } from '
 import type { DarkThemeName, LightThemeName } from '../lib/themeNames'
 import type { LoadedDiffsHubData } from '../lib/diffsHubDataAccumulator'
 import { cn } from '../lib/cn'
+import { relocateDraft } from '../lib/draftLocation'
 import type { GitnaPaletteCommand } from './GitnaCommandPalette'
 import { GlobalToastHost } from './ConnectionStatus'
 import { FolderLoadingScreen, folderDisplayName } from './FolderLoadingScreen'
@@ -276,9 +277,11 @@ function updateViewerItems(
         existing?.type === item.type
           ? existing.annotations?.filter(({ metadata }) => metadata.kind === 'draft')
           : undefined
-      return drafts?.length
-        ? ({ ...item, annotations: [...(item.annotations ?? []), ...drafts] } as typeof item)
-        : item
+      if (!drafts?.length) return item
+      const placed = drafts.map((draft) =>
+        relocateDraft(item, draft as Parameters<typeof relocateDraft>[1]),
+      )
+      return { ...item, annotations: [...(item.annotations ?? []), ...placed] } as typeof item
     }),
   }
   const sharedItemsMatch = current.items.every((item, index) => {
