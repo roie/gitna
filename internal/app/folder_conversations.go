@@ -76,6 +76,14 @@ func (r *folderRegistry) newConversations(repo gitx.Repository) *server.Conversa
 			}
 			return conversations.ParseRenames(result.Stdout), nil
 		}
+		backend.Deleted = func(ctx context.Context, path string) string {
+			result, err := r.runner.Run(ctx, root, "log", "-1", "--diff-filter=D", "--format=%P", "HEAD", "--", path)
+			if err != nil || result.ExitCode != 0 {
+				return ""
+			}
+			parent, _, _ := strings.Cut(strings.TrimSpace(string(result.Stdout)), " ")
+			return parent
+		}
 		backend.Changed = func(ctx context.Context) ([]string, error) {
 			result, err := r.runner.Run(ctx, root, "status", "--porcelain=v1", "-z", "--untracked-files=all")
 			if err != nil {

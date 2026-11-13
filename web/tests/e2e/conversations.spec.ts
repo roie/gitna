@@ -426,7 +426,7 @@ test('selections across diff sides and unsaved code are refused with a visible r
   expect((conversation as { location?: { status: string } }).location?.status).toBe('current')
 })
 
-test('conversations follow edited, moved and deleted code and keep the original when it changes', async ({
+test('conversations follow edited, moved and deleted code, and hide code Git never had', async ({
   page,
   app,
 }) => {
@@ -441,11 +441,16 @@ test('conversations follow edited, moved and deleted code and keep the original 
   await openFile(page, 'feature.txt')
   await expect(number(1)).toBeVisible()
   await comment(page, number(1), null, 'deleted file')
+  await openFile(page, 'untracked.txt')
+  await expect(number(1)).toBeVisible()
+  await comment(page, number(1), null, 'untracked note')
 
   const twoHunk = join(app.repo, 'two-hunk.txt')
   writeFileSync(twoHunk, 'new 1\nnew 2\nnew 3\n' + readFileSync(twoHunk, 'utf8'))
   renameSync(join(app.repo, 'main.txt'), join(app.repo, 'main-moved.txt'))
   rmSync(join(app.repo, 'feature.txt'))
+  const untracked = join(app.repo, 'untracked.txt')
+  rmSync(untracked)
   const locations = async () =>
     Object.fromEntries(
       (await stored(page, app)).map((conversation) => [
@@ -456,7 +461,9 @@ test('conversations follow edited, moved and deleted code and keep the original 
   expect(await locations()).toMatchObject({
     'follow me': { path: 'two-hunk.txt', startLine: 8, status: 'moved' },
     'renamed without git': { path: 'main-moved.txt', startLine: 1, status: 'current' },
-    'deleted file': { path: 'feature.txt', status: 'missing' },
+    // Git still has the deleted file's code in the index; never-tracked code is gone.
+    'deleted file': { path: 'feature.txt', status: 'current', source: 'index' },
+    'untracked note': { path: 'untracked.txt', status: 'missing' },
   })
 
   await page.reload()
@@ -476,7 +483,19 @@ test('conversations follow edited, moved and deleted code and keep the original 
 
   const pane = page.getByRole('region', { name: 'Source Control workflow' })
   await pane.getByRole('button', { name: 'Conversations', exact: true }).click()
-  await expect(pane.getByRole('button', { name: /deleted file/ })).toBeVisible()
+  await expect(pane.getByRole('button', { name: /untracked note/ })).toHaveCount(0)
+  // The deleted file's conversation opens on the deletion Git can still show.
+  await pane.getByRole('button', { name: /deleted file/ }).click()
+  await expect(page.getByRole('article').filter({ hasText: 'deleted file' })).toBeVisible()
+
+  // A replacement at the same path is not the file the note was about.
+  writeFileSync(untracked, 'something else entirely\n')
+  expect(await locations()).toMatchObject({ 'untracked note': { status: 'missing' } })
+  writeFileSync(untracked, 'untracked content\n')
+  expect(await locations()).toMatchObject({ 'untracked note': { status: 'current' } })
+  await page.reload()
+  await pane.getByRole('button', { name: 'Conversations', exact: true }).click()
+  await expect(pane.getByRole('button', { name: /untracked note/ })).toBeVisible()
 })
 
 test('unread replies are marked until read and live updates keep the reading position', async ({

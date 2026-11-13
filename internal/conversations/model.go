@@ -83,8 +83,13 @@ type Location struct {
 	Path      string `json:"path"`
 	StartLine int    `json:"startLine"`
 	EndLine   int    `json:"endLine"`
-	// Status is current, moved, outdated, or missing.
+	// Status is current, moved, outdated, or missing. Missing code cannot be
+	// shown anywhere; the conversation is kept but not presented.
 	Status string `json:"status"`
+	// Source and Revision are set when the anchored content is gone but Git
+	// still has the code: the index, or the commit Revision.
+	Source   string `json:"source,omitempty"`
+	Revision string `json:"revision,omitempty"`
 }
 
 type Message struct {

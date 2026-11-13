@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -257,17 +258,19 @@ func TestLocateFollowsOnlyConfirmedCode(t *testing.T) {
 		name, content string
 		want          Location
 	}{
-		{"unchanged", "h\na\nb\nc\nd\ne\n", Location{"f.go", 3, 4, LocationCurrent}},
-		{"crlf", "h\r\na\r\nb\r\nc\r\nd\r\ne\r\n", Location{"f.go", 3, 4, LocationCurrent}},
-		{"lines inserted above", "new\nh\nnew\na\nb\nc\nd\ne\n", Location{"f.go", 5, 6, LocationMoved}},
-		{"neighbours edited in place", "h\nA\nb\nc\nD\ne\n", Location{"f.go", 3, 4, LocationCurrent}},
-		{"code edited", "h\na\nB\nc\nd\ne\n", Location{"f.go", 3, 4, LocationOutdated}},
-		{"code deleted, file shorter", "h\n", Location{"f.go", 1, 1, LocationOutdated}},
-		{"moved among strangers", "x\nb\nc\ny\nh\na\nd\ne\n", Location{"f.go", 3, 4, LocationOutdated}},
-		{"deleted, look-alike lands on the same lines", "x\ny\nb\nc\nz\nb\nc\n", Location{"f.go", 3, 4, LocationOutdated}},
-		{"duplicate with the real context wins", "b\nc\nx\nh\na\nb\nc\nd\ne\n", Location{"f.go", 6, 7, LocationMoved}},
-		{"two confirmed copies", "h\na\nb\nc\nq\nq\nh\na\nb\nc\n", Location{"f.go", 3, 4, LocationCurrent}},
-		{"two confirmed copies elsewhere", "q\nq\nq\nq\nh\na\nb\nc\nq\nh\na\nb\nc\n", Location{"f.go", 3, 4, LocationOutdated}},
+		{"unchanged", "h\na\nb\nc\nd\ne\n", Location{"f.go", 3, 4, LocationCurrent, "", ""}},
+		{"crlf", "h\r\na\r\nb\r\nc\r\nd\r\ne\r\n", Location{"f.go", 3, 4, LocationCurrent, "", ""}},
+		{"lines inserted above", "new\nh\nnew\na\nb\nc\nd\ne\n", Location{"f.go", 5, 6, LocationMoved, "", ""}},
+		{"neighbours edited in place", "h\nA\nb\nc\nD\ne\n", Location{"f.go", 3, 4, LocationCurrent, "", ""}},
+		{"code edited", "h\na\nB\nc\nd\ne\n", Location{"f.go", 3, 4, LocationOutdated, "", ""}},
+		{"code deleted, file shorter", "h\n", Location{"f.go", 1, 1, LocationMissing, "", ""}},
+		{"unrelated file at the same path", "x\ny\nz\nw\n", Location{"f.go", 3, 4, LocationMissing, "", ""}},
+		{"only context left", "h\na\nB\nC\n", Location{"f.go", 3, 4, LocationOutdated, "", ""}},
+		{"moved among strangers", "x\nb\nc\ny\nh\na\nd\ne\n", Location{"f.go", 3, 4, LocationOutdated, "", ""}},
+		{"deleted, look-alike lands on the same lines", "x\ny\nb\nc\nz\nb\nc\n", Location{"f.go", 3, 4, LocationOutdated, "", ""}},
+		{"duplicate with the real context wins", "b\nc\nx\nh\na\nb\nc\nd\ne\n", Location{"f.go", 6, 7, LocationMoved, "", ""}},
+		{"two confirmed copies", "h\na\nb\nc\nq\nq\nh\na\nb\nc\n", Location{"f.go", 3, 4, LocationCurrent, "", ""}},
+		{"two confirmed copies elsewhere", "q\nq\nq\nq\nh\na\nb\nc\nq\nh\na\nb\nc\n", Location{"f.go", 3, 4, LocationOutdated, "", ""}},
 	}
 	for _, tc := range cases {
 		if got := Locate(anchor, "f.go", []byte(tc.content)); got != tc.want {
@@ -275,7 +278,7 @@ func TestLocateFollowsOnlyConfirmedCode(t *testing.T) {
 		}
 	}
 	whole := anchorAt("f", 1, 2, "a\n")
-	if got := Locate(whole, "f", []byte("x\na\n\ny\n")); got != (Location{"f", 2, 3, LocationMoved}) {
+	if got := Locate(whole, "f", []byte("x\na\n\ny\n")); got != (Location{"f", 2, 3, LocationMoved, "", ""}) {
 		t.Errorf("anchor without context = %+v", got)
 	}
 }
@@ -318,14 +321,14 @@ func TestLocateByContentSource(t *testing.T) {
 	}
 	list, _, _ := store.List("")
 	got := map[string]Location{}
-	for _, conversation := range store.Locate(context.Background(), list, content, nil, nil, "") {
+	for _, conversation := range store.Locate(context.Background(), list, Sources{Content: content}, "") {
 		got[conversation.ID] = *conversation.Location
 	}
 	want := map[string]Location{
-		"commit":  {"f", 9, 9, LocationCurrent},
-		"index":   {"f", 2, 2, LocationMoved},
-		"work":    {"f", 1, 1, LocationOutdated},
-		"missing": {"nope", 1, 1, LocationMissing},
+		"commit":  {"f", 9, 9, LocationCurrent, "", ""},
+		"index":   {"f", 2, 2, LocationMoved, "", ""},
+		"work":    {"f", 2, 2, LocationMoved, SourceIndex, ""},
+		"missing": {"nope", 1, 1, LocationMissing, "", ""},
 	}
 	for id, location := range want {
 		if got[id] != location {
@@ -371,8 +374,8 @@ func TestStoreLocateFollowsGitRename(t *testing.T) {
 		return ParseRenames(git("diff", "-M", "--name-status", "-z", revision, "--")), nil
 	}
 	list, _, _ := store.List("")
-	list = store.Locate(context.Background(), list, WorktreeContent(root), renames, nil, "new.go")
-	if got := *list[0].Location; got != (Location{"new.go", 4, 4, LocationMoved}) {
+	list = store.Locate(context.Background(), list, Sources{Content: WorktreeContent(root), Renames: renames}, "new.go")
+	if got := *list[0].Location; got != (Location{"new.go", 4, 4, LocationMoved, "", ""}) {
 		t.Fatalf("location = %+v", got)
 	}
 	if moved, _, _ := store.List("new.go"); len(moved) != 1 || moved[0].Anchor.Path != "old.go" {
@@ -590,7 +593,7 @@ func TestStoreLocateFollowsMovesWithoutGitMv(t *testing.T) {
 			return ParseChanged(git("status", "--porcelain=v1", "-z", "--untracked-files=all")), nil
 		}
 		list, _, _ := store.List("")
-		return *store.Locate(context.Background(), list, content, renames, changed, "")[0].Location
+		return *store.Locate(context.Background(), list, Sources{Content: content, Renames: renames, Changed: changed}, "")[0].Location
 	}
 
 	t.Run("plain mv", func(t *testing.T) {
@@ -598,7 +601,7 @@ func TestStoreLocateFollowsMovesWithoutGitMv(t *testing.T) {
 		create(t, store, SourceWorktree)
 		before := git("ls-files", "-s")
 		os.Rename(filepath.Join(root, "old.go"), filepath.Join(root, "new.go"))
-		if got := locate(t, root, git, store); got != (Location{"new.go", 4, 4, LocationCurrent}) {
+		if got := locate(t, root, git, store); got != (Location{"new.go", 4, 4, LocationCurrent, "", ""}) {
 			t.Fatalf("location = %+v", got)
 		}
 		if after := git("ls-files", "-s"); string(after) != string(before) {
@@ -610,7 +613,7 @@ func TestStoreLocateFollowsMovesWithoutGitMv(t *testing.T) {
 		root, git, store := setup(t)
 		create(t, store, SourceIndex)
 		git("mv", "old.go", "new.go")
-		if got := locate(t, root, git, store); got != (Location{"new.go", 4, 4, LocationCurrent}) {
+		if got := locate(t, root, git, store); got != (Location{"new.go", 4, 4, LocationCurrent, "", ""}) {
 			t.Fatalf("location = %+v", got)
 		}
 	})
@@ -620,28 +623,28 @@ func TestStoreLocateFollowsMovesWithoutGitMv(t *testing.T) {
 		create(t, store, SourceWorktree)
 		os.WriteFile(filepath.Join(root, "old.go"), []byte("package x\n"), 0o644)
 		os.WriteFile(filepath.Join(root, "other.go"), []byte("// moved\n"+body), 0o644)
-		if got := locate(t, root, git, store); got != (Location{"other.go", 5, 5, LocationMoved}) {
+		if got := locate(t, root, git, store); got != (Location{"other.go", 5, 5, LocationMoved, "", ""}) {
 			t.Fatalf("location = %+v", got)
 		}
 	})
 
-	t.Run("ambiguous destination stays outdated", func(t *testing.T) {
+	t.Run("ambiguous destination falls back to the index", func(t *testing.T) {
 		root, git, store := setup(t)
 		create(t, store, SourceWorktree)
 		os.WriteFile(filepath.Join(root, "old.go"), []byte("package x\n"), 0o644)
 		os.WriteFile(filepath.Join(root, "other.go"), []byte(body), 0o644)
 		os.WriteFile(filepath.Join(root, "third.go"), []byte(body), 0o644)
-		if got := locate(t, root, git, store); got.Path != "old.go" || got.Status != LocationOutdated {
+		if got := locate(t, root, git, store); got != (Location{"old.go", 4, 4, LocationCurrent, SourceIndex, ""}) {
 			t.Fatalf("location = %+v", got)
 		}
 	})
 
-	t.Run("code only without its context is not followed", func(t *testing.T) {
+	t.Run("code only without its context is not followed; the index still has it", func(t *testing.T) {
 		root, git, store := setup(t)
 		create(t, store, SourceWorktree)
 		os.WriteFile(filepath.Join(root, "old.go"), []byte("package x\n"), 0o644)
 		os.WriteFile(filepath.Join(root, "other.go"), []byte("package x\n\nfunc C() {\n\treturn\n}\n"), 0o644)
-		if got := locate(t, root, git, store); got.Path != "old.go" || got.Status != LocationOutdated {
+		if got := locate(t, root, git, store); got != (Location{"old.go", 4, 4, LocationCurrent, SourceIndex, ""}) {
 			t.Fatalf("location = %+v", got)
 		}
 	})
@@ -697,5 +700,131 @@ func TestJoinIssuesDistinctParticipantsSharedAcrossProcesses(t *testing.T) {
 	// Joining is not a message, so it never lands in anyone's inbox.
 	if pending, _, _ := second.Pending(b.ID); len(pending) != 0 {
 		t.Fatalf("pending = %+v", pending)
+	}
+}
+
+// TestLocateThroughFileLifecycle follows a conversation on an untracked file
+// as the file disappears, returns, is replaced, moves, gets committed and is
+// deleted again, and one on uncommitted lines that Git never had.
+func TestLocateThroughFileLifecycle(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git unavailable")
+	}
+	root, dir := t.TempDir(), t.TempDir()
+	git := func(args ...string) string {
+		t.Helper()
+		out, err := exec.Command("git", append([]string{"-C", root, "-c", "user.name=t", "-c", "user.email=t@t"}, args...)...).Output()
+		if err != nil {
+			t.Fatalf("git %v: %v", args, err)
+		}
+		return strings.TrimSpace(string(out))
+	}
+	write := func(path, content string) {
+		os.MkdirAll(filepath.Dir(filepath.Join(root, path)), 0o755)
+		if err := os.WriteFile(filepath.Join(root, path), []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	git("init", "-q")
+	write("base.go", "package x\n\nfunc Base() {}\n")
+	git("add", ".")
+	git("commit", "-qm", "base")
+	sources := Sources{
+		Content: func(ctx context.Context, source, revision, path string) ([]byte, error) {
+			if source == SourceWorktree {
+				return WorktreeContent(root)(ctx, source, revision, path)
+			}
+			out, err := exec.Command("git", "-C", root, "show", revision+":"+path).Output()
+			if err != nil {
+				return nil, os.ErrNotExist
+			}
+			return out, nil
+		},
+		Renames: func(_ context.Context, _, revision string) (map[string]string, error) {
+			return ParseRenames([]byte(git("diff", "-M", "--name-status", "-z", revision, "--"))), nil
+		},
+		Changed: func(context.Context) ([]string, error) {
+			return ParseChanged([]byte(git("status", "--porcelain=v1", "-z", "--untracked-files=all"))), nil
+		},
+		Head: func(context.Context) string { return git("rev-parse", "HEAD") },
+		Deleted: func(_ context.Context, path string) string {
+			parent, _, _ := strings.Cut(git("log", "-1", "--diff-filter=D", "--format=%P", "HEAD", "--", path), " ")
+			return parent
+		},
+	}
+	open := func() *Store {
+		store, err := Open(dir)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return store
+	}
+	store := open()
+	defer func() { store.Close() }()
+	const notes = "package x\n\n// Notes keeps notes.\nfunc Notes() string {\n\treturn \"notes\"\n}\n"
+	write("notes.go", notes)
+	create := func(id, path string, line int) {
+		t.Helper()
+		data, _ := os.ReadFile(filepath.Join(root, path))
+		anchor := Anchor{Path: path, Source: SourceWorktree, Revision: git("rev-parse", "HEAD"), StartLine: line, EndLine: line}
+		if err := Capture(&anchor, data); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := store.Create(human, id, anchor, "look"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	create("notes", "notes.go", 4)
+	at := func(id string) Location {
+		t.Helper()
+		conversation, err := store.Get(id)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return *store.Locate(context.Background(), []Conversation{conversation}, sources, "")[0].Location
+	}
+	expect := func(step, id string, want Location) {
+		t.Helper()
+		if got := at(id); got != want {
+			t.Fatalf("%s: location = %+v, want %+v", step, got, want)
+		}
+	}
+
+	expect("untracked file", "notes", Location{"notes.go", 4, 4, LocationCurrent, "", ""})
+	os.Remove(filepath.Join(root, "notes.go"))
+	expect("untracked file deleted", "notes", Location{"notes.go", 4, 4, LocationMissing, "", ""})
+	write("notes.go", notes)
+	expect("same file back", "notes", Location{"notes.go", 4, 4, LocationCurrent, "", ""})
+	write("notes.go", "package y\n\nvar Other = 1\n\nfunc Unrelated() {}\n")
+	expect("unrelated file at the same path", "notes", Location{"notes.go", 4, 4, LocationMissing, "", ""})
+	os.Remove(filepath.Join(root, "notes.go"))
+	write("pkg/notes.go", "// moved\n"+notes)
+	expect("untracked file moved", "notes", Location{"pkg/notes.go", 5, 5, LocationMoved, "", ""})
+
+	store.Close()
+	store = open()
+	expect("after a restart", "notes", Location{"pkg/notes.go", 5, 5, LocationMoved, "", ""})
+
+	git("add", ".")
+	git("commit", "-qm", "track notes")
+	added := git("rev-parse", "HEAD")
+	expect("now tracked", "notes", Location{"pkg/notes.go", 5, 5, LocationMoved, "", ""})
+	os.Remove(filepath.Join(root, "pkg/notes.go"))
+	expect("deleted, deletion unstaged", "notes", Location{"pkg/notes.go", 5, 5, LocationMoved, SourceIndex, ""})
+	git("rm", "-q", "--cached", "pkg/notes.go")
+	expect("deletion staged", "notes", Location{"pkg/notes.go", 5, 5, LocationMoved, SourceCommit, added})
+	git("commit", "-qm", "drop notes")
+	expect("deletion committed", "notes", Location{"pkg/notes.go", 5, 5, LocationMoved, SourceCommit, added})
+
+	write("base.go", "package x\n\nfunc Base() {}\n\nfunc Draft() {}\n")
+	create("draft", "base.go", 5)
+	expect("uncommitted lines", "draft", Location{"base.go", 5, 5, LocationCurrent, "", ""})
+	write("base.go", "package x\n\nfunc Base() {}\n")
+	expect("uncommitted lines removed", "draft", Location{"base.go", 3, 3, LocationMissing, "", ""})
+	os.Remove(filepath.Join(root, "base.go"))
+	expect("file of uncommitted lines deleted", "draft", Location{"base.go", 5, 5, LocationMissing, "", ""})
+
+	if conversation, _ := store.Get("notes"); conversation.Status != StatusOpen {
+		t.Fatalf("deleting the file changed the status to %s", conversation.Status)
 	}
 }

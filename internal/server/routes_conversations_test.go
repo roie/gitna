@@ -35,7 +35,7 @@ func newConversationFixture(t *testing.T) conversationFixture {
 	t.Cleanup(func() { library.Close() })
 	backend := &Conversations{
 		Root:    root,
-		Content: conversations.WorktreeContent(root),
+		Sources: conversations.Sources{Content: conversations.WorktreeContent(root)},
 		Open:    func() (*conversations.Store, error) { return library.Store(root) },
 		Human: func() conversations.Participant {
 			return conversations.Participant{ID: "human:local", Kind: "human", Name: "Ada"}

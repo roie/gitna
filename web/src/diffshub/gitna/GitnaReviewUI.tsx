@@ -2114,6 +2114,26 @@ function GitnaReviewUIInner({
       const { anchor } = conversation
       const path = conversation.location?.path ?? conversation.path
       conversationsModel?.setExpanded(conversation.id, true)
+      const { location } = conversation
+      // The file is gone; show the deletion of the content Git still has.
+      if (location?.source === 'index') {
+        repository.select('unstaged', path)
+        return
+      }
+      if (location?.source === 'commit' && location.revision != null) {
+        if (location.revision === repository.snapshot?.headOid) {
+          repository.select('staged', path)
+          return
+        }
+        await repository.openCompare(
+          location.revision.slice(0, 12),
+          repository.snapshot?.headOid?.slice(0, 12) ?? 'HEAD',
+          'Conversation',
+        )
+        const file = repository.compareFiles.find((candidate) => candidate.path === path)
+        if (file != null) repository.selectCompareFile(file)
+        return
+      }
       if (anchor.source === 'worktree') {
         setPendingSearchReveal({
           path,

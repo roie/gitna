@@ -20,11 +20,7 @@ type Conversations struct {
 	Root  string
 	Human func() conversations.Participant
 	Open  func() (*conversations.Store, error)
-	// Content reads anchored files; Head names the current commit, or "".
-	Content conversations.Content
-	Head    func(ctx context.Context) string
-	Renames conversations.Renames
-	Changed conversations.Changed
+	conversations.Sources
 }
 
 // complete fills what a client may leave to Gitna: the commit a worktree or
@@ -113,7 +109,7 @@ func (c *Conversations) serve(w http.ResponseWriter, r *http.Request, rest strin
 			writeConversationError(w, err)
 			return
 		}
-		list = store.Locate(r.Context(), list, c.Content, c.Renames, c.Changed, r.URL.Query().Get("path"))
+		list = store.Locate(r.Context(), list, c.Sources, r.URL.Query().Get("path"))
 		cursor, err := store.Cursor(actor.ID)
 		if err != nil {
 			writeConversationError(w, err)
@@ -232,7 +228,7 @@ func (c *Conversations) serve(w http.ResponseWriter, r *http.Request, rest strin
 }
 
 func (c *Conversations) locate(r *http.Request, store *conversations.Store, conversation conversations.Conversation) conversations.Conversation {
-	return store.Locate(r.Context(), []conversations.Conversation{conversation}, c.Content, c.Renames, c.Changed, "")[0]
+	return store.Locate(r.Context(), []conversations.Conversation{conversation}, c.Sources, "")[0]
 }
 
 // streamEvents sends durable events as SSE. Event ids are log sequence

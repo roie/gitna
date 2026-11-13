@@ -23,7 +23,7 @@ import (
 func gitnaProcess(t *testing.T, repo, storeDir string, pid int) func() {
 	t.Helper()
 	library := conversations.NewLibrary(storeDir)
-	backend := &server.Conversations{Root: repo, Content: conversations.WorktreeContent(repo), Open: func() (*conversations.Store, error) { return library.Store(repo) }}
+	backend := &server.Conversations{Root: repo, Sources: conversations.Sources{Content: conversations.WorktreeContent(repo)}, Open: func() (*conversations.Store, error) { return library.Store(repo) }}
 	api := &server.AgentAPI{Token: "secret", Resolve: func(_ context.Context, path string) (*server.Conversations, error) {
 		if path != repo {
 			return nil, server.ErrFolderNotOpen

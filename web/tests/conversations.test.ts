@@ -124,6 +124,27 @@ describe('ConversationsModel', () => {
     expect(model.get(worktree, 'a.go')).toEqual([])
   })
 
+  it('hides missing code and shows deleted files where Git still has them', async () => {
+    const gone = conversation('gone', 'u.txt', [[1, human]])
+    gone.location = { path: 'u.txt', startLine: 1, endLine: 1, status: 'missing' }
+    const kept = conversation('kept', 'f.go', [[2, human]])
+    kept.location = {
+      path: 'f.go',
+      startLine: 1,
+      endLine: 1,
+      status: 'current',
+      source: 'commit',
+      revision: 'abc',
+    }
+    const model = new ConversationsModel(fakeApi([[gone, kept]]).api)
+    await model.load()
+
+    expect(model.list().map(({ id }) => id)).toEqual(['kept'])
+    expect(model.get(worktree, 'u.txt')).toEqual([])
+    expect(model.get(worktree, 'f.go')).toEqual([])
+    expect(model.get({ source: 'commit', revision: 'abc' }, 'f.go')).toHaveLength(1)
+  })
+
   it('reports a failed resolve or delete instead of throwing, and remembers deletes for undo', async () => {
     const thread = conversation('c1', 'a.go', [[1, human]])
     const { api } = fakeApi([[thread], [], []])

@@ -39,7 +39,11 @@ export interface ConversationLocation {
   path: string
   startLine: number
   endLine: number
+  /** Missing code cannot be shown anywhere, so the conversation is not presented. */
   status: 'current' | 'moved' | 'outdated' | 'missing'
+  /** Set when the anchored file is gone but Git still has the code there. */
+  source?: 'index' | 'commit'
+  revision?: string
 }
 
 export interface ConversationMessage {
@@ -239,16 +243,20 @@ export class ConversationsModel {
     this.controller = controller
     try {
       const list = await this.api.list('', controller.signal)
+      const visible = list.conversations.filter(
+        (conversation) => conversation.location?.status !== 'missing',
+      )
       const byContent = new Map<string, Conversation[]>()
-      for (const conversation of list.conversations) {
+      for (const conversation of visible) {
+        const { location } = conversation
         const key = contentKey(
-          conversation.anchor,
-          conversation.location?.path ?? conversation.path,
+          location?.source == null ? conversation.anchor : { ...location, source: location.source },
+          location?.path ?? conversation.path,
         )
         byContent.set(key, [...(byContent.get(key) ?? []), conversation])
       }
       this.byContent = byContent
-      this.all = list.conversations
+      this.all = visible
       this.participant = list.participant
       for (const [id, seq] of Object.entries(list.read)) {
         this.read[id] = Math.max(this.read[id] ?? 0, seq)
