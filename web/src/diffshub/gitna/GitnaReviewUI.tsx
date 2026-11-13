@@ -336,11 +336,18 @@ function conversationSurface(
   target: ReviewTarget | null,
   identity: ReviewIdentity | undefined,
   savedFile: boolean,
+  unstaged: boolean,
 ): ConversationSurface | null {
   if (target == null) return null
   const worktree = { source: 'worktree' } as const
   if (target.comparison != null) return { view: 'file', additions: worktree, deletions: worktree }
-  if (target.filePath != null) return savedFile ? { view: 'file', additions: worktree } : null
+  if (target.filePath != null) {
+    if (!savedFile) return null
+    // Without unstaged changes the file shows the staged code too.
+    return unstaged
+      ? { view: 'file', additions: worktree }
+      : { view: 'file', additions: worktree, same: { source: 'index' } }
+  }
   if (identity == null) return null
   const commit = (revision?: string) =>
     revision == null ? undefined : ({ source: 'commit', revision } as const)
@@ -2031,6 +2038,7 @@ function GitnaReviewUIInner({
       target,
       reviewIdentity?.key === target?.key ? reviewIdentity?.identity : undefined,
       gitnaEditorActions != null && !repository.isUntitledPath(target?.filePath ?? ''),
+      target?.filePath != null && repository.hasChange('unstaged', target.filePath),
     ),
   )
   const gitnaConversations = useMemo<GitnaConversationActions | undefined>(() => {
@@ -2115,14 +2123,22 @@ function GitnaReviewUIInner({
       const path = conversation.location?.path ?? conversation.path
       conversationsModel?.setExpanded(conversation.id, true)
       const { location } = conversation
+      const openFile = async () => {
+        setPendingSearchReveal({ path, line: location?.startLine ?? anchor.startLine, column: 1 })
+        await repository.openRepositoryFile(path, true)
+      }
+      // A diff exists only while the file has changes there; without one, the
+      // file itself shows the same code.
+      const openDiff = (scope: 'staged' | 'unstaged') =>
+        repository.hasChange(scope, path) ? repository.select(scope, path) : openFile()
       // The file is gone; show the deletion of the content Git still has.
       if (location?.source === 'index') {
-        repository.select('unstaged', path)
+        await openDiff('unstaged')
         return
       }
       if (location?.source === 'commit' && location.revision != null) {
         if (location.revision === repository.snapshot?.headOid) {
-          repository.select('staged', path)
+          await openDiff('staged')
           return
         }
         await repository.openCompare(
@@ -2135,21 +2151,16 @@ function GitnaReviewUIInner({
         return
       }
       if (anchor.source === 'worktree') {
-        setPendingSearchReveal({
-          path,
-          line: conversation.location?.startLine ?? anchor.startLine,
-          column: 1,
-        })
-        await repository.openRepositoryFile(path, true)
+        await openFile()
         return
       }
       const head = repository.snapshot?.headOid
       if (anchor.view === 'worktree' || (anchor.view === 'index' && anchor.source === 'index')) {
-        repository.select(anchor.view === 'worktree' ? 'unstaged' : 'staged', path)
+        await openDiff(anchor.view === 'worktree' ? 'unstaged' : 'staged')
         return
       }
       if (anchor.view === 'index' && anchor.revision === head) {
-        repository.select('staged', path)
+        await openDiff('staged')
         return
       }
       const [from, to] =

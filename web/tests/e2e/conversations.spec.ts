@@ -189,6 +189,22 @@ test('diff conversations anchor to the content on the commented side', async ({ 
   await openFile(page, 'modified.txt')
   await expect(page.getByRole('article').filter({ hasText: 'worktree side' })).toBeVisible()
   await expect(page.getByRole('article').filter({ hasText: 'index side' })).toHaveCount(0)
+
+  // Once the unstaged change is discarded there is no diff for the index
+  // side; the conversation opens on the file, which shows the same code.
+  execFileSync('git', ['-C', app.repo, 'checkout', '--', 'modified.txt'])
+  await page.reload()
+  const pane = page.getByRole('region', { name: 'Source Control workflow' })
+  await pane.getByRole('button', { name: 'Conversations', exact: true }).click()
+  await pane.getByRole('button', { name: /index side/ }).click()
+  await expect(page.getByRole('article').filter({ hasText: 'index side' })).toBeVisible()
+  await expect(page.getByRole('tab', { name: 'modified.txt' })).toBeVisible()
+  // Navigation found it; the conversation still belongs to the index.
+  const indexSide = (await stored(page, app)).find(
+    ({ messages }) => messages[0].body === 'index side',
+  )
+  expect(indexSide).toMatchObject({ anchor: { view: 'worktree', source: 'index' } })
+  expect((indexSide as { location?: { source?: string } }).location?.source).toBeUndefined()
 })
 
 test('the repository pane lists conversations; resolve hides them and delete can be undone', async ({

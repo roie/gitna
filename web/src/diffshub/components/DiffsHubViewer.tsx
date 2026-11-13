@@ -123,7 +123,8 @@ function conversationAnnotations(
   return sides.flatMap((side) => {
     const content = surface[side];
     if (content == null) return [];
-    return model.get(content, sidePath(item, side)).filter(({ status }) => status === 'open').map((conversation) => {
+    const same = side === 'additions' && surface.same != null ? model.get(surface.same, sidePath(item, side)) : [];
+    return [...model.get(content, sidePath(item, side)), ...same].filter(({ status }) => status === 'open').map((conversation) => {
       const start = conversation.location?.startLine ?? conversation.anchor.startLine;
       const end = conversation.location?.endLine ?? conversation.anchor.endLine;
       const metadata: CommentMetadata = {

@@ -19,6 +19,8 @@ export interface ConversationSurface {
   view: 'file' | 'worktree' | 'index' | 'commit' | 'comparison'
   additions: ConversationContent
   deletions?: ConversationContent
+  /** Content identical to additions here, such as the index of a file without unstaged changes. */
+  same?: ConversationContent
 }
 
 export interface ConversationAnchor extends ConversationContent {

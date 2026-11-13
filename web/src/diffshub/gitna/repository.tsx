@@ -1906,6 +1906,14 @@ export class GitnaRepository {
     if (open) await this.loadCommitDetails(oid)
   }
 
+  /** Whether path has a change in scope, so that diff can be shown. */
+  hasChange(scope: ChangeScope, path: string): boolean {
+    return (
+      this.snapshot != null &&
+      changeList(this.snapshot, scope).some((candidate) => candidate.path === path)
+    )
+  }
+
   select(scope: ChangeScope, path: string | null): void {
     if (path == null) {
       this.rememberActiveTab()
