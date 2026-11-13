@@ -73,16 +73,16 @@ Hover a line number in any code view and click **+**, or drag to select several 
 
 Conversations are stored on your machine outside the repository, so they survive refreshes and restarts and are never committed. Gitna keeps the original code with each one. When that code moves, the conversation follows it; when it changes, the conversation is marked outdated and still shows the original lines. When the file is deleted, the conversation stays reviewable on the deletion as long as Git has the code; code that Git never had, such as an untracked file that is gone, is hidden until the same file returns. Nothing is resolved or erased because a file disappeared.
 
-Your existing coding agent joins from its own session through the `gitna conversations` command. Gitna does not launch or manage agents. Install the `gitna` skill so the agent knows how:
+Your existing coding agent takes part from its own session through the `gitna conversations` command. Gitna does not launch or manage agents. Install the `gitna` skill so the agent knows how:
 
 ```sh
 npx skills add roie/gitna
 ```
 
-or print it with `gitna skill` (it installs nothing) and save it where your agent looks for skills, for example for Claude Code:
+or print it with `gitna skill` (it installs nothing) and save it as `gitna/SKILL.md` in the folder where your agent loads skills:
 
 ```sh
-mkdir -p ~/.claude/skills/gitna && gitna skill > ~/.claude/skills/gitna/SKILL.md
+gitna skill > <skills-folder>/gitna/SKILL.md
 ```
 
 Each agent joins once and gets its own participant id, which keeps its own inbox. It shows under the name it chose, or "Agent"; when several share a name, Gitna adds a short id suffix. The agent then reads what you wrote, answers in the same conversation, and picks up anything it missed after a restart. The `gitna conversations` command names are experimental and may change.

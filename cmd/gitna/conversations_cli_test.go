@@ -219,15 +219,8 @@ func TestSkillMatchesCLI(t *testing.T) {
 				t.Errorf("skill passes unknown flag --%s to %s", flag[1], name)
 			}
 		}
-		switch name {
-		case joinCommand:
-			if !strings.Contains(rest, "--as") {
-				t.Errorf("join without --as: %s", match[0])
-			}
-		default:
-			if !strings.Contains(rest, "--participant") {
-				t.Errorf("command without --participant: %s", match[0])
-			}
+		if name != joinCommand && !strings.Contains(rest, "--participant") {
+			t.Errorf("command without --participant: %s", match[0])
 		}
 		if (name == "create" || name == "reply") && !strings.Contains(rest, "--id <") {
 			t.Errorf("%s must take a fresh --id placeholder, not a sample id: %s", name, match[0])
@@ -239,9 +232,55 @@ func TestSkillMatchesCLI(t *testing.T) {
 		}
 	}
 	prose := strings.Join(strings.Fields(skills.Gitna), " ")
-	for _, phrase := range []string{"print JSON", "prints this skill as Markdown", "1 when a command fails", "exit status 2 when the command line is invalid", "pending --wait"} {
+	for _, phrase := range []string{"print JSON", "prints this skill as Markdown", "1 when a command fails", "exit status 2 when the command line is invalid", "pending --wait", `it is "Agent" when you leave out`} {
 		if !strings.Contains(prose, phrase) {
 			t.Errorf("skill does not say %q", phrase)
+		}
+	}
+}
+
+// TestSkillFollowsAgentSkillsFormat checks the frontmatter rules of
+// https://agentskills.io/specification and that the public texts name no
+// particular agent.
+func TestSkillFollowsAgentSkillsFormat(t *testing.T) {
+	front, body, ok := strings.Cut(strings.TrimPrefix(skills.Gitna, "---\n"), "\n---\n")
+	if !ok || !strings.HasPrefix(skills.Gitna, "---\n") || strings.TrimSpace(body) == "" {
+		t.Fatal("SKILL.md needs YAML frontmatter followed by a body")
+	}
+	fields := map[string]string{}
+	key := ""
+	for _, line := range strings.Split(front, "\n") {
+		if name, value, found := strings.Cut(line, ":"); found && !strings.HasPrefix(line, " ") {
+			key = name
+			fields[key] = strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(value), ">-"))
+			continue
+		}
+		fields[key] = strings.TrimSpace(fields[key] + " " + strings.TrimSpace(line))
+	}
+	for name := range fields {
+		switch name {
+		case "name", "description", "license", "compatibility", "metadata", "allowed-tools":
+		default:
+			t.Errorf("unknown frontmatter field %q", name)
+		}
+	}
+	if fields["name"] != "gitna" {
+		t.Errorf("name = %q, want the directory name gitna", fields["name"])
+	}
+	if description := fields["description"]; description == "" || len(description) > 1024 {
+		t.Errorf("description has %d characters, want 1-1024", len(description))
+	}
+	var usage bytes.Buffer
+	printUsage(&usage)
+	printConversationsUsage(&usage)
+	readme, err := os.ReadFile("../../README.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	public := strings.ToLower(skills.Gitna + usage.String() + string(readme))
+	for _, provider := range []string{"claude", "codex", "copilot", "gemini", "cursor agent"} {
+		if strings.Contains(public, provider) {
+			t.Errorf("public docs mention %q", provider)
 		}
 	}
 }
