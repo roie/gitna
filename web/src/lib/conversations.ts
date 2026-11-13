@@ -206,6 +206,7 @@ export class ConversationsModel {
   private seq = 0
   private readonly unconfirmed = new Map<string, string>()
   private read: Record<string, number> = {}
+  private sharedNames = new Set<string>()
   version = 0
   error: string | null = null
 
@@ -222,6 +223,13 @@ export class ConversationsModel {
 
   list(): readonly Conversation[] {
     return this.all
+  }
+
+  /** The author's name, with a short id suffix when other participants share it. */
+  displayName(author: Participant): string {
+    return this.sharedNames.has(author.name)
+      ? `${author.name} (${author.id.slice(-4)})`
+      : author.name
   }
 
   find(id: string): Conversation | undefined {
@@ -255,6 +263,15 @@ export class ConversationsModel {
         )
         byContent.set(key, [...(byContent.get(key) ?? []), conversation])
       }
+      const idsByName = new Map<string, Set<string>>()
+      for (const { messages } of list.conversations) {
+        for (const { author } of messages) {
+          idsByName.set(author.name, (idsByName.get(author.name) ?? new Set()).add(author.id))
+        }
+      }
+      this.sharedNames = new Set(
+        [...idsByName].filter(([, ids]) => ids.size > 1).map(([name]) => name),
+      )
       this.byContent = byContent
       this.all = visible
       this.participant = list.participant

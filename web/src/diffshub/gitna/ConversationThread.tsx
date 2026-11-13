@@ -40,7 +40,7 @@ export function ConversationThread({
       >
         <AuthorInitial name={first?.author.name ?? ''} className="size-5 text-[11px]" />
         <span className="min-w-0 flex-1 truncate text-[14px]">
-          <strong>{first?.author.name}</strong> {first?.body}
+          <strong>{first == null ? '' : model.displayName(first.author)}</strong> {first?.body}
         </span>
         {unread && (
           <span
@@ -57,7 +57,7 @@ export function ConversationThread({
     <ExampleAnnotation
       messages={conversation.messages.map((message) => ({
         id: message.id,
-        author: message.author.name,
+        author: model.displayName(message.author),
         agent: message.author.kind === 'agent',
         message: message.body,
       }))}

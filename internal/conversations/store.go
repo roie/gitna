@@ -2,6 +2,7 @@ package conversations
 
 import (
 	"bytes"
+	"cmp"
 	"context"
 	"crypto/rand"
 	"encoding/hex"
@@ -433,13 +434,16 @@ func (s *Store) SetDeleted(actor Participant, conversationID string, deleted boo
 	return cloneConversation(conversation), nil
 }
 
-// Join issues a new agent participant shown as name. Its id owns an inbox
-// and acknowledgment cursor; the agent passes it again to reconnect. Names
-// may repeat, so several agents can all show as "Claude".
+// DefaultAgentName is shown for an agent that joined without a name.
+const DefaultAgentName = "Agent"
+
+// Join issues a new agent participant shown as name, or DefaultAgentName.
+// Its id owns an inbox and acknowledgment cursor; the agent passes it again
+// to reconnect. Names may repeat, so several agents can show the same name.
 func (s *Store) Join(name string) (Participant, error) {
-	participant := Participant{ID: "agent:" + newID("p"), Kind: KindAgent, Name: strings.TrimSpace(name)}
-	if participant.Name == "" || validateParticipant(participant) != nil {
-		return Participant{}, fmt.Errorf("%w: a name of 1-128 bytes is required", ErrInvalid)
+	participant := Participant{ID: "agent:" + newID("p"), Kind: KindAgent, Name: cmp.Or(strings.TrimSpace(name), DefaultAgentName)}
+	if validateParticipant(participant) != nil {
+		return Participant{}, fmt.Errorf("%w: a name must be at most 128 bytes", ErrInvalid)
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()

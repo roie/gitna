@@ -23,8 +23,8 @@ type conversationFixture struct {
 	browser http.Handler
 	agent   http.Handler
 	root    string
-	// claude is a participant Gitna issued, shown as "Claude".
-	claude conversations.Participant
+	// joined is a participant Gitna issued, shown as "Helper".
+	joined conversations.Participant
 }
 
 func newConversationFixture(t *testing.T) conversationFixture {
@@ -58,7 +58,7 @@ func newConversationFixture(t *testing.T) conversationFixture {
 	if err != nil {
 		t.Fatal(err)
 	}
-	claude, err := store.Join("Claude")
+	joined, err := store.Join("Helper")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -66,7 +66,7 @@ func newConversationFixture(t *testing.T) conversationFixture {
 		browser: Security{Token: testToken, Host: testHost}.Wrap(srv),
 		agent:   agent,
 		root:    root,
-		claude:  claude,
+		joined:  joined,
 	}
 }
 
@@ -92,7 +92,7 @@ func (f conversationFixture) agentDo(t *testing.T, method, path, body string, mu
 	req := httptest.NewRequest(method, AgentPathPrefix+path+separator+"repo="+f.root, strings.NewReader(body))
 	req.Host = testHost
 	req.Header.Set("Authorization", "Bearer "+testAgentToken)
-	req.Header.Set("Gitna-Participant", f.claude.ID)
+	req.Header.Set("Gitna-Participant", f.joined.ID)
 	if method != http.MethodGet {
 		req.Header.Set("Content-Type", "application/json")
 	}
@@ -143,7 +143,7 @@ func TestHumanAndAgentExchangeThroughAPI(t *testing.T) {
 		*list.Conversations[0].Location != (conversations.Location{Path: "main.go", StartLine: 4, EndLine: 5, Status: "moved"}) {
 		t.Fatalf("list = %+v", list)
 	}
-	if list.Conversations[0].Messages[1].Author.ID != f.claude.ID {
+	if list.Conversations[0].Messages[1].Author.ID != f.joined.ID {
 		t.Fatalf("agent author = %+v", list.Conversations[0].Messages[1].Author)
 	}
 	if rec := f.browserDo(t, http.MethodPost, "/conversations/c1/resolve", `{}`); rec.Code != http.StatusOK ||
@@ -221,7 +221,7 @@ func TestAgentAPIRejectsBrowsersAndBadCredentials(t *testing.T) {
 		"fetch mode":    func(r *http.Request) { r.Header.Set("Sec-Fetch-Mode", "cors") },
 		"host":          func(r *http.Request) { r.Host = "evil.example" },
 		"impersonation": func(r *http.Request) { r.Header.Set("Gitna-Participant", "human:local") },
-		"never issued":  func(r *http.Request) { r.Header.Set("Gitna-Participant", "agent:claude") },
+		"never issued":  func(r *http.Request) { r.Header.Set("Gitna-Participant", "agent:never-issued") },
 		"no id":         func(r *http.Request) { r.Header.Del("Gitna-Participant") },
 	}
 	for name, mutate := range cases {
@@ -243,7 +243,7 @@ func TestAgentAPIRejectsBrowsersAndBadCredentials(t *testing.T) {
 		t.Errorf("text/plain mutation: status %d", rec.Code)
 	}
 	session := decodeBody[agentSession](t, f.agentDo(t, http.MethodGet, "/session", "", nil))
-	if session.Root != f.root || session.Participant == nil || *session.Participant != f.claude {
+	if session.Root != f.root || session.Participant == nil || *session.Participant != f.joined {
 		t.Fatalf("session = %+v", session)
 	}
 }

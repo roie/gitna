@@ -45,7 +45,7 @@ import {
 import { createPortal } from 'react-dom'
 
 import { ApiError } from '../../lib/api'
-import type { Conversation, ConversationsModel } from '../../lib/conversations'
+import type { Conversation, ConversationsModel, Participant } from '../../lib/conversations'
 import type { GraphRow } from '../../lib/graph-lanes'
 import type { ChangeKind, ChangeScope, CommitFile, ConflictEntry } from '../../lib/types'
 import { Button } from '../components/Button'
@@ -491,7 +491,10 @@ export interface ConversationsPane {
   onOpen: (conversation: Conversation) => void
 }
 
-function conversationSections(list: readonly Conversation[]): DiffsHubSavedCommentItem[] {
+function conversationSections(
+  list: readonly Conversation[],
+  name: (author: Participant) => string,
+): DiffsHubSavedCommentItem[] {
   const byPath = new Map<string, DiffsHubSavedCommentItem>()
   for (const conversation of list) {
     const path = conversation.location?.path ?? conversation.path
@@ -506,7 +509,7 @@ function conversationSections(list: readonly Conversation[]): DiffsHubSavedComme
     section.comments.push({
       key: conversation.id,
       itemId: path,
-      author: conversation.messages[0]?.author.name ?? conversation.createdBy.name,
+      author: name(conversation.messages[0]?.author ?? conversation.createdBy),
       message: conversation.messages[0]?.body ?? '',
       lineNumber: start,
       lineType: 'context',
@@ -571,8 +574,11 @@ function GitnaSourceControlInner({
   const showingConversations = conversationsShown && conversationList.length > 0
   const shownConversations = useMemo(
     () =>
-      conversationSections(conversationList.filter(({ status }) => status === conversationFilter)),
-    [conversationList, conversationFilter],
+      conversationSections(
+        conversationList.filter(({ status }) => status === conversationFilter),
+        (author) => conversationsModel?.displayName(author) ?? author.name,
+      ),
+    [conversationList, conversationFilter, conversationsModel],
   )
   const [workflowOpen, setWorkflowOpen] = useState(true)
   const [changesOpen, setChangesOpen] = useState(true)

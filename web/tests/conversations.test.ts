@@ -10,7 +10,7 @@ import {
 
 const worktree = { source: 'worktree' } as const
 const human = { id: 'human:local', kind: 'human', name: 'Ada' } as const
-const agent = { id: 'agent:claude', kind: 'agent', name: 'claude' } as const
+const agent = { id: 'agent:helper', kind: 'agent', name: 'helper' } as const
 
 function conversation(
   id: string,
@@ -143,6 +143,22 @@ describe('ConversationsModel', () => {
     expect(model.get(worktree, 'u.txt')).toEqual([])
     expect(model.get(worktree, 'f.go')).toEqual([])
     expect(model.get({ source: 'commit', revision: 'abc' }, 'f.go')).toHaveLength(1)
+  })
+
+  it('adds an id suffix only to names that several participants share', async () => {
+    const first = { id: 'agent:p_aaaa1111', kind: 'agent', name: 'Agent' } as const
+    const second = { id: 'agent:p_bbbb2222', kind: 'agent', name: 'Agent' } as const
+    const thread = conversation('c1', 'a.go', [[1, human]])
+    thread.messages.push(
+      { ...thread.messages[0]!, id: 'm2', seq: 2, author: first },
+      { ...thread.messages[0]!, id: 'm3', seq: 3, author: second },
+    )
+    const model = new ConversationsModel(fakeApi([[thread]]).api)
+    await model.load()
+
+    expect(model.displayName(human)).toBe('Ada')
+    expect(model.displayName(first)).toBe('Agent (1111)')
+    expect(model.displayName(second)).toBe('Agent (2222)')
   })
 
   it('reports a failed resolve or delete instead of throwing, and remembers deletes for undo', async () => {

@@ -14,7 +14,7 @@ import (
 
 var (
 	human = Participant{ID: "human:local", Kind: KindHuman, Name: "Ada"}
-	agent = Participant{ID: "agent:claude", Kind: KindAgent, Name: "claude"}
+	agent = Participant{ID: "agent:helper", Kind: KindAgent, Name: "helper"}
 )
 
 func anchorAt(path string, start, end int, code string) Anchor {
@@ -671,19 +671,22 @@ func TestJoinIssuesDistinctParticipantsSharedAcrossProcesses(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer first.Close()
-	a, err := first.Join("Claude")
+	a, err := first.Join("Helper")
 	if err != nil {
 		t.Fatal(err)
 	}
-	b, err := first.Join("Claude")
+	b, err := first.Join("Helper")
 	if err != nil {
 		t.Fatal(err)
 	}
 	if a.ID == b.ID || a.Name != b.Name || a.Kind != KindAgent {
 		t.Fatalf("joined %+v and %+v", a, b)
 	}
-	if _, err := first.Join("  "); !errors.Is(err, ErrInvalid) {
-		t.Fatalf("blank name: %v", err)
+	if unnamed, err := first.Join("  "); err != nil || unnamed.Name != DefaultAgentName {
+		t.Fatalf("unnamed join = %+v, %v", unnamed, err)
+	}
+	if _, err := first.Join(strings.Repeat("x", 129)); !errors.Is(err, ErrInvalid) {
+		t.Fatalf("long name: %v", err)
 	}
 
 	second, err := Open(dir)

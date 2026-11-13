@@ -85,7 +85,7 @@ or print it with `gitna skill` (it installs nothing) and save it where your agen
 mkdir -p ~/.claude/skills/gitna && gitna skill > ~/.claude/skills/gitna/SKILL.md
 ```
 
-The agent joins once and gets its own participant id, so several sessions of the same agent can each have their own inbox while all showing as, say, "Claude". It then reads what you wrote, answers in the same conversation, and picks up anything it missed after a restart. The `gitna conversations` command names are experimental and may change.
+Each agent joins once and gets its own participant id, which keeps its own inbox. It shows under the name it chose, or "Agent"; when several share a name, Gitna adds a short id suffix. The agent then reads what you wrote, answers in the same conversation, and picks up anything it missed after a restart. The `gitna conversations` command names are experimental and may change.
 
 ## Install
 

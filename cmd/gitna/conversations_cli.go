@@ -51,7 +51,7 @@ type conversationOperation struct {
 const joinCommand = "join"
 
 var conversationCommands = map[string]conversationOperation{
-	joinCommand: {"--as NAME", "Join as a new participant shown as NAME; prints the participant id to reuse", func(c *conversationCall) (any, error) {
+	joinCommand: {"[--as NAME]", "Join as a new participant shown as NAME (default \"Agent\"); prints the participant id to reuse", func(c *conversationCall) (any, error) {
 		var out json.RawMessage
 		return out, c.client.Do(c.ctx, http.MethodPost, "/participants", nil, map[string]string{"name": c.flags.as}, &out)
 	}},
@@ -195,12 +195,8 @@ func runConversationsCLI(ctx context.Context, args []string, stdin io.Reader, st
 		positional = append(positional, set.Arg(0))
 		rest = set.Args()[1:]
 	}
-	joining := args[0] == joinCommand
-	switch {
-	case joining && flags.as == "":
-		return fail(2, errors.New("name this agent with --as NAME; the name is what people see"))
-	case !joining && flags.participant == "":
-		return fail(2, fmt.Errorf("pass --participant ID; run 'gitna %s %s --as NAME' once to get an id, then reuse it for every command, also after reconnecting", conversationsCommand, joinCommand))
+	if args[0] != joinCommand && flags.participant == "" {
+		return fail(2, fmt.Errorf("pass --participant ID; run 'gitna %s %s' once to get an id, then reuse it for every command, also after reconnecting", conversationsCommand, joinCommand))
 	}
 	repo, err := filepath.Abs(flags.repo)
 	if err != nil {
@@ -306,9 +302,10 @@ Talks to the running Gitna that has the repository open. Output is JSON;
 errors are {"error": "..."} on stderr. Exit status 2 means the command line
 was invalid; 1 means the command failed.
 
-Identity: run 'join --as NAME' once. Gitna returns a participant id that owns
-your inbox and acknowledgments. Pass it with --participant to every other
-command, also after reconnecting. Several participants may share a NAME.
+Identity: run 'join' once, with --as NAME for the name people see (default
+"Agent"). Gitna returns a participant id that owns your inbox and
+acknowledgments. Pass it with --participant to every other command, also
+after reconnecting. Several participants may share a NAME.
 
 Commands:
 `, conversationsCommand)

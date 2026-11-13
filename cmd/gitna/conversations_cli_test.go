@@ -88,10 +88,13 @@ func TestConversationsCLIRoundTrip(t *testing.T) {
 		return run("", "pending", "--participant", participant)["pending"].([]any)
 	}
 
-	// Two agents of the same kind show the same name but get their own ids.
-	first, second := join("Claude"), join("Claude")
+	// Two agents may show the same name but get their own ids.
+	first, second := join("Helper"), join("Helper")
 	if first == second {
 		t.Fatalf("both joins returned %q", first)
+	}
+	if unnamed := run("", "join")["participant"].(map[string]any); unnamed["name"] != "Agent" || unnamed["id"] == first {
+		t.Fatalf("join without --as = %+v", unnamed)
 	}
 
 	created := run("First line\n\"quoted\" $HOME `ticks`\n", "create", "--path", "a.go", "--lines", "2-3", "--id", "c-first", "--participant", first)
@@ -133,7 +136,7 @@ func TestConversationsCLIRoundTrip(t *testing.T) {
 	stop()
 	stop = gitnaProcess(t, repo, storeDir, 2)
 	session := run("", "session", "--participant", first)
-	if participant := session["participant"].(map[string]any); participant["id"] != first || participant["name"] != "Claude" || session["cursor"] != seq {
+	if participant := session["participant"].(map[string]any); participant["id"] != first || participant["name"] != "Helper" || session["cursor"] != seq {
 		t.Fatalf("session after restart = %+v", session)
 	}
 	if got := pending(first); len(got) != 0 {
@@ -150,7 +153,7 @@ func TestConversationsCLIRoundTrip(t *testing.T) {
 	if messages := shown["messages"].([]any); len(messages) != 4 {
 		t.Fatalf("messages after retry = %+v", messages)
 	}
-	if author := shown["messages"].([]any)[3].(map[string]any)["author"].(map[string]any); author["id"] != second || author["name"] != "Claude" {
+	if author := shown["messages"].([]any)[3].(map[string]any)["author"].(map[string]any); author["id"] != second || author["name"] != "Helper" {
 		t.Fatalf("retry author = %+v", author)
 	}
 	if status := run("", "resolve", id, "--participant", first)["status"]; status != "resolved" {
@@ -176,7 +179,6 @@ func TestConversationsCLIRoundTrip(t *testing.T) {
 		}
 	}
 	fails(2, "--participant ID", "list")
-	fails(2, "--as NAME", "join")
 	fails(2, "unknown command", "nope", "--participant", first)
 	fails(1, "unknown participant", "pending", "--participant", "agent:p_never")
 	fails(1, "--id is required", "reply", id, "--body", "x", "--participant", first)
