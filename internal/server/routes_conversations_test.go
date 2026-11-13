@@ -156,6 +156,17 @@ func TestHumanAndAgentExchangeThroughAPI(t *testing.T) {
 		decodeBody[conversations.Conversation](t, rec).Status != "resolved" {
 		t.Fatalf("resolve = %d %s", rec.Code, rec.Body)
 	}
+	if rec := f.agentDo(t, http.MethodPost, "/conversations/c1/messages/m1/delete", `{}`, nil); rec.Code != http.StatusForbidden {
+		t.Fatalf("agent message delete = %d %s", rec.Code, rec.Body)
+	}
+	if rec := f.browserDo(t, http.MethodPost, "/conversations/c1/messages/m1/delete", `{}`); rec.Code != http.StatusOK ||
+		len(decodeBody[conversations.Conversation](t, rec).Messages) != 1 {
+		t.Fatalf("message delete = %d %s", rec.Code, rec.Body)
+	}
+	if rec := f.browserDo(t, http.MethodPost, "/conversations/c1/messages/m1/restore", `{}`); rec.Code != http.StatusOK ||
+		len(decodeBody[conversations.Conversation](t, rec).Messages) != 2 {
+		t.Fatalf("message restore = %d %s", rec.Code, rec.Body)
+	}
 	if rec := f.browserDo(t, http.MethodPost, "/conversations/c1/delete", `{}`); rec.Code != http.StatusOK {
 		t.Fatalf("delete = %d %s", rec.Code, rec.Body)
 	}

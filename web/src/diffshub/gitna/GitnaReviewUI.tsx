@@ -2904,6 +2904,23 @@ function GitnaReviewUIInner({
                     onDismiss: () => conversationsModel.dismissError(),
                   },
                 ]),
+            ...(conversationsModel?.recentlyDeletedMessage == null
+              ? []
+              : [
+                  {
+                    id: 'conversation-message-deleted',
+                    title: 'Comment deleted',
+                    severity: 'info' as const,
+                    onDismiss: () => conversationsModel.dismissDeletedMessage(),
+                    action: {
+                      label: 'Undo',
+                      onClick: () => {
+                        const { conversation, message } = conversationsModel.recentlyDeletedMessage!
+                        void conversationsModel.setMessageDeleted(conversation, message, false)
+                      },
+                    },
+                  },
+                ]),
             ...(conversationsModel?.recentlyDeleted == null
               ? []
               : [

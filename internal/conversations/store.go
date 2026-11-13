@@ -54,6 +54,8 @@ type Store struct {
 	eventIDs  map[string]struct{}
 	byID      map[string]*Conversation
 	messageAt map[string]string
+	// deletedMessages are hidden from conversations and inboxes but kept, so they can be restored.
+	deletedMessages map[string]bool
 	// participants are the agents Gitna issued an id to, in join order;
 	// left holds the ones that stopped taking part.
 	participants map[string]Participant
@@ -77,16 +79,17 @@ func Open(dir string) (*Store, error) {
 		return nil, err
 	}
 	s := &Store{
-		dir:          dir,
-		log:          file,
-		eventIDs:     make(map[string]struct{}),
-		byID:         make(map[string]*Conversation),
-		messageAt:    make(map[string]string),
-		participants: make(map[string]Participant),
-		left:         make(map[string]bool),
-		cursors:      make(map[string]uint64),
-		changed:      make(chan struct{}),
-		now:          time.Now,
+		dir:             dir,
+		log:             file,
+		eventIDs:        make(map[string]struct{}),
+		byID:            make(map[string]*Conversation),
+		messageAt:       make(map[string]string),
+		deletedMessages: make(map[string]bool),
+		participants:    make(map[string]Participant),
+		left:            make(map[string]bool),
+		cursors:         make(map[string]uint64),
+		changed:         make(chan struct{}),
+		now:             time.Now,
 	}
 	if _, err := s.catchUp(); err != nil {
 		file.Close()
@@ -255,6 +258,11 @@ func (s *Store) apply(rec record) (Event, bool) {
 			return Event{}, false
 		}
 		conversation.Deleted = event.Type == EventConversationDeleted
+	case EventMessageDeleted, EventMessageRestored:
+		if conversation == nil || s.messageAt[event.MessageID] != conversation.ID {
+			return Event{}, false
+		}
+		s.deletedMessages[event.MessageID] = event.Type == EventMessageDeleted
 	case EventConversationMoved:
 		if conversation == nil || event.Path == "" {
 			return Event{}, false
@@ -480,6 +488,42 @@ func (s *Store) SetDeleted(actor Participant, conversationID string, deleted boo
 	return s.clone(conversation), nil
 }
 
+// SetMessageDeleted deletes or restores one message of a conversation. The
+// rest of the conversation stays; a conversation's last message is deleted by
+// deleting the conversation.
+func (s *Store) SetMessageDeleted(actor Participant, conversationID, messageID string, deleted bool) (Conversation, error) {
+	if err := validateParticipant(actor); err != nil {
+		return Conversation{}, err
+	}
+	eventType := EventMessageRestored
+	if deleted {
+		eventType = EventMessageDeleted
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if _, err := s.catchUp(); err != nil {
+		return Conversation{}, err
+	}
+	conversation := s.byID[conversationID]
+	if conversation == nil || conversation.Deleted || s.messageAt[messageID] != conversationID {
+		return Conversation{}, ErrNotFound
+	}
+	if s.deletedMessages[messageID] != deleted {
+		if deleted && len(s.visible(conversation.Messages)) == 1 {
+			return Conversation{}, fmt.Errorf("%w: delete the conversation to delete its last message", ErrInvalid)
+		}
+		if _, err := s.append(Event{Type: eventType, ConversationID: conversationID, MessageID: messageID, Actor: actor}); err != nil {
+			return Conversation{}, err
+		}
+	}
+	return s.clone(conversation), nil
+}
+
+// visible returns the messages that are not deleted.
+func (s *Store) visible(messages []Message) []Message {
+	return slices.DeleteFunc(slices.Clone(messages), func(message Message) bool { return s.deletedMessages[message.ID] })
+}
+
 // DefaultAgentName is shown for an agent that joined without a name.
 const DefaultAgentName = "Agent"
 
@@ -623,7 +667,7 @@ func (s *Store) List(path string) ([]Conversation, uint64, error) {
 			out = append(out, s.clone(conversation))
 		}
 	}
-	sort.Slice(out, func(i, k int) bool { return out[i].Messages[0].Seq < out[k].Messages[0].Seq })
+	sort.Slice(out, func(i, k int) bool { return s.byID[out[i].ID].Messages[0].Seq < s.byID[out[k].ID].Messages[0].Seq })
 	return out, uint64(len(s.events)), nil
 }
 
@@ -688,7 +732,7 @@ func (s *Store) Pending(participantID string) ([]Pending, uint64, error) {
 	cursor := s.cursors[participantID]
 	pending := make([]Pending, 0)
 	s.inbox(participantID, uint64(len(s.events)), func(event Event, conversation *Conversation, state uint64) {
-		if !conversation.Deleted && (state == deferred || (event.Seq > cursor && state == 0)) {
+		if !conversation.Deleted && !s.deletedMessages[event.Message.ID] && (state == deferred || (event.Seq > cursor && state == 0)) {
 			pending = append(pending, Pending{Conversation: s.clone(conversation), Message: *event.Message})
 		}
 	})
@@ -749,7 +793,7 @@ func (s *Store) Ack(participantID string, seq uint64, hidden map[string]bool) (u
 	var err error
 	s.inbox(participantID, seq, func(event Event, conversation *Conversation, state uint64) {
 		key := deferKey(participantID, event.Seq)
-		switch held := conversation.Deleted || hidden[conversation.ID]; {
+		switch held := conversation.Deleted || s.deletedMessages[event.Message.ID] || hidden[conversation.ID]; {
 		case err != nil:
 		case held && state == 0 && event.Seq > cursor:
 			err = s.write(key, deferred)
@@ -830,7 +874,7 @@ func (s *Store) write(key string, value uint64) error {
 // recipients. The caller holds s.mu.
 func (s *Store) clone(conversation *Conversation) Conversation {
 	clone := *conversation
-	clone.Messages = append([]Message(nil), conversation.Messages...)
+	clone.Messages = s.visible(conversation.Messages)
 	clone.DefaultTo = s.defaultTo(conversation)
 	return clone
 }
@@ -857,7 +901,7 @@ func (s *Store) recipients(actor Participant, to []string) ([]string, error) {
 // go by, the message stays unassigned.
 func (s *Store) defaultTo(conversation *Conversation) []string {
 	if conversation != nil {
-		messages := conversation.Messages
+		messages := s.visible(conversation.Messages)
 		for index := len(messages) - 1; index >= 0; index-- {
 			var to []string
 			for _, id := range messages[index].To {

@@ -238,6 +238,22 @@ func (c *Conversations) serve(w http.ResponseWriter, r *http.Request, rest strin
 			return
 		}
 		writeJSON(w, http.StatusOK, c.locate(r, store, conversation))
+	case r.Method == http.MethodPost && id != "" && strings.HasPrefix(action, "messages/"):
+		messageID, verb, _ := strings.Cut(strings.TrimPrefix(action, "messages/"), "/")
+		if verb != "delete" && verb != "restore" {
+			writeJSON(w, http.StatusNotFound, map[string]string{"error": "not found"})
+			return
+		}
+		if actor.Kind != conversations.KindHuman {
+			writeJSON(w, http.StatusForbidden, map[string]string{"error": "only people can delete or restore messages"})
+			return
+		}
+		conversation, err := store.SetMessageDeleted(actor, id, messageID, verb == "delete")
+		if err != nil {
+			writeConversationError(w, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, c.locate(r, store, conversation))
 	default:
 		writeJSON(w, http.StatusNotFound, map[string]string{"error": "not found"})
 	}

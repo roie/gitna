@@ -67,6 +67,7 @@ function fakeApi(lists: Conversation[][], agents: Participant[] = []) {
     reply: vi.fn(),
     setStatus: vi.fn(),
     setDeleted: vi.fn(),
+    setMessageDeleted: vi.fn(),
     markRead,
     subscribe,
   }

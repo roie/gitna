@@ -103,6 +103,11 @@ export interface ConversationsApi {
   ): Promise<ConversationMessage>
   setStatus(conversationId: string, status: 'open' | 'resolved'): Promise<Conversation>
   setDeleted(conversationId: string, deleted: boolean): Promise<Conversation>
+  setMessageDeleted(
+    conversationId: string,
+    messageId: string,
+    deleted: boolean,
+  ): Promise<Conversation>
   markRead(conversationId: string, seq: number): Promise<number>
   subscribe(after: number, onEvent: (event: ConversationEvent) => void): () => void
 }
@@ -152,6 +157,11 @@ export function createConversationsApi(
     setDeleted: (conversationId, deleted) =>
       post(
         `api/v1/conversations/${encodeURIComponent(conversationId)}/${deleted ? 'delete' : 'restore'}`,
+        {},
+      ),
+    setMessageDeleted: (conversationId, messageId, deleted) =>
+      post(
+        `api/v1/conversations/${encodeURIComponent(conversationId)}/messages/${encodeURIComponent(messageId)}/${deleted ? 'delete' : 'restore'}`,
         {},
       ),
     async markRead(conversationId, seq) {
@@ -379,6 +389,31 @@ export class ConversationsModel {
         }, 8000)
       }
     })
+  }
+
+  /** The message this tab deleted last, until it is restored or dismissed. */
+  recentlyDeletedMessage: { conversation: Conversation; message: ConversationMessage } | null = null
+
+  async setMessageDeleted(
+    conversation: Conversation,
+    message: ConversationMessage,
+    deleted: boolean,
+  ): Promise<void> {
+    await this.attempt(async () => {
+      await this.api.setMessageDeleted(conversation.id, message.id, deleted)
+      const recent = deleted ? { conversation, message } : null
+      this.recentlyDeletedMessage = recent
+      if (recent != null) {
+        setTimeout(() => {
+          if (this.recentlyDeletedMessage === recent) this.dismissDeletedMessage()
+        }, 8000)
+      }
+    })
+  }
+
+  dismissDeletedMessage(): void {
+    this.recentlyDeletedMessage = null
+    this.emit()
   }
 
   reportError(message: string): void {

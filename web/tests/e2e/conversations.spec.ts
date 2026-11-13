@@ -712,3 +712,41 @@ test('an unsent draft survives refreshes, follows its code, and never moves onto
   await expect(draft).toHaveCount(0)
   expect(await anchor('outdated')).toMatchObject({ startLine: 2, code: 'unstaged change' })
 })
+
+test('one comment can be deleted from its menu, keeping the conversation, and undone', async ({
+  page,
+  app,
+}) => {
+  await page.goto(app.url)
+  await openFile(page, 'two-hunk.txt')
+  const number = (line: number) => page.locator(`[data-file] [data-column-number="${line}"]`)
+  await expect(number(5)).toBeVisible()
+  await comment(page, number(5), null, 'Keep this')
+  const thread = page.getByRole('article').filter({ hasText: 'Keep this' })
+  const menus = thread.getByRole('button', { name: /^More actions for .*'s comment$/ })
+  // A lone comment is deleted with its conversation.
+  await expect(thread.getByRole('button', { name: 'Delete conversation' })).toHaveCount(1)
+  await expect(menus).toHaveCount(0)
+  await thread.getByRole('textbox', { name: 'Reply…' }).fill('Drop this')
+  await thread.getByRole('textbox', { name: 'Reply…' }).press('Control+Enter')
+  await expect(thread.getByText('Drop this')).toBeVisible()
+
+  await expect(menus.last()).toHaveCSS('opacity', '0')
+  await expect(async () => {
+    await thread.getByText('Drop this').hover()
+    await expect(menus.last()).toHaveCSS('opacity', '1', { timeout: 1000 })
+  }).toPass()
+  await menus.last().click()
+  await page.getByRole('menuitem', { name: 'Delete' }).click()
+  await expect(thread.getByText('Drop this')).toHaveCount(0)
+  await expect(thread.getByText('Keep this')).toBeVisible()
+  await expect(menus).toHaveCount(0)
+  expect((await stored(page, app))[0].messages.map(({ body }) => body)).toEqual(['Keep this'])
+
+  await page.getByRole('button', { name: 'Undo' }).click()
+  await expect(thread.getByText('Drop this')).toBeVisible()
+  expect((await stored(page, app))[0].messages.map(({ body }) => body)).toEqual([
+    'Keep this',
+    'Drop this',
+  ])
+})

@@ -1,10 +1,12 @@
 // Modified by Gitna: render a conversation's messages with real authors, add
-// resolve beside delete, and accept a reply form as children.
-import { IconCheck, IconX } from '@pierre/icons';
+// resolve beside delete, a per-message menu to delete one message, and accept a
+// reply form as children.
+import { IconCheck, IconEllipsis, IconX } from '@pierre/icons';
 import { memo, type ReactNode } from 'react';
 
 import { AuthorInitial } from './DraftAnnotation';
 import { Button } from '@/components/Button';
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/DropdownMenu';
 import { annotationCardBase } from '@/lib/annotation';
 import { cn } from '@/lib/cn';
 
@@ -20,6 +22,7 @@ interface ExampleAnnotationProps {
   children?: ReactNode;
   onSelect: () => void;
   onDelete: () => void;
+  onDeleteMessage: (id: string) => void;
   onResolve: () => void;
 }
 
@@ -34,6 +37,7 @@ export const ExampleAnnotation = memo(function ExampleAnnotation({
   children,
   onSelect,
   onDelete,
+  onDeleteMessage,
   onResolve,
 }: ExampleAnnotationProps) {
   return (
@@ -71,7 +75,7 @@ export const ExampleAnnotation = memo(function ExampleAnnotation({
           role={index === 0 ? 'button' : undefined}
           tabIndex={index === 0 ? 0 : undefined}
           aria-expanded={index === 0 ? true : undefined}
-          className={cn('flex gap-2.5', index === 0 && 'cursor-pointer')}
+          className={cn('group/message flex gap-2.5', index === 0 && 'cursor-pointer')}
           onClick={index === 0 ? onSelect : undefined}
           onKeyDown={
             index === 0
@@ -87,7 +91,28 @@ export const ExampleAnnotation = memo(function ExampleAnnotation({
         >
           <AuthorInitial name={message.author} agent={message.agent} />
           <div className="flex min-w-0 flex-col">
-            <strong className="mt-1 block text-[14px]">{message.author}</strong>
+            <div className="mt-1 flex items-center gap-1">
+              <strong className="block text-[14px]">{message.author}</strong>
+              {messages.length > 1 && (
+                <span className="contents" onClick={isolate} onKeyDown={isolate}>
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                      <Button
+                        variant="ghost"
+                        size="icon-sm"
+                        aria-label={`More actions for ${message.author}'s comment`}
+                        className="size-5 text-muted-foreground opacity-0 group-hover/message:opacity-100 focus-visible:opacity-100 data-[state=open]:opacity-100"
+                      >
+                        <IconEllipsis size={12} />
+                      </Button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="start">
+                      <DropdownMenuItem onSelect={() => onDeleteMessage(message.id)}>Delete</DropdownMenuItem>
+                    </DropdownMenuContent>
+                  </DropdownMenu>
+                </span>
+              )}
+            </div>
             <p className="m-0 text-[14px] break-words whitespace-pre-wrap">
               {message.message}
             </p>

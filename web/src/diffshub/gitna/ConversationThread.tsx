@@ -64,6 +64,10 @@ export function ConversationThread({
       onSelect={() => model.setExpanded(conversation.id, false)}
       onResolve={() => void model.setStatus(conversation, 'resolved')}
       onDelete={() => void model.setDeleted(conversation, true)}
+      onDeleteMessage={(id) => {
+        const message = conversation.messages.find((candidate) => candidate.id === id)
+        if (message != null) void model.setMessageDeleted(conversation, message, true)
+      }}
     >
       {stale && conversation.anchor.code !== '' && (
         <pre className="m-0 max-h-40 overflow-auto rounded-md border border-border px-2 py-1 font-mono text-xs">

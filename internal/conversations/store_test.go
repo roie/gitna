@@ -1108,3 +1108,61 @@ func TestTouchWakesWaitersForHeldMessages(t *testing.T) {
 		t.Fatalf("pending = %+v", pending)
 	}
 }
+
+func TestDeletingAMessageKeepsTheRestAndCanBeUndone(t *testing.T) {
+	dir := t.TempDir()
+	store, err := Open(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	agent := joinAgent(t, store)
+	if _, err := store.Create(human, "c1", anchorAt("a", 1, 1, "x"), "first", nil); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.Reply(agent, "c1", "m-agent", "answer", nil); err != nil {
+		t.Fatal(err)
+	}
+	second, err := store.Reply(human, "c1", "m-second", "second", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	bodies := func(conversation Conversation) []string {
+		var out []string
+		for _, message := range conversation.Messages {
+			out = append(out, message.Body)
+		}
+		return out
+	}
+
+	deleted, err := store.SetMessageDeleted(human, "c1", second.ID, true)
+	if err != nil || !slices.Equal(bodies(deleted), []string{"first", "answer"}) {
+		t.Fatalf("after delete = %v, %v", bodies(deleted), err)
+	}
+	if pending, _, _ := store.Pending(agent.ID); len(pending) != 1 || pending[0].Message.Body != "first" {
+		t.Fatalf("pending after delete = %+v", pending)
+	}
+	// Acknowledging past a deleted message keeps it for Undo.
+	store.Ack(agent.ID, second.Seq, nil)
+	store.Close()
+	if store, err = Open(dir); err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	restored, err := store.SetMessageDeleted(human, "c1", second.ID, false)
+	if err != nil || !slices.Equal(bodies(restored), []string{"first", "answer", "second"}) {
+		t.Fatalf("after undo = %v, %v", bodies(restored), err)
+	}
+	if pending, _, _ := store.Pending(agent.ID); len(pending) != 1 || pending[0].Message.ID != second.ID {
+		t.Fatalf("pending after undo = %+v", pending)
+	}
+
+	// The first message can go while the conversation keeps its place; the last one cannot.
+	store.SetMessageDeleted(human, "c1", restored.Messages[0].ID, true)
+	store.SetMessageDeleted(human, "c1", second.ID, true)
+	if _, err := store.SetMessageDeleted(human, "c1", "m-agent", true); !errors.Is(err, ErrInvalid) {
+		t.Fatalf("deleting the last message = %v", err)
+	}
+	if _, err := store.SetMessageDeleted(human, "c1", "nope", true); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("unknown message = %v", err)
+	}
+}

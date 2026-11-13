@@ -35,6 +35,8 @@ const (
 	EventConversationMoved    = "conversation.relocated"
 	EventConversationDeleted  = "conversation.deleted"
 	EventConversationRestored = "conversation.restored"
+	EventMessageDeleted       = "message.deleted"
+	EventMessageRestored      = "message.restored"
 	// EventParticipantJoined records an agent participant Gitna issued;
 	// EventParticipantLeft records that it stopped taking part.
 	EventParticipantJoined = "participant.joined"
@@ -132,7 +134,9 @@ type Event struct {
 	Actor          Participant `json:"actor"`
 	Anchor         *Anchor     `json:"anchor,omitempty"`
 	Message        *Message    `json:"message,omitempty"`
-	Path           string      `json:"path,omitempty"`
+	// MessageID is the message a message.deleted or message.restored event is about.
+	MessageID string `json:"messageId,omitempty"`
+	Path      string `json:"path,omitempty"`
 }
 
 // Pending is an unacknowledged message addressed to a participant, with the

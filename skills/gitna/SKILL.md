@@ -145,8 +145,8 @@ gitna conversations ack <seq> --participant <your-id>
 
 Messages up to that `seq` stop being pending for your id. Unacknowledged
 messages stay pending across restarts of your session and of Gitna.
-Messages in deleted conversations, and in conversations whose code is
-`missing`, are not pending. An `ack` that passes over them keeps them, and
+Deleted messages, messages in deleted conversations, and messages in
+conversations whose code is `missing` are not pending. An `ack` that passes over them keeps them, and
 they become pending again if the conversation is restored or its code
 returns. A `pending --wait` then wakes up for them.
 
