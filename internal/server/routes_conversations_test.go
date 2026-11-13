@@ -52,11 +52,11 @@ func newConversationFixture(t *testing.T) conversationFixture {
 	t.Cleanup(func() { close(events) })
 	agent := &AgentAPI{
 		Token: testAgentToken, Host: testHost, Version: "test",
-		Resolve: func(_ context.Context, path string) (*Conversations, error) {
+		Resolve: func(_ context.Context, path string) (*Conversations, func(), error) {
 			if path != root {
-				return nil, ErrFolderNotOpen
+				return nil, nil, ErrFolderNotOpen
 			}
-			return backend, nil
+			return backend, func() {}, nil
 		},
 	}
 	store, err := library.Store(root)

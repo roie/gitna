@@ -26,8 +26,9 @@ type AgentAPI struct {
 	Token   string
 	Host    string
 	Version string
-	// Resolve returns the conversations of the open folder containing path.
-	Resolve func(ctx context.Context, path string) (*Conversations, error)
+	// Resolve returns the conversations of the open folder containing path,
+	// and a release to call when the request is done with them.
+	Resolve func(ctx context.Context, path string) (*Conversations, func(), error)
 }
 
 type agentSession struct {
@@ -68,7 +69,7 @@ func (a *AgentAPI) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "repo is required"})
 		return
 	}
-	backend, err := a.Resolve(r.Context(), folder)
+	backend, release, err := a.Resolve(r.Context(), folder)
 	if err != nil {
 		status := http.StatusInternalServerError
 		if errors.Is(err, ErrFolderNotOpen) {
@@ -77,6 +78,7 @@ func (a *AgentAPI) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, status, map[string]string{"error": err.Error()})
 		return
 	}
+	defer release()
 	store, err := backend.Open()
 	if err != nil {
 		writeConversationError(w, err)

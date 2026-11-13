@@ -24,11 +24,11 @@ func gitnaProcess(t *testing.T, repo, storeDir string, pid int) func() {
 	t.Helper()
 	library := conversations.NewLibrary(storeDir)
 	backend := &server.Conversations{Root: repo, Sources: conversations.Sources{Content: conversations.WorktreeContent(repo)}, Open: func() (*conversations.Store, error) { return library.Store(repo) }}
-	api := &server.AgentAPI{Token: "secret", Resolve: func(_ context.Context, path string) (*server.Conversations, error) {
+	api := &server.AgentAPI{Token: "secret", Resolve: func(_ context.Context, path string) (*server.Conversations, func(), error) {
 		if path != repo {
-			return nil, server.ErrFolderNotOpen
+			return nil, nil, server.ErrFolderNotOpen
 		}
-		return backend, nil
+		return backend, func() {}, nil
 	}}
 	httpServer := httptest.NewServer(api)
 	api.Host = strings.TrimPrefix(httpServer.URL, "http://")

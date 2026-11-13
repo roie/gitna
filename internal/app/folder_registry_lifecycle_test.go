@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -18,6 +19,7 @@ import (
 	"testing/fstest"
 	"time"
 
+	"github.com/roie/gitna/internal/conversations"
 	"github.com/roie/gitna/internal/folder"
 	"github.com/roie/gitna/internal/gitx"
 	"github.com/roie/gitna/internal/protocol"
@@ -142,6 +144,8 @@ func newLifecycleRegistry(t *testing.T, git bool) (*folderRegistry, *fakeDormanc
 		t.Fatal(err)
 	}
 	scheduler := &fakeDormancyScheduler{}
+	library := conversations.NewLibrary(t.TempDir())
+	t.Cleanup(func() { library.Close() })
 	registry, err := newFolderRegistry(
 		t.Context(),
 		runner,
@@ -153,6 +157,7 @@ func newLifecycleRegistry(t *testing.T, git bool) (*folderRegistry, *fakeDormanc
 		folderRegistryOptions{
 			dormancyGrace: 45 * time.Second,
 			afterFunc:     scheduler.after,
+			conversations: library,
 		},
 	)
 	if err != nil {
@@ -430,6 +435,63 @@ func TestFolderRegistryDormancyTracksFinalSubscriberAndReconnect(t *testing.T) {
 	entry.mu.Unlock()
 	if !dormant || generation < 3 {
 		t.Fatalf("dormant = %v generation = %d, want drained event plus revival seed", dormant, generation)
+	}
+}
+
+func TestAgentRequestWatchesDormantFolderUntilReleased(t *testing.T) {
+	registry, scheduler := newLifecycleRegistry(t, true)
+	defer registry.close()
+	entry := registry.byRoute[registry.initialRoute]
+	registry.subscribersChanged(entry, 1)
+	registry.subscribersChanged(entry, -1)
+	scheduler.fireNext(t)
+
+	backend, release, err := registry.conversationsFor(t.Context(), entry.root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	store, err := backend.Open()
+	if err != nil {
+		t.Fatal(err)
+	}
+	agent, err := store.Join("Agent")
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(t.Context())
+	woken := make(chan struct{}, 64)
+	waited := make(chan struct{})
+	go func() {
+		defer close(waited)
+		_, _, _ = store.WaitPending(ctx, agent.ID, func([]conversations.Pending) []conversations.Pending {
+			woken <- struct{}{}
+			return nil
+		})
+	}()
+	<-woken
+	// With no browser connected, a file change must still wake the waiting agent.
+	deadline := time.After(10 * time.Second)
+	for i := 0; ; i++ {
+		if err := os.WriteFile(filepath.Join(entry.root, fmt.Sprintf("returned-%d.txt", i)), []byte("x\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		select {
+		case <-woken:
+		case <-time.After(100 * time.Millisecond):
+			continue
+		case <-deadline:
+			t.Fatal("file changes did not wake an agent waiting on a folder without a browser")
+		}
+		break
+	}
+	cancel()
+	<-waited
+	if scheduler.active() != 0 {
+		t.Fatal("dormancy started while an agent request held the folder")
+	}
+	release()
+	if scheduler.active() != 1 {
+		t.Fatalf("active timers = %d after the agent request, want 1", scheduler.active())
 	}
 }
 

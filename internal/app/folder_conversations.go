@@ -100,16 +100,21 @@ func (r *folderRegistry) newConversations(repo gitx.Repository) *server.Conversa
 
 // conversationsFor returns the conversations of an already open folder that
 // contains path. Agents cannot use it to reach folders the user never opened.
-func (r *folderRegistry) conversationsFor(ctx context.Context, path string) (*server.Conversations, error) {
+func (r *folderRegistry) conversationsFor(ctx context.Context, path string) (*server.Conversations, func(), error) {
 	repo, err := r.resolveFolder(ctx, path)
 	if err != nil {
-		return nil, fmt.Errorf("%w: %v", server.ErrFolderNotOpen, err)
+		return nil, nil, fmt.Errorf("%w: %v", server.ErrFolderNotOpen, err)
 	}
 	r.mu.RLock()
 	entry := r.byRoute[r.byRoot[folder.PathKey(repo.Root)]]
 	r.mu.RUnlock()
 	if entry == nil || entry.conversations == nil {
-		return nil, server.ErrFolderNotOpen
+		return nil, nil, server.ErrFolderNotOpen
 	}
-	return entry.conversations, nil
+	// Holding the folder session keeps its watcher running, so a waiting agent hears about files that return.
+	_, release, err := r.acquire(ctx, entry)
+	if err != nil {
+		return nil, nil, err
+	}
+	return entry.conversations, release, nil
 }
