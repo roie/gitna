@@ -243,6 +243,14 @@ func (c *Conversations) serve(w http.ResponseWriter, r *http.Request, rest strin
 	}
 }
 
+// filesChanged wakes pending waits: a file that returned can make messages
+// held while its code was missing pending again.
+func (c *Conversations) filesChanged() {
+	if store, err := c.Open(); err == nil {
+		store.Touch()
+	}
+}
+
 // shown locates the conversations of pending messages and splits off the
 // ones whose code is missing: they are not delivered while it is.
 func (c *Conversations) shown(r *http.Request, store *conversations.Store, pending []conversations.Pending) ([]conversations.Pending, map[string]bool) {

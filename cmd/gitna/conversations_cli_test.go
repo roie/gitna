@@ -101,6 +101,15 @@ func TestConversationsCLIRoundTrip(t *testing.T) {
 	if agents := left["agents"].([]any); len(agents) != 2 {
 		t.Fatalf("agents after leave = %+v", agents)
 	}
+	// It rejoins as itself; leaving again removes it, as a person would a stale agent.
+	rejoined := run("", "join", "--participant", unnamed["id"].(string))
+	if participant := rejoined["participant"].(map[string]any); participant["id"] != unnamed["id"] || participant["name"] != "Agent" || len(rejoined["agents"].([]any)) != 3 {
+		t.Fatalf("rejoined = %+v", rejoined)
+	}
+	run("", "leave", "--participant", unnamed["id"].(string))
+	if agents := run("", "session")["agents"].([]any); len(agents) != 2 {
+		t.Fatalf("session lists agents %+v", agents)
+	}
 
 	created := run("First line\n\"quoted\" $HOME `ticks`\n", "create", "--path", "a.go", "--lines", "2-3", "--id", "c-first", "--participant", first)
 	anchor := created["anchor"].(map[string]any)
@@ -189,6 +198,8 @@ func TestConversationsCLIRoundTrip(t *testing.T) {
 	}
 	fails(2, "--participant ID", "list")
 	fails(2, "unknown command", "nope", "--participant", first)
+	fails(2, "not both", "join", "--as", "x", "--participant", first)
+	fails(1, "unknown participant", "join", "--participant", "agent:p_never")
 	fails(1, "unknown participant", "pending", "--participant", "agent:p_never")
 	fails(1, "unknown recipient", "reply", id, "--id", "m-nobody", "--to", "agent:p_never", "--body", "x", "--participant", first)
 	fails(1, "--id is required", "reply", id, "--body", "x", "--participant", first)

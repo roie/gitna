@@ -67,9 +67,11 @@ conversations stay readable with `list` and `show`. Ids belong to one
 repository. An id that Gitna did not issue fails with "unknown participant".
 The id routes messages; it is not a password.
 
-`gitna conversations leave --participant <your-id>` records that you stopped
-taking part. Your id and history stay, but you are no longer a default
-recipient.
+`gitna conversations leave --participant <your-id>` removes you from the
+joined agents, so you are no longer a default recipient. Your id, history and
+acknowledgments stay; `gitna conversations join --participant <your-id>`
+rejoins as the same participant. Joined means taking part, not that an agent
+is running.
 
 ### Who receives a message
 
@@ -146,7 +148,7 @@ messages stay pending across restarts of your session and of Gitna.
 Messages in deleted conversations, and in conversations whose code is
 `missing`, are not pending. An `ack` that passes over them keeps them, and
 they become pending again if the conversation is restored or its code
-returns.
+returns. A `pending --wait` then wakes up for them.
 
 ### Wait for messages
 

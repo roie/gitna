@@ -26,6 +26,8 @@ type conversationFixture struct {
 	root    string
 	// joined is a participant Gitna issued, shown as "Helper".
 	joined conversations.Participant
+	// events stands in for the folder watcher.
+	events chan watch.InvalidationKind
 }
 
 func newConversationFixture(t *testing.T) conversationFixture {
@@ -42,10 +44,12 @@ func newConversationFixture(t *testing.T) conversationFixture {
 			return conversations.Participant{ID: "human:local", Kind: "human", Name: "Ada"}
 		},
 	}
-	srv, err := New(fstest.MapFS{"index.html": {Data: []byte("<html>")}}, Options{Conversations: backend})
+	events := make(chan watch.InvalidationKind)
+	srv, err := New(fstest.MapFS{"index.html": {Data: []byte("<html>")}}, Options{Conversations: backend, Events: events})
 	if err != nil {
 		t.Fatal(err)
 	}
+	t.Cleanup(func() { close(events) })
 	agent := &AgentAPI{
 		Token: testAgentToken, Host: testHost, Version: "test",
 		Resolve: func(_ context.Context, path string) (*Conversations, error) {
@@ -68,6 +72,7 @@ func newConversationFixture(t *testing.T) conversationFixture {
 		agent:   agent,
 		root:    root,
 		joined:  joined,
+		events:  events,
 	}
 }
 
@@ -371,5 +376,53 @@ func TestPendingDefersConversationsWhoseFileIsMissing(t *testing.T) {
 	f.agentDo(t, http.MethodPost, "/conversations/ack", fmt.Sprintf(`{"seq":%d}`, got[0].Message.Seq), nil)
 	if got := pending(); len(got) != 0 {
 		t.Fatalf("pending after ack = %+v", got)
+	}
+}
+
+// TestPendingWaitWakesWhenHeldMessagesReturn ends a pending wait as soon as
+// a message held back becomes pending again: when its file returns, which
+// the folder watcher reports, and when its deleted conversation is restored.
+func TestPendingWaitWakesWhenHeldMessagesReturn(t *testing.T) {
+	f := newConversationFixture(t)
+	path := filepath.Join(f.root, "main.go")
+	original, _ := os.ReadFile(path)
+	for _, id := range []string{"c1", "c2"} {
+		if rec := f.browserDo(t, http.MethodPost, "/conversations",
+			`{"id":"`+id+`","anchor":{"path":"main.go","side":"additions","startLine":1,"endLine":1},"body":"`+id+`"}`); rec.Code != http.StatusOK {
+			t.Fatalf("create = %d %s", rec.Code, rec.Body)
+		}
+	}
+	f.browserDo(t, http.MethodPost, "/conversations/c2/delete", `{}`)
+	os.Remove(path)
+	// Acknowledging while both are held keeps them.
+	f.agentDo(t, http.MethodPost, "/conversations/ack", `{"seq":100}`, nil)
+	wait := func(change func()) []conversations.Pending {
+		t.Helper()
+		done := make(chan []conversations.Pending)
+		go func() {
+			rec := f.agentDo(t, http.MethodGet, "/conversations/pending?timeout=20", "", nil)
+			done <- decodeBody[pendingResponse](t, rec).Pending
+		}()
+		time.Sleep(100 * time.Millisecond)
+		change()
+		select {
+		case pending := <-done:
+			return pending
+		case <-time.After(10 * time.Second):
+			t.Fatal("pending --wait did not wake")
+			return nil
+		}
+	}
+	pending := wait(func() {
+		os.WriteFile(path, original, 0o644)
+		f.events <- watch.InvalidateFiles
+	})
+	if len(pending) != 1 || pending[0].Message.Body != "c1" {
+		t.Fatalf("pending after the file returned = %+v", pending)
+	}
+	f.agentDo(t, http.MethodPost, "/conversations/ack", fmt.Sprintf(`{"seq":%d}`, pending[0].Message.Seq), nil)
+	pending = wait(func() { f.browserDo(t, http.MethodPost, "/conversations/c2/restore", `{}`) })
+	if len(pending) != 1 || pending[0].Message.Body != "c2" {
+		t.Fatalf("pending after undo = %+v", pending)
 	}
 }

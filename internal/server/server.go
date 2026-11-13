@@ -174,6 +174,9 @@ func New(staticFS fs.FS, opts Options) (*Server, error) {
 	s.hub = newEventsHub(opts.Events, opts.OnEventSubscribersChanged)
 	s.hub.start(func(watch.InvalidationKind) {
 		s.gen.Add(1)
+		if s.conversations != nil {
+			s.conversations.filesChanged()
+		}
 	})
 	s.api = s.apiRoutes()
 	return s, nil

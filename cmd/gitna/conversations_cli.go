@@ -62,11 +62,11 @@ type conversationOperation struct {
 const joinCommand = "join"
 
 var conversationCommands = map[string]conversationOperation{
-	joinCommand: {"[--as NAME]", "Join as a new participant shown as NAME (default \"Agent\"); prints the participant id to reuse", func(c *conversationCall) (any, error) {
+	joinCommand: {"[--as NAME | --participant ID]", "Join as a new participant shown as NAME (default \"Agent\") and print its id; with --participant, rejoin as that id after leave", func(c *conversationCall) (any, error) {
 		var out json.RawMessage
 		return out, c.client.Do(c.ctx, http.MethodPost, "/participants", nil, map[string]string{"name": c.flags.as}, &out)
 	}},
-	"session": {"", "Show the Gitna session for this repository", func(c *conversationCall) (any, error) {
+	"session": {"", "Show the Gitna session for this repository and its joined agents; --participant is optional", func(c *conversationCall) (any, error) {
 		var out json.RawMessage
 		return out, c.client.Do(c.ctx, http.MethodGet, "/session", nil, nil, &out)
 	}},
@@ -120,7 +120,7 @@ var conversationCommands = map[string]conversationOperation{
 		return out, c.client.Do(c.ctx, http.MethodPost, "/conversations/"+url.PathEscape(id)+"/messages", nil,
 			map[string]any{"id": messageID, "body": body, "to": c.flags.to}, &out)
 	}},
-	"leave": {"", "Stop taking part: you are no longer a default recipient; your id keeps working", func(c *conversationCall) (any, error) {
+	"leave": {"", "Remove the participant from the joined agents: no longer a default recipient; its id keeps working and can rejoin", func(c *conversationCall) (any, error) {
 		var out json.RawMessage
 		return out, c.client.Do(c.ctx, http.MethodPost, "/participants/leave", nil, struct{}{}, &out)
 	}},
@@ -211,7 +211,10 @@ func runConversationsCLI(ctx context.Context, args []string, stdin io.Reader, st
 		positional = append(positional, set.Arg(0))
 		rest = set.Args()[1:]
 	}
-	if args[0] != joinCommand && flags.participant == "" {
+	switch {
+	case args[0] == joinCommand && flags.as != "" && flags.participant != "":
+		return fail(2, errors.New("pass --as NAME to join as a new participant, or --participant ID to rejoin, not both"))
+	case args[0] != joinCommand && args[0] != "session" && flags.participant == "":
 		return fail(2, fmt.Errorf("pass --participant ID; run 'gitna %s %s' once to get an id, then reuse it for every command, also after reconnecting", conversationsCommand, joinCommand))
 	}
 	repo, err := filepath.Abs(flags.repo)
@@ -322,6 +325,11 @@ Identity: run 'join' once, with --as NAME for the name people see (default
 "Agent"). Gitna returns a participant id that owns your inbox and
 acknowledgments. Pass it with --participant to every other command, also
 after reconnecting. Several participants may share a NAME.
+
+Joined agents are the default recipients. Joined means taking part, not that
+the agent is running. 'leave --participant ID' removes an agent from the
+joined agents, also one that stopped without leaving ('session' lists them);
+'join --participant ID' brings it back with the same id, name and inbox.
 
 Routing: a message is pending only for the participants it is addressed to.
 Name them with --to ID. A person's message without --to goes to the agents

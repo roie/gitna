@@ -10,6 +10,7 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -1023,5 +1024,87 @@ func TestAcknowledgmentDefersHiddenMessages(t *testing.T) {
 	store.Ack(agent.ID, 2, nil)
 	if pending, _, _ := store.Pending(agent.ID); len(pending) != 0 {
 		t.Fatalf("pending after acknowledging = %+v", pending)
+	}
+}
+
+func TestRejoinKeepsIdentityNameAndAcknowledgments(t *testing.T) {
+	dir := t.TempDir()
+	store, err := Open(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	a := joinAgent(t, store)
+	b, _ := store.Join("other")
+	for _, id := range []string{"c1", "c2"} {
+		if _, err := store.Create(human, id, anchorAt("a", 1, 1, "x"), id, []string{a.ID}); err != nil {
+			t.Fatal(err)
+		}
+		if id == "c1" {
+			store.Ack(a.ID, 3, nil)
+		}
+	}
+	if err := store.Leave(a.ID); err != nil {
+		t.Fatal(err)
+	}
+	if agents, _ := store.Agents(); !slices.Equal(agents, []Participant{b}) {
+		t.Fatalf("agents after leave = %+v", agents)
+	}
+	if rejoined, err := store.Rejoin(a.ID); err != nil || rejoined != a {
+		t.Fatalf("rejoined = %+v, %v", rejoined, err)
+	}
+	_, seq, _ := store.List("")
+	if again, err := store.Rejoin(a.ID); err != nil || again != a {
+		t.Fatalf("second rejoin = %+v, %v", again, err)
+	}
+	if _, after, _ := store.List(""); after != seq {
+		t.Fatalf("rejoining while joined wrote an event: %d -> %d", seq, after)
+	}
+	if _, err := store.Rejoin("agent:p_never"); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("unknown rejoin = %v", err)
+	}
+	store.Close()
+
+	store, err = Open(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	if agents, _ := store.Agents(); !slices.Equal(agents, []Participant{a, b}) {
+		t.Fatalf("agents after reopen = %+v", agents)
+	}
+	if pending, cursor, _ := store.Pending(a.ID); cursor != 3 || len(pending) != 1 || pending[0].Message.Body != "c2" {
+		t.Fatalf("pending after rejoin = %+v at %d", pending, cursor)
+	}
+}
+
+func TestTouchWakesWaitersForHeldMessages(t *testing.T) {
+	store, err := Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	agent := joinAgent(t, store)
+	if _, err := store.Create(human, "c1", anchorAt("a", 1, 1, "x"), "held", nil); err != nil {
+		t.Fatal(err)
+	}
+	var shown atomic.Bool
+	keep := func(pending []Pending) []Pending {
+		if !shown.Load() {
+			return nil
+		}
+		return pending
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	done := make(chan []Pending)
+	go func() {
+		pending, _, _ := store.WaitPending(ctx, agent.ID, keep)
+		done <- pending
+	}()
+	time.Sleep(20 * time.Millisecond)
+	shown.Store(true)
+	store.Touch()
+	if pending := <-done; len(pending) != 1 || pending[0].Message.Body != "held" {
+		t.Fatalf("pending = %+v", pending)
 	}
 }

@@ -89,7 +89,12 @@ func (a *AgentAPI) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		if !decodeConversationRequest(w, r, &request) {
 			return
 		}
-		participant, err := store.Join(request.Name)
+		// With an id, a participant that left rejoins as itself.
+		join := func() (conversations.Participant, error) { return store.Join(request.Name) }
+		if id := r.Header.Get("Gitna-Participant"); id != "" {
+			join = func() (conversations.Participant, error) { return store.Rejoin(id) }
+		}
+		participant, err := join()
 		if err != nil {
 			writeConversationError(w, err)
 			return

@@ -194,13 +194,20 @@ func (s *Store) apply(rec record) (Event, bool) {
 	switch event.Type {
 	case EventParticipantJoined, EventParticipantLeft:
 		_, exists := s.participants[event.Actor.ID]
-		if event.Type == EventParticipantJoined {
-			if exists || event.Actor.Kind != KindAgent || validateParticipant(event.Actor) != nil {
+		switch {
+		case event.Type == EventParticipantJoined && exists:
+			// A participant that left rejoins under its id and name.
+			if !s.left[event.Actor.ID] {
+				return Event{}, false
+			}
+			delete(s.left, event.Actor.ID)
+		case event.Type == EventParticipantJoined:
+			if event.Actor.Kind != KindAgent || validateParticipant(event.Actor) != nil {
 				return Event{}, false
 			}
 			s.participants[event.Actor.ID] = event.Actor
 			s.joined = append(s.joined, event.Actor.ID)
-		} else {
+		default:
 			if !exists || s.left[event.Actor.ID] {
 				return Event{}, false
 			}
@@ -490,6 +497,36 @@ func (s *Store) Join(name string) (Participant, error) {
 		return Participant{}, err
 	}
 	return participant, nil
+}
+
+// Rejoin makes the agent participant id, which left earlier, a joined agent
+// again. Its name, history and acknowledgments stay as they were. Rejoining
+// while joined changes nothing.
+func (s *Store) Rejoin(id string) (Participant, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if _, err := s.catchUp(); err != nil {
+		return Participant{}, err
+	}
+	participant, ok := s.participants[id]
+	if !ok {
+		return Participant{}, fmt.Errorf("%w: unknown participant %q", ErrNotFound, id)
+	}
+	if s.left[id] {
+		if _, err := s.append(Event{Type: EventParticipantJoined, Actor: participant}); err != nil {
+			return Participant{}, err
+		}
+	}
+	return participant, nil
+}
+
+// Touch wakes waiters without writing an event, for changes outside the
+// log, such as a file returning, that can make held messages pending again.
+func (s *Store) Touch() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	close(s.changed)
+	s.changed = make(chan struct{})
 }
 
 // Leave records that the agent participant id stopped taking part. It keeps
