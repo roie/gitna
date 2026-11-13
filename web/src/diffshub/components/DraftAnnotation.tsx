@@ -1,5 +1,6 @@
 // Modified by Gitna: declare callbacks as receiver-independent function properties,
-// show the real author, save asynchronously, and share the form as CommentComposer.
+// show the real author, save asynchronously, share the form as CommentComposer, and
+// let it pick a recipient.
 import type { DiffLineAnnotation } from '@pierre/diffs';
 import { IconArrowRight } from '@pierre/icons';
 import { useEffect, useRef, useState, type ReactNode } from 'react';
@@ -13,8 +14,15 @@ interface DraftAnnotationProps {
   annotation: DiffLineAnnotation<DraftCommentMetadata>;
   author: string;
   itemId: string;
+  recipients?: Recipients | null;
   onCancel: (itemId: string, key: string) => void;
-  onSave: (itemId: string, key: string, message: string) => void | Promise<void>;
+  onSave: (itemId: string, key: string, message: string, to?: string) => void | Promise<void>;
+}
+
+/** Agents a comment can be addressed to, and the label of the default choice. */
+export interface Recipients {
+  choices: readonly { id: string; label: string }[];
+  defaultLabel: string;
 }
 
 interface CommentComposerProps {
@@ -23,8 +31,9 @@ interface CommentComposerProps {
   className?: string;
   initialMessage?: string;
   placeholder?: string;
+  recipients?: Recipients | null;
   onCancel?: () => void;
-  onSubmit: (message: string) => void | Promise<void>;
+  onSubmit: (message: string, to?: string) => void | Promise<void>;
 }
 
 // Keep typing and clicks inside a comment from reaching an editable code view.
@@ -36,10 +45,12 @@ export function CommentComposer({
   className,
   initialMessage = '',
   placeholder = 'Add a comment…',
+  recipients,
   onCancel,
   onSubmit,
 }: CommentComposerProps) {
   const [message, setMessage] = useState(initialMessage);
+  const [recipient, setRecipient] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -52,7 +63,7 @@ export function CommentComposer({
     setBusy(true);
     setError(null);
     try {
-      await onSubmit(trimmedMessage);
+      await onSubmit(trimmedMessage, recipient === '' ? undefined : recipient);
       setMessage('');
     } catch (failure) {
       setError(failure instanceof Error ? failure.message : String(failure));
@@ -132,7 +143,23 @@ export function CommentComposer({
           )}
         </div>
       </div>
-      <div className="flex w-full justify-between gap-3 pl-10.5 md:w-auto md:justify-end md:pl-0">
+      <div className="flex w-full items-center justify-between gap-3 pl-10.5 md:w-auto md:justify-end md:pl-0">
+        {recipients != null && (
+          <select
+            aria-label="To"
+            value={recipient}
+            disabled={busy}
+            onChange={({ currentTarget }) => setRecipient(currentTarget.value)}
+            className="max-w-40 truncate rounded-sm border border-border bg-transparent px-1 py-0.5 text-xs text-inherit"
+          >
+            <option value="">{recipients.defaultLabel}</option>
+            {recipients.choices.map(({ id, label }) => (
+              <option key={id} value={id}>
+                {label}
+              </option>
+            ))}
+          </select>
+        )}
         {onCancel != null && (
           <Button
             type="button"
@@ -196,6 +223,7 @@ export function DraftAnnotation({
   annotation,
   author,
   itemId,
+  recipients,
   onCancel,
   onSave,
 }: DraftAnnotationProps) {
@@ -204,8 +232,9 @@ export function DraftAnnotation({
       autoFocus
       avatar={<AuthorInitial name={author} />}
       initialMessage={annotation.metadata.message}
+      recipients={recipients}
       onCancel={() => onCancel(itemId, annotation.metadata.key)}
-      onSubmit={(message) => onSave(itemId, annotation.metadata.key, message)}
+      onSubmit={(message, to) => onSave(itemId, annotation.metadata.key, message, to)}
     />
   );
 }

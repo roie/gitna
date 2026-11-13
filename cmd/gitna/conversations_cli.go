@@ -38,6 +38,17 @@ type conversationFlags struct {
 	repo, as, participant, path, lines, source, revision, id, body, bodyFile string
 	wait, timeout                                                            float64
 	after                                                                    uint64
+	to                                                                       recipientsFlag
+}
+
+// recipientsFlag collects repeated --to participant ids.
+type recipientsFlag []string
+
+func (r *recipientsFlag) String() string { return strings.Join(*r, ",") }
+
+func (r *recipientsFlag) Set(value string) error {
+	*r = append(*r, value)
+	return nil
 }
 
 type conversationOperation struct {
@@ -75,7 +86,7 @@ var conversationCommands = map[string]conversationOperation{
 		var out json.RawMessage
 		return out, c.client.Do(c.ctx, http.MethodGet, "/conversations/"+url.PathEscape(id), nil, nil, &out)
 	}},
-	"create": {"--path FILE --lines N[-M] --id ID [--source worktree|index|commit] [--revision COMMIT_ID] [--body TEXT | --body-file FILE]", "Start a conversation on lines of a worktree file, the index, or a commit; the body defaults to stdin", func(c *conversationCall) (any, error) {
+	"create": {"--path FILE --lines N[-M] --id ID [--to PARTICIPANT_ID]... [--source worktree|index|commit] [--revision COMMIT_ID] [--body TEXT | --body-file FILE]", "Start a conversation on lines of a worktree file, the index, or a commit; the body defaults to stdin", func(c *conversationCall) (any, error) {
 		anchor, err := c.anchor()
 		if err != nil {
 			return nil, err
@@ -90,9 +101,9 @@ var conversationCommands = map[string]conversationOperation{
 		}
 		var out json.RawMessage
 		return out, c.client.Do(c.ctx, http.MethodPost, "/conversations", nil,
-			map[string]any{"id": id, "anchor": anchor, "body": body}, &out)
+			map[string]any{"id": id, "anchor": anchor, "body": body, "to": c.flags.to}, &out)
 	}},
-	"reply": {"ID --id MESSAGE_ID [--body TEXT | --body-file FILE]", "Reply to a conversation; the body defaults to stdin", func(c *conversationCall) (any, error) {
+	"reply": {"ID --id MESSAGE_ID [--to PARTICIPANT_ID]... [--body TEXT | --body-file FILE]", "Reply to a conversation; the body defaults to stdin", func(c *conversationCall) (any, error) {
 		id, err := c.arg(0, "conversation id")
 		if err != nil {
 			return nil, err
@@ -107,9 +118,13 @@ var conversationCommands = map[string]conversationOperation{
 		}
 		var out json.RawMessage
 		return out, c.client.Do(c.ctx, http.MethodPost, "/conversations/"+url.PathEscape(id)+"/messages", nil,
-			map[string]string{"id": messageID, "body": body}, &out)
+			map[string]any{"id": messageID, "body": body, "to": c.flags.to}, &out)
 	}},
-	"pending": {"[--wait SECONDS]", "List unacknowledged messages from others, optionally waiting for one", func(c *conversationCall) (any, error) {
+	"leave": {"", "Stop taking part: you are no longer a default recipient; your id keeps working", func(c *conversationCall) (any, error) {
+		var out json.RawMessage
+		return out, c.client.Do(c.ctx, http.MethodPost, "/participants/leave", nil, struct{}{}, &out)
+	}},
+	"pending": {"[--wait SECONDS]", "List unacknowledged messages addressed to you, optionally waiting for one", func(c *conversationCall) (any, error) {
 		query := url.Values{}
 		if c.flags.wait > 0 {
 			query.Set("timeout", strconv.FormatFloat(c.flags.wait, 'f', -1, 64))
@@ -183,6 +198,7 @@ func runConversationsCLI(ctx context.Context, args []string, stdin io.Reader, st
 	set.Float64Var(&flags.wait, "wait", 0, "")
 	set.Float64Var(&flags.timeout, "timeout", 0, "")
 	set.Uint64Var(&flags.after, "after", 0, "")
+	set.Var(&flags.to, "to", "")
 	var positional []string
 	rest := args[1:]
 	for {
@@ -306,6 +322,12 @@ Identity: run 'join' once, with --as NAME for the name people see (default
 "Agent"). Gitna returns a participant id that owns your inbox and
 acknowledgments. Pass it with --participant to every other command, also
 after reconnecting. Several participants may share a NAME.
+
+Routing: a message is pending only for the participants it is addressed to.
+Name them with --to ID. A person's message without --to goes to the agents
+last addressed in the conversation, otherwise the agent that wrote there
+last, otherwise the only joined agent; with several joined agents it stays
+unassigned. Agent messages without --to notify no other agent.
 
 Commands:
 `, conversationsCommand)

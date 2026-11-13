@@ -35,8 +35,10 @@ const (
 	EventConversationMoved    = "conversation.relocated"
 	EventConversationDeleted  = "conversation.deleted"
 	EventConversationRestored = "conversation.restored"
-	// EventParticipantJoined records an agent participant Gitna issued.
+	// EventParticipantJoined records an agent participant Gitna issued;
+	// EventParticipantLeft records that it stopped taking part.
 	EventParticipantJoined = "participant.joined"
+	EventParticipantLeft   = "participant.left"
 
 	MaxBodyBytes = 32 << 10
 	MaxCodeBytes = 64 << 10
@@ -98,7 +100,11 @@ type Message struct {
 	Seq            uint64      `json:"seq"`
 	Author         Participant `json:"author"`
 	Body           string      `json:"body"`
-	CreatedAt      time.Time   `json:"createdAt"`
+	// To lists the participants the message is addressed to: the ones its
+	// author named, or for a person's message without names, the default
+	// recipients of its conversation. Only they receive it as pending.
+	To        []string  `json:"to,omitempty"`
+	CreatedAt time.Time `json:"createdAt"`
 }
 
 type Conversation struct {
@@ -113,6 +119,8 @@ type Conversation struct {
 	UpdatedAt time.Time   `json:"updatedAt"`
 	Seq       uint64      `json:"seq"`
 	Messages  []Message   `json:"messages"`
+	// DefaultTo is who a person's next message without recipients goes to.
+	DefaultTo []string `json:"defaultTo,omitempty"`
 }
 
 // Event is one durable log entry. Seq is assigned by log position.
@@ -127,7 +135,7 @@ type Event struct {
 	Path           string      `json:"path,omitempty"`
 }
 
-// Pending is an unacknowledged message from another participant, with the
+// Pending is an unacknowledged message addressed to a participant, with the
 // conversation it belongs to.
 type Pending struct {
 	Conversation Conversation `json:"conversation"`

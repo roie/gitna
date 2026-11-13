@@ -46,11 +46,13 @@ type createConversationRequest struct {
 	ID     string               `json:"id"`
 	Anchor conversations.Anchor `json:"anchor"`
 	Body   string               `json:"body"`
+	To     []string             `json:"to"`
 }
 
 type replyRequest struct {
-	ID   string `json:"id"`
-	Body string `json:"body"`
+	ID   string   `json:"id"`
+	Body string   `json:"body"`
+	To   []string `json:"to"`
 }
 
 type ackRequest struct {
@@ -64,6 +66,9 @@ type conversationList struct {
 	Cursor        uint64                       `json:"cursor"`
 	// Read is how far the participant has read each conversation.
 	Read map[string]uint64 `json:"read"`
+	// Agents are the joined agents that have not left, the recipients a
+	// message can name.
+	Agents []conversations.Participant `json:"agents"`
 }
 
 type pendingResponse struct {
@@ -120,7 +125,12 @@ func (c *Conversations) serve(w http.ResponseWriter, r *http.Request, rest strin
 			writeConversationError(w, err)
 			return
 		}
-		writeJSON(w, http.StatusOK, conversationList{Participant: actor, Conversations: list, Seq: seq, Cursor: cursor, Read: read})
+		agents, err := store.Agents()
+		if err != nil {
+			writeConversationError(w, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, conversationList{Participant: actor, Conversations: list, Seq: seq, Cursor: cursor, Read: read, Agents: nonNil(agents)})
 	case r.Method == http.MethodPost && id == "":
 		var request createConversationRequest
 		if !decodeConversationRequest(w, r, &request) {
@@ -130,7 +140,7 @@ func (c *Conversations) serve(w http.ResponseWriter, r *http.Request, rest strin
 			writeConversationError(w, err)
 			return
 		}
-		conversation, err := store.Create(actor, request.ID, request.Anchor, request.Body)
+		conversation, err := store.Create(actor, request.ID, request.Anchor, request.Body, request.To)
 		if err != nil {
 			writeConversationError(w, err)
 			return
@@ -151,13 +161,13 @@ func (c *Conversations) serve(w http.ResponseWriter, r *http.Request, rest strin
 	case r.Method == http.MethodGet && id == "pending" && action == "":
 		ctx, cancel := context.WithTimeout(r.Context(), waitDuration(r))
 		defer cancel()
-		pending, cursor, err := store.WaitPending(ctx, actor.ID)
+		pending, cursor, err := store.WaitPending(ctx, actor.ID, func(pending []conversations.Pending) []conversations.Pending {
+			shown, _ := c.shown(r, store, pending)
+			return shown
+		})
 		if err != nil {
 			writeConversationError(w, err)
 			return
-		}
-		for index := range pending {
-			pending[index].Conversation = c.locate(r, store, pending[index].Conversation)
 		}
 		writeJSON(w, http.StatusOK, pendingResponse{Participant: actor, Cursor: cursor, Pending: pending})
 	case r.Method == http.MethodPost && id == "ack" && action == "":
@@ -165,7 +175,13 @@ func (c *Conversations) serve(w http.ResponseWriter, r *http.Request, rest strin
 		if !decodeConversationRequest(w, r, &request) {
 			return
 		}
-		cursor, err := store.Ack(actor.ID, request.Seq)
+		pending, _, err := store.Pending(actor.ID)
+		if err != nil {
+			writeConversationError(w, err)
+			return
+		}
+		_, hidden := c.shown(r, store, pending)
+		cursor, err := store.Ack(actor.ID, request.Seq, hidden)
 		if err != nil {
 			writeConversationError(w, err)
 			return
@@ -183,7 +199,7 @@ func (c *Conversations) serve(w http.ResponseWriter, r *http.Request, rest strin
 		if !decodeConversationRequest(w, r, &request) {
 			return
 		}
-		message, err := store.Reply(actor, id, request.ID, request.Body)
+		message, err := store.Reply(actor, id, request.ID, request.Body, request.To)
 		if err != nil {
 			writeConversationError(w, err)
 			return
@@ -225,6 +241,28 @@ func (c *Conversations) serve(w http.ResponseWriter, r *http.Request, rest strin
 	default:
 		writeJSON(w, http.StatusNotFound, map[string]string{"error": "not found"})
 	}
+}
+
+// shown locates the conversations of pending messages and splits off the
+// ones whose code is missing: they are not delivered while it is.
+func (c *Conversations) shown(r *http.Request, store *conversations.Store, pending []conversations.Pending) ([]conversations.Pending, map[string]bool) {
+	located := make(map[string]conversations.Conversation)
+	for _, item := range pending {
+		if _, done := located[item.Conversation.ID]; !done {
+			located[item.Conversation.ID] = c.locate(r, store, item.Conversation)
+		}
+	}
+	hidden := make(map[string]bool)
+	shown := make([]conversations.Pending, 0, len(pending))
+	for _, item := range pending {
+		item.Conversation = located[item.Conversation.ID]
+		if item.Conversation.Location != nil && item.Conversation.Location.Status == conversations.LocationMissing {
+			hidden[item.Conversation.ID] = true
+			continue
+		}
+		shown = append(shown, item)
+	}
+	return shown, hidden
 }
 
 func (c *Conversations) locate(r *http.Request, store *conversations.Store, conversation conversations.Conversation) conversations.Conversation {

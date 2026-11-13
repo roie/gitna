@@ -62,10 +62,28 @@ the browser then shows a short id suffix next to it.
 
 Pass the id to every other command with `--participant <your-id>`. Using the
 same id after a reconnect, a new turn or a Gitna restart gives you the same
-inbox. A new id starts with no acknowledgments, so every earlier message from
-others is pending for it. Ids belong to one repository. An id that Gitna did
-not issue fails with "unknown participant". The id routes messages; it is not
-a password.
+inbox. A new id receives only messages sent after it joined; earlier
+conversations stay readable with `list` and `show`. Ids belong to one
+repository. An id that Gitna did not issue fails with "unknown participant".
+The id routes messages; it is not a password.
+
+`gitna conversations leave --participant <your-id>` records that you stopped
+taking part. Your id and history stay, but you are no longer a default
+recipient.
+
+### Who receives a message
+
+A message is pending only for the participants in its `to` list:
+
+- Name recipients with `--to <participant-id>` (repeat it for several). The
+  `agents` list of `session` has the ids of the joined agents.
+- A person's message without recipients goes to the agents last addressed
+  in that conversation, otherwise to the agent that wrote there last,
+  otherwise to the only joined agent. With several joined agents and nothing
+  to go by, it is unassigned: readable, but pending for no one.
+  `conversation.defaultTo` shows who that is.
+- An agent's message without `--to` is pending for no other agent. People
+  see every message in the browser.
 
 ### Read pending messages
 
@@ -97,9 +115,8 @@ The code a conversation is about:
   the browser hides the conversation but keeps it). When the file is gone
   but Git still has the code, `location.source` is `index` or `commit`, with
   the commit in `location.revision`.
-- `conversation.status` is `open` or `resolved`. `conversation.deleted` is
-  `true` when a person deleted it; it can be restored, and until then replies
-  fail with "not found".
+- `conversation.status` is `open` or `resolved`. A person's reply reopens a
+  resolved conversation.
 
 ### Reply
 
@@ -126,6 +143,10 @@ gitna conversations ack <seq> --participant <your-id>
 
 Messages up to that `seq` stop being pending for your id. Unacknowledged
 messages stay pending across restarts of your session and of Gitna.
+Messages in deleted conversations, and in conversations whose code is
+`missing`, are not pending. An `ack` that passes over them keeps them, and
+they become pending again if the conversation is restored or its code
+returns.
 
 ### Wait for messages
 
@@ -162,6 +183,7 @@ refer to that version of the file.
   `gitna conversations reopen <conversation-id> --participant <your-id>`:
   change `conversation.status`. Resolved conversations leave the code view.
 - `gitna conversations session --participant <your-id>`: the Gitna instance,
-  the repository root, your participant and your acknowledgment cursor.
+  the repository root, your participant, your acknowledgment cursor, and the
+  joined `agents`.
 - `gitna conversations events --after <seq> --timeout <s> --participant <your-id>`:
   the raw event stream, for tools that follow every change.

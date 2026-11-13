@@ -52,6 +52,8 @@ export interface ConversationMessage {
   seq: number
   author: Participant
   body: string
+  /** The participants this message was addressed to. */
+  to?: string[]
   createdAt: string
 }
 
@@ -66,6 +68,8 @@ export interface Conversation {
   updatedAt: string
   seq: number
   messages: ConversationMessage[]
+  /** Who a person's next message without recipients goes to. */
+  defaultTo?: string[]
 }
 
 export interface ConversationEvent {
@@ -82,12 +86,19 @@ export interface ConversationList {
   seq: number
   /** How far this participant has read each conversation. */
   read: Record<string, number>
+  /** The joined agents a message can be addressed to. */
+  agents: Participant[]
 }
 
 export interface ConversationsApi {
   list(path: string, signal?: AbortSignal): Promise<ConversationList>
-  create(anchor: ConversationAnchor, body: string, id: string): Promise<Conversation>
-  reply(conversationId: string, body: string, id: string): Promise<ConversationMessage>
+  create(anchor: ConversationAnchor, body: string, id: string, to?: string[]): Promise<Conversation>
+  reply(
+    conversationId: string,
+    body: string,
+    id: string,
+    to?: string[],
+  ): Promise<ConversationMessage>
   setStatus(conversationId: string, status: 'open' | 'resolved'): Promise<Conversation>
   setDeleted(conversationId: string, deleted: boolean): Promise<Conversation>
   markRead(conversationId: string, seq: number): Promise<number>
@@ -124,9 +135,13 @@ export function createConversationsApi(
       )
       return (await response.json()) as ConversationList
     },
-    create: (anchor, body, id) => post('api/v1/conversations', { id, anchor, body }),
-    reply: (conversationId, body, id) =>
-      post(`api/v1/conversations/${encodeURIComponent(conversationId)}/messages`, { id, body }),
+    create: (anchor, body, id, to) => post('api/v1/conversations', { id, anchor, body, to }),
+    reply: (conversationId, body, id, to) =>
+      post(`api/v1/conversations/${encodeURIComponent(conversationId)}/messages`, {
+        id,
+        body,
+        to,
+      }),
     setStatus: (conversationId, status) =>
       post(
         `api/v1/conversations/${encodeURIComponent(conversationId)}/${status === 'resolved' ? 'resolve' : 'reopen'}`,
@@ -198,6 +213,8 @@ export class ConversationsModel {
   private byContent = new Map<string, Conversation[]>()
   private all: readonly Conversation[] = []
   participant: Participant | null = null
+  /** The joined agents; a recipient choice is needed only with several. */
+  agents: readonly Participant[] = []
   private readonly listeners = new Set<() => void>()
   private readonly expanded = new Map<string, boolean>()
   private controller: AbortController | null = null
@@ -232,6 +249,25 @@ export class ConversationsModel {
       : author.name
   }
 
+  /**
+   * The agents a new message can be addressed to, with the label of the
+   * default choice, or null when there is nothing to choose: a person's
+   * message reaches the only joined agent by itself.
+   */
+  recipients(
+    conversation?: Conversation,
+  ): { choices: { id: string; label: string }[]; defaultLabel: string } | null {
+    if (this.agents.length < 2) return null
+    const names = (conversation?.defaultTo ?? []).map((id) => {
+      const agent = this.agents.find((candidate) => candidate.id === id)
+      return agent == null ? id : this.displayName(agent)
+    })
+    return {
+      choices: this.agents.map((agent) => ({ id: agent.id, label: this.displayName(agent) })),
+      defaultLabel: names.length === 0 ? 'Unassigned' : names.join(', '),
+    }
+  }
+
   find(id: string): Conversation | undefined {
     return this.all.find((conversation) => conversation.id === id)
   }
@@ -264,16 +300,19 @@ export class ConversationsModel {
         byContent.set(key, [...(byContent.get(key) ?? []), conversation])
       }
       const idsByName = new Map<string, Set<string>>()
-      for (const { messages } of list.conversations) {
-        for (const { author } of messages) {
-          idsByName.set(author.name, (idsByName.get(author.name) ?? new Set()).add(author.id))
-        }
+      const people = [
+        ...(list.agents ?? []),
+        ...list.conversations.flatMap(({ messages }) => messages.map(({ author }) => author)),
+      ]
+      for (const { id, name } of people) {
+        idsByName.set(name, (idsByName.get(name) ?? new Set()).add(id))
       }
       this.sharedNames = new Set(
         [...idsByName].filter(([, ids]) => ids.size > 1).map(([name]) => name),
       )
       this.byContent = byContent
       this.all = visible
+      this.agents = list.agents ?? []
       this.participant = list.participant
       for (const [id, seq] of Object.entries(list.read)) {
         this.read[id] = Math.max(this.read[id] ?? 0, seq)
@@ -290,18 +329,18 @@ export class ConversationsModel {
     this.emit()
   }
 
-  async create(anchor: ConversationAnchor, body: string): Promise<Conversation> {
-    const conversation = await this.retrying(JSON.stringify([anchor, body]), 'c', (id) =>
-      this.api.create(anchor, body, id),
+  async create(anchor: ConversationAnchor, body: string, to?: string[]): Promise<Conversation> {
+    const conversation = await this.retrying(JSON.stringify([anchor, body, to]), 'c', (id) =>
+      this.api.create(anchor, body, id, to),
     )
     this.expanded.set(conversation.id, true)
     await this.load()
     return conversation
   }
 
-  async reply(conversation: Conversation, body: string): Promise<void> {
-    await this.retrying(JSON.stringify([conversation.id, body]), 'm', (id) =>
-      this.api.reply(conversation.id, body, id),
+  async reply(conversation: Conversation, body: string, to?: string[]): Promise<void> {
+    await this.retrying(JSON.stringify([conversation.id, body, to]), 'm', (id) =>
+      this.api.reply(conversation.id, body, id, to),
     )
     await this.load()
   }

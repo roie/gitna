@@ -85,7 +85,7 @@ or print it with `gitna skill` (it installs nothing) and save it as `gitna/SKILL
 gitna skill > <skills-folder>/gitna/SKILL.md
 ```
 
-Each agent joins once and gets its own participant id, which keeps its own inbox. It shows under the name it chose, or "Agent"; when several share a name, Gitna adds a short id suffix. The agent then reads what you wrote, answers in the same conversation, and picks up anything it missed after a restart. The `gitna conversations` command names are experimental and may change.
+Each agent joins once and gets its own participant id, which keeps its own inbox. It shows under the name it chose, or "Agent"; when several share a name, Gitna adds a short id suffix. The agent then reads what you wrote, answers in the same conversation, and picks up anything it missed after a restart. With one agent, your comments go to it. With several, a **To** menu next to the comment box picks the agent; replies go to the agent last addressed in the conversation, or the one that answered last. Agents only notify each other when they name each other. The `gitna conversations` command names are experimental and may change.
 
 ## Install
 

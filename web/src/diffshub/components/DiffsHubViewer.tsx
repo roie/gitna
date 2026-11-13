@@ -385,7 +385,7 @@ export const DiffsHubViewer = memo(function DiffsHubViewer({
   );
 
   const handleSaveDraft = useStableCallback(
-    async (itemId: string, key: string, message: string) => {
+    async (itemId: string, key: string, message: string, to?: string) => {
       const item = viewerRef.current?.getItem(itemId);
       const draft = item?.annotations?.find((annotation) => annotation.metadata.key === key)?.metadata;
       if (gitnaConversations == null || item == null || draft?.kind !== 'draft') {
@@ -403,7 +403,7 @@ export const DiffsHubViewer = memo(function DiffsHubViewer({
       if (unsaved) {
         throw new Error(`Save ${anchor.path} before starting a conversation on it.`);
       }
-      await gitnaConversations.model.create(anchor, message);
+      await gitnaConversations.model.create(anchor, message, to == null ? undefined : [to]);
       handleRemoveDraft(itemId, key);
     }
   );
@@ -453,6 +453,7 @@ export const DiffsHubViewer = memo(function DiffsHubViewer({
             annotation={annotation as DiffLineAnnotation<DraftCommentMetadata>}
             author={gitnaConversations.model.participant?.name ?? 'You'}
             itemId={item.id}
+            recipients={gitnaConversations.model.recipients()}
             onCancel={handleRemoveDraft}
             onSave={handleSaveDraft}
           />

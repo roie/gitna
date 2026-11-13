@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -337,5 +338,38 @@ func TestOnlyPeopleDeleteOrRestoreConversations(t *testing.T) {
 		if rec := f.agentDo(t, http.MethodPost, "/conversations/c1/"+action, `{}`, nil); rec.Code != http.StatusOK {
 			t.Errorf("agent %s = %d %s", action, rec.Code, rec.Body)
 		}
+	}
+}
+
+// TestPendingDefersConversationsWhoseFileIsMissing hides a message while its
+// file is gone, without letting an acknowledgment discard it, and delivers
+// it once the same file is back.
+func TestPendingDefersConversationsWhoseFileIsMissing(t *testing.T) {
+	f := newConversationFixture(t)
+	path := filepath.Join(f.root, "main.go")
+	original, _ := os.ReadFile(path)
+	if rec := f.browserDo(t, http.MethodPost, "/conversations",
+		`{"id":"c1","anchor":{"path":"main.go","side":"additions","startLine":1,"endLine":1},"body":"Rename the package"}`); rec.Code != http.StatusOK {
+		t.Fatalf("create = %d %s", rec.Code, rec.Body)
+	}
+	pending := func() []conversations.Pending {
+		t.Helper()
+		return decodeBody[pendingResponse](t, f.agentDo(t, http.MethodGet, "/conversations/pending", "", nil)).Pending
+	}
+	os.Remove(path)
+	if got := pending(); len(got) != 0 {
+		t.Fatalf("pending while missing = %+v", got)
+	}
+	if rec := f.agentDo(t, http.MethodPost, "/conversations/ack", `{"seq":100}`, nil); rec.Code != http.StatusOK {
+		t.Fatalf("ack = %d %s", rec.Code, rec.Body)
+	}
+	os.WriteFile(path, original, 0o644)
+	got := pending()
+	if len(got) != 1 || got[0].Message.Body != "Rename the package" || got[0].Conversation.Location.Status != conversations.LocationCurrent {
+		t.Fatalf("pending after the file returned = %+v", got)
+	}
+	f.agentDo(t, http.MethodPost, "/conversations/ack", fmt.Sprintf(`{"seq":%d}`, got[0].Message.Seq), nil)
+	if got := pending(); len(got) != 0 {
+		t.Fatalf("pending after ack = %+v", got)
 	}
 }

@@ -14,7 +14,9 @@ import (
 	"path"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -52,8 +54,11 @@ type Store struct {
 	eventIDs  map[string]struct{}
 	byID      map[string]*Conversation
 	messageAt map[string]string
-	// participants are the agents Gitna issued an id to.
+	// participants are the agents Gitna issued an id to, in join order;
+	// left holds the ones that stopped taking part.
 	participants map[string]Participant
+	joined       []string
+	left         map[string]bool
 	// cursors merges every line of the cursor log by maximum, so processes
 	// sharing a repository never undo each other's acknowledgements.
 	cursors      map[string]uint64
@@ -78,6 +83,7 @@ func Open(dir string) (*Store, error) {
 		byID:         make(map[string]*Conversation),
 		messageAt:    make(map[string]string),
 		participants: make(map[string]Participant),
+		left:         make(map[string]bool),
 		cursors:      make(map[string]uint64),
 		changed:      make(chan struct{}),
 		now:          time.Now,
@@ -185,11 +191,21 @@ func (s *Store) apply(rec record) (Event, bool) {
 		return Event{}, false
 	}
 	event := rec.Event
-	if event.Type == EventParticipantJoined {
-		if _, exists := s.participants[event.Actor.ID]; exists || event.Actor.Kind != KindAgent || validateParticipant(event.Actor) != nil {
-			return Event{}, false
+	switch event.Type {
+	case EventParticipantJoined, EventParticipantLeft:
+		_, exists := s.participants[event.Actor.ID]
+		if event.Type == EventParticipantJoined {
+			if exists || event.Actor.Kind != KindAgent || validateParticipant(event.Actor) != nil {
+				return Event{}, false
+			}
+			s.participants[event.Actor.ID] = event.Actor
+			s.joined = append(s.joined, event.Actor.ID)
+		} else {
+			if !exists || s.left[event.Actor.ID] {
+				return Event{}, false
+			}
+			s.left[event.Actor.ID] = true
 		}
-		s.participants[event.Actor.ID] = event.Actor
 		event.Seq = uint64(len(s.events) + 1)
 		s.eventIDs[rec.ID] = struct{}{}
 		s.events = append(s.events, event)
@@ -282,7 +298,9 @@ func (s *Store) append(event Event) (Event, error) {
 
 // Create starts a conversation with its first message. Repeating a create
 // with the same id and content returns the existing conversation.
-func (s *Store) Create(actor Participant, id string, anchor Anchor, body string) (Conversation, error) {
+// Create starts a conversation addressed to the participants in to, or for
+// a person without recipients, to the only joined agent.
+func (s *Store) Create(actor Participant, id string, anchor Anchor, body string, to []string) (Conversation, error) {
 	if id == "" {
 		id = newID("c")
 	}
@@ -305,6 +323,9 @@ func (s *Store) Create(actor Participant, id string, anchor Anchor, body string)
 	if _, err := s.catchUp(); err != nil {
 		return Conversation{}, err
 	}
+	if to, err = s.recipients(actor, to); err != nil {
+		return Conversation{}, err
+	}
 	// A retry, or a writer in another process that won the race, returns
 	// the stored conversation when its content matches.
 	existing := func() (Conversation, error) {
@@ -312,15 +333,19 @@ func (s *Store) Create(actor Participant, id string, anchor Anchor, body string)
 		was := existing.Anchor
 		if was.Path != anchor.Path || was.Source != anchor.Source || was.Revision != anchor.Revision || was.Side != anchor.Side ||
 			was.StartLine != anchor.StartLine || was.EndLine != anchor.EndLine ||
-			existing.CreatedBy.ID != actor.ID || existing.Messages[0].Body != body {
+			existing.CreatedBy.ID != actor.ID || existing.Messages[0].Body != body ||
+			(len(to) > 0 && !slices.Equal(existing.Messages[0].To, to)) {
 			return Conversation{}, ErrConflict
 		}
-		return cloneConversation(existing), nil
+		return s.clone(existing), nil
 	}
 	if s.byID[id] != nil {
 		return existing()
 	}
-	message := Message{ID: id + "-1", Author: actor, Body: body, CreatedAt: s.now().UTC()}
+	if len(to) == 0 && actor.Kind == KindHuman {
+		to = s.defaultTo(nil)
+	}
+	message := Message{ID: id + "-1", Author: actor, Body: body, To: to, CreatedAt: s.now().UTC()}
 	if _, err := s.append(Event{
 		Type: EventConversationCreated, ConversationID: id, Actor: actor, Anchor: &anchor, Message: &message,
 	}); errors.Is(err, ErrConflict) && s.byID[id] != nil {
@@ -328,12 +353,14 @@ func (s *Store) Create(actor Participant, id string, anchor Anchor, body string)
 	} else if err != nil {
 		return Conversation{}, err
 	}
-	return cloneConversation(s.byID[id]), nil
+	return s.clone(s.byID[id]), nil
 }
 
-// Reply adds a message. Repeating a reply with the same message id returns
-// the stored message.
-func (s *Store) Reply(actor Participant, conversationID, messageID, body string) (Message, error) {
+// Reply adds a message addressed to the participants in to, or for a person
+// without recipients, to the conversation's default recipients. A person's
+// reply reopens a resolved conversation. Repeating a reply with the same
+// message id returns the stored message.
+func (s *Store) Reply(actor Participant, conversationID, messageID, body string, to []string) (Message, error) {
 	if messageID == "" {
 		messageID = newID("m")
 	}
@@ -356,9 +383,13 @@ func (s *Store) Reply(actor Participant, conversationID, messageID, body string)
 	if conversation == nil || conversation.Deleted {
 		return Message{}, ErrNotFound
 	}
+	if to, err = s.recipients(actor, to); err != nil {
+		return Message{}, err
+	}
 	existing := func(owner string) (Message, error) {
 		for _, message := range s.byID[owner].Messages {
-			if message.ID == messageID && owner == conversationID && message.Author.ID == actor.ID && message.Body == body {
+			if message.ID == messageID && owner == conversationID && message.Author.ID == actor.ID && message.Body == body &&
+				(len(to) == 0 || slices.Equal(message.To, to)) {
 				return message, nil
 			}
 		}
@@ -367,12 +398,20 @@ func (s *Store) Reply(actor Participant, conversationID, messageID, body string)
 	if owner, exists := s.messageAt[messageID]; exists {
 		return existing(owner)
 	}
-	message := Message{ID: messageID, Author: actor, Body: body, CreatedAt: s.now().UTC()}
+	if len(to) == 0 && actor.Kind == KindHuman {
+		to = s.defaultTo(conversation)
+	}
+	message := Message{ID: messageID, Author: actor, Body: body, To: to, CreatedAt: s.now().UTC()}
 	event, err := s.append(Event{Type: EventMessageCreated, ConversationID: conversationID, Actor: actor, Message: &message})
 	if owner, exists := s.messageAt[messageID]; errors.Is(err, ErrConflict) && exists {
 		return existing(owner)
 	} else if err != nil {
 		return Message{}, err
+	}
+	if actor.Kind == KindHuman && conversation.Status == StatusResolved {
+		if _, err := s.append(Event{Type: EventConversationReopened, ConversationID: conversationID, Actor: actor}); err != nil {
+			return Message{}, err
+		}
 	}
 	return *event.Message, nil
 }
@@ -404,7 +443,7 @@ func (s *Store) SetStatus(actor Participant, conversationID, status string) (Con
 			return Conversation{}, err
 		}
 	}
-	return cloneConversation(conversation), nil
+	return s.clone(conversation), nil
 }
 
 // SetDeleted deletes or restores a conversation. A deleted conversation keeps
@@ -431,7 +470,7 @@ func (s *Store) SetDeleted(actor Participant, conversationID string, deleted boo
 			return Conversation{}, err
 		}
 	}
-	return cloneConversation(conversation), nil
+	return s.clone(conversation), nil
 }
 
 // DefaultAgentName is shown for an agent that joined without a name.
@@ -451,6 +490,35 @@ func (s *Store) Join(name string) (Participant, error) {
 		return Participant{}, err
 	}
 	return participant, nil
+}
+
+// Leave records that the agent participant id stopped taking part. It keeps
+// its history and can still use its id, but is no longer a default
+// recipient. Leaving twice is harmless.
+func (s *Store) Leave(id string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if _, err := s.catchUp(); err != nil {
+		return err
+	}
+	if _, ok := s.participants[id]; !ok {
+		return fmt.Errorf("%w: unknown participant %q", ErrNotFound, id)
+	}
+	if s.left[id] {
+		return nil
+	}
+	_, err := s.append(Event{Type: EventParticipantLeft, Actor: s.participants[id]})
+	return err
+}
+
+// Agents returns the joined agents that have not left, in join order.
+func (s *Store) Agents() ([]Participant, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if _, err := s.catchUp(); err != nil {
+		return nil, err
+	}
+	return s.agents(), nil
 }
 
 // Participant returns the agent participant Join issued as id. It routes
@@ -500,7 +568,7 @@ func (s *Store) Get(id string) (Conversation, error) {
 	if conversation == nil || conversation.Deleted {
 		return Conversation{}, ErrNotFound
 	}
-	return cloneConversation(conversation), nil
+	return s.clone(conversation), nil
 }
 
 // List returns conversations in creation order, optionally limited to one
@@ -515,7 +583,7 @@ func (s *Store) List(path string) ([]Conversation, uint64, error) {
 	out := make([]Conversation, 0, len(s.byID))
 	for _, conversation := range s.byID {
 		if !conversation.Deleted && (path == "" || conversation.Path == path) {
-			out = append(out, cloneConversation(conversation))
+			out = append(out, s.clone(conversation))
 		}
 	}
 	sort.Slice(out, func(i, k int) bool { return out[i].Messages[0].Seq < out[k].Messages[0].Seq })
@@ -557,7 +625,20 @@ func (s *Store) Cursor(participantID string) (uint64, error) {
 	return s.cursors[participantID], err
 }
 
-// Pending returns messages by other participants after participantID's cursor.
+// Delivery states of a message an acknowledgment passed over while it was
+// hidden, kept under deferKey so later acknowledgments cannot discard it.
+const (
+	deferred     = 1
+	acknowledged = 2
+)
+
+func deferKey(participantID string, seq uint64) string {
+	return participantID + "\x00" + strconv.FormatUint(seq, 10)
+}
+
+// Pending returns the messages addressed to participantID that it has not
+// acknowledged, including ones deferred while hidden, except in deleted
+// conversations. Callers drop the ones whose code is missing.
 func (s *Store) Pending(participantID string) ([]Pending, uint64, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -569,25 +650,39 @@ func (s *Store) Pending(participantID string) ([]Pending, uint64, error) {
 	}
 	cursor := s.cursors[participantID]
 	pending := make([]Pending, 0)
-	for _, event := range s.events[min(cursor, uint64(len(s.events))):] {
-		if event.Message == nil || event.Message.Author.ID == participantID {
-			continue
+	s.inbox(participantID, uint64(len(s.events)), func(event Event, conversation *Conversation, state uint64) {
+		if !conversation.Deleted && (state == deferred || (event.Seq > cursor && state == 0)) {
+			pending = append(pending, Pending{Conversation: s.clone(conversation), Message: *event.Message})
 		}
-		pending = append(pending, Pending{Conversation: cloneConversation(s.byID[event.ConversationID]), Message: *event.Message})
-	}
+	})
 	return pending, cursor, nil
 }
 
-// WaitPending blocks until participantID has pending messages or ctx ends.
-func (s *Store) WaitPending(ctx context.Context, participantID string) ([]Pending, uint64, error) {
-	for {
-		pending, cursor, err := s.Pending(participantID)
-		if err != nil || len(pending) > 0 {
-			return pending, cursor, err
+// inbox calls visit for each message up to seq addressed to participantID
+// by someone else, with its delivery state. The caller holds s.mu.
+func (s *Store) inbox(participantID string, seq uint64, visit func(Event, *Conversation, uint64)) {
+	for _, event := range s.events[:min(seq, uint64(len(s.events)))] {
+		if event.Message == nil || event.Message.Author.ID == participantID || !slices.Contains(event.Message.To, participantID) {
+			continue
 		}
+		visit(event, s.byID[event.ConversationID], s.cursors[deferKey(participantID, event.Seq)])
+	}
+}
+
+// WaitPending blocks until keep, applied outside the store lock, leaves
+// pending messages for participantID, or ctx ends.
+func (s *Store) WaitPending(ctx context.Context, participantID string, keep func([]Pending) []Pending) ([]Pending, uint64, error) {
+	for {
 		s.mu.Lock()
 		changed := s.changed
 		s.mu.Unlock()
+		pending, cursor, err := s.Pending(participantID)
+		if err == nil {
+			pending = keep(pending)
+		}
+		if err != nil || len(pending) > 0 {
+			return pending, cursor, err
+		}
 		select {
 		case <-changed:
 		case <-ctx.Done():
@@ -596,13 +691,38 @@ func (s *Store) WaitPending(ctx context.Context, participantID string) ([]Pendin
 	}
 }
 
-// Ack advances participantID's inbox cursor. Cursors never move backwards.
-func (s *Store) Ack(participantID string, seq uint64) (uint64, error) {
+// Ack acknowledges participantID's messages up to seq and advances its
+// cursor, which never moves backwards. Messages in deleted conversations or
+// in the hidden ones, whose code is missing, are deferred instead: they
+// become pending again once they can be shown, and a later Ack covering them
+// acknowledges them.
+func (s *Store) Ack(participantID string, seq uint64, hidden map[string]bool) (uint64, error) {
 	if !participantPattern.MatchString(participantID) {
 		return 0, fmt.Errorf("%w: invalid participant", ErrInvalid)
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if _, err := s.catchUp(); err != nil {
+		return 0, err
+	}
+	if err := s.catchUpCursors(); err != nil {
+		return 0, err
+	}
+	cursor := s.cursors[participantID]
+	var err error
+	s.inbox(participantID, seq, func(event Event, conversation *Conversation, state uint64) {
+		key := deferKey(participantID, event.Seq)
+		switch held := conversation.Deleted || hidden[conversation.ID]; {
+		case err != nil:
+		case held && state == 0 && event.Seq > cursor:
+			err = s.write(key, deferred)
+		case !held && state == deferred:
+			err = s.write(key, acknowledged)
+		}
+	})
+	if err != nil {
+		return 0, err
+	}
 	return s.advance(participantID, seq)
 }
 
@@ -651,23 +771,93 @@ func (s *Store) advance(key string, seq uint64) (uint64, error) {
 	if seq <= s.cursors[key] {
 		return s.cursors[key], nil
 	}
-	line, err := json.Marshal(cursorRecord{Key: key, Seq: seq})
-	if err != nil {
-		return 0, err
-	}
-	if err := appendLine(s.cursorLog, s.cursorOffset, line); err != nil {
-		return 0, err
-	}
-	if err := s.catchUpCursors(); err != nil {
+	if err := s.write(key, seq); err != nil {
 		return 0, err
 	}
 	return s.cursors[key], nil
 }
 
-func cloneConversation(conversation *Conversation) Conversation {
+// write durably raises the cursor log value of key to value.
+func (s *Store) write(key string, value uint64) error {
+	line, err := json.Marshal(cursorRecord{Key: key, Seq: value})
+	if err != nil {
+		return err
+	}
+	if err := appendLine(s.cursorLog, s.cursorOffset, line); err != nil {
+		return err
+	}
+	return s.catchUpCursors()
+}
+
+// clone copies conversation for callers, with its current default
+// recipients. The caller holds s.mu.
+func (s *Store) clone(conversation *Conversation) Conversation {
 	clone := *conversation
 	clone.Messages = append([]Message(nil), conversation.Messages...)
+	clone.DefaultTo = s.defaultTo(conversation)
 	return clone
+}
+
+// recipients validates the participants a message is addressed to: agents
+// Gitna issued, other than the author, each once.
+func (s *Store) recipients(actor Participant, to []string) ([]string, error) {
+	var out []string
+	for _, id := range to {
+		if _, ok := s.participants[id]; !ok {
+			return nil, fmt.Errorf("%w: unknown recipient %q", ErrInvalid, id)
+		}
+		if id != actor.ID && !slices.Contains(out, id) {
+			out = append(out, id)
+		}
+	}
+	return out, nil
+}
+
+// defaultTo is who a person's message without recipients goes to in
+// conversation, or in a new one when it is nil: the joined agents last
+// addressed there, otherwise the joined agent that wrote there last,
+// otherwise the only joined agent. With several joined agents and nothing to
+// go by, the message stays unassigned.
+func (s *Store) defaultTo(conversation *Conversation) []string {
+	if conversation != nil {
+		messages := conversation.Messages
+		for index := len(messages) - 1; index >= 0; index-- {
+			var to []string
+			for _, id := range messages[index].To {
+				if !s.left[id] {
+					to = append(to, id)
+				}
+			}
+			if len(to) > 0 {
+				return to
+			}
+		}
+		for index := len(messages) - 1; index >= 0; index-- {
+			if author := messages[index].Author; author.Kind == KindAgent && s.isAgent(author.ID) {
+				return []string{author.ID}
+			}
+		}
+	}
+	if agents := s.agents(); len(agents) == 1 {
+		return []string{agents[0].ID}
+	}
+	return nil
+}
+
+func (s *Store) isAgent(id string) bool {
+	_, ok := s.participants[id]
+	return ok && !s.left[id]
+}
+
+// agents returns the joined agents that have not left, in join order.
+func (s *Store) agents() []Participant {
+	var out []Participant
+	for _, id := range s.joined {
+		if !s.left[id] {
+			out = append(out, s.participants[id])
+		}
+	}
+	return out
 }
 
 func (p Participant) Validate() error { return validateParticipant(p) }

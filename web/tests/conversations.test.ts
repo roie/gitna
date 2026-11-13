@@ -6,6 +6,7 @@ import {
   type Conversation,
   type ConversationEvent,
   type ConversationsApi,
+  type Participant,
 } from '../src/lib/conversations'
 
 const worktree = { source: 'worktree' } as const
@@ -46,13 +47,14 @@ function conversation(
   }
 }
 
-function fakeApi(lists: Conversation[][]) {
+function fakeApi(lists: Conversation[][], agents: Participant[] = []) {
   let emit: (event: ConversationEvent) => void = () => {}
   const list = vi.fn(async () => ({
     participant: human,
     conversations: lists.shift() ?? [],
     seq: 2,
     read: {},
+    agents,
   }))
   const markRead = vi.fn(async (_id: string, seq: number) => seq)
   const subscribe = vi.fn((_after: number, onEvent: (event: ConversationEvent) => void) => {
@@ -69,6 +71,12 @@ function fakeApi(lists: Conversation[][]) {
     subscribe,
   }
   return { api, list, markRead, subscribe, emit: (event: ConversationEvent) => emit(event) }
+}
+
+async function loaded(list: Conversation[], agents: Participant[]) {
+  const model = new ConversationsModel(fakeApi([list], agents).api)
+  await model.load()
+  return model
 }
 
 describe('ConversationsModel', () => {
@@ -159,6 +167,23 @@ describe('ConversationsModel', () => {
     expect(model.displayName(human)).toBe('Ada')
     expect(model.displayName(first)).toBe('Agent (1111)')
     expect(model.displayName(second)).toBe('Agent (2222)')
+  })
+
+  it('offers a recipient choice only when several agents have joined', async () => {
+    const first = { id: 'agent:p_aaaa1111', kind: 'agent', name: 'Agent' } as const
+    const second = { id: 'agent:p_bbbb2222', kind: 'agent', name: 'Reviewer' } as const
+    const thread = conversation('c1', 'a.go', [[1, human]])
+    expect(await loaded([thread], [first]).then((model) => model.recipients())).toBeNull()
+
+    const model = await loaded([{ ...thread, defaultTo: [second.id] }], [first, second])
+    expect(model.recipients()).toEqual({
+      choices: [
+        { id: first.id, label: 'Agent' },
+        { id: second.id, label: 'Reviewer' },
+      ],
+      defaultLabel: 'Unassigned',
+    })
+    expect(model.recipients(model.find('c1'))?.defaultLabel).toBe('Reviewer')
   })
 
   it('reports a failed resolve or delete instead of throwing, and remembers deletes for undo', async () => {

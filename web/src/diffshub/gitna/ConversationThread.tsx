@@ -74,7 +74,8 @@ export function ConversationThread({
         className="m-0 max-w-none border-0 bg-transparent p-0"
         avatar={<AuthorInitial name={model.participant?.name ?? 'You'} />}
         placeholder="Reply…"
-        onSubmit={(body) => model.reply(conversation, body)}
+        recipients={model.recipients(conversation)}
+        onSubmit={(body, to) => model.reply(conversation, body, to == null ? undefined : [to])}
       />
     </ExampleAnnotation>
   )

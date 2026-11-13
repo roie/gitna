@@ -68,10 +68,13 @@ test('conversations on a file persist, take replies from an agent, and survive a
   page,
   app,
 }) => {
+  // The only joined agent receives every comment by default.
+  agent(app, 'session')
   await page.goto(app.url)
   await openFile(page, 'two-hunk.txt')
   const number = (line: number) => page.locator(`[data-file] [data-column-number="${line}"]`)
   await expect(number(5)).toBeVisible()
+  await expect(page.getByRole('combobox', { name: 'To' })).toHaveCount(0)
 
   await comment(page, number(5), null, 'Why line five?')
   await comment(page, number(7), number(9), 'These three belong together')
@@ -192,6 +195,7 @@ test('the repository pane lists conversations; resolve hides them and delete can
   page,
   app,
 }) => {
+  agent(app, 'session')
   await page.goto(app.url)
   const item = (text: string) => page.locator('diffs-container', { hasText: text })
   const line = item('unstaged change').locator('[data-column-number="1"]').last()
@@ -222,18 +226,17 @@ test('the repository pane lists conversations; resolve hides them and delete can
   await thread.getByRole('button', { name: 'Delete conversation' }).click()
   await expect(thread).toHaveCount(0)
   expect(await stored(page, app)).toEqual([])
+  const pending = () =>
+    (JSON.parse(agent(app, 'pending')) as { pending: { message: { body: string } }[] }).pending.map(
+      ({ message }) => message.body,
+    )
+  expect(pending()).toEqual([])
+  // An acknowledgment while it is deleted does not discard the message.
+  agent(app, 'ack', '1000')
   await page.getByRole('button', { name: 'Undo' }).click()
   await expect(thread).toBeVisible()
   expect((await stored(page, app)).map(({ messages }) => messages[0].body)).toEqual(['resolve me'])
-
-  await thread.hover()
-  await thread.getByRole('button', { name: 'Delete conversation' }).click()
-  await expect(thread).toHaveCount(0)
-  // The agent still receives the message, flagged, so a later restore loses nothing.
-  const pending = JSON.parse(agent(app, 'pending')) as {
-    pending: { conversation: { deleted?: boolean } }[]
-  }
-  expect(pending.pending.map(({ conversation }) => conversation.deleted)).toEqual([true])
+  expect(pending()).toEqual(['resolve me'])
 })
 
 test('a draft shows its caret and moves to another line from the gutter', async ({ page, app }) => {
@@ -597,4 +600,55 @@ test('display settings turn conversations off and on, and explain them', async (
   await expect(thread).toBeVisible()
   await expect(toggle).toBeVisible()
   expect((await stored(page, app)).map(({ messages }) => messages[0].body)).toEqual(['keep me'])
+})
+
+test('with several agents, comments go only to the agent picked or last addressed', async ({
+  page,
+  app,
+}) => {
+  const join = (name: string) =>
+    (JSON.parse(gitnaCLI(app, 'join', '--as', name)) as { participant: { id: string } }).participant
+      .id
+  const first = join('Builder')
+  const second = join('Reviewer')
+  const pending = (id: string) =>
+    (
+      JSON.parse(gitnaCLI(app, 'pending', '--participant', id)) as {
+        pending: { message: { body: string } }[]
+      }
+    ).pending.map(({ message }) => message.body)
+
+  await page.goto(app.url)
+  await openFile(page, 'two-hunk.txt')
+  const number = (line: number) => page.locator(`[data-file] [data-column-number="${line}"]`)
+  await expect(number(5)).toBeVisible()
+
+  // Unaddressed, a new conversation is readable but notifies nobody.
+  await comment(page, number(5), null, 'Anyone?')
+  expect(pending(first)).toEqual([])
+  expect(pending(second)).toEqual([])
+
+  await number(8).hover()
+  await page.locator('[data-utility-button]').click()
+  const draft = page.getByRole('textbox', { name: 'Add a comment…' })
+  const to = page.locator('form').filter({ has: draft }).getByRole('combobox', { name: 'To' })
+  await expect(to.getByRole('option')).toHaveText(['Unassigned', 'Builder', 'Reviewer'])
+  await to.selectOption({ label: 'Reviewer' })
+  await draft.fill('Please review')
+  await draft.press('Control+Enter')
+  await expect(draft).toHaveCount(0)
+  expect(pending(first)).toEqual([])
+  expect(pending(second)).toEqual(['Please review'])
+
+  // A reply defaults to the agent last addressed in the thread.
+  const thread = page.getByRole('article').filter({ hasText: 'Please review' })
+  await expect(thread.getByRole('combobox', { name: 'To' })).toHaveValue('')
+  await expect(thread.getByRole('combobox', { name: 'To' }).locator('option').first()).toHaveText(
+    'Reviewer',
+  )
+  await thread.getByRole('textbox', { name: 'Reply…' }).fill('And the tests')
+  await thread.getByRole('textbox', { name: 'Reply…' }).press('Control+Enter')
+  await expect(thread.getByText('And the tests')).toBeVisible()
+  expect(pending(second)).toEqual(['Please review', 'And the tests'])
+  expect(pending(first)).toEqual([])
 })

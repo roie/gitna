@@ -6,6 +6,8 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"reflect"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -27,7 +29,8 @@ func TestExchangePersistsAcrossReopen(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	conversation, err := store.Create(human, "c1", anchorAt("main.go", 3, 4, "a\nb"), "Why this?\nSecond line")
+	agent := joinAgent(t, store)
+	conversation, err := store.Create(human, "c1", anchorAt("main.go", 3, 4, "a\nb"), "Why this?\nSecond line", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -35,13 +38,13 @@ func TestExchangePersistsAcrossReopen(t *testing.T) {
 	if err != nil || len(pending) != 1 || cursor != 0 || pending[0].Message.Body != "Why this?\nSecond line" {
 		t.Fatalf("pending = %+v, %d, %v", pending, cursor, err)
 	}
-	if _, err := store.Ack(agent.ID, pending[0].Message.Seq); err != nil {
+	if _, err := store.Ack(agent.ID, pending[0].Message.Seq, nil); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := store.Reply(agent, conversation.ID, "m1", "Because."); err != nil {
+	if _, err := store.Reply(agent, conversation.ID, "m1", "Because.", nil); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := store.Reply(human, conversation.ID, "m2", "Change it."); err != nil {
+	if _, err := store.Reply(human, conversation.ID, "m2", "Change it.", nil); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := store.SetStatus(human, conversation.ID, StatusResolved); err != nil {
@@ -62,7 +65,7 @@ func TestExchangePersistsAcrossReopen(t *testing.T) {
 		t.Fatalf("reopened conversation = %+v", got)
 	}
 	pending, cursor, _ = reopened.Pending(agent.ID)
-	if cursor != 1 || len(pending) != 1 || pending[0].Message.ID != "m2" {
+	if cursor != 2 || len(pending) != 1 || pending[0].Message.ID != "m2" {
 		t.Fatalf("pending after reopen = %+v cursor %d", pending, cursor)
 	}
 }
@@ -75,20 +78,20 @@ func TestWritesAreIdempotent(t *testing.T) {
 	defer store.Close()
 	anchor := anchorAt("a.txt", 1, 1, "x")
 	for range 2 {
-		if _, err := store.Create(human, "c1", anchor, "hello"); err != nil {
+		if _, err := store.Create(human, "c1", anchor, "hello", nil); err != nil {
 			t.Fatal(err)
 		}
-		if _, err := store.Reply(agent, "c1", "m1", "hi"); err != nil {
+		if _, err := store.Reply(agent, "c1", "m1", "hi", nil); err != nil {
 			t.Fatal(err)
 		}
 		if _, err := store.SetStatus(agent, "c1", StatusResolved); err != nil {
 			t.Fatal(err)
 		}
 	}
-	if _, err := store.Create(human, "c1", anchor, "different"); !errors.Is(err, ErrConflict) {
+	if _, err := store.Create(human, "c1", anchor, "different", nil); !errors.Is(err, ErrConflict) {
 		t.Fatalf("conflicting create error = %v", err)
 	}
-	if _, err := store.Reply(agent, "c1", "m1", "different"); !errors.Is(err, ErrConflict) {
+	if _, err := store.Reply(agent, "c1", "m1", "different", nil); !errors.Is(err, ErrConflict) {
 		t.Fatalf("conflicting reply error = %v", err)
 	}
 	events, _, _ := store.Events(0)
@@ -103,12 +106,13 @@ func TestReadingOneConversationLeavesOthersUnread(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	first, _ := store.Create(agent, "c1", anchorAt("a", 1, 1, "x"), "one")
-	second, _ := store.Create(agent, "c2", anchorAt("a", 1, 1, "x"), "two")
-	if _, err := store.MarkRead(human.ID, second.ID, second.Seq); err != nil {
+	agent := joinAgent(t, store)
+	first, _ := store.Create(human, "c1", anchorAt("a", 1, 1, "x"), "one", nil)
+	second, _ := store.Create(human, "c2", anchorAt("a", 1, 1, "x"), "two", nil)
+	if _, err := store.MarkRead(agent.ID, second.ID, second.Seq); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := store.MarkRead(human.ID, "missing", 1); !errors.Is(err, ErrNotFound) {
+	if _, err := store.MarkRead(agent.ID, "missing", 1); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("unknown conversation error = %v", err)
 	}
 	store.Close()
@@ -116,10 +120,10 @@ func TestReadingOneConversationLeavesOthersUnread(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer store.Close()
-	if read, _ := store.Read(human.ID); len(read) != 1 || read[second.ID] != second.Seq || read[first.ID] != 0 {
+	if read, _ := store.Read(agent.ID); len(read) != 1 || read[second.ID] != second.Seq || read[first.ID] != 0 {
 		t.Fatalf("read = %+v", read)
 	}
-	if pending, _, _ := store.Pending(human.ID); len(pending) != 2 {
+	if pending, _, _ := store.Pending(agent.ID); len(pending) != 2 {
 		t.Fatalf("reading must not acknowledge the inbox: %+v", pending)
 	}
 }
@@ -136,14 +140,14 @@ func TestValidationRejectsUnsafeInput(t *testing.T) {
 		anchorAt("C:/x", 1, 1, ""),
 		anchorAt("a", 2, 1, ""),
 	} {
-		if _, err := store.Create(human, "", anchor, "x"); !errors.Is(err, ErrInvalid) {
+		if _, err := store.Create(human, "", anchor, "x", nil); !errors.Is(err, ErrInvalid) {
 			t.Fatalf("anchor %+v error = %v", anchor, err)
 		}
 	}
-	if _, err := store.Create(Participant{ID: "agent:x", Kind: KindHuman}, "", anchorAt("a", 1, 1, ""), "x"); !errors.Is(err, ErrInvalid) {
+	if _, err := store.Create(Participant{ID: "agent:x", Kind: KindHuman}, "", anchorAt("a", 1, 1, ""), "x", nil); !errors.Is(err, ErrInvalid) {
 		t.Fatalf("mismatched participant error = %v", err)
 	}
-	if _, err := store.Create(human, "", anchorAt("a", 1, 1, ""), "   "); !errors.Is(err, ErrInvalid) {
+	if _, err := store.Create(human, "", anchorAt("a", 1, 1, ""), "   ", nil); !errors.Is(err, ErrInvalid) {
 		t.Fatalf("empty body error = %v", err)
 	}
 }
@@ -154,15 +158,16 @@ func TestWaitPendingWakesOnReply(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer store.Close()
+	agent := joinAgent(t, store)
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	done := make(chan []Pending)
 	go func() {
-		pending, _, _ := store.WaitPending(ctx, agent.ID)
+		pending, _, _ := store.WaitPending(ctx, agent.ID, all)
 		done <- pending
 	}()
 	time.Sleep(20 * time.Millisecond)
-	if _, err := store.Create(human, "c1", anchorAt("a", 1, 1, "x"), "ping"); err != nil {
+	if _, err := store.Create(human, "c1", anchorAt("a", 1, 1, "x"), "ping", nil); err != nil {
 		t.Fatal(err)
 	}
 	if pending := <-done; len(pending) != 1 || pending[0].Message.Body != "ping" {
@@ -171,7 +176,7 @@ func TestWaitPendingWakesOnReply(t *testing.T) {
 	// Own messages never count as pending.
 	short, stop := context.WithTimeout(context.Background(), 30*time.Millisecond)
 	defer stop()
-	if pending, _, _ := store.WaitPending(short, human.ID); len(pending) != 0 {
+	if pending, _, _ := store.WaitPending(short, human.ID, all); len(pending) != 0 {
 		t.Fatalf("own pending = %+v", pending)
 	}
 }
@@ -188,7 +193,7 @@ func TestIndependentWritersShareOneOrderedLog(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer second.Close()
-	if _, err := first.Create(human, "c1", anchorAt("a", 1, 1, "x"), "start"); err != nil {
+	if _, err := first.Create(human, "c1", anchorAt("a", 1, 1, "x"), "start", nil); err != nil {
 		t.Fatal(err)
 	}
 	var wg sync.WaitGroup
@@ -200,7 +205,7 @@ func TestIndependentWritersShareOneOrderedLog(t *testing.T) {
 			if index%2 == 1 {
 				store = second
 			}
-			if _, err := store.Reply(agent, "c1", NewID("m"), "reply"); err != nil {
+			if _, err := store.Reply(agent, "c1", NewID("m"), "reply", nil); err != nil {
 				t.Error(err)
 			}
 		}()
@@ -212,7 +217,7 @@ func TestIndependentWritersShareOneOrderedLog(t *testing.T) {
 		t.Fatalf("messages = %d / %d", len(a.Messages), len(b.Messages))
 	}
 	for index := range a.Messages {
-		if a.Messages[index] != b.Messages[index] {
+		if !reflect.DeepEqual(a.Messages[index], b.Messages[index]) {
 			t.Fatalf("writers disagree at %d: %+v vs %+v", index, a.Messages[index], b.Messages[index])
 		}
 	}
@@ -224,7 +229,7 @@ func TestTornTrailingLineIsIgnored(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := store.Create(human, "c1", anchorAt("a", 1, 1, "x"), "start"); err != nil {
+	if _, err := store.Create(human, "c1", anchorAt("a", 1, 1, "x"), "start", nil); err != nil {
 		t.Fatal(err)
 	}
 	store.Close()
@@ -236,7 +241,7 @@ func TestTornTrailingLineIsIgnored(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := store.Reply(agent, "c1", "m1", "after crash"); err != nil {
+	if _, err := store.Reply(agent, "c1", "m1", "after crash", nil); err != nil {
 		t.Fatal(err)
 	}
 	store.Close()
@@ -309,7 +314,7 @@ func TestLocateByContentSource(t *testing.T) {
 		"work":    {Path: "f", StartLine: 1, EndLine: 1, Code: "staged"},
 		"missing": {Path: "nope", Source: SourceIndex, StartLine: 1, EndLine: 1, Code: "x"},
 	} {
-		if _, err := store.Create(human, id, anchor, "note"); err != nil {
+		if _, err := store.Create(human, id, anchor, "note", nil); err != nil {
 			t.Fatalf("%s: %v", id, err)
 		}
 	}
@@ -336,7 +341,7 @@ func TestLocateByContentSource(t *testing.T) {
 		}
 	}
 	bad := Anchor{Path: "f", Source: SourceCommit, Revision: "HEAD", StartLine: 1, EndLine: 1}
-	if _, err := store.Create(human, "", bad, "x"); !errors.Is(err, ErrInvalid) {
+	if _, err := store.Create(human, "", bad, "x", nil); !errors.Is(err, ErrInvalid) {
 		t.Fatalf("symbolic commit revision error = %v", err)
 	}
 }
@@ -367,7 +372,7 @@ func TestStoreLocateFollowsGitRename(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer store.Close()
-	if _, err := store.Create(human, "c1", anchorAt("old.go", 3, 3, "func A() {}"), "rename me"); err != nil {
+	if _, err := store.Create(human, "c1", anchorAt("old.go", 3, 3, "func A() {}"), "rename me", nil); err != nil {
 		t.Fatal(err)
 	}
 	renames := func(ctx context.Context, _, revision string) (map[string]string, error) {
@@ -389,20 +394,39 @@ func TestDeleteHidesAndRestoreReturnsHistory(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := store.Create(human, "c1", anchorAt("main.go", 1, 1, "a"), "Remove me"); err != nil {
+	agent := joinAgent(t, store)
+	if _, err := store.Create(human, "c0", anchorAt("main.go", 1, 1, "a"), "Handled", nil); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := store.SetDeleted(human, "c1", true); err != nil {
+	if _, err := store.Ack(agent.ID, 2, nil); err != nil {
 		t.Fatal(err)
+	}
+	if _, err := store.Reply(human, "c0", "m0", "Also handled", nil); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.Create(human, "c1", anchorAt("main.go", 1, 1, "a"), "Remove me", nil); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.Ack(agent.ID, 3, nil); err != nil {
+		t.Fatal(err)
+	}
+	for _, id := range []string{"c0", "c1"} {
+		if _, err := store.SetDeleted(human, id, true); err != nil {
+			t.Fatal(err)
+		}
 	}
 	if list, _, _ := store.List(""); len(list) != 0 {
 		t.Fatalf("list after delete = %+v", list)
 	}
-	// Delivery stays durable: the agent still receives the message, flagged.
-	if pending, _, _ := store.Pending(agent.ID); len(pending) != 1 || !pending[0].Conversation.Deleted {
+	// Deleted conversations are not pending, and an acknowledgment passing
+	// over them defers their messages instead of discarding them.
+	if pending, _, _ := store.Pending(agent.ID); len(pending) != 0 {
 		t.Fatalf("pending after delete = %+v", pending)
 	}
-	if _, err := store.Reply(agent, "c1", "m1", "late"); !errors.Is(err, ErrNotFound) {
+	if _, err := store.Ack(agent.ID, 100, nil); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.Reply(agent, "c1", "m1", "late", nil); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("reply to deleted = %v", err)
 	}
 	store.Close()
@@ -419,8 +443,18 @@ func TestDeleteHidesAndRestoreReturnsHistory(t *testing.T) {
 	if err != nil || restored.Deleted || restored.Messages[0].Body != "Remove me" {
 		t.Fatalf("restored = %+v, %v", restored, err)
 	}
-	if pending, _, _ := reopened.Pending(agent.ID); len(pending) != 1 || pending[0].Conversation.Deleted {
+	if _, err := reopened.SetDeleted(human, "c0", false); err != nil {
+		t.Fatal(err)
+	}
+	// Restoring brings back what was never handled, not what was acknowledged.
+	if pending, _, _ := reopened.Pending(agent.ID); len(pending) != 1 || pending[0].Message.Body != "Remove me" {
 		t.Fatalf("pending after restore = %+v", pending)
+	}
+	if _, err := reopened.Ack(agent.ID, 4, nil); err != nil {
+		t.Fatal(err)
+	}
+	if pending, _, _ := reopened.Pending(agent.ID); len(pending) != 0 {
+		t.Fatalf("pending after acknowledging the restored message = %+v", pending)
 	}
 }
 
@@ -434,23 +468,24 @@ func TestProcessesSharingARepositoryKeepEachOthersCursors(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	agent := joinAgent(t, first)
 	for _, id := range []string{"c1", "c2", "c3"} {
-		if _, err := first.Create(human, id, anchorAt("a", 1, 1, "x"), id); err != nil {
+		if _, err := first.Create(human, id, anchorAt("a", 1, 1, "x"), id, nil); err != nil {
 			t.Fatal(err)
 		}
 	}
 	// Each process advances different cursors after opening; neither may
 	// overwrite the other, and an older acknowledgement never moves one back.
-	if _, err := first.Ack(agent.ID, 2); err != nil {
+	if _, err := first.Ack(agent.ID, 3, nil); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := second.MarkRead(agent.ID, "c3", 3); err != nil {
+	if _, err := second.MarkRead(agent.ID, "c3", 4); err != nil {
 		t.Fatal(err)
 	}
-	if seq, err := second.Ack(agent.ID, 1); err != nil || seq != 2 {
+	if seq, err := second.Ack(agent.ID, 1, nil); err != nil || seq != 3 {
 		t.Fatalf("stale ack = %d, %v", seq, err)
 	}
-	if pending, cursor, _ := second.Pending(agent.ID); cursor != 2 || len(pending) != 1 || pending[0].Message.Body != "c3" {
+	if pending, cursor, _ := second.Pending(agent.ID); cursor != 3 || len(pending) != 1 || pending[0].Message.Body != "c3" {
 		t.Fatalf("second sees pending %+v at %d", pending, cursor)
 	}
 	first.Close()
@@ -463,7 +498,7 @@ func TestProcessesSharingARepositoryKeepEachOthersCursors(t *testing.T) {
 	defer reopened.Close()
 	cursor, _ := reopened.Cursor(agent.ID)
 	read, _ := reopened.Read(agent.ID)
-	if cursor != 2 || read["c3"] != 3 {
+	if cursor != 3 || read["c3"] != 4 {
 		t.Fatalf("after reopen cursor = %d, read = %+v", cursor, read)
 	}
 }
@@ -482,18 +517,18 @@ func TestRetriedWritesFromAnotherProcessAreNotDuplicated(t *testing.T) {
 	defer second.Close()
 	// A response lost after the write: the client retries the same ids,
 	// possibly against another Gitna process.
-	if _, err := first.Create(human, "c1", anchorAt("a", 1, 1, "x"), "start"); err != nil {
+	if _, err := first.Create(human, "c1", anchorAt("a", 1, 1, "x"), "start", nil); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := second.Create(human, "c1", anchorAt("a", 1, 1, "x"), "start"); err != nil {
+	if _, err := second.Create(human, "c1", anchorAt("a", 1, 1, "x"), "start", nil); err != nil {
 		t.Fatalf("retried create = %v", err)
 	}
 	for _, store := range []*Store{first, second, first} {
-		if _, err := store.Reply(agent, "c1", "m1", "once"); err != nil {
+		if _, err := store.Reply(agent, "c1", "m1", "once", nil); err != nil {
 			t.Fatalf("retried reply = %v", err)
 		}
 	}
-	if _, err := second.Reply(agent, "c1", "m1", "different"); !errors.Is(err, ErrConflict) {
+	if _, err := second.Reply(agent, "c1", "m1", "different", nil); !errors.Is(err, ErrConflict) {
 		t.Fatalf("reused id with other content = %v", err)
 	}
 	got, _ := first.Get("c1")
@@ -519,11 +554,11 @@ func TestConcurrentRetriesAcrossProcessesSucceedOnce(t *testing.T) {
 		go func() {
 			defer wg.Done()
 			store := stores[index%2]
-			if _, err := store.Create(human, "c1", anchorAt("a", 1, 1, "x"), "start"); err != nil {
+			if _, err := store.Create(human, "c1", anchorAt("a", 1, 1, "x"), "start", nil); err != nil {
 				t.Errorf("create: %v", err)
 				return
 			}
-			if _, err := store.Reply(agent, "c1", "m1", "once"); err != nil {
+			if _, err := store.Reply(agent, "c1", "m1", "once", nil); err != nil {
 				t.Errorf("reply: %v", err)
 			}
 		}()
@@ -568,7 +603,7 @@ func TestStoreLocateFollowsMovesWithoutGitMv(t *testing.T) {
 		if err := Capture(&anchor, []byte(body)); err != nil {
 			t.Fatal(err)
 		}
-		if _, err := store.Create(human, "c1", anchor, "here"); err != nil {
+		if _, err := store.Create(human, "c1", anchor, "here", nil); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -773,7 +808,7 @@ func TestLocateThroughFileLifecycle(t *testing.T) {
 		if err := Capture(&anchor, data); err != nil {
 			t.Fatal(err)
 		}
-		if _, err := store.Create(human, id, anchor, "look"); err != nil {
+		if _, err := store.Create(human, id, anchor, "look", nil); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -829,5 +864,164 @@ func TestLocateThroughFileLifecycle(t *testing.T) {
 
 	if conversation, _ := store.Get("notes"); conversation.Status != StatusOpen {
 		t.Fatalf("deleting the file changed the status to %s", conversation.Status)
+	}
+}
+
+func all(pending []Pending) []Pending { return pending }
+
+// joinAgent joins the agent that receives people's messages by default.
+func joinAgent(t *testing.T, store *Store) Participant {
+	t.Helper()
+	agent, err := store.Join("helper")
+	if err != nil {
+		t.Fatal(err)
+	}
+	return agent
+}
+
+func slug(text string) string { return strings.ReplaceAll(text, " ", "-") }
+
+// TestRoutingDeliversOnlyToAddressedAgents covers who receives a message as
+// pending: one joined agent by default, nobody for an unaddressed new
+// conversation among several, explicit recipients, the thread's last
+// addressed agent or last agent writer, and agents only when named.
+func TestRoutingDeliversOnlyToAddressedAgents(t *testing.T) {
+	store, err := Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	bodies := func(agent Participant) []string {
+		t.Helper()
+		pending, _, err := store.Pending(agent.ID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		out := []string{}
+		for _, item := range pending {
+			out = append(out, item.Message.Body)
+		}
+		return out
+	}
+	expect := func(agent Participant, want ...string) {
+		t.Helper()
+		if got := bodies(agent); !slices.Equal(got, append([]string{}, want...)) {
+			t.Fatalf("%s pending = %q, want %q", agent.ID, got, want)
+		}
+	}
+	create := func(id string, to ...string) Conversation {
+		t.Helper()
+		conversation, err := store.Create(human, slug(id), anchorAt("a", 1, 1, "x"), id, to)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return conversation
+	}
+	reply := func(author Participant, conversation, id string, to ...string) {
+		t.Helper()
+		if _, err := store.Reply(author, slug(conversation), slug(id), id, to); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	a := joinAgent(t, store)
+	create("solo")
+	expect(a, "solo")
+
+	// A later agent gets no replay, and with two agents nothing is assigned.
+	b := joinAgent(t, store)
+	expect(b)
+	if unassigned := create("open question"); len(unassigned.Messages[0].To) != 0 || len(unassigned.DefaultTo) != 0 {
+		t.Fatalf("unassigned conversation = %+v", unassigned)
+	}
+	expect(a, "solo")
+	expect(b)
+	if list, _, _ := store.List(""); len(list) != 2 {
+		t.Fatalf("history must stay readable: %+v", list)
+	}
+
+	create("for b", b.ID)
+	expect(b, "for b")
+	// The thread keeps going to the agent last addressed there.
+	reply(human, "for b", "follow-up")
+	expect(b, "for b", "follow-up")
+	expect(a, "solo")
+	// Otherwise to the agent that wrote there last.
+	reply(a, "open question", "a answers")
+	reply(human, "open question", "thanks a")
+	expect(a, "solo", "thanks a")
+	expect(b, "for b", "follow-up")
+
+	// Agents notify each other only when named.
+	reply(a, "for b", "a chimes in")
+	expect(b, "for b", "follow-up")
+	reply(a, "for b", "a asks b", b.ID)
+	expect(b, "for b", "follow-up", "a asks b")
+	expect(a, "solo", "thanks a")
+	if _, err := store.Reply(a, "for-b", "to-nobody", "x", []string{"agent:p_never"}); !errors.Is(err, ErrInvalid) {
+		t.Fatalf("unknown recipient = %v", err)
+	}
+
+	// A person's reply reopens a resolved conversation; an agent's does not.
+	if _, err := store.SetStatus(human, "solo", StatusResolved); err != nil {
+		t.Fatal(err)
+	}
+	reply(a, "solo", "agent after resolve")
+	if got, _ := store.Get("solo"); got.Status != StatusResolved {
+		t.Fatalf("agent reply reopened %+v", got)
+	}
+	reply(human, "solo", "person after resolve")
+	if got, _ := store.Get("solo"); got.Status != StatusOpen {
+		t.Fatalf("person reply left %s", got.Status)
+	}
+	expect(a, "solo", "thanks a", "person after resolve")
+
+	// After a leaves, the one remaining agent is the default again, and
+	// a's threads fall back to it.
+	if err := store.Leave(a.ID); err != nil {
+		t.Fatal(err)
+	}
+	if agents, _ := store.Agents(); len(agents) != 1 || agents[0] != b {
+		t.Fatalf("agents = %+v", agents)
+	}
+	create("after leave")
+	reply(human, "open question", "anyone")
+	expect(b, "for b", "follow-up", "a asks b", "after leave", "anyone")
+	if _, _, err := store.Pending(a.ID); err != nil {
+		t.Fatalf("a left agent keeps its inbox: %v", err)
+	}
+}
+
+// TestAcknowledgmentDefersHiddenMessages keeps a message whose code is
+// missing out of pending without letting a later acknowledgment discard it.
+func TestAcknowledgmentDefersHiddenMessages(t *testing.T) {
+	store, err := Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	agent := joinAgent(t, store)
+	for _, id := range []string{"gone", "here"} {
+		if _, err := store.Create(human, id, anchorAt(id, 1, 1, "x"), id, nil); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// The caller hides "gone" while its file is missing and acknowledges the rest.
+	if _, err := store.Ack(agent.ID, 3, map[string]bool{"gone": true}); err != nil {
+		t.Fatal(err)
+	}
+	pending, cursor, _ := store.Pending(agent.ID)
+	if cursor != 3 || len(pending) != 1 || pending[0].Message.Body != "gone" {
+		t.Fatalf("pending = %+v at %d", pending, cursor)
+	}
+	// Still hidden: acknowledging again keeps it deferred.
+	store.Ack(agent.ID, 3, map[string]bool{"gone": true})
+	if pending, _, _ := store.Pending(agent.ID); len(pending) != 1 {
+		t.Fatalf("deferred message lost: %+v", pending)
+	}
+	// Once its file is back and it is handled, it is acknowledged.
+	store.Ack(agent.ID, 2, nil)
+	if pending, _, _ := store.Pending(agent.ID); len(pending) != 0 {
+		t.Fatalf("pending after acknowledging = %+v", pending)
 	}
 }

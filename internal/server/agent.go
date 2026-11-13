@@ -36,6 +36,8 @@ type agentSession struct {
 	Participant *conversations.Participant `json:"participant,omitempty"`
 	Cursor      uint64                     `json:"cursor"`
 	Seq         uint64                     `json:"seq"`
+	// Agents are the joined agents that have not left.
+	Agents []conversations.Participant `json:"agents"`
 }
 
 func (a *AgentAPI) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -114,6 +116,12 @@ func (a *AgentAPI) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	switch {
 	case rest == "/session" && r.Method == http.MethodGet:
 		a.writeSession(w, store, backend, actor)
+	case rest == "/participants/leave" && r.Method == http.MethodPost:
+		if err := store.Leave(actor.ID); err != nil {
+			writeConversationError(w, err)
+			return
+		}
+		a.writeSession(w, store, backend, actor)
 	case rest == "/conversations" || strings.HasPrefix(rest, "/conversations/"):
 		backend.serve(w, r, strings.TrimPrefix(rest, "/conversations"), *actor)
 	default:
@@ -129,7 +137,12 @@ func (a *AgentAPI) writeSession(w http.ResponseWriter, store *conversations.Stor
 		writeConversationError(w, err)
 		return
 	}
-	session := agentSession{Version: a.Version, Root: backend.Root, Participant: actor, Seq: seq}
+	agents, err := store.Agents()
+	if err != nil {
+		writeConversationError(w, err)
+		return
+	}
+	session := agentSession{Version: a.Version, Root: backend.Root, Participant: actor, Seq: seq, Agents: nonNil(agents)}
 	if actor != nil {
 		if session.Cursor, err = store.Cursor(actor.ID); err != nil {
 			writeConversationError(w, err)

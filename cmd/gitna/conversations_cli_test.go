@@ -93,8 +93,13 @@ func TestConversationsCLIRoundTrip(t *testing.T) {
 	if first == second {
 		t.Fatalf("both joins returned %q", first)
 	}
-	if unnamed := run("", "join")["participant"].(map[string]any); unnamed["name"] != "Agent" || unnamed["id"] == first {
+	unnamed := run("", "join")["participant"].(map[string]any)
+	if unnamed["name"] != "Agent" || unnamed["id"] == first {
 		t.Fatalf("join without --as = %+v", unnamed)
+	}
+	left := run("", "leave", "--participant", unnamed["id"].(string))
+	if agents := left["agents"].([]any); len(agents) != 2 {
+		t.Fatalf("agents after leave = %+v", agents)
 	}
 
 	created := run("First line\n\"quoted\" $HOME `ticks`\n", "create", "--path", "a.go", "--lines", "2-3", "--id", "c-first", "--participant", first)
@@ -103,32 +108,36 @@ func TestConversationsCLIRoundTrip(t *testing.T) {
 		t.Fatalf("created = %+v", created)
 	}
 	id := created["id"].(string)
+	// An agent's message without --to notifies no other agent.
+	if got := pending(second); len(got) != 0 {
+		t.Fatalf("second pending after first created = %+v", got)
+	}
 	store, err := conversations.NewLibrary(storeDir).Store(repo)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := store.Reply(conversations.Participant{ID: "human:local", Kind: "human", Name: "Ada"}, id, "m-human", "Please explain"); err != nil {
+	if _, err := store.Reply(conversations.Participant{ID: "human:local", Kind: "human", Name: "Ada"}, id, "m-human", "Please explain", nil); err != nil {
 		t.Fatal(err)
 	}
 	store.Close()
 
-	// The first agent's own message is not in its inbox; the second sees both.
+	// The person's reply goes to the agent that wrote in the thread.
 	if got := pending(first); len(got) != 1 {
 		t.Fatalf("first pending = %+v", got)
 	}
-	if got := pending(second); len(got) != 2 {
+	if got := pending(second); len(got) != 0 {
 		t.Fatalf("second pending = %+v", got)
 	}
 	seq := run("", "pending", "--wait", "1", "--participant", first)["pending"].([]any)[0].(map[string]any)["message"].(map[string]any)["seq"].(float64)
-	run("", "reply", id, "--id", "m-because", "--body", "Because.", "--participant", first)
+	run("", "reply", id, "--id", "m-because", "--to", second, "--body", "Because.", "--participant", first)
 	if cursor := run("", "ack", strconv.FormatFloat(seq, 'f', 0, 64), "--participant", first)["cursor"]; cursor != seq {
 		t.Fatalf("cursor = %v, want %v", cursor, seq)
 	}
-	// Acknowledgments stay with the agent that made them.
+	// Acknowledgments stay with the agent that made them; --to reaches second.
 	if got := pending(first); len(got) != 0 {
 		t.Fatalf("first pending after ack = %+v", got)
 	}
-	if got := pending(second); len(got) != 3 {
+	if got := pending(second); len(got) != 1 {
 		t.Fatalf("second pending after first's ack = %+v", got)
 	}
 
@@ -142,7 +151,7 @@ func TestConversationsCLIRoundTrip(t *testing.T) {
 	if got := pending(first); len(got) != 0 {
 		t.Fatalf("first pending after restart = %+v", got)
 	}
-	if got := pending(second); len(got) != 3 {
+	if got := pending(second); len(got) != 1 {
 		t.Fatalf("second pending after restart = %+v", got)
 	}
 
@@ -181,6 +190,7 @@ func TestConversationsCLIRoundTrip(t *testing.T) {
 	fails(2, "--participant ID", "list")
 	fails(2, "unknown command", "nope", "--participant", first)
 	fails(1, "unknown participant", "pending", "--participant", "agent:p_never")
+	fails(1, "unknown recipient", "reply", id, "--id", "m-nobody", "--to", "agent:p_never", "--body", "x", "--participant", first)
 	fails(1, "--id is required", "reply", id, "--body", "x", "--participant", first)
 	fails(1, "not found", "show", "c_missing", "--participant", first)
 	fails(1, "already used", "reply", id, "--id", "m-retry", "--body", "Changed.", "--participant", second)
