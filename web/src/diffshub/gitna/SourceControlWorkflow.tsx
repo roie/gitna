@@ -571,7 +571,8 @@ function GitnaSourceControlInner({
   const conversationList = conversationsModel?.list() ?? noConversations
   const [conversationsShown, setConversationsShown] = useState(false)
   const [conversationFilter, setConversationFilter] = useState<'open' | 'resolved'>('open')
-  const showingConversations = conversationsShown && conversationList.length > 0
+  const showingConversations = conversationsShown && conversationsModel != null
+  const openConversations = conversationList.filter(({ status }) => status === 'open').length
   const shownConversations = useMemo(
     () =>
       conversationSections(
@@ -1161,7 +1162,7 @@ function GitnaSourceControlInner({
           }
           renderContextMenu={renderRepositoryContextMenu}
           titleAccessory={
-            conversationsModel != null && conversationList.length > 0 ? (
+            conversationsModel != null ? (
               <Button
                 type="button"
                 variant="ghost"
@@ -1179,7 +1180,7 @@ function GitnaSourceControlInner({
                 }}
               >
                 <IconComment className="size-4 md:size-3" />
-                {conversationList.filter(({ status }) => status === 'open').length}
+                {openConversations > 0 && openConversations}
                 {conversationList.some((conversation) =>
                   conversationsModel.unread(conversation),
                 ) && (

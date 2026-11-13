@@ -213,10 +213,16 @@ test('the repository pane lists conversations; resolve hides them and delete can
 }) => {
   agent(app, 'session')
   await page.goto(app.url)
+  const pane = page.getByRole('region', { name: 'Source Control workflow' })
+  // The toggle is always there; its count appears only once there is one.
+  const toggle = pane.getByRole('button', { name: 'Conversations', exact: true })
+  await expect(toggle).toBeVisible()
+  await expect(toggle).toHaveText('')
   const item = (text: string) => page.locator('diffs-container', { hasText: text })
   const line = item('unstaged change').locator('[data-column-number="1"]').last()
   await expect(line).toBeVisible()
   await comment(page, line, null, 'resolve me')
+  await expect(toggle).toHaveText('1')
   const thread = page.getByRole('article').filter({ hasText: 'resolve me' })
   await expect(thread).toBeVisible()
 
@@ -224,9 +230,9 @@ test('the repository pane lists conversations; resolve hides them and delete can
   await thread.hover()
   await thread.getByRole('button', { name: 'Resolve conversation' }).click()
   await expect(thread).toHaveCount(0)
+  await expect(toggle).toHaveText('')
 
-  const pane = page.getByRole('region', { name: 'Source Control workflow' })
-  await pane.getByRole('button', { name: 'Conversations', exact: true }).click()
+  await toggle.click()
   const list = (text: string) => pane.getByRole('button', { name: new RegExp(text) })
   await expect(list('resolve me')).toHaveCount(0)
   await pane.getByRole('button', { name: 'Filter conversations' }).click()
