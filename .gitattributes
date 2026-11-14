@@ -1,1 +1,2 @@
 web/patches/*.patch whitespace=-space-before-tab
+skills/gitna/SKILL.md text eol=lf
