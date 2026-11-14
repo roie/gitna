@@ -672,7 +672,11 @@ test('hiding conversations preserves a draft and releases its review after cance
   await draft.press('Control+Enter')
   await expect(draft).toHaveCount(0)
   expect((await stored(page, app))[0].anchor).toMatchObject({
-    path: 'modified.txt', source: 'worktree', startLine: 1, endLine: 1, code: 'unstaged change',
+    path: 'modified.txt',
+    source: 'worktree',
+    startLine: 1,
+    endLine: 1,
+    code: 'unstaged change',
   })
 
   execFileSync('git', ['-C', app.repo, 'checkout', '-q', '--', '.'])
