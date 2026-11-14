@@ -21,6 +21,8 @@ import (
 	"sync"
 	"time"
 	"unicode/utf8"
+
+	"github.com/fsnotify/fsnotify"
 )
 
 const (
@@ -67,6 +69,8 @@ type Store struct {
 	cursorLog    *os.File
 	cursorOffset int64
 	changed      chan struct{}
+	watcher      *fsnotify.Watcher
+	watchDone    chan struct{}
 	now          func() time.Time
 }
 
@@ -104,13 +108,51 @@ func Open(dir string) (*Store, error) {
 		s.Close()
 		return nil, err
 	}
+	s.watcher, err = fsnotify.NewWatcher()
+	if err != nil {
+		s.Close()
+		return nil, err
+	}
+	if err := s.watcher.Add(dir); err != nil {
+		s.watcher.Close()
+		s.watcher = nil
+		s.Close()
+		return nil, err
+	}
+	s.watchDone = make(chan struct{})
+	go s.watch()
 	return s, nil
 }
 
+func (s *Store) watch() {
+	defer close(s.watchDone)
+	for {
+		select {
+		case event, ok := <-s.watcher.Events:
+			if !ok {
+				return
+			}
+			if filepath.Base(event.Name) == logName && event.Has(fsnotify.Write) {
+				s.Touch()
+			}
+		case _, ok := <-s.watcher.Errors:
+			if !ok {
+				return
+			}
+			s.Touch()
+		}
+	}
+}
+
 func (s *Store) Close() error {
+	var watchErr error
+	if s.watcher != nil {
+		watchErr = s.watcher.Close()
+		<-s.watchDone
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	return errors.Join(s.log.Close(), s.cursorLog.Close())
+	return errors.Join(watchErr, s.log.Close(), s.cursorLog.Close())
 }
 
 type cursorRecord struct {
