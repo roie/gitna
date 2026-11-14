@@ -2426,6 +2426,7 @@ test('global New File creates an in-memory untitled tab', async ({ page, app }) 
   const editor = page.locator('.code-view').locator('[contenteditable="true"], textarea').first()
   await expect(editor).toBeVisible()
   await editor.click()
+  await expect(editor.locator('[data-editor-active-line]')).toBeAttached()
   const draftBackup = page.waitForRequest(
     (request) => request.method() === 'POST' && request.url().endsWith('/api/v1/drafts'),
   )
@@ -2458,9 +2459,9 @@ test('global New File creates an in-memory untitled tab', async ({ page, app }) 
   await expect(
     page.getByRole('tab', { name: 'saved.txt' }).getByLabel('Unsaved changes'),
   ).toHaveCount(0)
-
   await expect(page.getByLabel('Notifications')).toHaveCount(0)
   await expect(page.getByText(/could not remove its recovery backup/)).toHaveCount(0)
+
   await page.getByRole('button', { name: 'Open command palette' }).click()
   const secondPalette = page.getByRole('dialog', { name: 'Command palette' })
   const secondSearch = secondPalette.getByRole('combobox', { name: 'Search files and commands' })
@@ -2473,6 +2474,7 @@ test('global New File creates an in-memory untitled tab', async ({ page, app }) 
     .locator('[contenteditable="true"], textarea')
     .first()
   await secondEditor.click()
+  await expect(secondEditor.locator('[data-editor-active-line]')).toBeAttached()
   await secondEditor.pressSequentially('collision')
   await expect(secondTab.getByLabel('Unsaved changes')).toBeVisible()
   await expect(page.getByRole('button', { name: 'Save', exact: true })).toBeEnabled()
