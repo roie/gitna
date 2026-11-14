@@ -161,7 +161,7 @@ export interface GitnaViewerActions {
 
 // Content loads own the integer versions. In-place updates step between them,
 // so the next load of the same item is never mistaken for one already shown.
-function getNextItemVersion(item: CodeViewItem<CommentMetadata>): number {
+export function getNextItemVersion(item: CodeViewItem<CommentMetadata>): number {
   return (typeof item.version === 'number' ? item.version : 0) + 2 ** -16;
 }
 
@@ -192,6 +192,7 @@ interface DiffsHubViewerProps {
   gitnaEditorActions?: GitnaEditorActions;
   gitnaOpenFileAction?: GitnaOpenFileAction;
   gitnaConversations?: GitnaConversationActions;
+  onDraftChange?: (open: boolean) => void;
 }
 
 export const DiffsHubViewer = memo(function DiffsHubViewer({
@@ -216,6 +217,7 @@ export const DiffsHubViewer = memo(function DiffsHubViewer({
   gitnaEditorActions,
   gitnaOpenFileAction,
   gitnaConversations,
+  onDraftChange,
 }: DiffsHubViewerProps) {
   useEffect(() => {
     const container = scrollRef.current;
@@ -232,6 +234,7 @@ export const DiffsHubViewer = memo(function DiffsHubViewer({
   );
   const nextCommentKeyRef = useRef(0);
   const activeDraftRef = useRef<ActiveDraftComment | null>(null);
+  useEffect(() => () => onDraftChange?.(false), [onDraftChange]);
   const [selectedLines, setSelectedLines] =
     useState<CodeViewLineSelection | null>(null);
   const { style: chromeStyle } = useChromeThemeProps(diffshubChromeMapping);
@@ -372,6 +375,7 @@ export const DiffsHubViewer = memo(function DiffsHubViewer({
         item.type === 'file' ? { lineNumber, metadata } : { side, lineNumber, metadata },
       ]);
       activeDraftRef.current = { itemId, key: metadata.key };
+      onDraftChange?.(true);
     }
   );
 
@@ -385,6 +389,7 @@ export const DiffsHubViewer = memo(function DiffsHubViewer({
       const { current: activeDraft } = activeDraftRef;
       if (activeDraft?.itemId === itemId && activeDraft.key === key) {
         activeDraftRef.current = null;
+        onDraftChange?.(false);
       }
       setSelectedLines(null);
     }

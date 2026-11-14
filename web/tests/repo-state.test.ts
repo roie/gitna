@@ -330,6 +330,23 @@ describe('createRepoState', () => {
     expect(state.selectedChange?.scope).toBe('unstaged')
   })
 
+  it('keeps the selection in a held scope until it is released', async () => {
+    const api = queuedApi([
+      snapshot({ generation: 1, unstaged: [change('unstaged', 'x.txt')] }),
+      snapshot({ generation: 2, staged: [change('staged', 'x.txt')] }),
+    ])
+    const state = createRepoState({ api })
+    await state.refreshSnapshot()
+    state.select('unstaged', 'x.txt')
+
+    state.holdScope('unstaged')
+    await state.refreshSnapshot()
+    expect(state.selection?.scope).toBe('unstaged')
+
+    state.holdScope(null)
+    expect(state.selection?.scope).toBe('staged')
+  })
+
   it('loads the current and recent folder catalog independently from Git state', async () => {
     const state = createRepoState({
       api: {

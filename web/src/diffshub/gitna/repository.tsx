@@ -244,6 +244,7 @@ export class GitnaRepository {
   activeOp: string | null = null
   generation = 0
   selection: Selection | null = null
+  heldScope: ChangeScope | null = null
   repositoryFilePath: string | null = null
   repositoryOpenPaths: string[] = []
   repositorySelectedPaths: string[] = []
@@ -486,7 +487,10 @@ export class GitnaRepository {
             ) {
               this.repositoryFileTotalGeneration = next.generation
             }
-            this.selection = reconcileSelection(this.selection, next.staged, next.unstaged)
+            const selection = reconcileSelection(this.selection, next.staged, next.unstaged)
+            if (this.heldScope == null || selection?.scope === this.selection?.scope) {
+              this.selection = selection
+            }
             this.conflictsRequest += 1
             this.conflictsLoading = false
             this.conflictsError = null
@@ -1912,6 +1916,20 @@ export class GitnaRepository {
       this.snapshot != null &&
       changeList(this.snapshot, scope).some((candidate) => candidate.path === path)
     )
+  }
+
+  holdScope(scope: ChangeScope | null): void {
+    if (scope === this.heldScope) return
+    this.heldScope = scope
+    if (scope != null) return
+    if (this.snapshot != null) {
+      this.selection = reconcileSelection(
+        this.selection,
+        this.snapshot.staged,
+        this.snapshot.unstaged,
+      )
+    }
+    this.emit()
   }
 
   select(scope: ChangeScope, path: string | null): void {

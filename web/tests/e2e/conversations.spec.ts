@@ -713,6 +713,34 @@ test('an unsent draft survives refreshes, follows its code, and never moves onto
   expect(await anchor('outdated')).toMatchObject({ startLine: 2, code: 'unstaged change' })
 })
 
+test('an unsent draft stays outdated after its diff and its whole scope are gone', async ({
+  page,
+  app,
+}) => {
+  await page.goto(app.url)
+  const modified = page.locator('diffs-container', { hasText: 'unstaged change' })
+  const draft = page.getByRole('textbox', { name: 'Add a comment…' })
+  const saved = page.locator('div:has(> form [aria-label="Add a comment…"]) > pre')
+  await modified.locator('[data-column-number="1"]').last().hover()
+  await page.locator('[data-utility-button]').click()
+  await draft.fill('kept')
+
+  writeFileSync(join(app.repo, 'modified.txt'), 'base\n')
+  await expect(saved).toHaveText('unstaged change')
+  await expect(draft).toHaveValue('kept')
+
+  execFileSync('git', ['-C', app.repo, 'checkout', '-q', '--', '.'])
+  execFileSync('git', ['-C', app.repo, 'clean', '-fdq'])
+  await expect(page.locator('diffs-container', { hasText: 'FIFTY' })).toHaveCount(0)
+  await expect(draft).toHaveValue('kept')
+  await draft.press('Control+Enter')
+  await expect(draft).toHaveCount(0)
+  const sent = (await stored(page, app)).find(({ messages }) => messages[0].body === 'kept')
+  expect(sent?.anchor).toMatchObject({ startLine: 1, code: 'unstaged change' })
+  await expect(page.locator('diffs-container', { hasText: 'staged change' })).toBeVisible()
+  await expect(modified).toHaveCount(0)
+})
+
 test('one comment can be deleted from its menu, keeping the conversation, and undone', async ({
   page,
   app,

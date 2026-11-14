@@ -46,6 +46,7 @@ import { DiffsHubSidebar } from '../components/DiffsHubSidebar'
 import { DiffsHubStatusPanel } from '../components/DiffsHubStatusPanel'
 import {
   DiffsHubViewer,
+  getNextItemVersion,
   type GitnaComparisonActions,
   type GitnaConversationActions,
   type GitnaEditorActions,
@@ -263,6 +264,35 @@ function renderFolderLoadingDocument(newTab: Window, path: string, colorMode: Co
   document.body.replaceChildren(main)
 }
 
+function keepDraftItems(
+  viewer: CodeViewHandle<CommentMetadata, undefined>,
+  current: LoadedDiffsHubData,
+  refreshed: LoadedDiffsHubData,
+): LoadedDiffsHubData {
+  const ids = new Set(refreshed.items.map(({ id }) => id))
+  const items = [...refreshed.items]
+  const itemIdToFile = new Map(refreshed.itemIdToFile)
+  current.items.forEach(({ id }, index) => {
+    const existing = ids.has(id) ? undefined : viewer.getItem(id)
+    const drafts = existing?.annotations?.filter(({ metadata }) => metadata.kind === 'draft')
+    if (existing == null || drafts == null || drafts.length === 0) return
+    const kept = drafts.every(({ metadata }) => metadata.kind === 'draft' && metadata.outdated)
+      ? existing
+      : ({
+          ...existing,
+          annotations: drafts.map((draft) => ({
+            ...draft,
+            metadata: { ...draft.metadata, outdated: true },
+          })),
+          version: getNextItemVersion(existing),
+        } as typeof existing)
+    items.splice(Math.min(index, items.length), 0, kept)
+    const file = current.itemIdToFile.get(id)
+    if (file != null) itemIdToFile.set(id, file)
+  })
+  return items.length === refreshed.items.length ? refreshed : { ...refreshed, items, itemIdToFile }
+}
+
 function updateViewerItems(
   viewer: CodeViewHandle<CommentMetadata, undefined>,
   current: LoadedDiffsHubData,
@@ -272,6 +302,7 @@ function updateViewerItems(
   const next = {
     ...refreshed,
     items: refreshed.items.map((item) => {
+      if (item.annotations?.some(({ metadata }) => metadata.kind === 'draft')) return item
       const existing = viewer.getItem(item.id)
       const drafts =
         existing?.type === item.type
@@ -432,7 +463,9 @@ function useReviewTarget(): ReviewTarget | null {
   }
   const snapshot = repository.snapshot
   if (snapshot == null || !snapshot.repository) return null
-  const scope = snapshot.unstaged.length > 0 || snapshot.staged.length === 0 ? 'unstaged' : 'staged'
+  const scope =
+    repository.heldScope ??
+    (snapshot.unstaged.length > 0 || snapshot.staged.length === 0 ? 'unstaged' : 'staged')
   return { key: scope, request: { scope } }
 }
 
@@ -622,6 +655,30 @@ function GitnaReviewUIInner({
   const editorRepositoryRootRef = useRef<string | null>(null)
   const draftClientIdRef = useRef<string | null>(null)
   const reviewDataRef = useRef<LoadedDiffsHubData | null>(null)
+  const [draftOpen, setDraftOpen] = useState(false)
+  const keptDraftItemIdsRef = useRef<ReadonlySet<string>>(new Set())
+  const withDraftItems = useCallback((data: LoadedDiffsHubData, sameReview: boolean) => {
+    const viewer = viewerRef.current
+    const current = reviewDataRef.current
+    const kept =
+      sameReview && viewer != null && current != null ? keepDraftItems(viewer, current, data) : data
+    keptDraftItemIdsRef.current = new Set(
+      kept.items.filter((item) => !data.items.includes(item)).map(({ id }) => id),
+    )
+    return kept
+  }, [])
+  const reviewScope = target?.request?.scope
+  const heldScope =
+    draftOpen && (reviewScope === 'staged' || reviewScope === 'unstaged') ? reviewScope : null
+  useEffect(() => repository.holdScope(heldScope), [heldScope, repository])
+  useEffect(() => {
+    const kept = keptDraftItemIdsRef.current
+    if (draftOpen || kept.size === 0) return
+    keptDraftItemIdsRef.current = new Set()
+    setReviewData(
+      (data) => data && { ...data, items: data.items.filter(({ id }) => !kept.has(id)) },
+    )
+  }, [draftOpen])
   const renderedTargetKeyRef = useRef<string | null>(null)
   const reviewPagingRef = useRef<ReviewPagingState | null>(null)
   const handleNativeReady = useCallback(() => {
@@ -1115,7 +1172,7 @@ function GitnaReviewUIInner({
         if (!refreshingVisibleReview && !preserveVisibleEditor) setLoadState('parsing')
         renderedTargetKeyRef.current = target.key
         const preserveLiveEditor = preserveVisibleEditor
-        if (!preserveLiveEditor) setReviewData(data)
+        if (!preserveLiveEditor) setReviewData(withDraftItems(data, refreshingVisibleReview))
         setLoadState('ready')
       })
       .catch((error: unknown) => {
@@ -1191,7 +1248,7 @@ function GitnaReviewUIInner({
           const result = appendGitnaReviewPage(paging.assembly, page)
           paging.cursor = page.nextCursor
           paging.loadedPages++
-          setReviewData(result.data)
+          setReviewData(withDraftItems(result.data, true))
           if (untilPath == null || result.data.treeSource.pathToItemId.has(untilPath)) return
         } while (paging.cursor != null)
       } catch (error) {
@@ -2643,7 +2700,8 @@ function GitnaReviewUIInner({
                     ?.repository === false && target == null ? (
                   <FolderEmptyState />
                 ) : surfaceState === 'ready' &&
-                  (scopeKnownEmpty || (reviewData != null && reviewData.items.length === 0)) ? (
+                  ((scopeKnownEmpty && !draftOpen) ||
+                    (reviewData != null && reviewData.items.length === 0)) ? (
                   <GitnaEmptyState scope={target?.request?.scope} />
                 ) : viewerAvailable && reviewData != null ? (
                   <div
@@ -2693,6 +2751,7 @@ function GitnaReviewUIInner({
                         gitnaEditorActions={gitnaEditorActions}
                         gitnaOpenFileAction={gitnaOpenFileAction}
                         gitnaConversations={gitnaConversations}
+                        onDraftChange={setDraftOpen}
                         onScroll={handleReviewScroll}
                         onViewerReady={handleViewerReady}
                         onEditorReady={handleEditorReady}
