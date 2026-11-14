@@ -50,6 +50,12 @@ type FileTreeSortComparator = Exclude<
 // Keeps @pierre/trees from applying its default semantic sort so the sidebar
 // follows the same patch path sequence that drives the code view.
 const PRESERVE_INPUT_ORDER_SORT: FileTreeSortComparator = () => 0;
+const PATH_ORDER_SORT: FileTreeSortComparator = (left, right) => {
+  const key = ({ path, isDirectory }: Parameters<FileTreeSortComparator>[0]) =>
+    isDirectory && !path.endsWith('/') ? `${path}/` : path;
+  const [a, b] = [key(left), key(right)];
+  return a < b ? -1 : a > b ? 1 : 0;
+};
 
 export function buildLazyPathReconciliationOperations(
   appliedPaths: ReadonlySet<string>,
@@ -405,7 +411,7 @@ export const DiffsHubFileTree = memo(function DiffsHubFileTree({
             openOnDropDelay: dragAndDrop.openOnDropDelay,
           },
     paths: initialPathsRef.current,
-    sort: PRESERVE_INPUT_ORDER_SORT,
+    sort: lazyDirectories == null ? PRESERVE_INPUT_ORDER_SORT : PATH_ORDER_SORT,
     onSelectionChange,
     renderRowActions: stableRenderRowActions,
     itemHeight: CODE_VIEW_FILE_TREE_ITEM_HEIGHT,

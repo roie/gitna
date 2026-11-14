@@ -3820,3 +3820,18 @@ test('repository filter hides once its statuses are gone and header icons toggle
   await repositoryHeader.locator('svg').first().click()
   await expect(repositoryHeader).toHaveAttribute('aria-expanded', 'false')
 })
+
+test('a file created while the repository tree is open appears in sorted position', async ({
+  page,
+  app,
+}) => {
+  await page.goto(app.url)
+  await page.locator('[data-section="repository"]').click()
+  const tree = page.locator('#gitna-repository-tree__tree')
+  const row = (name: string) => tree.getByRole('treeitem', { name, exact: true })
+  await expect(row('main.txt')).toBeVisible()
+  writeFileSync(join(app.repo, 'b-new.txt'), 'new\n')
+  await expect(row('b-new.txt')).toBeVisible()
+  const top = async (name: string) => (await row(name).boundingBox())!.y
+  expect(await top('b-new.txt')).toBeLessThan(await top('main.txt'))
+})
