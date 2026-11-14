@@ -1603,10 +1603,11 @@ function GitnaReviewUIInner({
     }
   }, [repository.api, repository.snapshot == null])
   const repositoryGeneration = repository.generation
+  const connected = repository.connectionState === 'connected'
   useEffect(() => {
     // File edits move code under existing threads, so relocate them.
-    if (conversationsModel != null) void conversationsModel.load()
-  }, [conversationsModel, repositoryGeneration])
+    if (conversationsModel != null && connected) void conversationsModel.load()
+  }, [conversationsModel, repositoryGeneration, connected])
   const gitnaActions: GitnaViewerActions | undefined =
     workingScope == null
       ? undefined
@@ -2953,7 +2954,7 @@ function GitnaReviewUIInner({
           actionError={reviewActionError}
           onDismissActionError={() => setReviewActionError(null)}
           toasts={[
-            ...(conversationsModel?.error == null
+            ...(conversationsModel?.error == null || !connected
               ? []
               : [
                   {

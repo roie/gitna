@@ -61,6 +61,38 @@ test('healthy filesystem refreshes do not flash connection state or disable file
   await expect(stage).toBeEnabled()
 })
 
+test('conversations that fail to load during a backend outage add no notification', async ({
+  page,
+  app,
+}) => {
+  let releaseList!: () => void
+  const listHeld = new Promise<void>((resolve) => {
+    releaseList = resolve
+  })
+  let listRequested!: () => void
+  const listPending = new Promise<void>((resolve) => {
+    listRequested = resolve
+  })
+  await page.route('**/api/v1/conversations?*', async (route) => {
+    listRequested()
+    await listHeld
+    await route.abort('connectionrefused')
+  })
+  await page.goto(app.url)
+  await listPending
+
+  await app.restart()
+  const listFailed = page.waitForEvent('requestfailed', (request) =>
+    request.url().includes('/api/v1/conversations?'),
+  )
+  releaseList()
+  await listFailed
+  const notifications = page.getByLabel('Notifications')
+  await expect(notifications).toContainText('Connection interrupted', { timeout: 25_000 })
+  await notifications.getByRole('button', { name: 'Dismiss Connection interrupted' }).click()
+  await expect(notifications).toHaveCount(0)
+})
+
 test('connection notification stays stable across backend shutdown and recovery', async ({
   page,
   app,
