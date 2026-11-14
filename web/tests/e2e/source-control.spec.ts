@@ -2459,6 +2459,8 @@ test('global New File creates an in-memory untitled tab', async ({ page, app }) 
     page.getByRole('tab', { name: 'saved.txt' }).getByLabel('Unsaved changes'),
   ).toHaveCount(0)
 
+  await expect(page.getByLabel('Notifications')).toHaveCount(0)
+  await expect(page.getByText(/could not remove its recovery backup/)).toHaveCount(0)
   await page.getByRole('button', { name: 'Open command palette' }).click()
   const secondPalette = page.getByRole('dialog', { name: 'Command palette' })
   const secondSearch = secondPalette.getByRole('combobox', { name: 'Search files and commands' })

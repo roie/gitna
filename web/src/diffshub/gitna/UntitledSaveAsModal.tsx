@@ -11,7 +11,7 @@ interface UntitledSaveAsModalProps {
   documentPath: string
   initialPath: string
   onClose: () => void
-  onError: (error: string) => void
+  onError: (error: string | null) => void
   onSaved: (path: string, file: WorktreeFile) => void
 }
 
@@ -40,7 +40,7 @@ export function UntitledSaveAsModal({
     const disabledReason = repository.getActionDisabledReason()
     if (disabledReason != null) return
     setSubmitting(true)
-    onError('')
+    onError(null)
     try {
       const file = await repository.saveUntitledDocument(documentPath, destination)
       onSaved(destination, file)
