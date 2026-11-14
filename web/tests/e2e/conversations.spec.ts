@@ -98,6 +98,7 @@ test('conversations on a file persist, take replies from an agent, and survive a
   const thread = page.getByRole('article').filter({ hasText: 'Why line five?' })
   await thread.getByRole('textbox', { name: 'Reply…' }).fill('Second message')
   await thread.getByRole('textbox', { name: 'Reply…' }).press('Control+Enter')
+  await expect(thread.getByRole('textbox', { name: 'Reply…' })).toHaveValue('')
   await expect(thread.getByText('Second message')).toBeVisible()
 
   // The agent reads its inbox and answers in the same conversation, live.
@@ -151,7 +152,8 @@ test('conversations on a file persist, take replies from an agent, and survive a
 
 test('diff conversations anchor to the content on the commented side', async ({ page, app }) => {
   await page.goto(app.url)
-  const item = (text: string) => page.locator('diffs-container', { hasText: text })
+  const item = (text: string) =>
+    page.locator('diffs-container').filter({ has: page.getByText(text, { exact: true }) })
   const number = (text: string, line: number, side: 'first' | 'last') =>
     item(text).locator(`[data-column-number="${line}"]`)[side]()
 
@@ -319,7 +321,9 @@ test('clean files, commits, ref comparisons and file comparisons anchor to their
   await dialog.getByRole('button', { name: 'Compare', exact: true }).click()
   await expect(dialog.getByText(/changed files loaded/)).toBeVisible()
   await dialog.getByRole('button', { name: 'Close dialog' }).click()
-  await expect(lineIn('main branch', 'last')).toBeVisible()
+  await expect(
+    page.locator('[data-line-type="change-deletion"]').filter({ hasText: 'main branch' }).last(),
+  ).toBeVisible()
   await comment(page, lineIn('main branch', 'first'), null, 'compare left')
   await comment(page, lineIn('main branch', 'last'), null, 'compare right')
 
@@ -444,6 +448,7 @@ test('selections across diff sides and unsaved code are refused with a visible r
   await expect
     .poll(() => readFileSync(join(app.repo, 'main.txt'), 'utf8'))
     .toContain('unsaved line')
+  await expect(page.getByRole('tab', { name: /main\.txt Unsaved changes/ })).toHaveCount(0)
   await draft.press('Control+Enter')
   await expect(draft).toHaveCount(0)
   const [conversation] = await stored(page, app)
@@ -822,6 +827,7 @@ test('one comment can be deleted from its menu, keeping the conversation, and un
   await expect(menus).toHaveCount(0)
   await thread.getByRole('textbox', { name: 'Reply…' }).fill('Drop this')
   await thread.getByRole('textbox', { name: 'Reply…' }).press('Control+Enter')
+  await expect(thread.getByRole('textbox', { name: 'Reply…' })).toHaveValue('')
   await expect(thread.getByText('Drop this')).toBeVisible()
 
   await expect(menus.last()).toHaveCSS('opacity', '0')
