@@ -65,7 +65,6 @@ import {
   DropdownMenuTrigger,
 } from '../components/DropdownMenu'
 import { Input } from '../components/Input'
-import { StatusRow } from '../components/StatusRow'
 import { Switch } from '../components/Switch'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '../components/Tooltip'
 import { cn } from '../lib/cn'
@@ -630,6 +629,11 @@ function GitnaSourceControlInner({
     () => new Set(repositoryChanges.map((change) => gitStatus(change.kind))),
     [repositoryChanges],
   )
+  const activeRepositoryFilters = useMemo(
+    () =>
+      new Set([...repositoryFilters].filter((status) => availableRepositoryStatuses.has(status))),
+    [availableRepositoryStatuses, repositoryFilters],
+  )
   const visibleRepositoryPaths = useMemo(
     () =>
       repository.repositoryPaths.filter(
@@ -645,8 +649,8 @@ function GitnaSourceControlInner({
     ],
   )
   const filteredRepositoryPaths = useMemo(
-    () => filterRepositoryPaths(visibleRepositoryPaths, repositoryChanges, repositoryFilters),
-    [visibleRepositoryPaths, repositoryChanges, repositoryFilters],
+    () => filterRepositoryPaths(visibleRepositoryPaths, repositoryChanges, activeRepositoryFilters),
+    [visibleRepositoryPaths, repositoryChanges, activeRepositoryFilters],
   )
   const repositorySource = useMemo(
     () =>
@@ -704,12 +708,12 @@ function GitnaSourceControlInner({
   }
   let repositoryCountText: string
   if (
-    repositoryFilters.size === 0 &&
+    activeRepositoryFilters.size === 0 &&
     !repositoryVisibilityFiltered &&
     repositorySettledDisplay != null
   ) {
     repositoryCountText = repositorySettledDisplay
-  } else if (repositoryFilters.size === 0 && !repositoryVisibilityFiltered) {
+  } else if (activeRepositoryFilters.size === 0 && !repositoryVisibilityFiltered) {
     repositoryCountText = `${repository.repositoryPaths.length}${repositoryCountPending ? '+' : ''}`
   } else {
     repositoryCountText = `${filteredRepositoryPaths.length}${repositoryRowsIncomplete ? '+' : ''} / ${repositoryDenominator}${repositoryCountPending ? '+' : ''}`
@@ -820,7 +824,7 @@ function GitnaSourceControlInner({
         repository.busy ||
         repository.getActionDisabledReason() != null ||
         repositoryView !== 'tree' ||
-        repositoryFilters.size > 0 ||
+        activeRepositoryFilters.size > 0 ||
         repositoryVisibilityFiltered ||
         draggedPaths.length !== 1
       ) {
@@ -845,7 +849,7 @@ function GitnaSourceControlInner({
     [
       repository.busy,
       repository.repositoryPaths,
-      repositoryFilters.size,
+      activeRepositoryFilters.size,
       repositoryView,
       repositoryVisibilityFiltered,
     ],
@@ -866,7 +870,7 @@ function GitnaSourceControlInner({
         !repository.busy &&
         repository.getActionDisabledReason() == null &&
         repositoryView === 'tree' &&
-        repositoryFilters.size === 0 &&
+        activeRepositoryFilters.size === 0 &&
         !repositoryVisibilityFiltered &&
         paths.length === 1,
       canDrop: canDropRepositoryPath,
@@ -878,7 +882,7 @@ function GitnaSourceControlInner({
       canDropRepositoryPath,
       moveRepositoryPath,
       repository.busy,
-      repositoryFilters.size,
+      activeRepositoryFilters.size,
       repositoryView,
       repositoryVisibilityFiltered,
     ],
@@ -1216,7 +1220,9 @@ function GitnaSourceControlInner({
           }
           renderHeaderActions={(model) =>
             showingConversations ? (
-              <ConversationFilter value={conversationFilter} onChange={setConversationFilter} />
+              conversationList.length > 0 && (
+                <ConversationFilter value={conversationFilter} onChange={setConversationFilter} />
+              )
             ) : (
               <RepositoryHeaderActions
                 availableStatuses={availableRepositoryStatuses}
@@ -1225,7 +1231,7 @@ function GitnaSourceControlInner({
                 refreshing={repositoryRefreshVisible}
                 model={model}
                 paths={repositoryView === 'tree' ? filteredRepositoryPaths : []}
-                selectedStatuses={repositoryFilters}
+                selectedStatuses={activeRepositoryFilters}
                 showHiddenFiles={showHiddenFiles}
                 showIgnoredFiles={showIgnoredFiles}
                 view={repositoryView}
@@ -1243,8 +1249,8 @@ function GitnaSourceControlInner({
                   })
                 }
                 onToggleFilter={(status) =>
-                  setRepositoryFilters((current) => {
-                    const next = new Set(current)
+                  setRepositoryFilters(() => {
+                    const next = new Set(activeRepositoryFilters)
                     if (next.has(status)) next.delete(status)
                     else next.add(status)
                     return next
@@ -1894,16 +1900,18 @@ function PaneSectionHeader({
   countTitle,
   dataSection,
   headerRef,
-  icon,
+  icon: Icon,
   onOpenChange,
   open,
   title,
   titleAccessory,
 }: PaneSectionHeaderProps) {
   return (
-    <StatusRow
-      icon={icon}
-      className={cn('group/pane-header shrink-0 flex-wrap text-sm', className)}
+    <div
+      className={cn(
+        'group/pane-header text-muted-foreground border-border flex min-w-0 shrink-0 flex-wrap items-center gap-2 border-t px-4 py-2 text-sm md:mx-3 md:px-2',
+        className,
+      )}
     >
       <button
         ref={headerRef}
@@ -1913,6 +1921,7 @@ function PaneSectionHeader({
         aria-expanded={open}
         onClick={() => onOpenChange(!open)}
       >
+        <Icon className="size-3 shrink-0 opacity-50" />
         <span className="section-title min-w-0 flex-1 truncate" title={title}>
           {title}
         </span>
@@ -1931,7 +1940,7 @@ function PaneSectionHeader({
           {actions}
         </div>
       )}
-    </StatusRow>
+    </div>
   )
 }
 
@@ -2316,7 +2325,7 @@ function RepositoryHeaderActions({
   const altKeyRef = useRef(false)
   return (
     <>
-      {repositoryMode && (
+      {repositoryMode && visibleFilters.length > 0 && (
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
             <Button

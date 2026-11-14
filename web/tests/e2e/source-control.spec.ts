@@ -3797,3 +3797,26 @@ test('bounded review contract serves all scopes from the real repository', async
     expect(review.generation).toBeGreaterThan(0)
   }
 })
+
+test('repository filter hides once its statuses are gone and header icons toggle panes', async ({
+  page,
+  app,
+}) => {
+  await page.goto(app.url)
+  const repositoryHeader = page.locator('[data-section="repository"]')
+  await repositoryHeader.locator('svg').first().click()
+  await expect(repositoryHeader).toHaveAttribute('aria-expanded', 'true')
+  const repositoryFilter = page.getByRole('button', { name: 'Filter by Git status' })
+  await repositoryFilter.click()
+  await page.getByRole('menuitemcheckbox', { name: 'Untracked' }).click()
+  await page.keyboard.press('Escape')
+  await expect(repositoryFilter).toHaveAttribute('aria-pressed', 'true')
+
+  runGit(app.repo, 'clean', '-fdq')
+  await expect(repositoryFilter).toHaveAttribute('aria-pressed', 'false')
+
+  runGit(app.repo, 'reset', '-q', '--hard')
+  await expect(repositoryFilter).toHaveCount(0)
+  await repositoryHeader.locator('svg').first().click()
+  await expect(repositoryHeader).toHaveAttribute('aria-expanded', 'false')
+})
