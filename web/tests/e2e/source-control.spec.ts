@@ -1355,10 +1355,10 @@ test('worker fallback preserves the selected theme in diffs and editable files',
   const line = page.locator('[data-line]').filter({ hasText: 'export const answer = 42;' }).first()
   await expect(line).toBeVisible({ timeout: 20_000 })
   const renderedBackground = () =>
-    line.evaluate((element) => {
-      const root = element.getRootNode() as ShadowRoot
-      return getComputedStyle(root.host).getPropertyValue('--diffs-dark-bg').trim()
-    })
+    page
+      .locator('diffs-container')
+      .filter({ has: line })
+      .evaluate((element) => getComputedStyle(element).getPropertyValue('--diffs-dark-bg').trim())
   await expect.poll(renderedBackground).toBe('#24292e')
   await page.getByRole('button', { name: 'Stage file theme.js', exact: true }).click()
   await expect.poll(() => runGit(app.repo, 'diff', '--cached', '--name-only')).toContain('theme.js')
@@ -3200,7 +3200,7 @@ test('wide ordinary folders page near the Explorer end with an accessible fallba
   await expect(loadMore).toBeVisible()
   expect(await explorer.getByRole('treeitem').count()).toBeLessThan(100)
   await loadMore.click()
-  await expect(loadMore).toBeVisible()
+  await expect(loadMore).toBeEnabled()
   expect(await explorer.getByRole('treeitem').count()).toBeLessThan(100)
   const scroller = explorer.locator('[data-file-tree-virtualized-scroll="true"]')
   await scroller.hover()

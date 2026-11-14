@@ -67,11 +67,14 @@ for (const delay of [80, 199, 201, 1200]) {
         },
       })
       pending.release()
-      await page.clock.runFor(16)
+      await expect(
+        page.locator('[data-line]').filter({ hasText: 'Ready without a minimum loading duration' }),
+      ).toBeVisible()
+      await expect(status).toHaveCount(0)
+      await page.clock.resume()
       await expect(page.getByRole('textbox', { name: 'pending.txt', exact: true })).toContainText(
         'Ready without a minimum loading duration',
       )
-      await expect(status).toHaveCount(0)
     } finally {
       pending.release()
     }

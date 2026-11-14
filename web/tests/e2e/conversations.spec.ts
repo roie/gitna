@@ -558,6 +558,12 @@ test('unread replies are marked until read and live updates keep the reading pos
   await page.mouse.wheel(0, 200)
   const reading = page.locator('[data-file] [data-line]', { hasText: /^line 40$/ })
   const before = (await reading.boundingBox())!.y
+  const updated = page.waitForResponse(
+    async (response) =>
+      new URL(response.url()).pathname.endsWith('/api/v1/conversations') &&
+      response.request().method() === 'GET' &&
+      (await response.text()).includes('A longer agent reply'),
+  )
   agent(
     app,
     'reply',
@@ -567,11 +573,15 @@ test('unread replies are marked until read and live updates keep the reading pos
     '--body',
     'A longer agent reply\nthat adds\nseveral lines\nabove',
   )
-  await expect(thread.getByText('several lines')).toBeAttached()
+  await updated
   await page.evaluate(
     () => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))),
   )
   expect(Math.abs((await reading.boundingBox())!.y - before)).toBeLessThan(2)
+  await page.locator('.code-view').evaluate((element) => {
+    element.scrollTop = 0
+  })
+  await expect(thread.getByText('several lines')).toBeVisible()
 })
 
 test('display settings turn conversations off and on, and explain them', async ({ page, app }) => {
@@ -744,7 +754,7 @@ test('with several agents, comments go only to the agent picked or last addresse
   )
   await thread.getByRole('textbox', { name: 'Reply…' }).fill('And the tests')
   await thread.getByRole('textbox', { name: 'Reply…' }).press('Control+Enter')
-  await expect(thread.getByText('And the tests')).toBeVisible()
+  await expect(thread.getByRole('paragraph').filter({ hasText: 'And the tests' })).toBeVisible()
   expect(pending(second)).toEqual(['Please review', 'And the tests'])
   expect(pending(first)).toEqual([])
 })
