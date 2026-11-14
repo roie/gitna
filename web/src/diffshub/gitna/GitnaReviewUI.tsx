@@ -2117,9 +2117,9 @@ function GitnaReviewUIInner({
   )
   const gitnaConversations = useMemo<GitnaConversationActions | undefined>(() => {
     const surface = JSON.parse(conversationSurfaceKey) as ConversationSurface | null
-    return conversationsModel == null || surface == null || !showConversations
+    return conversationsModel == null || surface == null
       ? undefined
-      : { model: conversationsModel, surface }
+      : { model: conversationsModel, surface, visible: showConversations }
   }, [conversationsModel, conversationSurfaceKey, showConversations])
 
   useEffect(() => {

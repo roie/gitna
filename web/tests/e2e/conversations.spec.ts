@@ -624,6 +624,71 @@ test('display settings turn conversations off and on, and explain them', async (
   expect((await stored(page, app)).map(({ messages }) => messages[0].body)).toEqual(['keep me'])
 })
 
+test('hiding conversations preserves a draft and releases its review after canceling', async ({
+  page,
+  app,
+}) => {
+  for (const name of ['Builder', 'Reviewer']) gitnaCLI(app, 'join', '--as', name)
+  await page.goto(app.url)
+  const modified = page.locator('diffs-container', { hasText: 'unstaged change' })
+  const line = modified.locator('[data-column-number="1"]').last()
+  await expect(line).toBeVisible()
+  await line.hover()
+  await page.locator('[data-utility-button]').click()
+  const draft = page.getByRole('textbox', { name: 'Add a comment…' })
+  await draft.fill('Not sent yet')
+  await page.getByRole('combobox', { name: 'To' }).selectOption({ label: 'Reviewer' })
+  const setVisible = async (visible: boolean) => {
+    await page.getByRole('button', { name: 'Display settings' }).click()
+    const control = page.getByRole('switch', { name: 'Conversations' })
+    await control.click()
+    await expect(control).toHaveAttribute('aria-checked', String(visible))
+    await page.keyboard.press('Escape')
+  }
+  await setVisible(false)
+  await expect(draft).not.toBeVisible()
+  expect(await stored(page, app)).toEqual([])
+  await setVisible(true)
+  await expect(draft).toBeVisible()
+  await expect(draft).toHaveValue('Not sent yet')
+  await expect(page.getByRole('combobox', { name: 'To' }).locator('option:checked')).toHaveText(
+    'Reviewer',
+  )
+  await setVisible(false)
+  writeFileSync(join(app.repo, 'modified.txt'), 'base\n')
+  await setVisible(true)
+  await expect(draft).toHaveValue('Not sent yet')
+  await expect(page.getByRole('combobox', { name: 'To' }).locator('option:checked')).toHaveText(
+    'Reviewer',
+  )
+  await expect(page.locator('div:has(> form [aria-label="Add a comment…"]) > pre')).toHaveText(
+    'unstaged change',
+  )
+  await draft.press('Control+Enter')
+  await expect(draft).toHaveCount(0)
+  expect((await stored(page, app))[0].anchor).toMatchObject({
+    path: 'modified.txt', source: 'worktree', startLine: 1, endLine: 1, code: 'unstaged change',
+  })
+
+  execFileSync('git', ['-C', app.repo, 'checkout', '-q', '--', '.'])
+  execFileSync('git', ['-C', app.repo, 'clean', '-fdq'])
+  await expect(page.locator('diffs-container', { hasText: 'FIFTY' })).toHaveCount(0)
+  const staged = page.locator('diffs-container', { hasText: 'staged change' })
+  await expect(staged).toBeVisible()
+  await staged.locator('[data-column-number="1"]').last().hover()
+  await page.locator('[data-utility-button]').click()
+  await draft.fill('Cancel this draft')
+  await setVisible(false)
+  await setVisible(true)
+  await expect(draft).toHaveValue('Cancel this draft')
+  page.once('dialog', (dialog) => dialog.accept())
+  await draft.press('Escape')
+  await expect(draft).toHaveCount(0)
+  execFileSync('git', ['-C', app.repo, 'reset', '-q', 'HEAD', '--', '.'])
+  execFileSync('git', ['-C', app.repo, 'checkout', '-q', '--', '.'])
+  await expect(staged).toHaveCount(0)
+})
+
 test('with several agents, comments go only to the agent picked or last addressed', async ({
   page,
   app,

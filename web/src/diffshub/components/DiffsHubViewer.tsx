@@ -102,6 +102,7 @@ export interface GitnaOpenFileAction {
 }
 
 export interface GitnaConversationActions {
+  visible: boolean;
   model: ConversationsModel;
   surface: ConversationSurface;
 }
@@ -280,25 +281,19 @@ export const DiffsHubViewer = memo(function DiffsHubViewer({
     viewer.updateItem(item);
   };
 
-  const syncConversationItem = useStableCallback((id: string) => {
+  const syncConversationItem = useStableCallback((id: string, refreshDrafts = false) => {
     const { current: viewer } = viewerRef;
     const item = viewer?.getItem(id);
     if (viewer == null || item == null || (item.type !== 'file' && item.type !== 'diff')) return;
-    if (gitnaConversations == null) {
-      const isConversation = (metadata: CommentMetadata) => metadata.kind === 'saved' || metadata.kind === 'draft';
-      if (item.annotations?.some((annotation) => isConversation(annotation.metadata))) {
-        setItemAnnotations(viewer, item, (metadata) => !isConversation(metadata), []);
-      }
-      return;
-    }
-    const next = conversationAnnotations(item, gitnaConversations);
+    const next = gitnaConversations?.visible ? conversationAnnotations(item, gitnaConversations) : [];
     const current = (item.annotations ?? []).filter((annotation) => annotation.metadata.kind === 'saved');
-    if (annotationSignature(current) === annotationSignature(next)) return;
+    const refreshDraft = refreshDrafts && item.annotations?.some((annotation) => annotation.metadata.kind === 'draft');
+    if (annotationSignature(current) === annotationSignature(next) && !refreshDraft) return;
     setItemAnnotations(viewer, item, (metadata) => metadata.kind !== 'saved', next);
   });
 
-  const syncConversationAnnotations = useStableCallback(() => {
-    for (const { id } of initialItems) syncConversationItem(id);
+  const syncConversationAnnotations = useStableCallback((refreshDrafts = false) => {
+    for (const { id } of initialItems) syncConversationItem(id, refreshDrafts);
   });
 
   useEffect(() => {
@@ -306,8 +301,12 @@ export const DiffsHubViewer = memo(function DiffsHubViewer({
     return gitnaConversations?.model.subscribe(syncConversationAnnotations);
   }, [gitnaConversations, initialItems, syncConversationAnnotations]);
 
+  useEffect(() => {
+    queueMicrotask(() => syncConversationAnnotations(true));
+  }, [gitnaConversations?.visible, syncConversationAnnotations]);
+
   // Comment affordances exist only where a saved comment is a real conversation.
-  const commenting = gitnaConversations != null;
+  const commenting = gitnaConversations?.visible === true;
 
   const conversationAnchor = (item: ConversationViewItem, range: SelectedLineRange): ConversationAnchor | null => {
     const surface = gitnaConversations?.surface;
@@ -460,17 +459,19 @@ export const DiffsHubViewer = memo(function DiffsHubViewer({
       }
       if (metadata.kind === 'draft') {
         return (
-          <DraftAnnotation
-            annotation={annotation as DiffLineAnnotation<DraftCommentMetadata>}
-            author={gitnaConversations.model.participant?.name ?? 'You'}
-            itemId={item.id}
-            recipients={gitnaConversations.model.recipients()}
-            onCancel={handleRemoveDraft}
-            onSave={handleSaveDraft}
-          />
+          <div hidden={!gitnaConversations.visible}>
+            <DraftAnnotation
+              annotation={annotation as DiffLineAnnotation<DraftCommentMetadata>}
+              author={gitnaConversations.model.participant?.name ?? 'You'}
+              itemId={item.id}
+              recipients={gitnaConversations.model.recipients()}
+              onCancel={handleRemoveDraft}
+              onSave={handleSaveDraft}
+            />
+          </div>
         );
       }
-      if (metadata.kind !== 'saved') {
+      if (metadata.kind !== 'saved' || !gitnaConversations.visible) {
         return null;
       }
       const conversation = gitnaConversations.model.find(metadata.conversationId);

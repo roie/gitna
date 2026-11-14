@@ -246,14 +246,13 @@ export function DraftAnnotation({
       onSubmit={(message, to) => onSave(itemId, metadata.key, message, to)}
     />
   );
-  if (metadata.outdated !== true) {
-    return composer;
-  }
   return (
     <div className="flex flex-col gap-2">
-      <pre className="m-0 max-h-40 overflow-auto rounded-md border border-border px-2 py-1 font-mono text-xs">
-        {metadata.code}
-      </pre>
+      {metadata.outdated === true && (
+        <pre className="m-0 max-h-40 overflow-auto rounded-md border border-border px-2 py-1 font-mono text-xs">
+          {metadata.code}
+        </pre>
+      )}
       {composer}
     </div>
   );
