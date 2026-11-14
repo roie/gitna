@@ -2,6 +2,7 @@ package drafts
 
 import (
 	"errors"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -46,8 +47,11 @@ func TestJournalPutGetAndRevisionChecks(t *testing.T) {
 	if err := journal.Delete("document-1", 0); !errors.Is(err, ErrStaleRevision) {
 		t.Fatalf("stale delete error = %v, want ErrStaleRevision", err)
 	}
-	if err := journal.Delete("document-1", 1); err != nil {
-		t.Fatal(err)
+	if err := journal.Delete("document-1", 2); err != nil {
+		t.Fatalf("delete after a newer save: %v", err)
+	}
+	if _, err := journal.Get("document-1"); !errors.Is(err, fs.ErrNotExist) {
+		t.Fatalf("get after delete error = %v, want fs.ErrNotExist", err)
 	}
 }
 

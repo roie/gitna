@@ -168,7 +168,7 @@ func (j *Journal) Delete(documentID string, expectedRevision uint64) error {
 	if err != nil {
 		return err
 	}
-	if record.Revision != expectedRevision {
+	if record.Revision > expectedRevision {
 		return fmt.Errorf("%w: %s", ErrStaleRevision, documentID)
 	}
 	return os.Remove(path)
