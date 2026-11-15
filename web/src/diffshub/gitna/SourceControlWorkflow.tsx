@@ -572,6 +572,8 @@ function GitnaSourceControlInner({
   const [conversationFilter, setConversationFilter] = useState<'open' | 'resolved'>('open')
   const showingConversations = conversationsShown && conversationsModel != null
   const openConversations = conversationList.filter(({ status }) => status === 'open').length
+  const shownConversationCount =
+    conversationFilter === 'open' ? openConversations : conversationList.length - openConversations
   const shownConversations = useMemo(
     () =>
       conversationSections(
@@ -1119,8 +1121,12 @@ function GitnaSourceControlInner({
 
         <TreeSection
           pane
-          count={repositoryCount}
-          countTitle={repositoryCountTitle}
+          count={showingConversations ? shownConversationCount : repositoryCount}
+          countTitle={
+            showingConversations
+              ? `${shownConversationCount} ${conversationFilter} conversations`
+              : repositoryCountTitle
+          }
           headerClassName={snapshot.repository ? undefined : 'border-t-0'}
           dragAndDrop={repositoryDragAndDrop}
           dataSection="repository"
@@ -1183,8 +1189,17 @@ function GitnaSourceControlInner({
                   setRepositoryOpen(true)
                 }}
               >
-                <IconComment className="size-4 md:size-3" />
-                {openConversations > 0 && openConversations}
+                {showingConversations ? (
+                  <>
+                    <IconFileTree className="size-4 md:size-3" />
+                    {repositoryCount}
+                  </>
+                ) : (
+                  <>
+                    <IconComment className="size-4 md:size-3" />
+                    {openConversations > 0 && openConversations}
+                  </>
+                )}
                 {conversationList.some((conversation) =>
                   conversationsModel.unread(conversation),
                 ) && (
@@ -1261,7 +1276,7 @@ function GitnaSourceControlInner({
             )
           }
           icon={<IconFileTree className="size-3" />}
-          paneIcon={IconFileTree}
+          paneIcon={showingConversations ? IconComment : IconFileTree}
           lazyDirectories={
             repositoryView === 'tree' ? repository.ordinaryUnloadedDirectories : undefined
           }
