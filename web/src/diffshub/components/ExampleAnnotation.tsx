@@ -7,7 +7,7 @@ import { memo, type ReactNode } from 'react';
 import { AuthorInitial } from './DraftAnnotation';
 import { Button } from '@/components/Button';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/DropdownMenu';
-import { annotationCardBase } from '@/lib/annotation';
+import { annotationCardBase, annotationCornerButton } from '@/lib/annotation';
 import { cn } from '@/lib/cn';
 
 export interface ExampleAnnotationMessage {
@@ -25,9 +25,6 @@ interface ExampleAnnotationProps {
   onDeleteMessage: (id: string) => void;
   onResolve: () => void;
 }
-
-const cornerButton =
-  'pointer-events-none absolute top-0 z-1 inline-flex -translate-y-[35%] cursor-pointer items-center justify-center rounded-full bg-neutral-500 opacity-0 transition-opacity duration-100 group-hover:pointer-events-auto group-hover:opacity-100 group-focus-within:pointer-events-auto group-focus-within:opacity-100';
 
 // Keep clicks and typing inside a comment from reaching an editable code view.
 const isolate = (event: { stopPropagation(): void }) => event.stopPropagation();
@@ -56,7 +53,7 @@ export const ExampleAnnotation = memo(function ExampleAnnotation({
         size="icon-sm"
         aria-label="Resolve conversation"
         onClick={onResolve}
-        className={cn(cornerButton, 'right-0 translate-x-[-85%]')}
+        className={cn(annotationCornerButton, 'right-0 translate-x-[-85%]')}
       >
         <IconCheck size={12} />
       </Button>
@@ -65,7 +62,7 @@ export const ExampleAnnotation = memo(function ExampleAnnotation({
         size="icon-sm"
         aria-label="Delete conversation"
         onClick={onDelete}
-        className={cn(cornerButton, 'right-0 translate-x-[35%]')}
+        className={cn(annotationCornerButton, 'right-0 translate-x-[35%]')}
       >
         <IconX size={12} />
       </Button>

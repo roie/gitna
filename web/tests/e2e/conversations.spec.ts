@@ -289,6 +289,37 @@ test('a draft shows its caret and moves to another line from the gutter', async 
   expect((await stored(page, app)).map(({ anchor }) => anchor.startLine)).toEqual([15])
 })
 
+test('a draft closes from its corner button, asking only when it has text', async ({
+  page,
+  app,
+}) => {
+  await page.goto(app.url)
+  await openFile(page, 'two-hunk.txt')
+  const number = page.locator('[data-file] [data-column-number="12"]')
+  const draft = page.getByRole('textbox', { name: 'Add a comment…' })
+  const discard = page.getByRole('button', { name: 'Discard comment' })
+  let prompts = 0
+  page.on('dialog', (dialog) => {
+    prompts++
+    void dialog.accept()
+  })
+
+  await number.hover()
+  await page.locator('[data-utility-button]').click()
+  await expect(discard).toBeVisible()
+  await discard.click()
+  await expect(draft).toHaveCount(0)
+  expect(prompts).toBe(0)
+
+  await number.hover()
+  await page.locator('[data-utility-button]').click()
+  await draft.fill('not sending this')
+  await discard.click()
+  await expect(draft).toHaveCount(0)
+  expect(prompts).toBe(1)
+  expect(await stored(page, app)).toEqual([])
+})
+
 test('clean files, commits, ref comparisons and file comparisons anchor to their content', async ({
   page,
   app,

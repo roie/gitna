@@ -1,12 +1,12 @@
 // Modified by Gitna: declare callbacks as receiver-independent function properties,
 // show the real author, save asynchronously, share the form as CommentComposer, and
-// let it pick a recipient.
+// let it pick a recipient, with a corner button to discard the draft.
 import type { DiffLineAnnotation } from '@pierre/diffs';
-import { IconArrowRight } from '@pierre/icons';
+import { IconArrowRight, IconX } from '@pierre/icons';
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 
 import { Button } from '@/components/Button';
-import { annotationCardBase } from '@/lib/annotation';
+import { annotationCardBase, annotationCornerButton } from '@/lib/annotation';
 import { cn } from '@/lib/cn';
 import type { DraftCommentMetadata } from '@/lib/types';
 
@@ -97,7 +97,7 @@ export function CommentComposer({
 
   return (
     <form
-      className={cn(annotationCardBase, 'flex-col md:flex-row', className)}
+      className={cn(annotationCardBase, 'group relative flex-col md:flex-row', className)}
       onKeyDown={isolate}
       onPointerDown={isolate}
       onMouseDown={isolate}
@@ -108,6 +108,18 @@ export function CommentComposer({
         void handleSave();
       }}
     >
+      {onCancel != null && (
+        <Button
+          type="button"
+          variant="default"
+          size="icon-sm"
+          aria-label="Discard comment"
+          onClick={tryCancel}
+          className={cn(annotationCornerButton, 'right-0 translate-x-[35%] max-md:hidden')}
+        >
+          <IconX size={12} />
+        </Button>
+      )}
       <div className="flex w-full gap-2.5">
         {avatar}
         <div className="flex w-full flex-col">
