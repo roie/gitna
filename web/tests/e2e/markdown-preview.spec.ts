@@ -432,19 +432,23 @@ test('Markdown preview follows the live editor and keeps its undo state across m
   mkdirSync(join(app.repo, 'docs'), { recursive: true })
   writeFileSync(
     join(app.repo, 'docs/notes.md'),
-    '# UniquePreviewTitle\n\n- [x] checked\n\n![local](picture.png#fragment)\n\n![remote](https://example.com/tracker.png)\n\n![escape](../../outside.png)\n\n[other note](other.txt) [unsafe](javascript:alert(1))\n\n<script>alert(1)</script>\n\n<p align="center"><picture><source media="(min-width: 1px)" srcset="https://example.com/remote.png 1x"><source media="(min-width: 1px)" srcset="picture.png 1x, https://example.com/mixed.png 2x"><img src="picture.png" alt="HTML picture" width="3" onerror="window.markdownUnsafe = true"></picture></p>\n',
+    '# UniquePreviewTitle\n\n- [x] checked\n\n![local](picture.png#fragment)\n\n![remote](https://example.com/tracker.png)\n\n![insecure](http://example.com/insecure.png)\n\n![escape](../../outside.png)\n\n[other note](other.txt) [unsafe](javascript:alert(1))\n\n<script>alert(1)</script>\n\n<p align="center"><picture><source media="(min-width: 1px)" srcset="http://example.com/insecure-source.png 1x"><source media="(min-width: 1px)" srcset="picture.png 1x, https://example.com/mixed.png 2x"><img src="picture.png" alt="HTML picture" width="3" onerror="window.markdownUnsafe = true"></picture></p>\n',
   )
   writeFileSync(join(app.repo, 'docs/other.txt'), 'A linked note\n')
-  writeFileSync(
-    join(app.repo, 'docs/picture.png'),
-    Buffer.from(
-      'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=',
-      'base64',
-    ),
+  const pixel = Buffer.from(
+    'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=',
+    'base64',
+  )
+  writeFileSync(join(app.repo, 'docs/picture.png'), pixel)
+  await page.route('*://example.com/**', (route) =>
+    route.fulfill({ contentType: 'image/png', body: pixel }),
   )
   const remoteRequests: string[] = []
+  const remoteReferrers: (string | undefined)[] = []
   page.on('request', (request) => {
-    if (new URL(request.url()).hostname === 'example.com') remoteRequests.push(request.url())
+    if (new URL(request.url()).hostname !== 'example.com') return
+    remoteRequests.push(request.url())
+    remoteReferrers.push(request.headers().referer)
   })
   await page.goto(app.url)
   await expect(page.getByRole('button', { name: 'Open command palette' })).toBeVisible()
@@ -472,9 +476,10 @@ test('Markdown preview follows the live editor and keeps its undo state across m
   await page.screenshot({ path: '/tmp/gitna-markdown-split.png' })
   await expect(preview.getByRole('checkbox')).toBeChecked()
   await expect(preview.getByRole('img', { name: 'local' })).toHaveJSProperty('naturalWidth', 1)
-  await expect(preview.getByText('Blocked image resource: remote')).toBeVisible()
+  await expect(preview.getByRole('img', { name: 'remote' })).toHaveJSProperty('naturalWidth', 1)
+  await expect(preview.getByText('Blocked image resource: insecure')).toBeVisible()
   await expect(preview.getByText('Blocked image resource: escape')).toBeVisible()
-  await expect(preview.locator('script, img[src*="example.com"]')).toHaveCount(0)
+  await expect(preview.locator('script')).toHaveCount(0)
   await expect(preview.getByText('unsafe')).not.toHaveAttribute('href', /javascript:/i)
   const htmlImage = preview.locator('p[align="center"] picture img')
   await expect(htmlImage).toHaveAttribute('alt', 'HTML picture')
@@ -484,13 +489,15 @@ test('Markdown preview follows the live editor and keeps its undo state across m
   await expect(preview.locator('picture source')).toHaveCount(1)
   await expect(preview.locator('picture source')).toHaveAttribute(
     'srcset',
-    'api/v1/content?path=docs%2Fpicture.png 1x',
+    'api/v1/content?path=docs%2Fpicture.png 1x, https://example.com/mixed.png 2x',
   )
   expect(await htmlImage.evaluate((image: HTMLImageElement) => image.currentSrc)).toContain(
     'api/v1/content?path=docs%2Fpicture.png',
   )
   expect(await page.evaluate(() => 'markdownUnsafe' in window)).toBe(false)
-  expect(remoteRequests).toEqual([])
+  expect(remoteRequests).toContain('https://example.com/tracker.png')
+  expect(remoteRequests.some((url) => url.startsWith('http:'))).toBe(false)
+  expect(remoteReferrers.every((referrer) => referrer == null)).toBe(true)
   const editor = page.getByRole('textbox', { name: 'docs/notes.md', exact: true })
   await editor.focus()
   await page.keyboard.press('Control+Home')
@@ -500,6 +507,7 @@ test('Markdown preview follows the live editor and keeps its undo state across m
   await expect(preview.getByRole('heading', { name: 'NEW UniquePreviewTitle' })).toBeVisible()
   await previewButton.click()
   await expect(preview.getByRole('heading', { name: 'NEW UniquePreviewTitle' })).toBeVisible()
+  await expect(preview.getByRole('img', { name: 'remote' })).toBeVisible()
   await expect(nativeHeader).toBeVisible()
   await expect(splitHeader).toHaveCount(0)
   await expect(page.getByRole('textbox', { name: 'docs/notes.md', exact: true })).toHaveCount(0)

@@ -61,11 +61,26 @@ function resolveLocalResource(source: string, documentPath: string): string | nu
   return path == null ? null : `api/v1/content?path=${encodeURIComponent(path)}`
 }
 
-function resolveLocalSrcSet(srcSet: string, documentPath: string): string | null {
-  const candidates = srcSet.split(',').flatMap((candidate) => {
-    const [source = '', ...descriptors] = candidate.trim().split(/\s+/)
-    const localSource = resolveLocalResource(source, documentPath)
-    return localSource == null ? [] : [[localSource, ...descriptors].join(' ')]
+function isRemoteImage(source: string): boolean {
+  try {
+    return new URL(source).protocol === 'https:'
+  } catch {
+    return false
+  }
+}
+
+function resolveImage(source: string, documentPath: string): string | null {
+  return resolveLocalResource(source, documentPath) ?? (isRemoteImage(source) ? source : null)
+}
+
+function srcSetSources(srcSet: string): string[][] {
+  return srcSet.split(',').map((candidate) => candidate.trim().split(/\s+/))
+}
+
+function resolveSrcSet(srcSet: string, documentPath: string): string | null {
+  const candidates = srcSetSources(srcSet).flatMap(([source = '', ...descriptors]) => {
+    const resolved = resolveImage(source, documentPath)
+    return resolved == null ? [] : [[resolved, ...descriptors].join(' ')]
   })
   return candidates.length === 0 ? null : candidates.join(', ')
 }
@@ -132,18 +147,18 @@ export function MarkdownWorkbench({
         </a>
       ),
       img: ({ node: _node, src, srcSet: _srcSet, alt, ...props }) => {
-        const localSrc = typeof src === 'string' ? resolveLocalResource(src, path) : null
-        return localSrc == null ? (
+        const imageSrc = typeof src === 'string' ? resolveImage(src, path) : null
+        return imageSrc == null ? (
           <span className="rounded border px-2 py-1 text-xs text-muted-foreground">
             Blocked image resource: {alt ?? 'unnamed'}
           </span>
         ) : (
-          <img {...props} alt={alt ?? ''} loading="lazy" src={localSrc} />
+          <img {...props} alt={alt ?? ''} loading="lazy" src={imageSrc} />
         )
       },
       source: ({ node: _node, src: _src, srcSet, ...props }) => {
-        const localSrcSet = srcSet == null ? null : resolveLocalSrcSet(srcSet, path)
-        return localSrcSet == null ? null : <source {...props} srcSet={localSrcSet} />
+        const imageSrcSet = srcSet == null ? null : resolveSrcSet(srcSet, path)
+        return imageSrcSet == null ? null : <source {...props} srcSet={imageSrcSet} />
       },
     }),
     [path, openPath],
