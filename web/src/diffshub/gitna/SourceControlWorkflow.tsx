@@ -59,6 +59,7 @@ import {
   DropdownMenuItem,
   DropdownMenuLabel,
   DropdownMenuSeparator,
+  DropdownMenuShortcut,
   DropdownMenuSub,
   DropdownMenuSubContent,
   DropdownMenuSubTrigger,
@@ -522,10 +523,12 @@ function conversationSections(
 export function GitnaSourceControl({
   active = true,
   conversations,
+  onFindInFiles,
   onSearchCommits,
 }: {
   active?: boolean
   conversations?: ConversationsPane
+  onFindInFiles?: () => void
   onSearchCommits?: () => void
 }) {
   const [commitMessage, setCommitMessage] = useState('')
@@ -533,6 +536,7 @@ export function GitnaSourceControl({
   return active ? (
     <GitnaSourceControlInner
       conversations={conversations}
+      onFindInFiles={onFindInFiles}
       onSearchCommits={onSearchCommits}
       commitMessage={commitMessage}
       setCommitMessage={setCommitMessage}
@@ -544,6 +548,7 @@ export function GitnaSourceControl({
 
 function GitnaSourceControlInner({
   conversations,
+  onFindInFiles,
   onSearchCommits,
   commitMessage,
   setCommitMessage,
@@ -551,6 +556,7 @@ function GitnaSourceControlInner({
   setAmend,
 }: {
   conversations?: ConversationsPane
+  onFindInFiles?: () => void
   onSearchCommits?: () => void
   commitMessage: string
   setCommitMessage: (message: string) => void
@@ -1253,6 +1259,7 @@ function GitnaSourceControlInner({
                 onClearFilters={() => setRepositoryFilters(new Set())}
                 onIsolateFilter={(status) => setRepositoryFilters(new Set([status]))}
                 onCreate={(kind, initialPath) => setRepositoryEntryDialog({ kind, initialPath })}
+                onFindInFiles={onFindInFiles}
                 onRefresh={() => void repository.refreshExplorer()}
                 onShowHiddenFilesChange={setShowHiddenFiles}
                 onShowIgnoredFilesChange={setShowIgnoredFiles}
@@ -2280,6 +2287,7 @@ function RepositoryHeaderActions({
   model,
   onClearFilters,
   onCreate,
+  onFindInFiles,
   onIsolateFilter,
   onRefresh,
   onRename,
@@ -2300,6 +2308,7 @@ function RepositoryHeaderActions({
   model: FileTree | null
   onClearFilters: () => void
   onCreate: (kind: 'file' | 'folder', initialPath: string) => void
+  onFindInFiles?: () => void
   onIsolateFilter: (status: GitStatus) => void
   onRefresh: () => void
   onRename: (source: string) => void
@@ -2434,6 +2443,17 @@ function RepositoryHeaderActions({
           </Button>
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end">
+          {onFindInFiles != null && (
+            <>
+              <DropdownMenuItem onSelect={onFindInFiles}>
+                Find in Files
+                <DropdownMenuShortcut className="pl-6 tracking-normal">
+                  {isMac ? '⇧⌘F' : 'Ctrl+Shift+F'}
+                </DropdownMenuShortcut>
+              </DropdownMenuItem>
+              <DropdownMenuSeparator />
+            </>
+          )}
           <DropdownMenuItem
             disabled={disabledReason != null}
             onSelect={() => onCreate('file', repositoryCreationParent(model))}

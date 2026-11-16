@@ -514,15 +514,18 @@ function GitnaReviewUIInner({
   const [sidebarMode, setSidebarMode] = useState<'source' | 'search'>('source')
   const [searchMounted, setSearchMounted] = useState(false)
   const [searchFocusRequest, setSearchFocusRequest] = useState(0)
-
-  useEffect(() => {
-    if (searchRequest === 0) return
+  const openFindInFiles = useCallback(() => {
     setSearchFocusRequest((request) => request + 1)
-    setCommandPaletteOpen(false)
     setSidebarMode('search')
     if (window.matchMedia('(max-width: 767px)').matches) setFileTreeOverlayOpen(true)
     else setSidebarVisible(true)
-  }, [searchRequest])
+  }, [])
+
+  useEffect(() => {
+    if (searchRequest === 0) return
+    setCommandPaletteOpen(false)
+    openFindInFiles()
+  }, [openFindInFiles, searchRequest])
   const [searchResults, setSearchResults] = useState<ContentSearchFile[]>([])
   const [activeSearchMatch, setActiveSearchMatch] = useState<{
     path: string
@@ -2289,12 +2292,7 @@ function GitnaReviewUIInner({
         label: 'Find in Files',
         description: 'Search text across the current folder',
         keywords: 'search workspace files content',
-        run: () => {
-          setSearchFocusRequest((value) => value + 1)
-          setSidebarMode('search')
-          if (window.matchMedia('(max-width: 767px)').matches) setFileTreeOverlayOpen(true)
-          else setSidebarVisible(true)
-        },
+        run: openFindInFiles,
       },
       {
         id: 'open-folder',
@@ -2516,6 +2514,7 @@ function GitnaReviewUIInner({
     repository.branches,
     repository.busy,
     backendDisabledReason,
+    openFindInFiles,
     openFolderDisabledReason,
     repository.folders?.recent,
     repository.generation,
@@ -2666,6 +2665,7 @@ function GitnaReviewUIInner({
                 )}
                 <GitnaSourceControl
                   active={sidebarMode === 'source'}
+                  onFindInFiles={openFindInFiles}
                   conversations={showConversations ? conversationsPane : undefined}
                   onSearchCommits={() => {
                     setCommandPaletteInitialQuery('#')
