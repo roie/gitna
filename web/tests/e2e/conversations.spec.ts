@@ -216,10 +216,10 @@ test('the repository pane lists conversations; resolve hides them and delete can
   agent(app, 'session')
   await page.goto(app.url)
   const pane = page.getByRole('region', { name: 'Source Control workflow' })
-  // The toggle is always there; its count appears only once there is one.
+  // The toggle appears with the first conversation; its count shows only open ones.
   const toggle = pane.getByRole('button', { name: 'Conversations', exact: true })
-  await expect(toggle).toBeVisible()
-  await expect(toggle).toHaveText('')
+  await expect(pane.locator('[data-section="repository"]')).toBeVisible()
+  await expect(toggle).toHaveCount(0)
   const item = (text: string) => page.locator('diffs-container', { hasText: text })
   const line = item('unstaged change').locator('[data-column-number="1"]').last()
   await expect(line).toBeVisible()
@@ -249,6 +249,7 @@ test('the repository pane lists conversations; resolve hides them and delete can
   await thread.hover()
   await thread.getByRole('button', { name: 'Delete conversation' }).click()
   await expect(thread).toHaveCount(0)
+  await expect(toggle).toHaveCount(0)
   expect(await stored(page, app)).toEqual([])
   const pending = () =>
     (JSON.parse(agent(app, 'pending')) as { pending: { message: { body: string } }[] }).pending.map(
@@ -259,6 +260,7 @@ test('the repository pane lists conversations; resolve hides them and delete can
   agent(app, 'ack', '1000')
   await page.getByRole('button', { name: 'Undo' }).click()
   await expect(thread).toBeVisible()
+  await expect(toggle).toHaveAttribute('aria-pressed', 'true')
   expect((await stored(page, app)).map(({ messages }) => messages[0].body)).toEqual(['resolve me'])
   expect(pending()).toEqual(['resolve me'])
 })

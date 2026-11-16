@@ -576,7 +576,8 @@ function GitnaSourceControlInner({
   const conversationList = conversationsModel?.list() ?? noConversations
   const [conversationsShown, setConversationsShown] = useState(false)
   const [conversationFilter, setConversationFilter] = useState<'open' | 'resolved'>('open')
-  const showingConversations = conversationsShown && conversationsModel != null
+  const hasConversations = conversationsModel != null && conversationList.length > 0
+  const showingConversations = conversationsShown && hasConversations
   const openConversations = conversationList.filter(({ status }) => status === 'open').length
   const shownConversationCount =
     conversationFilter === 'open' ? openConversations : conversationList.length - openConversations
@@ -1127,7 +1128,7 @@ function GitnaSourceControlInner({
 
         <TreeSection
           pane
-          count={showingConversations ? shownConversationCount : repositoryCount}
+          count={showingConversations ? shownConversationCount || null : repositoryCount}
           countTitle={
             showingConversations
               ? `${shownConversationCount} ${conversationFilter} conversations`
@@ -1178,7 +1179,7 @@ function GitnaSourceControlInner({
           }
           renderContextMenu={renderRepositoryContextMenu}
           titleAccessory={
-            conversationsModel != null ? (
+            hasConversations ? (
               <Button
                 type="button"
                 variant="ghost"
@@ -2637,7 +2638,7 @@ function TreeSection({
               {headerActions}
             </>
           }
-          count={count ?? source.pathCount}
+          count={count === undefined ? source.pathCount : count}
           countTitle={
             countTitle ??
             `${typeof count === 'number' ? count : source.pathCount} files in ${dataSection === 'repository' ? 'Repository' : title}`
