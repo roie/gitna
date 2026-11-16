@@ -61,6 +61,15 @@ function resolveLocalResource(source: string, documentPath: string): string | nu
   return path == null ? null : `api/v1/content?path=${encodeURIComponent(path)}`
 }
 
+function resolveLocalSrcSet(srcSet: string, documentPath: string): string | null {
+  const candidates = srcSet.split(',').flatMap((candidate) => {
+    const [source = '', ...descriptors] = candidate.trim().split(/\s+/)
+    const localSource = resolveLocalResource(source, documentPath)
+    return localSource == null ? [] : [[localSource, ...descriptors].join(' ')]
+  })
+  return candidates.length === 0 ? null : candidates.join(', ')
+}
+
 export function MarkdownWorkbench({
   path,
   value,
@@ -122,15 +131,19 @@ export function MarkdownWorkbench({
           {children}
         </a>
       ),
-      img: ({ src, alt }: ComponentProps<'img'>) => {
-        const localSrc = src == null ? null : resolveLocalResource(src, path)
+      img: ({ node: _node, src, srcSet: _srcSet, alt, ...props }) => {
+        const localSrc = typeof src === 'string' ? resolveLocalResource(src, path) : null
         return localSrc == null ? (
           <span className="rounded border px-2 py-1 text-xs text-muted-foreground">
             Blocked image resource: {alt ?? 'unnamed'}
           </span>
         ) : (
-          <img alt={alt ?? ''} loading="lazy" src={localSrc} />
+          <img {...props} alt={alt ?? ''} loading="lazy" src={localSrc} />
         )
+      },
+      source: ({ node: _node, src: _src, srcSet, ...props }) => {
+        const localSrcSet = srcSet == null ? null : resolveLocalSrcSet(srcSet, path)
+        return localSrcSet == null ? null : <source {...props} srcSet={localSrcSet} />
       },
     }),
     [path, openPath],

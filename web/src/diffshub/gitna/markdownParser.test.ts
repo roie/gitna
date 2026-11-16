@@ -7,14 +7,18 @@ import remarkGfm from 'remark-gfm'
 import { toJsxRuntime } from 'hast-util-to-jsx-runtime'
 import { parseMarkdown } from './markdownParser'
 
+function render(value: string): string {
+  return renderToStaticMarkup(
+    toJsxRuntime(structuredClone(parseMarkdown(value)), { Fragment, jsx, jsxs }),
+  )
+}
+
 describe('worker Markdown parsing', () => {
   it.each([
     '# Heading\n\nA **bold** paragraph with `code` and [a link](local.md).',
     '- [x] Done\n- [ ] Todo\n\n~~removed~~ www.example.com\n\n| A | B |\n| - | - |\n| 1 | 2 |',
     '> quote\n\n```js\nconst x = 1\n```\n\n---',
-    'Footnote[^a]\n\n[^a]: Footnote body',
-    '<script>alert(1)</script>\n\nHello <b>world</b>\n\n<img src="external" onerror="alert(2)">',
-  ])('retains the previous GFM and skipHtml output: %s', (value) => {
+  ])('retains the previous GFM output: %s', (value) => {
     const tree = structuredClone(parseMarkdown(value))
     const actual = renderToStaticMarkup(toJsxRuntime(tree, { Fragment, jsx, jsxs }))
     const previous = renderToStaticMarkup(
@@ -25,6 +29,41 @@ describe('worker Markdown parsing', () => {
       }),
     )
     expect(actual).toBe(previous)
+  })
+
+  it('renders README HTML and strips anything active', () => {
+    const html = render(
+      [
+        '<p align="center"><picture>',
+        '<source media="(prefers-color-scheme: dark)" srcset="dark.png">',
+        '<img src="light.png" alt="Logo" width="112" height="112" onerror="alert(1)" style="position:fixed">',
+        '</picture></p>',
+        '',
+        '<script>alert(2)</script><iframe src="https://example.com"></iframe>',
+        '',
+        '<a href="javascript:alert(3)" onclick="alert(4)">bad</a> <b>bold</b>',
+        '',
+        '<form action="/api"><input name="location"></form>',
+        '<details><summary>More</summary><kbd>Ctrl</kbd></details>',
+      ].join('\n'),
+    )
+    expect(html).toContain(
+      '<p align="center"><picture>\n<source media="(prefers-color-scheme: dark)" srcSet="dark.png"/>\n<img src="light.png" alt="Logo" width="112" height="112"/>',
+    )
+    expect(html).toContain('<a>bad</a> <b>bold</b>')
+    expect(html).toContain('<details><summary>More</summary><kbd>Ctrl</kbd></details>')
+    expect(html).toContain('<input disabled="" type="checkbox" name="user-content-location"/>')
+    expect(html).not.toMatch(/script|iframe|onerror|onclick|javascript:|style=|<form/)
+  })
+
+  it('prefixes HTML ids and keeps fragment links pointing at them', () => {
+    const html = render('<h2 id="setup">Setup</h2>\n\n[Go](#setup) Footnote[^a]\n\n[^a]: Body')
+    expect(html).toContain('<h2 id="user-content-setup">Setup</h2>')
+    expect(html).toContain('<a href="#user-content-setup">Go</a>')
+    expect(html).toContain('href="#user-content-fn-a" id="user-content-fnref-a"')
+    expect(html).toContain('<li id="user-content-fn-a">')
+    expect(html).toContain('aria-describedby="user-content-footnote-label"')
+    expect(html).toContain('id="user-content-footnote-label"')
   })
 
   it('keeps source positions through worker transfer for scroll sync', () => {

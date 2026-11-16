@@ -432,7 +432,7 @@ test('Markdown preview follows the live editor and keeps its undo state across m
   mkdirSync(join(app.repo, 'docs'), { recursive: true })
   writeFileSync(
     join(app.repo, 'docs/notes.md'),
-    '# UniquePreviewTitle\n\n- [x] checked\n\n![local](picture.png#fragment)\n\n![remote](https://example.com/tracker.png)\n\n![escape](../../outside.png)\n\n[other note](other.txt) [unsafe](javascript:alert(1))\n\n<script>alert(1)</script>\n',
+    '# UniquePreviewTitle\n\n- [x] checked\n\n![local](picture.png#fragment)\n\n![remote](https://example.com/tracker.png)\n\n![escape](../../outside.png)\n\n[other note](other.txt) [unsafe](javascript:alert(1))\n\n<script>alert(1)</script>\n\n<p align="center"><picture><source media="(min-width: 1px)" srcset="https://example.com/remote.png 1x"><source media="(min-width: 1px)" srcset="picture.png 1x, https://example.com/mixed.png 2x"><img src="picture.png" alt="HTML picture" width="3" onerror="window.markdownUnsafe = true"></picture></p>\n',
   )
   writeFileSync(join(app.repo, 'docs/other.txt'), 'A linked note\n')
   writeFileSync(
@@ -442,6 +442,10 @@ test('Markdown preview follows the live editor and keeps its undo state across m
       'base64',
     ),
   )
+  const remoteRequests: string[] = []
+  page.on('request', (request) => {
+    if (new URL(request.url()).hostname === 'example.com') remoteRequests.push(request.url())
+  })
   await page.goto(app.url)
   await expect(page.getByRole('button', { name: 'Open command palette' })).toBeVisible()
   await page.keyboard.press('Control+Shift+f')
@@ -472,6 +476,21 @@ test('Markdown preview follows the live editor and keeps its undo state across m
   await expect(preview.getByText('Blocked image resource: escape')).toBeVisible()
   await expect(preview.locator('script, img[src*="example.com"]')).toHaveCount(0)
   await expect(preview.getByText('unsafe')).not.toHaveAttribute('href', /javascript:/i)
+  const htmlImage = preview.locator('p[align="center"] picture img')
+  await expect(htmlImage).toHaveAttribute('alt', 'HTML picture')
+  await expect(htmlImage).toHaveAttribute('width', '3')
+  await expect(htmlImage).not.toHaveAttribute('onerror')
+  await expect(htmlImage).toHaveJSProperty('naturalWidth', 1)
+  await expect(preview.locator('picture source')).toHaveCount(1)
+  await expect(preview.locator('picture source')).toHaveAttribute(
+    'srcset',
+    'api/v1/content?path=docs%2Fpicture.png 1x',
+  )
+  expect(await htmlImage.evaluate((image: HTMLImageElement) => image.currentSrc)).toContain(
+    'api/v1/content?path=docs%2Fpicture.png',
+  )
+  expect(await page.evaluate(() => 'markdownUnsafe' in window)).toBe(false)
+  expect(remoteRequests).toEqual([])
   const editor = page.getByRole('textbox', { name: 'docs/notes.md', exact: true })
   await editor.focus()
   await page.keyboard.press('Control+Home')
