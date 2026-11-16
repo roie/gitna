@@ -7,9 +7,12 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
+	"github.com/roie/gitna/internal/gitx"
 	"github.com/roie/gitna/internal/protocol"
 )
 
@@ -82,35 +85,39 @@ func worktreeRequest(t *testing.T, h http.Handler, method, path, body string) *h
 	return rec
 }
 
-type fakeResourceRepo struct {
-	*fakeRepo
-	data []byte
-	path string
-}
-
-func (f *fakeResourceRepo) ReadWorktreeResource(_ context.Context, path string) ([]byte, error) {
-	f.path = path
-	return f.data, nil
-}
-
 func TestWorktreeResourceOnlyServesDetectedRasterImages(t *testing.T) {
+	root := t.TempDir()
 	png := []byte("\x89PNG\r\n\x1a\n" + strings.Repeat("\x00", 32))
-	repo := &fakeResourceRepo{fakeRepo: &fakeRepo{}, data: png}
-	h := newSnapshotServer(repo)
+	large := append([]byte("GIF89a"), make([]byte, gitx.DefaultDiffBytes)...)
+	files := map[string][]byte{
+		"image.png":  png,
+		"large.gif":  large,
+		"vector.png": []byte("<svg xmlns='http://www.w3.org/2000/svg'></svg>"),
+		"script.png": []byte("<script>alert(1)</script>"),
+	}
+	for name, data := range files {
+		if err := os.WriteFile(filepath.Join(root, name), data, 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	h := newSnapshotServer(&mediaTestRepo{fakeRepo: &fakeRepo{}, disk: gitx.Repository{Root: root}})
 	for _, method := range []string{http.MethodGet, http.MethodHead} {
-		response := worktreeRequest(t, h, method, "/content?path=docs%2Fimage.png", "")
-		if response.Code != http.StatusOK || repo.path != "docs/image.png" || response.Header().Get("Content-Type") != "image/png" || response.Header().Get("X-Content-Type-Options") != "nosniff" {
-			t.Fatalf("%s: status = %d, headers = %v, path = %q", method, response.Code, response.Header(), repo.path)
+		response := worktreeRequest(t, h, method, "/content?path=image.png", "")
+		if response.Code != http.StatusOK || response.Header().Get("Content-Type") != "image/png" || response.Header().Get("X-Content-Type-Options") != "nosniff" {
+			t.Fatalf("%s: status = %d, headers = %v", method, response.Code, response.Header())
 		}
 		if method == http.MethodHead && response.Body.Len() != 0 || method == http.MethodGet && !bytes.Equal(response.Body.Bytes(), png) {
 			t.Fatalf("%s: unexpected body", method)
 		}
 	}
-	for _, data := range [][]byte{[]byte("<svg xmlns='http://www.w3.org/2000/svg'></svg>"), []byte("<script>alert(1)</script>")} {
-		repo.data = data
-		response := worktreeRequest(t, h, http.MethodGet, "/content?path=docs%2Fimage.png", "")
+	response := worktreeRequest(t, h, http.MethodGet, "/content?path=large.gif", "")
+	if response.Code != http.StatusOK || response.Header().Get("Content-Type") != "image/gif" || !bytes.Equal(response.Body.Bytes(), large) {
+		t.Fatalf("large image status = %d, length = %d", response.Code, response.Body.Len())
+	}
+	for _, name := range []string{"vector.png", "script.png"} {
+		response := worktreeRequest(t, h, http.MethodGet, "/content?path="+name, "")
 		if response.Code != http.StatusUnsupportedMediaType {
-			t.Fatalf("unsafe content status = %d", response.Code)
+			t.Fatalf("%s status = %d", name, response.Code)
 		}
 	}
 }

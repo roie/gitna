@@ -135,10 +135,6 @@ func (a *repoAdapter) OpenWorktreeMedia(ctx context.Context, path string) (*os.F
 	return a.current().OpenWorktreeMedia(ctx, path)
 }
 
-func (a *repoAdapter) ReadWorktreeResource(ctx context.Context, path string) ([]byte, error) {
-	return a.current().ReadWorktreeResource(ctx, path)
-}
-
 func (a *repoAdapter) ReadWorktreeFile(ctx context.Context, path string, budget ...int64) (protocol.WorktreeFile, error) {
 	return a.current().ReadWorktreeFile(ctx, path, budget...)
 }

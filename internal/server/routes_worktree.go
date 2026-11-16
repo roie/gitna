@@ -16,10 +16,6 @@ import (
 // JSON may escape each source byte as a six-byte \uXXXX sequence.
 const worktreeRequestBodyLimit = gitx.DefaultDiffBytes*6 + 16<<10
 
-type worktreeResourceRepository interface {
-	ReadWorktreeResource(context.Context, string) ([]byte, error)
-}
-
 type worktreeRepository interface {
 	ReadWorktreeFile(context.Context, string, ...int64) (protocol.WorktreeFile, error)
 	CompareWorktreeFiles(context.Context, string, string) (protocol.FileDiff, error)
@@ -48,32 +44,37 @@ func (s *Server) worktreeRepository() (worktreeRepository, bool) {
 }
 
 func (s *Server) handleReadWorktreeResource(w http.ResponseWriter, r *http.Request) {
-	repo, ok := s.repo.(worktreeResourceRepository)
+	w.Header().Set("Cache-Control", "no-store")
+	w.Header().Set("X-Content-Type-Options", "nosniff")
+	repo, ok := s.repo.(worktreeMediaRepository)
 	if !ok {
 		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "worktree resources unavailable"})
 		return
 	}
-	ctx, cancel := context.WithTimeout(r.Context(), ReadTimeout)
-	defer cancel()
-	path := r.URL.Query().Get("path")
-	data, err := repo.ReadWorktreeResource(ctx, path)
+	file, err := repo.OpenWorktreeMedia(r.Context(), r.URL.Query().Get("path"))
 	if err != nil {
 		writeWorktreeError(w, r, s, err)
 		return
 	}
-	contentType := http.DetectContentType(data)
+	defer file.Close()
+	info, err := file.Stat()
+	if err != nil {
+		writeWorktreeError(w, r, s, err)
+		return
+	}
+	var header [512]byte
+	n, err := file.ReadAt(header[:], 0)
+	if err != nil && err != io.EOF {
+		writeWorktreeError(w, r, s, err)
+		return
+	}
+	contentType := http.DetectContentType(header[:n])
 	if contentType != "image/png" && contentType != "image/jpeg" && contentType != "image/gif" && contentType != "image/webp" {
 		writeJSON(w, http.StatusUnsupportedMediaType, map[string]string{"error": "resource is not a supported image"})
 		return
 	}
-	w.Header().Set("Cache-Control", "no-store")
-	w.Header().Set("X-Content-Type-Options", "nosniff")
 	w.Header().Set("Content-Type", contentType)
-	w.Header().Set("Content-Length", strconv.Itoa(len(data)))
-	w.WriteHeader(http.StatusOK)
-	if r.Method != http.MethodHead {
-		_, _ = w.Write(data)
-	}
+	serveMediaFile(w, r, file, info, r.Context())
 }
 
 func (s *Server) handleReadWorktreeFile(w http.ResponseWriter, r *http.Request) {
