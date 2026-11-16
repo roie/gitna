@@ -56,6 +56,18 @@ describe('worker Markdown parsing', () => {
     expect(html).not.toMatch(/script|iframe|onerror|onclick|javascript:|style=|<form/)
   })
 
+  it('turns GitHub alert quotes into alerts without trusting raw SVG', () => {
+    const html = render(
+      '> [!WARNING]\n> Early <b>build</b>.\n\n> plain\n\n<p><svg onload="alert(1)"><path d="M0 0"/></svg></p>',
+    )
+    expect(html).toMatch(
+      /^<div class="markdown-alert markdown-alert-warning"><p class="markdown-alert-title"><svg class="octicon octicon-alert[^"]*"[^>]*aria-hidden="true">.*<\/svg>Warning<\/p><p>Early <b>build<\/b>\.<\/p>/s,
+    )
+    expect(html).toContain('<blockquote>\n<p>plain</p>\n</blockquote>')
+    expect(html.match(/<svg/g)).toHaveLength(1)
+    expect(html).not.toContain('onload')
+  })
+
   it('prefixes HTML ids and keeps fragment links pointing at them', () => {
     const html = render('<h2 id="setup">Setup</h2>\n\n[Go](#setup) Footnote[^a]\n\n[^a]: Body')
     expect(html).toContain('<h2 id="user-content-setup">Setup</h2>')

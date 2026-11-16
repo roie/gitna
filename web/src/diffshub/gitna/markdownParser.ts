@@ -2,6 +2,7 @@ import { unified } from 'unified'
 import remarkParse from 'remark-parse'
 import remarkGfm from 'remark-gfm'
 import remarkRehype from 'remark-rehype'
+import rehypeGithubAlert from 'rehype-github-alert'
 import rehypeRaw from 'rehype-raw'
 import rehypeSanitize from 'rehype-sanitize'
 import { toJsxRuntime } from 'hast-util-to-jsx-runtime'
@@ -21,6 +22,8 @@ const parser = unified()
   .use(remarkRehype, { allowDangerousHtml: true, clobberPrefix: '' })
   .use(rehypeRaw)
   .use(rehypeSanitize)
+  // Trusted: adds GitHub's alert markup and icons after untrusted HTML is sanitized.
+  .use(rehypeGithubAlert)
 
 const CLOBBER_PREFIX = 'user-content-'
 

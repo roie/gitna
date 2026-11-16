@@ -482,6 +482,21 @@
 .markdown-preview :where(pre) { overflow: auto; border: 1px solid var(--border); border-radius: 0.5rem; padding: 1rem; background: var(--muted); }
 .markdown-preview :where(pre code) { padding: 0; background: transparent; }
 .markdown-preview :where(blockquote) { margin-inline: 0; padding: 0.6rem 1rem; border-radius: 0.35rem; background: var(--muted); color: var(--muted-foreground); }
+.markdown-preview :where(.markdown-alert) { margin: 0.8rem 0; border-left: 0.25rem solid var(--alert); padding: 0.5rem 1rem; }
+.markdown-preview :where(.markdown-alert > :first-child) { margin-top: 0; }
+.markdown-preview :where(.markdown-alert > :last-child) { margin-bottom: 0; }
+.markdown-preview :where(.markdown-alert-title) { display: flex; align-items: center; gap: 0.5rem; color: var(--alert); font-weight: 600; }
+.markdown-preview .markdown-alert-title svg { margin: 0; fill: currentColor; }
+.markdown-preview :where(.markdown-alert-note) { --alert: #0969da; }
+.markdown-preview :where(.markdown-alert-tip) { --alert: #1a7f37; }
+.markdown-preview :where(.markdown-alert-important) { --alert: #8250df; }
+.markdown-preview :where(.markdown-alert-warning) { --alert: #9a6700; }
+.markdown-preview :where(.markdown-alert-caution) { --alert: #d1242f; }
+.dark .markdown-preview :where(.markdown-alert-note) { --alert: #4493f8; }
+.dark .markdown-preview :where(.markdown-alert-tip) { --alert: #3fb950; }
+.dark .markdown-preview :where(.markdown-alert-important) { --alert: #ab7df8; }
+.dark .markdown-preview :where(.markdown-alert-warning) { --alert: #d29922; }
+.dark .markdown-preview :where(.markdown-alert-caution) { --alert: #f85149; }
 .markdown-preview :where(table) { width: 100%; border-collapse: collapse; }
 .markdown-preview :where(th, td) { border: 1px solid var(--border); padding: 0.45rem 0.65rem; text-align: left; }
 .markdown-preview :where(img) { max-width: 100%; height: auto; border-radius: 0.4rem; }
