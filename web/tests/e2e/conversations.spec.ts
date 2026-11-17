@@ -982,7 +982,7 @@ async function addNative(page: Page, name: string, mode: string) {
   await dialog.getByRole('button', { name: 'Done', exact: true }).click()
 }
 
-test('an agent found on PATH is added only after confirmation and an ACP check', async ({
+test('a found agent switches on after confirmation and an ACP check, and off without being forgotten', async ({
   page,
   app,
 }) => {
@@ -1009,8 +1009,11 @@ test('an agent found on PATH is added only after confirmation and an ACP check',
   try {
     await page.goto(second.url)
     await openFile(page, 'two-hunk.txt')
-    await page.getByRole('button', { name: 'Agents', exact: true }).click()
-    await page.getByRole('menuitem', { name: 'Add OpenCode…' }).click()
+    const agents = page.getByRole('button', { name: 'Agents', exact: true })
+    const opencode = page.getByRole('menuitemcheckbox', { name: 'OpenCode', exact: true })
+    await agents.click()
+    await expect(opencode).toHaveAttribute('aria-checked', 'false')
+    await opencode.click()
     const dialog = page.getByRole('dialog', { name: 'Add agent' })
     await expect(dialog.getByText(/can read and change anything you can/)).toBeVisible()
     await expect(dialog.getByRole('textbox', { name: 'Name', exact: true })).toHaveValue('OpenCode')
@@ -1022,9 +1025,17 @@ test('an agent found on PATH is added only after confirmation and an ACP check',
     await expect(dialog.getByRole('status')).toContainText('Added OpenCode')
     expect(existsSync(marker)).toBe(true)
     await dialog.getByRole('button', { name: 'Done', exact: true }).click()
-    await page.getByRole('button', { name: 'Agents', exact: true }).click()
-    await expect(page.getByRole('menuitem', { name: 'OpenCode · Native · Remove' })).toBeVisible()
-    await expect(page.getByRole('menuitem', { name: 'Add OpenCode…' })).toHaveCount(0)
+    await agents.click()
+    await expect(opencode).toHaveAttribute('aria-checked', 'true')
+    await expect(page.getByRole('menuitemcheckbox')).toHaveCount(1)
+    await opencode.click()
+    await expect(opencode).toHaveAttribute('aria-checked', 'false')
+    await expect(page.getByRole('menuitem', { name: 'Forget command for OpenCode' })).toBeVisible()
+    rmSync(marker)
+    await opencode.click()
+    await expect(opencode).toHaveAttribute('aria-checked', 'true')
+    await expect(dialog).toHaveCount(0)
+    expect(existsSync(marker)).toBe(true)
   } finally {
     await stopGitna(second.child)
   }

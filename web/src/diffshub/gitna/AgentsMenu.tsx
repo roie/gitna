@@ -7,6 +7,7 @@ import {
   type AuthMethod,
   type ConversationsModel,
   type FoundAgent,
+  type Participant,
 } from '../../lib/conversations'
 import { Button } from '../components/Button'
 import {
@@ -18,7 +19,16 @@ import {
   DropdownMenuTrigger,
 } from '../components/DropdownMenu'
 import { Input } from '../components/Input'
+import { Switch } from '../components/Switch'
 import { Modal } from './Modal'
+
+interface AgentRow {
+  key: string
+  name: string
+  participant?: Participant
+  definition?: AgentDefinition
+  found?: FoundAgent
+}
 
 export function AgentsMenu({ model }: { model: ConversationsModel }) {
   useSyncExternalStore(
@@ -36,6 +46,7 @@ export function AgentsMenu({ model }: { model: ConversationsModel }) {
   const [methods, setMethods] = useState<AuthMethod[]>([])
   const [pending, setPending] = useState<AddAgent | null>(null)
   const [added, setAdded] = useState<AgentDefinition | null>(null)
+  const [checking, setChecking] = useState<string | null>(null)
   const refresh = async () => {
     const settings = await model.api.settings()
     setDefinitions(settings.agents)
@@ -71,6 +82,26 @@ export function AgentsMenu({ model }: { model: ConversationsModel }) {
       setMethods([])
       await refresh()
     })
+  const native = model.agents.filter((p) => p.agent != null)
+  const rows: AgentRow[] = [
+    ...definitions.map((d) => {
+      const participant = native.find((p) => p.agent === d.id)
+      return { key: d.id, name: participant?.name ?? d.name, participant, definition: d }
+    }),
+    ...native
+      .filter((p) => !definitions.some((d) => d.id === p.agent))
+      .map((p) => ({ key: p.id, name: p.name, participant: p })),
+    ...available.map((f) => ({ key: f.executable, name: f.name, found: f })),
+  ]
+  const toggle = (row: AgentRow) => {
+    if (row.participant != null) {
+      const id = row.participant.id
+      void attempt(() => model.leave(id))
+    } else if (row.definition != null) {
+      setChecking(row.key)
+      void add({ definition: row.definition.id }).finally(() => setChecking(null))
+    } else if (row.found != null) open(row.found)
+  }
   return (
     <>
       <DropdownMenu
@@ -85,28 +116,42 @@ export function AgentsMenu({ model }: { model: ConversationsModel }) {
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end" className="max-w-[calc(100vw-2rem)]">
           <DropdownMenuLabel>In this repository</DropdownMenuLabel>
-          {model.agents.length === 0 && <DropdownMenuLabel>No agents joined</DropdownMenuLabel>}
-          {model.agents.map((p) => (
+          {rows.length === 0 && model.agents.length === 0 && (
+            <DropdownMenuLabel>No agents found</DropdownMenuLabel>
+          )}
+          {rows.map((row) => (
             <DropdownMenuItem
-              key={p.id}
+              key={row.key}
+              role="menuitemcheckbox"
+              aria-checked={row.participant != null}
               disabled={busy}
-              onSelect={() => void attempt(() => model.leave(p.id))}
+              className="justify-between gap-4"
+              onSelect={(event) => {
+                if (row.found == null) event.preventDefault()
+                toggle(row)
+              }}
             >
-              {p.name} · {p.agent == null ? 'CLI' : 'Native'} · Remove
+              <span className="min-w-0 flex-1 truncate">{row.name}</span>
+              {checking === row.key && (
+                <span className="text-xs text-muted-foreground">Checking…</span>
+              )}
+              <Switch
+                aria-hidden
+                tabIndex={-1}
+                checked={row.participant != null}
+                className="pointer-events-none"
+              />
             </DropdownMenuItem>
           ))}
-          {definitions
-            .filter((d) => !model.agents.some((p) => p.agent === d.id))
-            .map((d) => (
+          {model.agents
+            .filter((p) => p.agent == null)
+            .map((p) => (
               <DropdownMenuItem
-                key={d.id}
+                key={p.id}
                 disabled={busy}
-                onSelect={() => {
-                  setAdded(null)
-                  void add({ definition: d.id })
-                }}
+                onSelect={() => void attempt(() => model.leave(p.id))}
               >
-                Add {d.name}
+                {p.name} · CLI · Remove
               </DropdownMenuItem>
             ))}
           {definitions.map((d) => (
@@ -123,21 +168,6 @@ export function AgentsMenu({ model }: { model: ConversationsModel }) {
               Forget command for {d.name}
             </DropdownMenuItem>
           ))}
-          {available.length > 0 && (
-            <>
-              <DropdownMenuSeparator />
-              <DropdownMenuLabel>Found on this computer</DropdownMenuLabel>
-              {available.map((agent) => (
-                <DropdownMenuItem
-                  key={agent.executable}
-                  disabled={busy}
-                  onSelect={() => open(agent)}
-                >
-                  Add {agent.name}…
-                </DropdownMenuItem>
-              ))}
-            </>
-          )}
           <DropdownMenuSeparator />
           <DropdownMenuItem onSelect={() => open({ name: '', command: '' })}>
             Add custom agent…
