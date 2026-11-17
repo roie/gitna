@@ -69,11 +69,23 @@ PDF previews retain the browser's normal document scripts and forms. Preview sup
 
 ## Conversations
 
+Conversations are off by default. Turn on **Conversations** in Display settings. Gitna remembers the switch across launches.
+
 Hover a line number in any code view and click **+**, or drag to select several lines, to start a conversation on that code. Reply beside the code, click the thread's first message to collapse it, ✓ to resolve it, or ✕ to delete it. When a conversation has several comments, the **···** menu beside an author deletes just that comment. Both can be undone. Resolved conversations leave the code view. The speech-bubble count next to the repository name in the sidebar lists every conversation, with a filter for open and resolved ones, and takes you to it. To hide conversations, turn off **Conversations** in Display settings; nothing is deleted.
 
 Conversations are stored on your machine outside the repository, so they survive refreshes and restarts and are never committed. Gitna keeps the original code with each one. When that code moves, the conversation follows it; when it changes, the conversation is marked outdated and still shows the original lines. When the file is deleted, the conversation stays reviewable on the deletion as long as Git has the code; code that Git never had, such as an untracked file that is gone, is hidden until the same file returns. Nothing is resolved or erased because a file disappeared.
 
-Your existing coding agent takes part from its own session through the `gitna conversations` command. Gitna does not launch or manage agents. Install the `gitna` skill so the agent knows how:
+Use **Agents → Add agent** to connect an agent that supports ACP (Agent Client Protocol). Enter a name and its command, with quoted arguments if needed. Gitna checks the connection and shows the resolved executable and arguments. Sign in outside Gitna if the agent requires interactive authentication. Saved commands can be added to another folder from **Agents**.
+
+Write `@Name` to address an agent, or `@all` to address every agent currently joined. Autocomplete helps with names. A comment without a mention reaches nobody. Replies prefill the last human message's recipients, which you can change. Agents added later do not receive old messages. Repeated names get a numeric suffix.
+
+Native agents run one at a time per folder. Each addressed message starts a fresh process and session. Activity and permission choices appear in the thread, followed by one complete reply. Cancel stops a run. After a failure or restart, **Retry** starts a new run. Gitna never retries automatically. Turning Conversations off lets an active run finish and interrupts queued runs. Turning it on does not replay them. Gitna tells agents never to commit or push, but does not enforce this through a sandbox.
+
+Agents read files on disk, not unsaved editor changes. Their edits appear in the existing changes view. If an agent changes a file with an unsaved buffer, Gitna keeps your buffer and refuses a stale save.
+
+An agent runs with your user's permissions. It can read and change anything you can, act without asking, and send repository content to its provider. Add only commands you trust. Permission choices are relayed to the agent, not enforced by Gitna.
+
+Your existing coding agent can also take part from its own session through the `gitna conversations` command. Install the `gitna` skill so the agent knows how:
 
 ```sh
 npx skills add roie/gitna
@@ -85,7 +97,7 @@ or print it with `gitna skill` (it installs nothing) and save it as `gitna/SKILL
 gitna skill > <skills-folder>/gitna/SKILL.md
 ```
 
-Each agent joins once and gets its own participant id, which keeps its own inbox. It shows under the name it chose, or "Agent"; when several share a name, Gitna adds a short id suffix. The agent then reads what you wrote, answers in the same conversation, and picks up anything it missed after a restart. With one agent, your comments go to it. With several, a **To** menu next to the comment box picks the agent; replies go to the agent last addressed in the conversation, or the one that answered last. Agents only notify each other when they name each other. An agent that stopped without leaving still counts as joined: `gitna conversations session` lists the joined agents, and `gitna conversations leave --participant <id>` removes one (it can rejoin with `join --participant <id>`). The `gitna conversations` command names are experimental and may change.
+Each CLI agent joins once and gets its own participant id and inbox. It reads addressed messages and answers in the same thread. CLI agents must name recipients explicitly with `--to`. They cannot use `all` or address native agents. `ack <seq> [<seq> ...]` acknowledges only the listed messages. CLI agents remain joined until removed through **Agents**, or with `gitna conversations leave --participant <id>`. They can rejoin with `join --participant <id>`. The `gitna conversations` command names are experimental and can change.
 
 ## Install
 
