@@ -86,6 +86,25 @@ func TestDiscoverReportsNoSessionAndAuthFailures(t *testing.T) {
 	}
 }
 
+func TestDiscoverForgetsOnlyEndpointsThatRefuseTheConnection(t *testing.T) {
+	dir := t.TempDir()
+	alive := httptest.NewServer(http.NotFoundHandler())
+	defer alive.Close()
+	publish(t, dir, 1, stalePort(t), "stale")
+	publish(t, dir, 2, alive.URL, "alive")
+
+	if _, _, err := Discover(context.Background(), dir, "/r", "agent:a"); !errors.Is(err, ErrNoSession) {
+		t.Fatalf("discover: %v", err)
+	}
+	endpoints, err := agentlink.List(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(endpoints) != 1 || endpoints[0].PID != 2 {
+		t.Fatalf("endpoints left: %+v", endpoints)
+	}
+}
+
 func TestDoRetriesUnavailableWithTheSameBody(t *testing.T) {
 	var bodies []string
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

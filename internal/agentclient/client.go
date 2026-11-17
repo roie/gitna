@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/url"
 	"time"
@@ -54,12 +55,21 @@ func Discover(ctx context.Context, dir, repo, participant string) (*Client, json
 		if err == nil {
 			return client, session, nil
 		}
+		if refusedConnection(ctx, err) {
+			_ = agentlink.Remove(dir, endpoint.PID)
+			continue
+		}
 		var apiErr *APIError
 		if errors.As(err, &apiErr) && apiErr.Status != http.StatusNotFound {
 			lastErr = err
 		}
 	}
 	return nil, nil, lastErr
+}
+
+func refusedConnection(ctx context.Context, err error) bool {
+	var opErr *net.OpError
+	return ctx.Err() == nil && errors.As(err, &opErr) && opErr.Op == "dial" && !opErr.Timeout()
 }
 
 // Do performs one request. Writes carry client-chosen ids, so transport

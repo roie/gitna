@@ -54,6 +54,11 @@ func Publish(dir string, endpoint Endpoint) (func(), error) {
 	return func() { os.Remove(path) }, nil
 }
 
+// Remove deletes the endpoint file of pid.
+func Remove(dir string, pid int) error {
+	return os.Remove(filepath.Join(dir, fmt.Sprintf("%d.json", pid)))
+}
+
 // List returns published endpoints. Files of exited processes may remain
 // after a crash, so callers probe each endpoint.
 func List(dir string) ([]Endpoint, error) {
