@@ -70,8 +70,6 @@ export interface Conversation {
   updatedAt: string
   seq: number
   messages: ConversationMessage[]
-  /** Who a person's next message without recipients goes to. */
-  defaultTo?: string[]
 }
 
 export interface ConversationEvent {
@@ -225,7 +223,7 @@ export class ConversationsModel {
   private byContent = new Map<string, Conversation[]>()
   private all: readonly Conversation[] = []
   participant: Participant | null = null
-  /** The joined agents; a recipient choice is needed only with several. */
+  /** The joined agents a message can explicitly mention. */
   agents: readonly Participant[] = []
   private readonly listeners = new Set<() => void>()
   private readonly expanded = new Map<string, boolean>()
@@ -235,7 +233,6 @@ export class ConversationsModel {
   private seq = 0
   private readonly unconfirmed = new Map<string, string>()
   private read: Record<string, number> = {}
-  private sharedNames = new Set<string>()
   version = 0
   error: string | null = null
 
@@ -254,30 +251,8 @@ export class ConversationsModel {
     return this.all
   }
 
-  /** The author's name, with a short id suffix when other participants share it. */
   displayName(author: Participant): string {
-    return this.sharedNames.has(author.name)
-      ? `${author.name} (${author.id.slice(-4)})`
-      : author.name
-  }
-
-  /**
-   * The agents a new message can be addressed to, with the label of the
-   * default choice, or null when there is nothing to choose: a person's
-   * message reaches the only joined agent by itself.
-   */
-  recipients(
-    conversation?: Conversation,
-  ): { choices: { id: string; label: string }[]; defaultLabel: string } | null {
-    if (this.agents.length < 2) return null
-    const names = (conversation?.defaultTo ?? []).map((id) => {
-      const agent = this.agents.find((candidate) => candidate.id === id)
-      return agent == null ? id : this.displayName(agent)
-    })
-    return {
-      choices: this.agents.map((agent) => ({ id: agent.id, label: this.displayName(agent) })),
-      defaultLabel: names.length === 0 ? 'Unassigned' : names.join(', '),
-    }
+    return author.name
   }
 
   find(id: string): Conversation | undefined {
@@ -311,17 +286,6 @@ export class ConversationsModel {
         )
         byContent.set(key, [...(byContent.get(key) ?? []), conversation])
       }
-      const idsByName = new Map<string, Set<string>>()
-      const people = [
-        ...(list.agents ?? []),
-        ...list.conversations.flatMap(({ messages }) => messages.map(({ author }) => author)),
-      ]
-      for (const { id, name } of people) {
-        idsByName.set(name, (idsByName.get(name) ?? new Set()).add(id))
-      }
-      this.sharedNames = new Set(
-        [...idsByName].filter(([, ids]) => ids.size > 1).map(([name]) => name),
-      )
       this.byContent = byContent
       this.all = visible
       this.agents = list.agents ?? []

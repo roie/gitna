@@ -5,6 +5,7 @@ import { ExampleAnnotation } from '@/components/ExampleAnnotation'
 import { annotationCardBase } from '@/lib/annotation'
 import { cn } from '@/lib/cn'
 import type { Conversation, ConversationsModel } from '../../lib/conversations'
+import { replyPrefill } from '../../lib/mentions'
 
 export function ConversationThread({
   conversation: initial,
@@ -78,8 +79,9 @@ export function ConversationThread({
         className="m-0 max-w-none border-0 bg-transparent p-0"
         avatar={<AuthorInitial name={model.participant?.name ?? 'You'} />}
         placeholder="Reply…"
-        recipients={model.recipients(conversation)}
-        onSubmit={(body, to) => model.reply(conversation, body, to == null ? undefined : [to])}
+        agents={model.agents}
+        initialText={replyPrefill(conversation, model.agents)}
+        onSubmit={(body, to) => model.reply(conversation, body, to)}
       />
     </ExampleAnnotation>
   )

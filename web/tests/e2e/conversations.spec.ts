@@ -97,7 +97,6 @@ test('conversations on a file persist, take replies from an agent, and survive a
   page,
   app,
 }) => {
-  // The only joined agent receives every comment by default.
   agent(app, 'session')
   await page.goto(app.url)
   await openFile(page, 'two-hunk.txt')
@@ -105,8 +104,8 @@ test('conversations on a file persist, take replies from an agent, and survive a
   await expect(number(5)).toBeVisible()
   await expect(page.getByRole('combobox', { name: 'To' })).toHaveCount(0)
 
-  await comment(page, number(5), null, 'Why line five?')
-  await comment(page, number(7), number(9), 'These three belong together')
+  await comment(page, number(5), null, '@e2e-agent Why line five?')
+  await comment(page, number(7), number(9), '@e2e-agent These three belong together')
 
   const anchors = (await stored(page, app)).map(({ anchor }) => anchor)
   expect(anchors).toMatchObject([
@@ -125,24 +124,24 @@ test('conversations on a file persist, take replies from an agent, and survive a
   ])
 
   const thread = page.getByRole('article').filter({ hasText: 'Why line five?' })
-  await thread.getByRole('textbox', { name: 'Reply…' }).fill('Second message')
+  await thread.getByRole('textbox', { name: 'Reply…' }).fill('@e2e-agent Second message')
   await thread.getByRole('textbox', { name: 'Reply…' }).press('Control+Enter')
-  await expect(thread.getByRole('textbox', { name: 'Reply…' })).toHaveValue('')
-  await expect(thread.getByText('Second message')).toBeVisible()
+  await expect(thread.getByRole('textbox', { name: 'Reply…' })).toHaveValue('@e2e-agent ')
+  await expect(thread.getByText('@e2e-agent Second message')).toBeVisible()
 
   // The agent reads its inbox and answers in the same conversation, live.
   const pending = JSON.parse(agent(app, 'pending')) as {
     pending: { conversation: { id: string }; message: { seq: number; body: string } }[]
   }
   expect(pending.pending.map(({ message }) => message.body)).toEqual([
-    'Why line five?',
-    'These three belong together',
-    'Second message',
+    '@e2e-agent Why line five?',
+    '@e2e-agent These three belong together',
+    '@e2e-agent Second message',
   ])
   const id = pending.pending[0].conversation.id
   agent(app, 'reply', id, '--id', 'm-agent-answer', '--body', 'Agent answer\nwith two lines')
   await expect(thread.getByText('Agent answer')).toBeVisible()
-  await expect(thread.getByText('e2e-agent')).toBeVisible()
+  await expect(thread.getByText('e2e-agent', { exact: true })).toBeVisible()
   // No donor demo identity is ever shown.
   await expect(page.locator('img[src*="diffshub-avatars"]')).toHaveCount(0)
 
@@ -713,8 +712,7 @@ test('hiding conversations preserves a draft and releases its review after cance
   await line.hover()
   await page.locator('[data-utility-button]').click()
   const draft = page.getByRole('textbox', { name: 'Add a comment…' })
-  await draft.fill('Not sent yet')
-  await page.getByRole('combobox', { name: 'To' }).selectOption({ label: 'Reviewer' })
+  await draft.fill('@Reviewer Not sent yet')
   const setVisible = async (visible: boolean) => {
     await page.getByRole('button', { name: 'Display settings' }).click()
     const control = page.getByRole('switch', { name: 'Conversations' })
@@ -727,17 +725,13 @@ test('hiding conversations preserves a draft and releases its review after cance
   expect(await stored(page, app)).toEqual([])
   await setVisible(true)
   await expect(draft).toBeVisible()
-  await expect(draft).toHaveValue('Not sent yet')
-  await expect(page.getByRole('combobox', { name: 'To' }).locator('option:checked')).toHaveText(
-    'Reviewer',
-  )
+  await expect(draft).toHaveValue('@Reviewer Not sent yet')
+  await expect(page.getByText('To: Reviewer', { exact: true })).toBeVisible()
   await setVisible(false)
   writeFileSync(join(app.repo, 'modified.txt'), 'base\n')
   await setVisible(true)
-  await expect(draft).toHaveValue('Not sent yet')
-  await expect(page.getByRole('combobox', { name: 'To' }).locator('option:checked')).toHaveText(
-    'Reviewer',
-  )
+  await expect(draft).toHaveValue('@Reviewer Not sent yet')
+  await expect(page.getByText('To: Reviewer', { exact: true })).toBeVisible()
   await expect(page.locator('div:has(> form [aria-label="Add a comment…"]) > pre')).toHaveText(
     'unstaged change',
   )
@@ -770,7 +764,7 @@ test('hiding conversations preserves a draft and releases its review after cance
   await expect(staged).toHaveCount(0)
 })
 
-test('with several agents, comments go only to the agent picked or last addressed', async ({
+test('mentions address agents, with keyboard choices and editable reply prefill', async ({
   page,
   app,
 }) => {
@@ -799,25 +793,35 @@ test('with several agents, comments go only to the agent picked or last addresse
   await number(8).hover()
   await page.locator('[data-utility-button]').click()
   const draft = page.getByRole('textbox', { name: 'Add a comment…' })
-  const to = page.locator('form').filter({ has: draft }).getByRole('combobox', { name: 'To' })
-  await expect(to.getByRole('option')).toHaveText(['Unassigned', 'Builder', 'Reviewer'])
-  await to.selectOption({ label: 'Reviewer' })
-  await draft.fill('Please review')
+  await draft.fill('@')
+  const choices = page.getByRole('listbox', { name: 'Mention an agent' })
+  await expect(choices.getByRole('option')).toHaveText(['@all', '@Builder', '@Reviewer'])
+  await draft.press('ArrowDown')
+  await draft.press('ArrowDown')
+  await draft.press('Enter')
+  await expect(draft).toHaveValue('@Reviewer ')
+  await draft.press('End')
+  await draft.pressSequentially('Please review')
   await draft.press('Control+Enter')
   await expect(draft).toHaveCount(0)
   expect(pending(first)).toEqual([])
-  expect(pending(second)).toEqual(['Please review'])
+  expect(pending(second)).toEqual(['@Reviewer Please review'])
 
-  // A reply defaults to the agent last addressed in the thread.
   const thread = page.getByRole('article').filter({ hasText: 'Please review' })
-  await expect(thread.getByRole('combobox', { name: 'To' })).toHaveValue('')
-  await expect(thread.getByRole('combobox', { name: 'To' }).locator('option').first()).toHaveText(
-    'Reviewer',
-  )
-  await thread.getByRole('textbox', { name: 'Reply…' }).fill('And the tests')
-  await thread.getByRole('textbox', { name: 'Reply…' }).press('Control+Enter')
+  const reply = thread.getByRole('textbox', { name: 'Reply…' })
+  await expect(reply).toHaveValue('@Reviewer ')
+  await reply.fill('@B')
+  await reply.press('Escape')
+  await expect(choices).toHaveCount(0)
+  await expect(reply).toHaveValue('@B')
+  await reply.fill('@Re')
+  await reply.press('Tab')
+  await expect(reply).toHaveValue('@Reviewer ')
+  await reply.press('End')
+  await reply.pressSequentially('And the tests')
+  await reply.press('Control+Enter')
   await expect(thread.getByRole('paragraph').filter({ hasText: 'And the tests' })).toBeVisible()
-  expect(pending(second)).toEqual(['Please review', 'And the tests'])
+  expect(pending(second)).toEqual(['@Reviewer Please review', '@Reviewer And the tests'])
   expect(pending(first)).toEqual([])
 })
 

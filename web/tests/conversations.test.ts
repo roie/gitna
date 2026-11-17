@@ -154,7 +154,7 @@ describe('ConversationsModel', () => {
     expect(model.get({ source: 'commit', revision: 'abc' }, 'f.go')).toHaveLength(1)
   })
 
-  it('adds an id suffix only to names that several participants share', async () => {
+  it('uses the names assigned when participants joined', async () => {
     const first = { id: 'agent:p_aaaa1111', kind: 'agent', name: 'Agent' } as const
     const second = { id: 'agent:p_bbbb2222', kind: 'agent', name: 'Agent' } as const
     const thread = conversation('c1', 'a.go', [[1, human]])
@@ -166,25 +166,14 @@ describe('ConversationsModel', () => {
     await model.load()
 
     expect(model.displayName(human)).toBe('Ada')
-    expect(model.displayName(first)).toBe('Agent (1111)')
-    expect(model.displayName(second)).toBe('Agent (2222)')
+    expect(model.displayName(first)).toBe('Agent')
+    expect(model.displayName(second)).toBe('Agent')
   })
 
-  it('offers a recipient choice only when several agents have joined', async () => {
-    const first = { id: 'agent:p_aaaa1111', kind: 'agent', name: 'Agent' } as const
-    const second = { id: 'agent:p_bbbb2222', kind: 'agent', name: 'Reviewer' } as const
+  it('keeps the joined agents for explicit mentions', async () => {
     const thread = conversation('c1', 'a.go', [[1, human]])
-    expect(await loaded([thread], [first]).then((model) => model.recipients())).toBeNull()
-
-    const model = await loaded([{ ...thread, defaultTo: [second.id] }], [first, second])
-    expect(model.recipients()).toEqual({
-      choices: [
-        { id: first.id, label: 'Agent' },
-        { id: second.id, label: 'Reviewer' },
-      ],
-      defaultLabel: 'Unassigned',
-    })
-    expect(model.recipients(model.find('c1'))?.defaultLabel).toBe('Reviewer')
+    const model = await loaded([thread], [agent])
+    expect(model.agents).toEqual([agent])
   })
 
   it('reports a failed resolve or delete instead of throwing, and remembers deletes for undo', async () => {

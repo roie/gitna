@@ -3,38 +3,34 @@
 // let it pick a recipient, with a corner button to discard the draft.
 import type { DiffLineAnnotation } from '@pierre/diffs';
 import { IconArrowRight, IconX } from '@pierre/icons';
-import { useEffect, useRef, useState, type ReactNode } from 'react';
+import { useEffect, useId, useRef, useState, type ReactNode } from 'react';
 
 import { Button } from '@/components/Button';
 import { annotationCardBase, annotationCornerButton } from '@/lib/annotation';
 import { cn } from '@/lib/cn';
 import type { DraftCommentMetadata } from '@/lib/types';
+import type { Participant } from '../../lib/conversations';
+import { mentionAt, resolveMentions } from '../../lib/mentions';
 
 interface DraftAnnotationProps {
   annotation: DiffLineAnnotation<DraftCommentMetadata>;
   author: string;
   itemId: string;
-  recipients?: Recipients | null;
+  agents: readonly Participant[];
   onCancel: (itemId: string, key: string) => void;
-  onSave: (itemId: string, key: string, message: string, to?: string) => void | Promise<void>;
-}
-
-/** Agents a comment can be addressed to, and the label of the default choice. */
-export interface Recipients {
-  choices: readonly { id: string; label: string }[];
-  defaultLabel: string;
+  onSave: (itemId: string, key: string, message: string, to: string[]) => void | Promise<void>;
 }
 
 interface CommentComposerProps {
   avatar: ReactNode;
   autoFocus?: boolean;
   className?: string;
-  initialMessage?: string;
+  initialText?: string;
   placeholder?: string;
-  recipients?: Recipients | null;
+  agents: readonly Participant[];
   onCancel?: () => void;
   onChange?: (message: string) => void;
-  onSubmit: (message: string, to?: string) => void | Promise<void>;
+  onSubmit: (message: string, to: string[]) => void | Promise<void>;
 }
 
 // Keep typing and clicks inside a comment from reaching an editable code view.
@@ -44,19 +40,42 @@ export function CommentComposer({
   avatar,
   autoFocus = false,
   className,
-  initialMessage = '',
+  initialText = '',
   placeholder = 'Add a comment…',
-  recipients,
+  agents,
   onCancel,
   onChange,
   onSubmit,
 }: CommentComposerProps) {
-  const [message, setMessage] = useState(initialMessage);
-  const [recipient, setRecipient] = useState('');
+  const [message, setMessage] = useState(initialText);
+  const [caret, setCaret] = useState<number | null>(null);
+  const [selected, setSelected] = useState(0);
+  const [dismissed, setDismissed] = useState(false);
+  const listboxID = useId();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const trimmedMessage = message.trim();
+  const mention = caret == null || dismissed ? null : mentionAt(message, caret);
+  const choices = mention == null ? [] : [{ id: 'all', name: 'all' }, ...agents]
+    .filter(({ name }) => name.toLowerCase().startsWith(mention.query.toLowerCase()));
+  const active = Math.min(selected, choices.length - 1);
+  const to = resolveMentions(message, agents);
+  const toNames = to.map((id) => id === 'all' ? 'all' : agents.find((agent) => agent.id === id)!.name);
+
+  function choose(name: string) {
+    if (mention == null || caret == null) return;
+    const prefix = `${message.slice(0, mention.start)}@${name} `;
+    const text = prefix + message.slice(caret);
+    setMessage(text);
+    onChange?.(text);
+    setCaret(null);
+    setDismissed(true);
+    requestAnimationFrame(() => {
+      textareaRef.current?.focus({ preventScroll: true });
+      textareaRef.current?.setSelectionRange(prefix.length, prefix.length);
+    });
+  }
 
   async function handleSave() {
     if (trimmedMessage.length === 0 || busy) {
@@ -65,8 +84,9 @@ export function CommentComposer({
     setBusy(true);
     setError(null);
     try {
-      await onSubmit(trimmedMessage, recipient === '' ? undefined : recipient);
-      setMessage('');
+      await onSubmit(trimmedMessage, to);
+      setMessage(initialText);
+      setCaret(null);
     } catch (failure) {
       setError(failure instanceof Error ? failure.message : String(failure));
     } finally {
@@ -128,11 +148,37 @@ export function CommentComposer({
             value={message}
             disabled={busy}
             aria-label={placeholder}
+            aria-autocomplete="list"
+            aria-controls={choices.length > 0 ? listboxID : undefined}
+            aria-activedescendant={choices.length > 0 ? `${listboxID}-${active}` : undefined}
+            onSelect={({ currentTarget }) => setCaret(currentTarget.selectionStart)}
+            onBlur={() => setCaret(null)}
             onChange={({ currentTarget }) => {
               setMessage(currentTarget.value);
+              setCaret(currentTarget.selectionStart);
+              setSelected(0);
+              setDismissed(false);
               onChange?.(currentTarget.value);
             }}
             onKeyDown={(event) => {
+              if (event.nativeEvent.isComposing || event.nativeEvent.keyCode === 229) return;
+              if (choices.length > 0) {
+                if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+                  event.preventDefault();
+                  setSelected((active + (event.key === 'ArrowDown' ? 1 : -1) + choices.length) % choices.length);
+                  return;
+                }
+                if (event.key === 'Enter' || event.key === 'Tab') {
+                  event.preventDefault();
+                  choose(choices[active]!.name);
+                  return;
+                }
+                if (event.key === 'Escape') {
+                  event.preventDefault();
+                  setDismissed(true);
+                  return;
+                }
+              }
               if (event.key === 'Escape') {
                 event.preventDefault();
                 tryCancel();
@@ -153,6 +199,27 @@ export function CommentComposer({
             rows={2}
             className="field-sizing-content w-full resize-none [caret-color:auto] rounded-sm bg-transparent py-1.5 text-[14px] text-inherit placeholder:text-[var(--diffshub-popover-muted-fg,var(--color-muted-foreground))] focus:outline-none"
           />
+          {choices.length > 0 && (
+            <ul id={listboxID} role="listbox" aria-label="Mention an agent" className="m-0 flex list-none flex-col rounded-sm border border-border bg-background p-1">
+              {choices.map(({ id, name }, index) => (
+                <li key={id} role="presentation">
+                  <button
+                    type="button"
+                    role="option"
+                    id={`${listboxID}-${index}`}
+                    aria-selected={index === active}
+                    tabIndex={-1}
+                    onMouseDown={(event) => event.preventDefault()}
+                    onClick={() => choose(name)}
+                    className={cn('w-full rounded-sm px-2 py-1 text-start text-xs active:bg-accent focus-visible:outline-2', index === active && 'bg-accent')}
+                  >
+                    @{name}
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
+          {toNames.length > 0 && <p className="m-0 py-1 text-xs text-muted-foreground">To: {toNames.join(', ')}</p>}
           {error != null && (
             <p role="alert" className="m-0 text-xs text-red-600 dark:text-red-400">
               {error}
@@ -161,22 +228,6 @@ export function CommentComposer({
         </div>
       </div>
       <div className="flex w-full items-center justify-between gap-3 pl-10.5 md:w-auto md:justify-end md:pl-0">
-        {recipients != null && (
-          <select
-            aria-label="To"
-            value={recipient}
-            disabled={busy}
-            onChange={({ currentTarget }) => setRecipient(currentTarget.value)}
-            className="max-w-40 truncate rounded-sm border border-border bg-transparent px-1 py-0.5 text-xs text-inherit"
-          >
-            <option value="">{recipients.defaultLabel}</option>
-            {recipients.choices.map(({ id, label }) => (
-              <option key={id} value={id}>
-                {label}
-              </option>
-            ))}
-          </select>
-        )}
         {onCancel != null && (
           <Button
             type="button"
@@ -240,7 +291,7 @@ export function DraftAnnotation({
   annotation,
   author,
   itemId,
-  recipients,
+  agents,
   onCancel,
   onSave,
 }: DraftAnnotationProps) {
@@ -249,8 +300,8 @@ export function DraftAnnotation({
     <CommentComposer
       autoFocus
       avatar={<AuthorInitial name={author} />}
-      initialMessage={metadata.message}
-      recipients={recipients}
+      initialText={metadata.message}
+      agents={agents}
       onCancel={() => onCancel(itemId, metadata.key)}
       onChange={(message) => {
         metadata.message = message;
