@@ -88,6 +88,9 @@ func (s *Server) handleConversations(w http.ResponseWriter, r *http.Request, res
 		s.conversations.settings(w)
 		return
 	}
+	if s.conversations.browserControl(w, r, rest) {
+		return
+	}
 	if s.hub.src != nil {
 		// Streams and long polls must end with the folder session, or closing
 		// the folder would wait for them forever.
@@ -146,9 +149,12 @@ func (c *Conversations) serve(w http.ResponseWriter, r *http.Request, rest strin
 			writeConversationError(w, err)
 			return
 		}
+		if actor.Kind == conversations.KindHuman {
+			c.ensureAgents()
+		}
 		writeJSON(w, http.StatusOK, c.locate(r, store, conversation))
 	case r.Method == http.MethodGet && id == "events" && action == "":
-		c.streamEvents(w, r, store)
+		c.streamEvents(w, r, store, actor.Kind == conversations.KindHuman)
 	case r.Method == http.MethodGet && id == "wait" && action == "":
 		after, _ := strconv.ParseUint(r.URL.Query().Get("after"), 10, 64)
 		ctx, cancel := context.WithTimeout(r.Context(), waitDuration(r))
@@ -196,6 +202,9 @@ func (c *Conversations) serve(w http.ResponseWriter, r *http.Request, rest strin
 		if err != nil {
 			writeConversationError(w, err)
 			return
+		}
+		if actor.Kind == conversations.KindHuman {
+			c.ensureAgents()
 		}
 		writeJSON(w, http.StatusOK, message)
 	case r.Method == http.MethodPost && id != "" && action == "read":
@@ -288,7 +297,7 @@ func (c *Conversations) locate(r *http.Request, store *conversations.Store, conv
 
 // streamEvents sends durable events as SSE. Event ids are log sequence
 // numbers, so EventSource reconnection resumes from Last-Event-ID.
-func (c *Conversations) streamEvents(w http.ResponseWriter, r *http.Request, store *conversations.Store) {
+func (c *Conversations) streamEvents(w http.ResponseWriter, r *http.Request, store *conversations.Store, includeLive bool) {
 	flusher, ok := w.(http.Flusher)
 	if !ok {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "streaming unsupported"})
@@ -305,6 +314,18 @@ func (c *Conversations) streamEvents(w http.ResponseWriter, r *http.Request, sto
 	ticker := time.NewTicker(heartbeatInterval)
 	defer ticker.Stop()
 	for {
+		var liveChanged <-chan struct{}
+		if includeLive && c.Agents != nil {
+			live, changed := c.Agents.Live(c.Root)
+			liveChanged = changed
+			for _, run := range live {
+				data, _ := json.Marshal(run)
+				fmt.Fprintf(w, "event: run\ndata: %s\n\n", data)
+			}
+			if len(live) > 0 {
+				flusher.Flush()
+			}
+		}
 		events, changed, err := store.Events(after)
 		if err != nil {
 			return
@@ -321,6 +342,7 @@ func (c *Conversations) streamEvents(w http.ResponseWriter, r *http.Request, sto
 		case <-r.Context().Done():
 			return
 		case <-changed:
+		case <-liveChanged:
 		case <-ticker.C:
 			fmt.Fprint(w, ": ping\n\n")
 			flusher.Flush()

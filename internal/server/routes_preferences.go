@@ -46,6 +46,9 @@ func (s *Server) handleSetPreference(w http.ResponseWriter, r *http.Request) {
 	case err != nil:
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 	default:
+		if s.preferenceChanged != nil {
+			s.preferenceChanged(body.Key)
+		}
 		w.WriteHeader(http.StatusNoContent)
 	}
 }

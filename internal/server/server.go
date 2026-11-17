@@ -93,7 +93,8 @@ type Options struct {
 	Drafts *drafts.Journal
 	// Preferences stores the browser display preferences. When nil, preferences.js
 	// sets nothing and the preferences route returns 503.
-	Preferences *prefs.File
+	Preferences       *prefs.File
+	PreferenceChanged func(key string)
 	// DraftFolderKey scopes draft records to the active folder capability.
 	DraftFolderKey string
 	// Events streams repository invalidation kinds. When nil, the events
@@ -130,6 +131,7 @@ type Server struct {
 	drafts             *drafts.Journal
 	draftFolderKey     string
 	preferences        *prefs.File
+	preferenceChanged  func(string)
 	hub                *eventsHub
 	gen                atomic.Uint64
 	openFolder         func(context.Context, string) (protocol.OpenFolderResult, error)
@@ -159,6 +161,7 @@ func New(staticFS fs.FS, opts Options) (*Server, error) {
 		drafts:             opts.Drafts,
 		draftFolderKey:     opts.DraftFolderKey,
 		preferences:        opts.Preferences,
+		preferenceChanged:  opts.PreferenceChanged,
 		openFolder:         opts.OpenFolder,
 		revealFolder:       opts.RevealFolder,
 		revealPath:         opts.RevealPath,

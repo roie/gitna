@@ -46,6 +46,20 @@ func TestPreferencesRejectsUnknownKeyAndOversizedValue(t *testing.T) {
 	}
 }
 
+func TestPreferenceChangedAfterSuccessfulWrite(t *testing.T) {
+	var keys []string
+	srv, err := New(newTestFS(), Options{Token: testToken, Host: testHost, Preferences: prefs.Open(filepath.Join(t.TempDir(), "preferences.json")), PreferenceChanged: func(key string) { keys = append(keys, key) }})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, body := range []string{`{"key":"gitna:conversations","value":"true"}`, `{"key":"unknown","value":"x"}`} {
+		worktreeRequest(t, srv.Handler(), http.MethodPut, "/preferences", body)
+	}
+	if len(keys) != 1 || keys[0] != "gitna:conversations" {
+		t.Fatalf("callbacks: %v", keys)
+	}
+}
+
 func TestPreferencesWithoutStoreIsUnavailable(t *testing.T) {
 	srv := newPreferencesServer(t, nil)
 	rec := worktreeRequest(t, srv.Handler(), http.MethodPut, "/preferences", `{"key":"theme","value":"dark"}`)

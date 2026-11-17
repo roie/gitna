@@ -30,16 +30,17 @@ type dormancyTimer interface {
 }
 
 type folderRegistryOptions struct {
-	dormancyGrace time.Duration
-	afterFunc     func(time.Duration, func()) dormancyTimer
-	openFolder    func(context.Context, string) (gitx.Repository, error)
-	newWatcher    folderWatcherFactory
-	drafts        *drafts.Journal
-	preferences   *prefs.File
-	pdfPreviews   *server.PDFPreviews
-	conversations *conversations.Library
-	agentSettings *agentrun.SettingsFile
-	agents        *agentrun.Manager
+	dormancyGrace     time.Duration
+	afterFunc         func(time.Duration, func()) dormancyTimer
+	openFolder        func(context.Context, string) (gitx.Repository, error)
+	newWatcher        folderWatcherFactory
+	drafts            *drafts.Journal
+	preferences       *prefs.File
+	pdfPreviews       *server.PDFPreviews
+	conversations     *conversations.Library
+	agentSettings     *agentrun.SettingsFile
+	agents            *agentrun.Manager
+	preferenceChanged func(string)
 }
 
 type folderRoute struct {
@@ -74,19 +75,20 @@ type folderRegistry struct {
 	basePath     string
 	staticServer *server.Server
 
-	dormancyGrace time.Duration
-	afterFunc     func(time.Duration, func()) dormancyTimer
-	resolveFolder func(context.Context, string) (gitx.Repository, error)
-	newWatcher    folderWatcherFactory
-	drafts        *drafts.Journal
-	preferences   *prefs.File
-	pdfPreviews   *server.PDFPreviews
-	conversations *conversations.Library
-	agentSettings *agentrun.SettingsFile
-	agents        *agentrun.Manager
-	closing       atomic.Bool
-	closeOnce     sync.Once
-	closeErr      error
+	dormancyGrace     time.Duration
+	afterFunc         func(time.Duration, func()) dormancyTimer
+	resolveFolder     func(context.Context, string) (gitx.Repository, error)
+	newWatcher        folderWatcherFactory
+	drafts            *drafts.Journal
+	preferences       *prefs.File
+	pdfPreviews       *server.PDFPreviews
+	conversations     *conversations.Library
+	agentSettings     *agentrun.SettingsFile
+	agents            *agentrun.Manager
+	preferenceChanged func(string)
+	closing           atomic.Bool
+	closeOnce         sync.Once
+	closeErr          error
 
 	mu           sync.RWMutex
 	byRoot       map[string]string
@@ -130,35 +132,37 @@ func newFolderRegistry(
 			config.drafts = options[0].drafts
 		}
 		config.preferences = options[0].preferences
+		config.preferenceChanged = options[0].preferenceChanged
 		config.pdfPreviews = options[0].pdfPreviews
 		config.conversations = options[0].conversations
 		config.agentSettings = options[0].agentSettings
 		config.agents = options[0].agents
 	}
-	staticServer, err := server.New(static, server.Options{Version: version, Preferences: config.preferences})
+	staticServer, err := server.New(static, server.Options{Version: version, Preferences: config.preferences, PreferenceChanged: config.preferenceChanged})
 	if err != nil {
 		return nil, fmt.Errorf("create static folder server: %w", err)
 	}
 	r := &folderRegistry{
-		ctx:           ctx,
-		runner:        runner,
-		static:        static,
-		version:       version,
-		folders:       folders,
-		basePath:      strings.TrimSuffix(basePath, "/"),
-		staticServer:  staticServer,
-		dormancyGrace: config.dormancyGrace,
-		afterFunc:     config.afterFunc,
-		resolveFolder: config.openFolder,
-		newWatcher:    config.newWatcher,
-		drafts:        config.drafts,
-		preferences:   config.preferences,
-		pdfPreviews:   config.pdfPreviews,
-		conversations: config.conversations,
-		agentSettings: config.agentSettings,
-		agents:        config.agents,
-		byRoot:        make(map[string]string),
-		byRoute:       make(map[string]*folderRoute),
+		ctx:               ctx,
+		runner:            runner,
+		static:            static,
+		version:           version,
+		folders:           folders,
+		basePath:          strings.TrimSuffix(basePath, "/"),
+		staticServer:      staticServer,
+		dormancyGrace:     config.dormancyGrace,
+		afterFunc:         config.afterFunc,
+		resolveFolder:     config.openFolder,
+		newWatcher:        config.newWatcher,
+		drafts:            config.drafts,
+		preferences:       config.preferences,
+		preferenceChanged: config.preferenceChanged,
+		pdfPreviews:       config.pdfPreviews,
+		conversations:     config.conversations,
+		agentSettings:     config.agentSettings,
+		agents:            config.agents,
+		byRoot:            make(map[string]string),
+		byRoute:           make(map[string]*folderRoute),
 	}
 	r.mu.Lock()
 	route, err := r.addLocked(initial)
@@ -290,6 +294,7 @@ func (r *folderRegistry) createBackend(
 		PDFPreviews:               r.pdfPreviews,
 		Drafts:                    r.drafts,
 		Preferences:               r.preferences,
+		PreferenceChanged:         r.preferenceChanged,
 		DraftFolderKey:            repo.Root,
 		Events:                    session.events,
 		InitialGeneration:         generation,

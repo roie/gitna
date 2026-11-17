@@ -577,6 +577,11 @@ func Run(ctx context.Context, path, version string) error {
 			conversations: library,
 			agentSettings: agentSettings,
 			agents:        manager,
+			preferenceChanged: func(key string) {
+				if key == "gitna:conversations" {
+					manager.Refresh()
+				}
+			},
 		},
 	)
 	if err != nil {

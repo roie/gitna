@@ -94,8 +94,12 @@ func (m *Manager) Ensure(repo Repo) {
 	if err != nil || !slices.ContainsFunc(agents, func(a conversations.Participant) bool { return a.Agent != "" }) {
 		return
 	}
+	_, baseline, err := s.List("")
+	if err != nil {
+		return
+	}
 	w.running = true
-	m.wg.Go(func() { m.work(w, s) })
+	m.wg.Go(func() { m.work(w, s, baseline) })
 }
 func (m *Manager) Refresh() {
 	m.mu.Lock()
@@ -303,7 +307,7 @@ func (m *Manager) recover(s *conversations.Store) error {
 	}
 	return nil
 }
-func (m *Manager) work(w *repoWorker, s *conversations.Store) {
+func (m *Manager) work(w *repoWorker, s *conversations.Store, baseline uint64) {
 	var unlock func()
 	var result <-chan runResult
 	defer func() {
@@ -322,16 +326,10 @@ func (m *Manager) work(w *repoWorker, s *conversations.Store) {
 		notify(w)
 		m.mu.Unlock()
 	}()
-	var baseline uint64
 	for unlock == nil {
 		if m.ctx.Err() != nil {
 			return
 		}
-		_, seq, err := s.List("")
-		if err != nil {
-			return
-		}
-		baseline = seq
 		release, held, err := s.LockRuns()
 		if err != nil {
 			return
@@ -340,7 +338,7 @@ func (m *Manager) work(w *repoWorker, s *conversations.Store) {
 			unlock = release
 			break
 		}
-		_, changed, err := s.Events(seq)
+		_, changed, err := s.Events(baseline)
 		if err != nil {
 			return
 		}
@@ -349,6 +347,10 @@ func (m *Manager) work(w *repoWorker, s *conversations.Store) {
 			return
 		case <-changed:
 		case <-w.wake:
+		}
+		_, baseline, err = s.List("")
+		if err != nil {
+			return
 		}
 	}
 	if err := m.recover(s); err != nil {

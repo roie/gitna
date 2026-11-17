@@ -14,10 +14,10 @@ import (
 )
 
 type AuthMethod struct {
-	ID          string
-	Name        string
-	Description string
-	Interactive bool
+	ID          string `json:"id"`
+	Name        string `json:"name"`
+	Description string `json:"description"`
+	Interactive bool   `json:"interactive"`
 }
 
 var ErrAuthRequired = errors.New("agent authentication required")
@@ -27,10 +27,15 @@ type AuthError struct{ Methods []AuthMethod }
 func (e *AuthError) Error() string { return ErrAuthRequired.Error() }
 func (e *AuthError) Unwrap() error { return ErrAuthRequired }
 
-type PermissionOption struct{ ID, Name, Kind string }
+type PermissionOption struct {
+	ID   string `json:"id"`
+	Name string `json:"name"`
+	Kind string `json:"kind"`
+}
 type PermissionRequest struct {
-	ID, Title string
-	Options   []PermissionOption
+	ID      string             `json:"id"`
+	Title   string             `json:"title"`
+	Options []PermissionOption `json:"options"`
 }
 
 type Hooks struct {
