@@ -89,6 +89,8 @@ func (s *Server) apiRoutes() http.Handler {
 			s.handleCompare(w, r)
 		case r.Method == http.MethodGet && isCommitSubroute(p, "files"):
 			s.handleCommitFiles(w, r)
+		case r.Method == http.MethodPut && p == "/preferences":
+			s.handleSetPreference(w, r)
 		case p == "/drafts":
 			s.handleDrafts(w, r)
 		case p == "/conversations" || strings.HasPrefix(p, "/conversations/"):

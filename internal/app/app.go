@@ -20,6 +20,7 @@ import (
 	"github.com/roie/gitna/internal/drafts"
 	"github.com/roie/gitna/internal/folder"
 	"github.com/roie/gitna/internal/gitx"
+	"github.com/roie/gitna/internal/prefs"
 	"github.com/roie/gitna/internal/protocol"
 	"github.com/roie/gitna/internal/server"
 	"github.com/roie/gitna/internal/session"
@@ -560,6 +561,7 @@ func Run(ctx context.Context, path, version string) error {
 		folderRegistryOptions{
 			dormancyGrace: defaultFolderDormancyGrace,
 			drafts:        draftJournal,
+			preferences:   prefs.Open(filepath.Join(stateDir, "preferences.json")),
 			pdfPreviews:   pdfPreviews,
 			conversations: library,
 		},

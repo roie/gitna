@@ -16,6 +16,7 @@ import (
 	"sync/atomic"
 
 	"github.com/roie/gitna/internal/drafts"
+	"github.com/roie/gitna/internal/prefs"
 	"github.com/roie/gitna/internal/protocol"
 	"github.com/roie/gitna/internal/watch"
 )
@@ -90,6 +91,9 @@ type Options struct {
 	PDFPreviews *PDFPreviews
 	// Drafts stores bounded local recovery records. When nil, draft routes return 503.
 	Drafts *drafts.Journal
+	// Preferences stores the browser display preferences. When nil, preferences.js
+	// sets nothing and the preferences route returns 503.
+	Preferences *prefs.File
 	// DraftFolderKey scopes draft records to the active folder capability.
 	DraftFolderKey string
 	// Events streams repository invalidation kinds. When nil, the events
@@ -125,6 +129,7 @@ type Server struct {
 	pdfPreviews        *PDFPreviews
 	drafts             *drafts.Journal
 	draftFolderKey     string
+	preferences        *prefs.File
 	hub                *eventsHub
 	gen                atomic.Uint64
 	openFolder         func(context.Context, string) (protocol.OpenFolderResult, error)
@@ -153,6 +158,7 @@ func New(staticFS fs.FS, opts Options) (*Server, error) {
 		pdfPreviews:        opts.PDFPreviews,
 		drafts:             opts.Drafts,
 		draftFolderKey:     opts.DraftFolderKey,
+		preferences:        opts.Preferences,
 		openFolder:         opts.OpenFolder,
 		revealFolder:       opts.RevealFolder,
 		revealPath:         opts.RevealPath,
@@ -222,6 +228,11 @@ func (s *Server) serveStatic(w http.ResponseWriter, r *http.Request) {
 	name := strings.TrimPrefix(path.Clean("/"+r.URL.Path), "/")
 	if name == "." {
 		name = "index.html"
+	}
+
+	if name == "preferences.js" {
+		s.servePreferencesScript(w, r)
+		return
 	}
 
 	// SPA fallback: extensionless routes that are not real files serve the

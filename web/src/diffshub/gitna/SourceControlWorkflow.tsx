@@ -45,6 +45,7 @@ import {
 import { createPortal } from 'react-dom'
 
 import { ApiError } from '../../lib/api'
+import { savePreference } from '../../lib/preferences'
 import type { Conversation, ConversationsModel, Participant } from '../../lib/conversations'
 import type { GraphRow } from '../../lib/graph-lanes'
 import type { ChangeKind, ChangeScope, CommitFile, ConflictEntry } from '../../lib/types'
@@ -358,7 +359,7 @@ function usePaneSizes() {
       const bounded = Math.max(8 - current[index], Math.min(delta, current[index + 1] - 8))
       next[index] += bounded
       next[index + 1] -= bounded
-      localStorage.setItem(PANE_SIZES_STORAGE_KEY, JSON.stringify(next))
+      savePreference(PANE_SIZES_STORAGE_KEY, JSON.stringify(next))
       return next
     })
   }, [])
@@ -376,7 +377,7 @@ function usePaneSizes() {
         const next = [...startSizes] as [number, number, number]
         next[index] += bounded
         next[index + 1] -= bounded
-        localStorage.setItem(PANE_SIZES_STORAGE_KEY, JSON.stringify(next))
+        savePreference(PANE_SIZES_STORAGE_KEY, JSON.stringify(next))
         setSizes(next)
       }
       const stop = () => {

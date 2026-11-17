@@ -1,5 +1,6 @@
 import { createThemeController, type ThemePersistence } from '@pierre/theming';
 
+import { savePreference } from '../../lib/preferences';
 import { docsThemeCatalog } from './themeCatalog';
 
 export { docsThemeCatalog } from './themeCatalog';
@@ -32,11 +33,7 @@ function readKey(key: string): string | null {
 }
 
 function writeKey(key: string, value: string): void {
-  try {
-    globalThis.localStorage?.setItem(key, value);
-  } catch {
-    // Storage may be unavailable (private mode / denied) — non-fatal.
-  }
+  savePreference(key, value);
 }
 
 // Maps the controller's selection onto the app's three storage keys: mode as a

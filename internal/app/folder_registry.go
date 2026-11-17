@@ -15,6 +15,7 @@ import (
 	"github.com/roie/gitna/internal/drafts"
 	"github.com/roie/gitna/internal/folder"
 	"github.com/roie/gitna/internal/gitx"
+	"github.com/roie/gitna/internal/prefs"
 	"github.com/roie/gitna/internal/protocol"
 	"github.com/roie/gitna/internal/server"
 )
@@ -33,6 +34,7 @@ type folderRegistryOptions struct {
 	openFolder    func(context.Context, string) (gitx.Repository, error)
 	newWatcher    folderWatcherFactory
 	drafts        *drafts.Journal
+	preferences   *prefs.File
 	pdfPreviews   *server.PDFPreviews
 	conversations *conversations.Library
 }
@@ -74,6 +76,7 @@ type folderRegistry struct {
 	resolveFolder func(context.Context, string) (gitx.Repository, error)
 	newWatcher    folderWatcherFactory
 	drafts        *drafts.Journal
+	preferences   *prefs.File
 	pdfPreviews   *server.PDFPreviews
 	conversations *conversations.Library
 	closing       atomic.Bool
@@ -121,10 +124,11 @@ func newFolderRegistry(
 		if options[0].drafts != nil {
 			config.drafts = options[0].drafts
 		}
+		config.preferences = options[0].preferences
 		config.pdfPreviews = options[0].pdfPreviews
 		config.conversations = options[0].conversations
 	}
-	staticServer, err := server.New(static, server.Options{Version: version})
+	staticServer, err := server.New(static, server.Options{Version: version, Preferences: config.preferences})
 	if err != nil {
 		return nil, fmt.Errorf("create static folder server: %w", err)
 	}
@@ -141,6 +145,7 @@ func newFolderRegistry(
 		resolveFolder: config.openFolder,
 		newWatcher:    config.newWatcher,
 		drafts:        config.drafts,
+		preferences:   config.preferences,
 		pdfPreviews:   config.pdfPreviews,
 		conversations: config.conversations,
 		byRoot:        make(map[string]string),
@@ -275,6 +280,7 @@ func (r *folderRegistry) createBackend(
 		Repo:                      session.adapter,
 		PDFPreviews:               r.pdfPreviews,
 		Drafts:                    r.drafts,
+		Preferences:               r.preferences,
 		DraftFolderKey:            repo.Root,
 		Events:                    session.events,
 		InitialGeneration:         generation,

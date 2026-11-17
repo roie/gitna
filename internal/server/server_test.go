@@ -5,9 +5,12 @@ import (
 	"compress/gzip"
 	"net/http"
 	"net/http/httptest"
+	"path/filepath"
 	"strings"
 	"testing"
 	"testing/fstest"
+
+	"github.com/roie/gitna/internal/prefs"
 )
 
 func newTestFS() fstest.MapFS {
@@ -221,5 +224,57 @@ func TestServesCompressedStaticAssets(t *testing.T) {
 	rec = get("/assets/plain-12345678.js", "gzip")
 	if rec.Body.String() != "plain" || rec.Header().Get("Content-Encoding") != "" {
 		t.Fatalf("plain file: headers=%v body=%q", rec.Header(), rec.Body.String())
+	}
+}
+
+func preferencesScript(t *testing.T, opts Options) *httptest.ResponseRecorder {
+	t.Helper()
+	opts.Token, opts.Host = testToken, testHost
+	srv, err := New(newTestFS(), opts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req := httptest.NewRequest(http.MethodGet, "/g/"+testToken+"/preferences.js", nil)
+	req.Host = testHost
+	rec := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(rec, req)
+	return rec
+}
+
+func TestPreferencesScriptSeedsSavedValues(t *testing.T) {
+	file := prefs.Open(filepath.Join(t.TempDir(), "preferences.json"))
+	if err := file.Set("theme", "dark"); err != nil {
+		t.Fatal(err)
+	}
+	rec := preferencesScript(t, Options{Preferences: file})
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d", rec.Code)
+	}
+	if ct := rec.Header().Get("Content-Type"); ct != "text/javascript; charset=utf-8" {
+		t.Fatalf("Content-Type = %q", ct)
+	}
+	if cc := rec.Header().Get("Cache-Control"); strings.Contains(cc, "immutable") {
+		t.Fatalf("Cache-Control = %q", cc)
+	}
+	if body := rec.Body.String(); !strings.Contains(body, `"theme":"dark"`) {
+		t.Fatalf("body = %s", body)
+	}
+}
+
+func TestPreferencesScriptWithoutStoreSetsNothing(t *testing.T) {
+	rec := preferencesScript(t, Options{})
+	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), "const p={};") {
+		t.Fatalf("status = %d, body = %s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestPreferencesScriptEscapesValues(t *testing.T) {
+	file := prefs.Open(filepath.Join(t.TempDir(), "preferences.json"))
+	if err := file.Set("theme", "</script> "); err != nil {
+		t.Fatal(err)
+	}
+	body := preferencesScript(t, Options{Preferences: file}).Body.String()
+	if strings.Contains(body, "</script>") || strings.Contains(body, " ") {
+		t.Fatalf("unescaped value in %s", body)
 	}
 }

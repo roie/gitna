@@ -66,6 +66,7 @@ import type { ContentSearchFile, FileDiff, ReviewIdentity, WorktreeFile } from '
 import type { DarkThemeName, LightThemeName } from '../lib/themeNames'
 import type { LoadedDiffsHubData } from '../lib/diffsHubDataAccumulator'
 import { cn } from '../lib/cn'
+import { savePreference } from '../../lib/preferences'
 import { relocateDraft } from '../lib/draftLocation'
 import type { GitnaPaletteCommand } from './GitnaCommandPalette'
 import { GlobalToastHost } from './ConnectionStatus'
@@ -554,13 +555,10 @@ function GitnaReviewUIInner({
       return true
     }
   })
-  useEffect(() => {
-    try {
-      localStorage.setItem('gitna:inline-blame', String(inlineBlame))
-    } catch {
-      // Keep the setting usable when browser storage is unavailable.
-    }
-  }, [inlineBlame])
+  const changeInlineBlame = (enabled: boolean) => {
+    setInlineBlame(enabled)
+    savePreference('gitna:inline-blame', String(enabled))
+  }
   const [showConversations, setShowConversations] = useState(() => {
     try {
       return localStorage.getItem('gitna:conversations') !== 'false'
@@ -568,13 +566,10 @@ function GitnaReviewUIInner({
       return true
     }
   })
-  useEffect(() => {
-    try {
-      localStorage.setItem('gitna:conversations', String(showConversations))
-    } catch {
-      // Keep the setting usable when browser storage is unavailable.
-    }
-  }, [showConversations])
+  const changeShowConversations = (enabled: boolean) => {
+    setShowConversations(enabled)
+    savePreference('gitna:conversations', String(enabled))
+  }
   const [diffIndicators, setDiffIndicators] = useState<DiffIndicators>('bars')
   const [lineNumbers, setLineNumbers] = useState(true)
   const [filePreviewModes, setFilePreviewModes] = useState<Map<string, FilePreviewMode>>(
@@ -2592,9 +2587,9 @@ function GitnaReviewUIInner({
               setLineNumbers={setLineNumbers}
               setOverflow={setOverflow}
               inlineBlame={inlineBlame}
-              setInlineBlame={setInlineBlame}
+              setInlineBlame={changeInlineBlame}
               conversations={showConversations}
-              setConversations={conversationsModel == null ? undefined : setShowConversations}
+              setConversations={conversationsModel == null ? undefined : changeShowConversations}
               setShowBackgrounds={setShowBackgrounds}
               showBackgrounds={showBackgrounds}
             />
