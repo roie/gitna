@@ -348,10 +348,6 @@ func (m *Manager) work(w *repoWorker, s *conversations.Store, baseline uint64) {
 		case <-changed:
 		case <-w.wake:
 		}
-		_, baseline, err = s.List("")
-		if err != nil {
-			return
-		}
 	}
 	if err := m.recover(s); err != nil {
 		return

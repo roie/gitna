@@ -414,6 +414,18 @@ func TestSecondManagerOnSameStoreRunsNothing(t *testing.T) {
 		t.Fatalf("cancel: %v", err)
 	}
 }
+func TestTakeoverRunsAMessageWrittenAfterTheOwnerClosed(t *testing.T) {
+	f := newRunnerFixture(t, "reply")
+	f.ready()
+	other := f.newManager()
+	other.Ensure(f.repo)
+	time.Sleep(300 * time.Millisecond)
+	f.manager.Close()
+	c := f.message(f.agents[0])
+	if run := f.terminal(c.ID, 1).Runs[0]; run.State != "completed" {
+		t.Fatalf("run %s (%s), want completed", run.State, run.Detail)
+	}
+}
 func TestRunHoldsTheFolderUntilItEnds(t *testing.T) {
 	f := newRunnerFixture(t, "hang")
 	f.ready()
