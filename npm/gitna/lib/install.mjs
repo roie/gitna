@@ -122,6 +122,26 @@ async function extractArchive(archive, directory, target, platform) {
 }
 
 /**
+ * @param {string} cacheRoot
+ * @param {string} current
+ */
+async function removeOlderVersions(cacheRoot, current) {
+  const entries = await readdir(cacheRoot, { withFileTypes: true }).catch(() => [])
+  await Promise.all(
+    entries
+      .filter(
+        (entry) =>
+          entry.isDirectory() &&
+          entry.name !== current &&
+          /^\d+\.\d+\.\d+(-[0-9A-Za-z.-]+)?$/.test(entry.name),
+      )
+      .map((entry) =>
+        rm(join(cacheRoot, entry.name), { recursive: true, force: true }).catch(() => {}),
+      ),
+  )
+}
+
+/**
  * @typedef {object} InstallOptions
  * @property {string} [version]
  * @property {NodeJS.Platform} [platform]
@@ -206,5 +226,6 @@ export async function ensureBinary(options = {}) {
   } finally {
     await rm(temporaryRoot, { recursive: true, force: true })
   }
+  await removeOlderVersions(cacheRoot, version)
   return destination
 }

@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { execFileSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
-import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readdir, readFile, rm, writeFile } from 'node:fs/promises'
 import { createServer } from 'node:http'
 import { tmpdir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
@@ -186,6 +186,48 @@ test('downloads, verifies, and caches the selected binary', async () => {
     assert.equal(requests, 2)
   } finally {
     server.close()
+    await rm(cacheDir, { recursive: true, force: true })
+  }
+})
+
+test('removes older cached versions after an install and never on a cache hit', async () => {
+  const cacheDir = await mkdtemp(join(tmpdir(), 'gitna-launcher-test-'))
+  const archive = Buffer.from('archive')
+  const hash = createHash('sha256').update(archive).digest('hex')
+  /** @type {typeof globalThis.fetch} */
+  const fetchImpl = async (url) =>
+    new Response(
+      String(url).endsWith('/checksums.txt') ? `${hash}  gitna_1.2.3_linux_x64.tar.gz\n` : archive,
+    )
+  const options = {
+    version: '1.2.3',
+    platform: /** @type {NodeJS.Platform} */ ('linux'),
+    arch: 'x64',
+    cacheDir,
+    releaseBase: 'https://example.invalid',
+    fetchImpl,
+    extractImpl: async (
+      /** @type {string} */ _archive,
+      /** @type {string} */ directory,
+      /** @type {{ executable: string }} */ target,
+    ) => {
+      await writeFile(join(directory, target.executable), 'binary')
+    },
+  }
+  try {
+    await mkdir(join(cacheDir, '0.0.1', 'linux-x64'), { recursive: true })
+    await writeFile(join(cacheDir, '0.0.1', 'linux-x64', 'gitna'), 'old')
+    await mkdir(join(cacheDir, 'keep-me'))
+    await writeFile(join(cacheDir, '1.2.3.txt'), 'file')
+    await writeFile(join(cacheDir, '1.2.4'), 'a file named like a version')
+
+    const installed = await ensureBinary(options)
+    assert.deepEqual((await readdir(cacheDir)).sort(), ['1.2.3', '1.2.3.txt', '1.2.4', 'keep-me'])
+
+    await mkdir(join(cacheDir, '0.0.2'))
+    assert.equal(await ensureBinary(options), installed)
+    assert.ok((await readdir(cacheDir)).includes('0.0.2'))
+  } finally {
     await rm(cacheDir, { recursive: true, force: true })
   }
 })
