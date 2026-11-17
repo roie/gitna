@@ -112,6 +112,14 @@ func (f *fakeAgent) Prompt(ctx context.Context, _ acp.PromptRequest) (acp.Prompt
 		}
 		send(acp.UpdateAgentMessageText(string(r.Outcome.Selected.OptionId)))
 	case "edit", "exit-after-edit":
+		guard := filepath.Join(f.root, "agent-active")
+		lock, err := os.OpenFile(guard, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o600)
+		if err != nil {
+			return acp.PromptResponse{}, errors.New("agents overlapped")
+		}
+		lock.Close()
+		defer os.Remove(guard)
+		time.Sleep(30 * time.Millisecond)
 		file, err := os.OpenFile(filepath.Join(f.root, "agent.txt"), os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o600)
 		if err != nil {
 			return acp.PromptResponse{}, err

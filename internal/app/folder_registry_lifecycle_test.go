@@ -166,6 +166,31 @@ func newLifecycleRegistry(t *testing.T, git bool) (*folderRegistry, *fakeDormanc
 	return registry, scheduler
 }
 
+func TestHeldRootDoesNotGoDormantWithoutSubscribers(t *testing.T) {
+	registry, scheduler := newLifecycleRegistry(t, false)
+	defer registry.close()
+	entry := registry.byRoute[registry.initialRoute]
+	release, err := registry.holdRoot(t.Context(), entry.root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	registry.subscribersChanged(entry, 1)
+	registry.subscribersChanged(entry, -1)
+	if scheduler.active() != 0 {
+		t.Fatal("held root scheduled dormancy")
+	}
+	release()
+	if scheduler.active() != 1 {
+		t.Fatal("released root did not schedule dormancy")
+	}
+	scheduler.fireNext(t)
+	entry.mu.Lock()
+	defer entry.mu.Unlock()
+	if entry.session != nil {
+		t.Fatal("released root stayed active")
+	}
+}
+
 func TestFolderRegistryReservesRoutesWhileWatchersInitialize(t *testing.T) {
 	parent := t.TempDir()
 	initialRoot := filepath.Join(parent, "initial")

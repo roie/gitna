@@ -549,6 +549,12 @@ func Run(ctx context.Context, path, version string) error {
 	}
 	library := conversations.NewLibrary(filepath.Join(stateDir, "conversations", "v2"))
 	defer library.Close()
+	preferences := prefs.Open(filepath.Join(stateDir, "preferences.json"))
+	manager := agentrun.NewManager(agentSettings, func() bool {
+		all, err := preferences.All()
+		return err == nil && all["gitna:conversations"] == "true"
+	})
+	defer manager.Close()
 	agentToken, err := session.NewToken()
 	if err != nil {
 		return fmt.Errorf("app: %w", err)
@@ -566,16 +572,17 @@ func Run(ctx context.Context, path, version string) error {
 		folderRegistryOptions{
 			dormancyGrace: defaultFolderDormancyGrace,
 			drafts:        draftJournal,
-			preferences:   prefs.Open(filepath.Join(stateDir, "preferences.json")),
+			preferences:   preferences,
 			pdfPreviews:   pdfPreviews,
 			conversations: library,
 			agentSettings: agentSettings,
+			agents:        manager,
 		},
 	)
 	if err != nil {
 		return fmt.Errorf("app: create folder registry: %w", err)
 	}
-	defer registry.close()
+	defer func() { manager.Close(); registry.close() }()
 
 	url := fmt.Sprintf("http://%s%s", host, registry.initialHref())
 	browserHandler := server.Security{
@@ -639,6 +646,7 @@ func Run(ctx context.Context, path, version string) error {
 		return fmt.Errorf("app: server: %w", err)
 	case <-ctx.Done():
 		pdfPreviews.Close()
+		manager.Close()
 		registryErr := registry.close()
 		return errors.Join(registryErr, shutdownServer(httpSrv, 5*time.Second), shutdownServer(pdfHTTP, 5*time.Second))
 	}

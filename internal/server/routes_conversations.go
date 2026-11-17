@@ -19,6 +19,7 @@ const maxConversationWait = 10 * time.Minute
 // Conversations connects one repository's conversation store to the API.
 type Conversations struct {
 	Settings *agentrun.SettingsFile
+	Agents   *agentrun.Manager
 	Enabled  func() bool
 	Root     string
 	Human    func() conversations.Participant

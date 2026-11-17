@@ -39,6 +39,7 @@ type folderRegistryOptions struct {
 	pdfPreviews   *server.PDFPreviews
 	conversations *conversations.Library
 	agentSettings *agentrun.SettingsFile
+	agents        *agentrun.Manager
 }
 
 type folderRoute struct {
@@ -82,6 +83,7 @@ type folderRegistry struct {
 	pdfPreviews   *server.PDFPreviews
 	conversations *conversations.Library
 	agentSettings *agentrun.SettingsFile
+	agents        *agentrun.Manager
 	closing       atomic.Bool
 	closeOnce     sync.Once
 	closeErr      error
@@ -131,6 +133,7 @@ func newFolderRegistry(
 		config.pdfPreviews = options[0].pdfPreviews
 		config.conversations = options[0].conversations
 		config.agentSettings = options[0].agentSettings
+		config.agents = options[0].agents
 	}
 	staticServer, err := server.New(static, server.Options{Version: version, Preferences: config.preferences})
 	if err != nil {
@@ -153,6 +156,7 @@ func newFolderRegistry(
 		pdfPreviews:   config.pdfPreviews,
 		conversations: config.conversations,
 		agentSettings: config.agentSettings,
+		agents:        config.agents,
 		byRoot:        make(map[string]string),
 		byRoute:       make(map[string]*folderRoute),
 	}

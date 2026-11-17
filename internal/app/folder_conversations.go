@@ -7,6 +7,7 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/roie/gitna/internal/agentrun"
 	"github.com/roie/gitna/internal/conversations"
 	"github.com/roie/gitna/internal/folder"
 	"github.com/roie/gitna/internal/gitx"
@@ -22,6 +23,7 @@ func (r *folderRegistry) newConversations(repo gitx.Repository) *server.Conversa
 	backend := &server.Conversations{
 		Root:     root,
 		Settings: r.agentSettings,
+		Agents:   r.agents,
 		Enabled: func() bool {
 			if r.preferences == nil {
 				return false
@@ -103,7 +105,31 @@ func (r *folderRegistry) newConversations(repo gitx.Repository) *server.Conversa
 			return conversations.ParseChanged(result.Stdout), nil
 		}
 	}
+	if r.agents != nil {
+		r.agents.Ensure(agentrun.Repo{
+			Root: root, Open: backend.Open,
+			Locate: func(ctx context.Context, list []conversations.Conversation) []conversations.Conversation {
+				store, err := backend.Open()
+				if err != nil {
+					return nil
+				}
+				return store.Locate(ctx, list, backend.Sources, "")
+			},
+			Hold: func(ctx context.Context) (func(), error) { return r.holdRoot(ctx, root) },
+		})
+	}
 	return backend
+}
+
+func (r *folderRegistry) holdRoot(ctx context.Context, root string) (func(), error) {
+	r.mu.RLock()
+	entry := r.byRoute[r.byRoot[folder.PathKey(root)]]
+	r.mu.RUnlock()
+	if entry == nil {
+		return nil, server.ErrFolderNotOpen
+	}
+	_, release, err := r.acquire(ctx, entry)
+	return release, err
 }
 
 // conversationsFor returns the conversations of an already open folder that
