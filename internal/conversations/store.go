@@ -50,6 +50,8 @@ type record struct {
 type Store struct {
 	mu        sync.Mutex
 	dir       string
+	worktree  string
+	closed    bool
 	log       *os.File
 	offset    int64
 	events    []Event
@@ -75,16 +77,8 @@ type Store struct {
 }
 
 func Open(dir string) (*Store, error) {
-	if err := os.MkdirAll(dir, 0o700); err != nil {
-		return nil, err
-	}
-	file, err := os.OpenFile(filepath.Join(dir, logName), os.O_RDWR|os.O_CREATE|os.O_APPEND, 0o600)
-	if err != nil {
-		return nil, err
-	}
 	s := &Store{
 		dir:             dir,
-		log:             file,
 		eventIDs:        make(map[string]struct{}),
 		byID:            make(map[string]*Conversation),
 		messageAt:       make(map[string]string),
@@ -96,32 +90,82 @@ func Open(dir string) (*Store, error) {
 		now:             time.Now,
 	}
 	if _, err := s.catchUp(); err != nil {
-		file.Close()
+		s.Close()
 		return nil, err
 	}
-	s.cursorLog, err = os.OpenFile(filepath.Join(dir, cursorsName), os.O_RDWR|os.O_CREATE|os.O_APPEND, 0o600)
+	return s, nil
+}
+
+func (s *Store) attach(create bool) error {
+	if s.closed {
+		return os.ErrClosed
+	}
+	if s.log != nil {
+		return nil
+	}
+	flags := os.O_RDWR | os.O_APPEND
+	if create {
+		if err := os.MkdirAll(s.dir, 0o700); err != nil {
+			return err
+		}
+		if s.worktree != "" {
+			if err := os.WriteFile(filepath.Join(s.dir, "worktree"), []byte(s.worktree+"\n"), 0o600); err != nil {
+				return err
+			}
+		}
+		flags |= os.O_CREATE
+	}
+	file, err := os.OpenFile(filepath.Join(s.dir, logName), flags, 0o600)
+	if !create && errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	watcher, err := fsnotify.NewWatcher()
 	if err != nil {
 		file.Close()
-		return nil, err
+		return err
 	}
-	if err := s.catchUpCursors(); err != nil {
-		s.Close()
-		return nil, err
+	if err := watcher.Add(s.dir); err != nil {
+		watcher.Close()
+		file.Close()
+		return err
 	}
-	s.watcher, err = fsnotify.NewWatcher()
-	if err != nil {
-		s.Close()
-		return nil, err
-	}
-	if err := s.watcher.Add(dir); err != nil {
-		s.watcher.Close()
-		s.watcher = nil
-		s.Close()
-		return nil, err
-	}
+	s.log = file
+	s.watcher = watcher
 	s.watchDone = make(chan struct{})
 	go s.watch()
-	return s, nil
+	return nil
+}
+
+func (s *Store) openCursors(create bool) error {
+	if err := s.attach(false); err != nil {
+		return err
+	}
+	if s.cursorLog != nil || s.log == nil {
+		return nil
+	}
+	flags := os.O_RDWR | os.O_APPEND
+	if create {
+		flags |= os.O_CREATE
+	}
+	file, err := os.OpenFile(filepath.Join(s.dir, cursorsName), flags, 0o600)
+	if !create && errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	s.cursorLog = file
+	return nil
+}
+
+func (s *Store) ensureCreated() error {
+	if err := s.attach(true); err != nil {
+		return err
+	}
+	return s.openCursors(true)
 }
 
 func (s *Store) watch() {
@@ -145,14 +189,26 @@ func (s *Store) watch() {
 }
 
 func (s *Store) Close() error {
-	var watchErr error
-	if s.watcher != nil {
-		watchErr = s.watcher.Close()
-		<-s.watchDone
-	}
 	s.mu.Lock()
-	defer s.mu.Unlock()
-	return errors.Join(watchErr, s.log.Close(), s.cursorLog.Close())
+	if s.closed {
+		s.mu.Unlock()
+		return nil
+	}
+	s.closed = true
+	watcher, done := s.watcher, s.watchDone
+	var err error
+	if s.log != nil {
+		err = s.log.Close()
+	}
+	if s.cursorLog != nil {
+		err = errors.Join(err, s.cursorLog.Close())
+	}
+	s.mu.Unlock()
+	if watcher != nil {
+		err = errors.Join(err, watcher.Close())
+		<-done
+	}
+	return err
 }
 
 type cursorRecord struct {
@@ -163,6 +219,12 @@ type cursorRecord struct {
 // catchUpCursors merges cursor lines written since the last read, including
 // lines appended by another process.
 func (s *Store) catchUpCursors() error {
+	if err := s.openCursors(false); err != nil {
+		return err
+	}
+	if s.cursorLog == nil {
+		return nil
+	}
 	data, end, err := readComplete(s.cursorLog, s.cursorOffset)
 	if err != nil || end == 0 {
 		return err
@@ -198,7 +260,13 @@ func appendLine(file *os.File, offset int64, line []byte) error {
 		return err
 	}
 	if info.Size() > offset {
-		line = append([]byte{'\n'}, line...)
+		var last [1]byte
+		if _, err := file.ReadAt(last[:], info.Size()-1); err != nil {
+			return err
+		}
+		if last[0] != '\n' {
+			line = append([]byte{'\n'}, line...)
+		}
 	}
 	if _, err := file.Write(append(line, '\n')); err != nil {
 		return err
@@ -209,6 +277,12 @@ func appendLine(file *os.File, offset int64, line []byte) error {
 // catchUp applies complete log lines written since the last read, including
 // lines appended by another process. It returns the newly applied events.
 func (s *Store) catchUp() (map[string]Event, error) {
+	if err := s.attach(false); err != nil {
+		return nil, err
+	}
+	if s.log == nil {
+		return nil, nil
+	}
 	data, end, err := readComplete(s.log, s.offset)
 	if err != nil || end == 0 {
 		return nil, err
@@ -331,6 +405,9 @@ func (s *Store) apply(rec record) (Event, bool) {
 }
 
 func (s *Store) append(event Event) (Event, error) {
+	if err := s.ensureCreated(); err != nil {
+		return Event{}, err
+	}
 	if _, err := s.catchUp(); err != nil {
 		return Event{}, err
 	}
@@ -902,6 +979,9 @@ func (s *Store) advance(key string, seq uint64) (uint64, error) {
 
 // write durably raises the cursor log value of key to value.
 func (s *Store) write(key string, value uint64) error {
+	if err := s.ensureCreated(); err != nil {
+		return err
+	}
 	line, err := json.Marshal(cursorRecord{Key: key, Seq: value})
 	if err != nil {
 		return err

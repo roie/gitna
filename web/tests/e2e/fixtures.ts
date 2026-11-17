@@ -84,7 +84,7 @@ function createRepository(root: string): { repo: string; baseOid: string; headOi
   return { repo, baseOid, headOid }
 }
 
-async function startGitna(
+export async function startGitna(
   binary: string,
   repo: string,
 ): Promise<{ child: ChildProcess; url: string; root: string }> {

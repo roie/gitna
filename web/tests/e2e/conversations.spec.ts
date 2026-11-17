@@ -1,8 +1,8 @@
 import { execFileSync } from 'node:child_process'
-import { readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs'
+import { readFileSync, readdirSync, renameSync, rmSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import type { Locator, Page } from '@playwright/test'
-import { expect, test, type GitnaFixture } from './fixtures.js'
+import { expect, startGitna, stopGitna, test, type GitnaFixture } from './fixtures.js'
 
 interface StoredConversation {
   id: string
@@ -63,6 +63,35 @@ async function comment(page: Page, first: Locator, last: Locator | null, body: s
   await draft.press('Control+Enter')
   await expect(draft).toHaveCount(0)
 }
+
+test('the first conversation reaches another Gitna process without a reload', async ({
+  page,
+  app,
+  context,
+}) => {
+  const second = await startGitna(process.env.GITNA_E2E_BINARY!, app.repo)
+  try {
+    const other = await context.newPage()
+    await page.goto(app.url)
+    await other.goto(second.url)
+    await openFile(page, 'two-hunk.txt')
+    await openFile(other, 'two-hunk.txt')
+    const base = join(dirname(app.repo), 'config', 'conversations', 'v1')
+    expect(readdirSync(base)).toEqual([])
+    const line = page.locator('[data-file] [data-column-number="5"]')
+    await expect(line).toBeVisible()
+    await comment(page, line, null, 'First event from another process')
+    await expect(
+      other.getByRole('article').filter({ hasText: 'First event from another process' }),
+    ).toBeVisible()
+    expect(
+      readdirSync(base, { withFileTypes: true }).filter((entry) => entry.isDirectory()),
+    ).toHaveLength(1)
+    await other.close()
+  } finally {
+    await stopGitna(second.child)
+  }
+})
 
 test('conversations on a file persist, take replies from an agent, and survive a restart', async ({
   page,
