@@ -1,6 +1,8 @@
 package server
 
 import (
+	"bytes"
+	"compress/gzip"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -149,5 +151,75 @@ func TestAPIMissReturnsJSON404(t *testing.T) {
 func TestNewRejectsNilFS(t *testing.T) {
 	if _, err := New(nil, Options{}); err == nil {
 		t.Fatal("New(nil, ...) = nil error, want error")
+	}
+}
+
+func gzipBytes(t *testing.T, text string) []byte {
+	t.Helper()
+	var buf bytes.Buffer
+	zw := gzip.NewWriter(&buf)
+	if _, err := zw.Write([]byte(text)); err != nil {
+		t.Fatal(err)
+	}
+	if err := zw.Close(); err != nil {
+		t.Fatal(err)
+	}
+	return buf.Bytes()
+}
+
+func TestServesCompressedStaticAssets(t *testing.T) {
+	const script = "console.log('compressed')"
+	const page = "<!doctype html><title>compressed</title>"
+	stored := gzipBytes(t, script)
+	srv, err := New(fstest.MapFS{
+		"index.html.gz":               &fstest.MapFile{Data: gzipBytes(t, page)},
+		"assets/app-12345678.js.gz":   &fstest.MapFile{Data: stored},
+		"assets/plain-12345678.js":    &fstest.MapFile{Data: []byte("plain")},
+		"assets/plain-12345678.js.gz": &fstest.MapFile{Data: gzipBytes(t, "ignored")},
+	}, Options{})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	get := func(target, acceptEncoding string) *httptest.ResponseRecorder {
+		rec := httptest.NewRecorder()
+		req := httptest.NewRequest(http.MethodGet, target, nil)
+		if acceptEncoding != "" {
+			req.Header.Set("Accept-Encoding", acceptEncoding)
+		}
+		srv.ServeHTTP(rec, req)
+		return rec
+	}
+
+	rec := get("/assets/app-12345678.js", "br, gzip")
+	if rec.Code != http.StatusOK || rec.Header().Get("Content-Encoding") != "gzip" ||
+		!strings.Contains(rec.Header().Get("Content-Type"), "javascript") ||
+		rec.Header().Get("Cache-Control") != "private, max-age=31536000, immutable" ||
+		rec.Header().Get("Vary") != "Accept-Encoding" || !bytes.Equal(rec.Body.Bytes(), stored) {
+		t.Fatalf("gzip response: status=%d headers=%v", rec.Code, rec.Header())
+	}
+
+	rec = get("/assets/app-12345678.js", "")
+	if rec.Code != http.StatusOK || rec.Header().Get("Content-Encoding") != "" ||
+		rec.Header().Get("Vary") != "Accept-Encoding" || rec.Body.String() != script {
+		t.Fatalf("identity response: status=%d headers=%v body=%q", rec.Code, rec.Header(), rec.Body.String())
+	}
+
+	for _, ae := range []string{"gzip", ""} {
+		rec = get("/some/route", ae)
+		if rec.Code != http.StatusOK || !strings.HasPrefix(rec.Header().Get("Content-Type"), "text/html") {
+			t.Fatalf("fallback ae=%q: status=%d headers=%v", ae, rec.Code, rec.Header())
+		}
+		if (ae == "gzip") != (rec.Header().Get("Content-Encoding") == "gzip") {
+			t.Fatalf("fallback ae=%q: content-encoding=%q", ae, rec.Header().Get("Content-Encoding"))
+		}
+	}
+
+	if rec = get("/assets/missing-12345678.js", "gzip"); rec.Code != http.StatusNotFound {
+		t.Fatalf("missing asset status = %d, want 404", rec.Code)
+	}
+
+	rec = get("/assets/plain-12345678.js", "gzip")
+	if rec.Body.String() != "plain" || rec.Header().Get("Content-Encoding") != "" {
+		t.Fatalf("plain file: headers=%v body=%q", rec.Header(), rec.Body.String())
 	}
 }

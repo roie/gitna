@@ -1,9 +1,12 @@
 package server
 
 import (
+	"bytes"
+	"compress/gzip"
 	"context"
 	"encoding/json"
 	"errors"
+	"io"
 	"io/fs"
 	"mime"
 	"net/http"
@@ -229,9 +232,23 @@ func (s *Server) serveStatic(w http.ResponseWriter, r *http.Request) {
 	}
 
 	data, err := fs.ReadFile(s.static, name)
+	compressed := false
+	if err != nil {
+		data, err = fs.ReadFile(s.static, name+".gz")
+		compressed = err == nil
+	}
 	if err != nil {
 		http.Error(w, "not found", http.StatusNotFound)
 		return
+	}
+	if compressed {
+		w.Header().Set("Vary", "Accept-Encoding")
+		if acceptsGzip(r) {
+			w.Header().Set("Content-Encoding", "gzip")
+		} else if data, err = gunzip(data); err != nil {
+			http.Error(w, "corrupt asset", http.StatusInternalServerError)
+			return
+		}
 	}
 
 	if fingerprintedAsset.MatchString(name) {
@@ -246,6 +263,27 @@ func (s *Server) serveStatic(w http.ResponseWriter, r *http.Request) {
 	}
 	w.WriteHeader(http.StatusOK)
 	_, _ = w.Write(data)
+}
+
+func acceptsGzip(r *http.Request) bool {
+	for _, value := range r.Header.Values("Accept-Encoding") {
+		for coding := range strings.SplitSeq(value, ",") {
+			name, _, _ := strings.Cut(coding, ";")
+			if strings.EqualFold(strings.TrimSpace(name), "gzip") {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func gunzip(data []byte) ([]byte, error) {
+	zr, err := gzip.NewReader(bytes.NewReader(data))
+	if err != nil {
+		return nil, err
+	}
+	defer zr.Close()
+	return io.ReadAll(zr)
 }
 
 func writeJSON(w http.ResponseWriter, status int, v any) {

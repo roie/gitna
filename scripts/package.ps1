@@ -17,8 +17,8 @@ New-Item -ItemType Directory -Force -Path $OutputDirectory | Out-Null
 $OutputDirectory = (Resolve-Path $OutputDirectory).Path
 
 if ($env:GITNA_USE_PREBUILT_WEB -eq "1") {
-  if (!(Test-Path internal/webui/dist/index.html)) {
-    throw "prebuilt frontend is missing internal/webui/dist/index.html"
+  if (!(Test-Path internal/webui/dist/index.html.gz)) {
+    throw "prebuilt frontend is missing internal/webui/dist/index.html.gz"
   }
 } else {
   pnpm --dir web install --frozen-lockfile

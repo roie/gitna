@@ -1,10 +1,32 @@
+import { readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
 import { createRequire } from 'node:module'
 import { fileURLToPath } from 'node:url'
+import { gzipSync } from 'node:zlib'
 import react from '@vitejs/plugin-react'
-import { configDefaults, defineConfig, lazyPlugins } from 'vite-plus'
+import { configDefaults, defineConfig, lazyPlugins, type Plugin } from 'vite-plus'
 
 const rootDir = path.dirname(fileURLToPath(import.meta.url))
+const compressedExtensions = new Set(['.js', '.css', '.html', '.svg', '.json', '.map', '.txt'])
+
+function gzipOutput(): Plugin {
+  let outDir = ''
+  return {
+    name: 'gzip-output',
+    apply: 'build',
+    configResolved(config) {
+      outDir = path.resolve(config.root, config.build.outDir)
+    },
+    closeBundle() {
+      for (const entry of readdirSync(outDir, { recursive: true, withFileTypes: true })) {
+        if (!entry.isFile() || !compressedExtensions.has(path.extname(entry.name))) continue
+        const file = path.join(entry.parentPath, entry.name)
+        writeFileSync(`${file}.gz`, gzipSync(readFileSync(file), { level: 9 }))
+        rmSync(file)
+      }
+    },
+  }
+}
 
 // https://vite.dev/config/
 export default defineConfig({
@@ -24,7 +46,7 @@ export default defineConfig({
       'src/diffshub/globals.css',
     ],
   },
-  plugins: lazyPlugins(() => [react()]),
+  plugins: lazyPlugins(() => [react(), gzipOutput()]),
   base: './',
   resolve: {
     alias: {

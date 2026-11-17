@@ -20,8 +20,8 @@ mkdir -p "$output_dir"
 output_dir="$(cd "$output_dir" && pwd)"
 
 if [[ "${GITNA_USE_PREBUILT_WEB:-0}" == "1" ]]; then
-  [[ -f internal/webui/dist/index.html ]] || {
-    echo "prebuilt frontend is missing internal/webui/dist/index.html" >&2
+  [[ -f internal/webui/dist/index.html.gz ]] || {
+    echo "prebuilt frontend is missing internal/webui/dist/index.html.gz" >&2
     exit 1
   }
 else
