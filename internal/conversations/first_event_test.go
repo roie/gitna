@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -263,4 +264,74 @@ func TestFirstEventProcesses(t *testing.T) {
 			assertFirstEvents(t, libraryStore(t, base, "folder"), 2)
 		}
 	})
+}
+
+func TestLibraryKeepsWatchingThroughAnEventBurst(t *testing.T) {
+	base := t.TempDir()
+	l := NewLibrary(base)
+	s, err := l.Store("folder")
+	if err != nil {
+		t.Fatal(err)
+	}
+	writer := NewLibrary(base)
+	defer writer.Close()
+	other, err := writer.Store("folder")
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, changed, err := s.Events(0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	done := make(chan struct{})
+	l.mu.Lock()
+	go func() {
+		defer close(done)
+		if _, err := other.Join("helper"); err != nil {
+			t.Error(err)
+		}
+		for i := range 200 {
+			os.WriteFile(filepath.Join(base, fmt.Sprint("noise", i)), nil, 0o600)
+		}
+		time.Sleep(200 * time.Millisecond)
+		l.mu.Unlock()
+		if _, err := l.Store("late"); err != nil {
+			t.Error(err)
+		}
+	}()
+	select {
+	case <-done:
+	case <-time.After(20 * time.Second):
+		t.Fatal("library stopped serving during an event burst")
+	}
+	select {
+	case <-changed:
+	case <-time.After(5 * time.Second):
+		t.Fatal("store created during the burst did not wake")
+	}
+	_, changed, err = s.Events(0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := other.Create(human, "", anchorAt("a", 1, 1, "x"), "hello", nil); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case <-changed:
+	case <-time.After(5 * time.Second):
+		t.Fatal("store did not wake after the burst")
+	}
+	closed := make(chan error, 1)
+	go func() { closed <- l.Close() }()
+	select {
+	case err := <-closed:
+		if err != nil {
+			t.Fatal(err)
+		}
+	case <-time.After(10 * time.Second):
+		t.Fatal("Close hung")
+	}
+	if _, err := l.Store("after"); !errors.Is(err, os.ErrClosed) {
+		t.Fatalf("Store after Close = %v", err)
+	}
 }
