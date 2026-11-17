@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vite-plus/test'
 
 import {
   captureLines,
+  createConversationsApi,
   ConversationsModel,
   type Conversation,
   type ConversationEvent,
@@ -62,6 +63,11 @@ function fakeApi(lists: Conversation[][], agents: Participant[] = []) {
     return () => {}
   })
   const api: ConversationsApi = {
+    settings: vi.fn(),
+    setEnabled: vi.fn(),
+    addAgent: vi.fn(),
+    deleteDefinition: vi.fn(),
+    leave: vi.fn(),
     list,
     create: vi.fn(),
     reply: vi.fn(),
@@ -79,6 +85,67 @@ async function loaded(list: Conversation[], agents: Participant[]) {
   await model.load()
   return model
 }
+
+describe('agent settings', () => {
+  it('posts a command and refreshes the repository roster', async () => {
+    const { api, list } = fakeApi([[]], [agent])
+    const addAgent = vi.fn().mockResolvedValue({
+      definition: { id: 'd', name: 'helper', executable: '/bin/helper', args: [] },
+      participant: agent,
+    })
+    api.addAgent = addAgent
+    const model = new ConversationsModel(api)
+    const request = { name: 'helper', command: 'helper --acp' }
+    await model.addAgent(request)
+    expect(addAgent).toHaveBeenCalledWith(request)
+    expect(list).toHaveBeenCalledOnce()
+    expect(model.agents).toEqual([agent])
+  })
+
+  it('exposes authentication methods and sends the selected method on retry', async () => {
+    const methods = [
+      { id: 'login', name: 'Sign in', description: 'Open a browser', interactive: false },
+    ]
+    const fetch = vi
+      .fn()
+      .mockResolvedValueOnce(Response.json({ code: 'auth-required', methods }, { status: 409 }))
+      .mockResolvedValueOnce(Response.json({ participant: agent }))
+    const api = createConversationsApi(fetch, async (response) => response)
+    await expect(api.addAgent({ name: 'helper', command: 'helper' })).rejects.toMatchObject({
+      methods,
+    })
+    await api.addAgent({ name: 'helper', command: 'helper', authMethod: 'login' })
+    expect(JSON.parse(fetch.mock.calls[1]![1].body)).toEqual({
+      name: 'helper',
+      command: 'helper',
+      authMethod: 'login',
+    })
+  })
+
+  it('keeps the server verification error', async () => {
+    const api = createConversationsApi(
+      vi.fn().mockResolvedValue(Response.json({ error: 'Not an ACP agent' }, { status: 422 })),
+      async (response) => {
+        if (!response.ok) throw new Error((await response.json()).error)
+        return response
+      },
+    )
+    await expect(api.addAgent({ name: 'helper', command: 'bad' })).rejects.toThrow(
+      'Not an ACP agent',
+    )
+  })
+
+  it('refreshes the roster after leaving', async () => {
+    const { api } = fakeApi([[]])
+    const leave = vi.fn().mockResolvedValue({})
+    api.leave = leave
+    const model = new ConversationsModel(api)
+    model.agents = [agent]
+    await model.leave(agent.id)
+    expect(leave).toHaveBeenCalledWith(agent.id)
+    expect(model.agents).toEqual([])
+  })
+})
 
 describe('ConversationsModel', () => {
   it('indexes threads by their current location and tracks unread agent replies', async () => {

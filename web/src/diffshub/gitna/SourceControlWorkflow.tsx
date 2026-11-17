@@ -44,6 +44,7 @@ import {
 } from 'react'
 import { createPortal } from 'react-dom'
 
+import { AgentsMenu } from './AgentsMenu'
 import { ApiError } from '../../lib/api'
 import { savePreference } from '../../lib/preferences'
 import type { Conversation, ConversationsModel, Participant } from '../../lib/conversations'
@@ -1180,45 +1181,48 @@ function GitnaSourceControlInner({
           }
           renderContextMenu={renderRepositoryContextMenu}
           titleAccessory={
-            hasConversations ? (
-              <Button
-                type="button"
-                variant="ghost"
-                size="sm"
-                aria-label="Conversations"
-                aria-pressed={showingConversations}
-                title="Conversations"
-                className={cn(
-                  CHROME_ICON_BUTTON_CLASS,
-                  'relative w-auto gap-1 px-1.5 text-xs tabular-nums',
-                )}
-                onClick={() => {
-                  setConversationsShown(!showingConversations)
-                  setRepositoryOpen(true)
-                }}
-              >
-                {showingConversations ? (
-                  <>
-                    <IconFileTree className="size-4 md:size-3" />
-                    {repositoryCount}
-                  </>
-                ) : (
-                  <>
-                    <IconComment className="size-4 md:size-3" />
-                    {openConversations > 0 && openConversations}
-                  </>
-                )}
-                {conversationList.some((conversation) =>
-                  conversationsModel.unread(conversation),
-                ) && (
-                  <span
-                    role="img"
-                    aria-label="Unread"
-                    className="absolute -right-0.5 -top-0.5 size-2 rounded-full border-[1px] border-[var(--diffshub-sidebar-bg)] bg-blue-500 dark:bg-blue-400"
-                  />
-                )}
-              </Button>
-            ) : undefined
+            <>
+              {conversationsModel != null && <AgentsMenu model={conversationsModel} />}
+              {hasConversations ? (
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  aria-label="Conversations"
+                  aria-pressed={showingConversations}
+                  title="Conversations"
+                  className={cn(
+                    CHROME_ICON_BUTTON_CLASS,
+                    'relative w-auto gap-1 px-1.5 text-xs tabular-nums',
+                  )}
+                  onClick={() => {
+                    setConversationsShown(!showingConversations)
+                    setRepositoryOpen(true)
+                  }}
+                >
+                  {showingConversations ? (
+                    <>
+                      <IconFileTree className="size-4 md:size-3" />
+                      {repositoryCount}
+                    </>
+                  ) : (
+                    <>
+                      <IconComment className="size-4 md:size-3" />
+                      {openConversations > 0 && openConversations}
+                    </>
+                  )}
+                  {conversationList.some((conversation) =>
+                    conversationsModel.unread(conversation),
+                  ) && (
+                    <span
+                      role="img"
+                      aria-label="Unread"
+                      className="absolute -right-0.5 -top-0.5 size-2 rounded-full border-[1px] border-[var(--diffshub-sidebar-bg)] bg-blue-500 dark:bg-blue-400"
+                    />
+                  )}
+                </Button>
+              ) : undefined}
+            </>
           }
           body={
             showingConversations && conversations != null ? (

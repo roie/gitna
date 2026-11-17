@@ -1,7 +1,38 @@
+import { savePreference } from './preferences'
+
+export interface AgentDefinition {
+  id: string
+  name: string
+  executable: string
+  args: string[]
+}
+
+export interface AuthMethod {
+  id: string
+  name: string
+  description: string
+  interactive: boolean
+}
+
+export class AgentAuthRequired extends Error {
+  constructor(readonly methods: AuthMethod[]) {
+    super('Sign in to this agent to continue')
+  }
+}
+
+export type AddAgent =
+  | { name: string; command: string; authMethod?: string }
+  | { definition: string }
+export interface AgentAdded {
+  definition: AgentDefinition
+  participant: Participant
+}
+
 export interface Participant {
   id: string
   kind: 'human' | 'agent'
   name: string
+  agent?: string
 }
 
 export type ConversationSource = 'worktree' | 'index' | 'commit'
@@ -91,6 +122,11 @@ export interface ConversationList {
 }
 
 export interface ConversationsApi {
+  settings(): Promise<{ enabled: boolean; agents: AgentDefinition[] }>
+  setEnabled(enabled: boolean): void
+  addAgent(request: AddAgent): Promise<AgentAdded>
+  deleteDefinition(id: string): Promise<void>
+  leave(participantId: string): Promise<unknown>
   list(path: string, signal?: AbortSignal): Promise<ConversationList>
   create(anchor: ConversationAnchor, body: string, id: string, to?: string[]): Promise<Conversation>
   reply(
@@ -123,17 +159,34 @@ export function createConversationsApi(
   baseURL?: string,
 ): ConversationsApi {
   const post = async <T>(url: string, body: unknown): Promise<T> => {
-    const response = await expectOK(
-      await fetch(url, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(body),
-        signal: AbortSignal.timeout(30_000),
-      }),
-    )
+    const raw = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+      signal: AbortSignal.timeout(30_000),
+    })
+    if (raw.status === 409) {
+      const error = (await raw.clone().json()) as { code?: string; methods?: AuthMethod[] }
+      if (error.code === 'auth-required') throw new AgentAuthRequired(error.methods ?? [])
+    }
+    const response = await expectOK(raw)
     return (await response.json()) as T
   }
   return {
+    async settings() {
+      return (await (await expectOK(await fetch('api/v1/conversations/settings'))).json()) as {
+        enabled: boolean
+        agents: AgentDefinition[]
+      }
+    },
+    setEnabled: (enabled) => savePreference('gitna:conversations', String(enabled)),
+    addAgent: (request) => post('api/v1/conversations/agents', request),
+    async deleteDefinition(id) {
+      await expectOK(
+        await fetch(`api/v1/conversations/agents/${encodeURIComponent(id)}`, { method: 'DELETE' }),
+      )
+    },
+    leave: (id) => post(`api/v1/conversations/participants/${encodeURIComponent(id)}/leave`, {}),
     async list(path, signal) {
       const response = await expectOK(
         await fetch(`api/v1/conversations?path=${encodeURIComponent(path)}`, { signal }),
@@ -303,6 +356,17 @@ export class ConversationsModel {
       this.error = error instanceof Error ? error.message : String(error)
     }
     this.emit()
+  }
+
+  async addAgent(request: AddAgent): Promise<AgentAdded> {
+    const added = await this.api.addAgent(request)
+    await this.load()
+    return added
+  }
+
+  async leave(id: string): Promise<void> {
+    await this.api.leave(id)
+    await this.load()
   }
 
   async create(anchor: ConversationAnchor, body: string, to?: string[]): Promise<Conversation> {
