@@ -14,7 +14,7 @@ export interface GitnaFixture {
   repo: string
   baseOid: string
   headOid: string
-  restart(): Promise<Pick<GitnaFixture, 'url' | 'origin' | 'token'>>
+  restart(hard?: boolean): Promise<Pick<GitnaFixture, 'url' | 'origin' | 'token'>>
 }
 
 function git(cwd: string, ...args: string[]): string {
@@ -212,8 +212,15 @@ export const test = base.extend<{ app: GitnaFixture }>({
         url: running.url,
         origin: parsed.origin,
         token: parsed.pathname.split('/')[2] ?? '',
-        restart: async () => {
-          if (child != null) await stopGitna(child)
+        restart: async (hard = false) => {
+          if (child != null) {
+            if (hard) {
+              if (process.platform === 'win32' && child.pid)
+                spawnSync('taskkill', ['/pid', String(child.pid), '/t', '/f'])
+              else child.kill('SIGKILL')
+            }
+            await stopGitna(child)
+          }
           const next = await startGitna(binary, fixture.repo)
           child = next.child
           const nextURL = new URL(next.url)

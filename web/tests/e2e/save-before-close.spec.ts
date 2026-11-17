@@ -1,7 +1,28 @@
-import { readFileSync } from 'node:fs'
+import { readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import type { Page } from '@playwright/test'
 import { test, expect } from './fixtures.js'
+
+test('an external disk change keeps the dirty buffer and refuses a stale save', async ({
+  page,
+  app,
+}) => {
+  await page.goto(app.url)
+  await page.locator('[data-section="repository"]').click()
+  const editor = await editFile(page, 'main.txt')
+  writeFileSync(join(app.repo, 'main.txt'), 'changed externally\n')
+  await expect(page.getByRole('tab', { name: /main.txt Unsaved changes/ })).toBeVisible()
+  await expect(editor).toContainText('draft to keep')
+  const response = page.waitForResponse(
+    (response) =>
+      response.request().method() === 'PUT' && response.url().endsWith('/api/v1/worktree/file'),
+  )
+  await page.keyboard.press('Control+s')
+  expect((await response).status()).toBe(409)
+  await expect(page.getByRole('alert')).toContainText(/changed|conflict/i)
+  await expect(editor).toContainText('draft to keep')
+  expect(readFileSync(join(app.repo, 'main.txt'), 'utf8')).toBe('changed externally\n')
+})
 
 async function editFile(page: Page, path: string) {
   await page

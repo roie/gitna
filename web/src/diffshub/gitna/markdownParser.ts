@@ -31,7 +31,11 @@ const CLOBBER_PREFIX = 'user-content-'
 function prefixFragmentLinks(node: MarkdownTree): void {
   if (node.type === 'element' && node.tagName === 'a') {
     const href = node.properties.href
-    if (typeof href === 'string' && href.startsWith('#') && !href.startsWith(`#${CLOBBER_PREFIX}`)) {
+    if (
+      typeof href === 'string' &&
+      href.startsWith('#') &&
+      !href.startsWith(`#${CLOBBER_PREFIX}`)
+    ) {
       node.properties.href = `#${CLOBBER_PREFIX}${href.slice(1)}`
     }
   }

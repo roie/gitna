@@ -1,6 +1,7 @@
 import { execFileSync } from 'node:child_process'
 import { readFileSync, readdirSync, renameSync, rmSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
+import { fileURLToPath } from 'node:url'
 import type { Locator, Page } from '@playwright/test'
 import { expect, startGitna, stopGitna, test, type GitnaFixture } from './fixtures.js'
 
@@ -34,6 +35,7 @@ interface StoredConversation {
   status: string
   anchor: Record<string, unknown>
   messages: { body: string; author: { id: string } }[]
+  runs?: { state: string; participantId: string }[]
 }
 
 async function stored(page: Page, app: Pick<GitnaFixture, 'url'>): Promise<StoredConversation[]> {
@@ -276,7 +278,7 @@ test('the repository pane lists conversations; resolve hides them and delete can
   const item = (text: string) => page.locator('diffs-container', { hasText: text })
   const line = item('unstaged change').locator('[data-column-number="1"]').last()
   await expect(line).toBeVisible()
-  await comment(page, line, null, 'resolve me')
+  await comment(page, line, null, '@e2e-agent resolve me')
   await expect(toggle).toHaveText('1')
   const thread = page.getByRole('article').filter({ hasText: 'resolve me' })
   await expect(thread).toBeVisible()
@@ -314,8 +316,10 @@ test('the repository pane lists conversations; resolve hides them and delete can
   await page.getByRole('button', { name: 'Undo' }).click()
   await expect(thread).toBeVisible()
   await expect(toggle).toHaveAttribute('aria-pressed', 'true')
-  expect((await stored(page, app)).map(({ messages }) => messages[0].body)).toEqual(['resolve me'])
-  expect(pending()).toEqual(['resolve me'])
+  expect((await stored(page, app)).map(({ messages }) => messages[0].body)).toEqual([
+    '@e2e-agent resolve me',
+  ])
+  expect(pending()).toEqual(['@e2e-agent resolve me'])
 })
 
 test('a draft shows its caret and moves to another line from the gutter', async ({ page, app }) => {
@@ -953,4 +957,147 @@ test('one comment can be deleted from its menu, keeping the conversation, and un
     'Keep this',
     'Drop this',
   ])
+})
+
+async function addNative(page: Page, name: string, mode: string) {
+  await page.getByRole('button', { name: 'Agents', exact: true }).click()
+  await page.getByRole('menuitem', { name: 'Add agent…' }).click()
+  const dialog = page.getByRole('dialog', { name: 'Add agent' })
+  await expect(dialog.getByText(/can read and change anything you can/)).toBeVisible()
+  await dialog.getByRole('textbox', { name: 'Name', exact: true }).fill(name)
+  const script = fileURLToPath(new URL('./fake-acp-agent.mjs', import.meta.url))
+  await dialog
+    .getByRole('textbox', { name: 'Command', exact: true })
+    .fill(`"${process.execPath}" "${script}" ${mode}`)
+  await dialog.getByRole('button', { name: 'Add agent', exact: true }).click()
+  await expect(dialog.getByRole('status')).toContainText(`Added ${name}`)
+  await dialog.getByRole('button', { name: 'Done', exact: true }).click()
+}
+
+async function nativeThread(page: Page, body: string) {
+  await comment(page, page.locator('[data-file] [data-column-number="5"]'), null, body)
+  return page.getByRole('article').filter({ hasText: body })
+}
+
+test('native mentions run only the named agents, sequentially, and preserve CLI participation', async ({
+  page,
+  app,
+}) => {
+  await page.goto(app.url)
+  await openFile(page, 'two-hunk.txt')
+  await addNative(page, 'Agent A', 'reply')
+  await addNative(page, 'Agent B', 'second')
+  await nativeThread(page, 'No recipient')
+  expect((await stored(page, app))[0].runs ?? []).toEqual([])
+  const first = await nativeThread(page, '@Agent A Explain this')
+  await expect(first.getByText('Reply from reply', { exact: true })).toBeVisible()
+  expect((await stored(page, app))[1].runs).toHaveLength(1)
+  await expect(first.getByRole('textbox', { name: 'Reply…' })).toHaveValue('@Agent A ')
+  await first.getByRole('textbox', { name: 'Reply…' }).fill('@Agent A Follow up')
+  await first.getByRole('textbox', { name: 'Reply…' }).press('Control+Enter')
+  await expect(first.getByText('Reply from reply', { exact: true })).toHaveCount(2)
+  const all = await nativeThread(page, '@all Both of you')
+  await expect(all.getByRole('status').filter({ hasText: 'Agent B: Waiting' })).toBeVisible()
+  await expect(all.getByText('Reply from second', { exact: true })).toBeVisible()
+  expect(
+    readFileSync(join(app.repo, '.git', 'native-runs'), 'utf8')
+      .trim()
+      .split('\n'),
+  ).toEqual(['reply', 'reply', 'reply', 'second'])
+  await addNative(page, 'Late agent', 'late')
+  expect((await stored(page, app)).flatMap((conversation) => conversation.runs ?? [])).toHaveLength(
+    4,
+  )
+  agent(app, 'session')
+  const thread = (await stored(page, app))[1]
+  agent(app, 'reply', thread.id, '--id', 'm-cli-native', '--body', 'CLI joined this thread')
+  await expect(first.getByText('CLI joined this thread', { exact: true })).toBeVisible()
+})
+
+test('native edits appear in changes, and permissions can be denied', async ({ page, app }) => {
+  await page.goto(app.url)
+  await openFile(page, 'two-hunk.txt')
+  await addNative(page, 'Editor', 'edit')
+  const thread = await nativeThread(page, '@Editor Change the file')
+  await expect(thread.getByText(/Edited modified.txt:/)).toBeVisible()
+  expect(readFileSync(join(app.repo, 'modified.txt'), 'utf8')).toContain('agent edit')
+  await page
+    .locator('#gitna-unstaged-tree__tree')
+    .getByRole('treeitem', { name: 'modified.txt', exact: true })
+    .click()
+  await expect(page.locator('[data-line]').filter({ hasText: 'agent edit' }).first()).toBeVisible()
+  await openFile(page, 'two-hunk.txt')
+  await addNative(page, 'Permission agent', 'permission')
+  const permission = await nativeThread(page, '@Permission agent Ask first')
+  await permission.getByRole('button', { name: 'Deny', exact: true }).click()
+  await expect(permission.getByText('Permission: no', { exact: true })).toBeVisible()
+})
+
+test('native runs survive a closed page, cancel, and become interrupted after a crash', async ({
+  page,
+  app,
+  context,
+}) => {
+  await page.goto(app.url)
+  await openFile(page, 'two-hunk.txt')
+  await addNative(page, 'Slow agent', 'reply')
+  await nativeThread(page, '@Slow agent Finish after the page closes')
+  await page.close()
+  const other = await context.newPage()
+  await other.goto(app.url)
+  await openFile(other, 'two-hunk.txt')
+  await expect(other.getByText('Reply from reply', { exact: true })).toBeVisible()
+  await addNative(other, 'Hanging agent', 'hang')
+  const hanging = await nativeThread(other, '@Hanging agent Cancel me')
+  await hanging.getByRole('button', { name: 'Cancel', exact: true }).click()
+  await expect(hanging.getByRole('status')).toContainText('Cancelled')
+  await nativeThread(other, '@Hanging agent Interrupt me')
+  await expect(
+    other
+      .getByRole('article')
+      .filter({ hasText: 'Interrupt me' })
+      .getByRole('button', { name: 'Cancel', exact: true }),
+  ).toBeVisible()
+  const restarted = await app.restart(true)
+  await other.goto(restarted.url)
+  await openFile(other, 'two-hunk.txt')
+  const interrupted = other.getByRole('article').filter({ hasText: 'Interrupt me' })
+  await expect(interrupted.getByRole('status')).toContainText('Interrupted')
+  await expect(interrupted.getByRole('button', { name: 'Retry', exact: true })).toBeVisible()
+  const conversations = await stored(other, restarted)
+  expect(conversations[2].messages).toHaveLength(1)
+  expect(conversations[2].runs).toHaveLength(1)
+  await other.getByRole('button', { name: 'Display settings' }).click()
+  await expect(other.getByRole('switch', { name: 'Conversations' })).toBeChecked()
+})
+
+test('turning conversations off interrupts queued runs without stopping the active run', async ({
+  page,
+  app,
+}) => {
+  await page.goto(app.url)
+  await openFile(page, 'two-hunk.txt')
+  await addNative(page, 'Active agent', 'hang')
+  await addNative(page, 'Queued agent', 'reply')
+  const thread = await nativeThread(page, '@all Pause the queue')
+  await expect(
+    thread.getByRole('status').filter({ hasText: 'Queued agent: Waiting' }),
+  ).toBeVisible()
+  await page.getByRole('button', { name: 'Display settings' }).click()
+  await page.getByRole('switch', { name: 'Conversations' }).click()
+  await page.keyboard.press('Escape')
+  await expect
+    .poll(async () => (await stored(page, app))[0].runs?.map((run) => run.state))
+    .toEqual(['running', 'interrupted'])
+  await page.getByRole('button', { name: 'Display settings' }).click()
+  await page.getByRole('switch', { name: 'Conversations' }).click()
+  await page.keyboard.press('Escape')
+  await expect(
+    thread.getByRole('status').filter({ hasText: 'Conversations was turned off' }),
+  ).toBeVisible()
+  await thread.getByRole('button', { name: 'Cancel', exact: true }).click()
+  await expect
+    .poll(async () => (await stored(page, app))[0].runs?.map((run) => run.state))
+    .toEqual(['cancelled', 'interrupted'])
+  expect((await stored(page, app))[0].messages).toHaveLength(1)
 })

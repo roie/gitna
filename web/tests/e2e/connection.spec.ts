@@ -65,6 +65,11 @@ test('conversations that fail to load during a backend outage add no notificatio
   page,
   app,
 }) => {
+  const enabled = await page.request.put(new URL('api/v1/preferences', app.url).href, {
+    headers: { Origin: app.origin },
+    data: { key: 'gitna:conversations', value: 'true' },
+  })
+  expect(enabled.status()).toBe(204)
   let releaseList!: () => void
   const listHeld = new Promise<void>((resolve) => {
     releaseList = resolve

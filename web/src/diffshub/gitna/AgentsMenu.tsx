@@ -137,6 +137,10 @@ export function AgentsMenu({ model }: { model: ConversationsModel }) {
                 void add({ name, command })
               }}
             >
+              <p className="m-0 text-sm text-muted-foreground">
+                An agent runs with your user's permissions. It can read and change anything you can,
+                may act without asking, and may send repository content to its provider.
+              </p>
               <div className="flex flex-col gap-1">
                 <label htmlFor={`${id}-name`}>Name</label>
                 <Input
