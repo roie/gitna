@@ -75,6 +75,12 @@ Gitna incorporates `Geist-Variable.woff2` from `geist@1.5.1`, Copyright 2023
 Vercel in collaboration with basement.studio. Geist is licensed under the SIL
 Open Font License 1.1; the verbatim license is at `LICENSES/OFL-1.1.txt`.
 
+## ACP Go SDK
+
+Gitna uses `github.com/caelis-labs/acp-go-sdk` at `v1.7.0` under Apache-2.0.
+Its license is included in `THIRD_PARTY_LICENSES.txt`. Its upstream notice is
+reproduced below.
+
 ## Distribution requirement
 
 Release archives include `LICENSE`, this file, the shared license texts in
@@ -85,6 +91,21 @@ together with their applicable license texts. Regenerate it after dependency cha
 `node scripts/generate-third-party-licenses.mjs`.
 
 ## Verbatim upstream notices
+
+### ACP Go SDK notice
+
+```
+ACP Go SDK
+Copyright 2026 Caelis Labs
+
+This product includes software derived from coder/acp-go-sdk,
+Copyright Coder Technologies, Inc., licensed under the Apache License 2.0:
+https://github.com/coder/acp-go-sdk
+
+Generated protocol definitions are derived from the Agent Client Protocol
+JSON Schema, licensed under the Apache License 2.0:
+https://github.com/agentclientprotocol/agent-client-protocol
+```
 
 ### `@pierre/theme` notice
 
