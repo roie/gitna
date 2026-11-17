@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/roie/gitna/internal/agentlink"
+	"github.com/roie/gitna/internal/agentrun"
 	"github.com/roie/gitna/internal/browser"
 	"github.com/roie/gitna/internal/conversations"
 	"github.com/roie/gitna/internal/drafts"
@@ -542,6 +543,10 @@ func Run(ctx context.Context, path, version string) error {
 		return fmt.Errorf("app: open draft journal: %w", err)
 	}
 
+	agentSettings, err := agentrun.Open(filepath.Join(stateDir, "conversations", "settings.json"))
+	if err != nil {
+		return fmt.Errorf("app: open agent settings: %w", err)
+	}
 	library := conversations.NewLibrary(filepath.Join(stateDir, "conversations", "v1"))
 	defer library.Close()
 	agentToken, err := session.NewToken()
@@ -564,6 +569,7 @@ func Run(ctx context.Context, path, version string) error {
 			preferences:   prefs.Open(filepath.Join(stateDir, "preferences.json")),
 			pdfPreviews:   pdfPreviews,
 			conversations: library,
+			agentSettings: agentSettings,
 		},
 	)
 	if err != nil {

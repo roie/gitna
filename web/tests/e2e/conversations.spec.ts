@@ -4,6 +4,31 @@ import { dirname, join } from 'node:path'
 import type { Locator, Page } from '@playwright/test'
 import { expect, startGitna, stopGitna, test, type GitnaFixture } from './fixtures.js'
 
+test.beforeEach(async ({ page, app }, info) => {
+  if (info.title === 'conversations are off until enabled') return
+  const response = await page.request.put(new URL('api/v1/preferences', app.url).href, {
+    headers: { Origin: app.origin },
+    data: { key: 'gitna:conversations', value: 'true' },
+  })
+  expect(response.status()).toBe(204)
+})
+
+test('conversations are off until enabled', async ({ page, app }) => {
+  const requests: string[] = []
+  page.on('request', (request) => {
+    if (/\/conversations(?:\?|\/events|$)/.test(new URL(request.url()).pathname))
+      requests.push(request.url())
+  })
+  await page.goto(app.url)
+  await openFile(page, 'two-hunk.txt')
+  await page.getByRole('button', { name: 'Display settings' }).click()
+  await expect(page.getByRole('switch', { name: 'Conversations' })).not.toBeChecked()
+  expect(requests).toEqual([])
+  await page.getByRole('switch', { name: 'Conversations' }).click()
+  await page.keyboard.press('Escape')
+  await expect.poll(() => requests.length).toBeGreaterThan(0)
+})
+
 interface StoredConversation {
   id: string
   status: string

@@ -561,9 +561,9 @@ function GitnaReviewUIInner({
   }
   const [showConversations, setShowConversations] = useState(() => {
     try {
-      return localStorage.getItem('gitna:conversations') !== 'false'
+      return localStorage.getItem('gitna:conversations') === 'true'
     } catch {
-      return true
+      return false
     }
   })
   const changeShowConversations = (enabled: boolean) => {
@@ -1592,14 +1592,14 @@ function GitnaReviewUIInner({
   const [conversationsModel, setConversationsModel] = useState<ConversationsModel | null>(null)
   useEffect(() => {
     const api = repository.api.conversations
-    if (api == null || repository.snapshot == null) return
+    if (!showConversations || api == null || repository.snapshot == null) return
     const model = new ConversationsModel(api)
     setConversationsModel(model)
     return () => {
       model.dispose()
       setConversationsModel(null)
     }
-  }, [repository.api, repository.snapshot == null])
+  }, [repository.api, repository.snapshot == null, showConversations])
   const repositoryGeneration = repository.generation
   const connected = repository.connectionState === 'connected'
   useEffect(() => {
@@ -2589,7 +2589,9 @@ function GitnaReviewUIInner({
               inlineBlame={inlineBlame}
               setInlineBlame={changeInlineBlame}
               conversations={showConversations}
-              setConversations={conversationsModel == null ? undefined : changeShowConversations}
+              setConversations={
+                repository.api.conversations == null ? undefined : changeShowConversations
+              }
               setShowBackgrounds={setShowBackgrounds}
               showBackgrounds={showBackgrounds}
             />

@@ -21,6 +21,7 @@ import (
 const testAgentToken = "agenttoken1234567890123456789012"
 
 type conversationFixture struct {
+	backend *Conversations
 	browser http.Handler
 	agent   http.Handler
 	root    string
@@ -68,6 +69,7 @@ func newConversationFixture(t *testing.T) conversationFixture {
 		t.Fatal(err)
 	}
 	return conversationFixture{
+		backend: backend,
 		browser: Security{Token: testToken, Host: testHost}.Wrap(srv),
 		agent:   agent,
 		root:    root,

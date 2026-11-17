@@ -776,8 +776,7 @@ export const DiffsHubHeader = memo(function DiffsHubHeader({
                             </TooltipTrigger>
                             <TooltipContent side="bottom" className="max-w-60">
                               Comment on lines of code and discuss them with
-                              coding agents, who read and reply through the
-                              gitna CLI. Turning this off hides conversations;
+                              coding agents. Turning this off hides conversations;
                               nothing is deleted.
                             </TooltipContent>
                           </Tooltip>

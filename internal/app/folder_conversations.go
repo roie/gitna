@@ -20,7 +20,15 @@ func (r *folderRegistry) newConversations(repo gitx.Repository) *server.Conversa
 	root := repo.Root
 	library := r.conversations
 	backend := &server.Conversations{
-		Root: root,
+		Root:     root,
+		Settings: r.agentSettings,
+		Enabled: func() bool {
+			if r.preferences == nil {
+				return false
+			}
+			all, err := r.preferences.All()
+			return err == nil && all["gitna:conversations"] == "true"
+		},
 		Open: func() (*conversations.Store, error) { return library.Store(folder.PathKey(root)) },
 	}
 	var once sync.Once

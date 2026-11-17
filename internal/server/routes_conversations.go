@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/roie/gitna/internal/agentrun"
 	"github.com/roie/gitna/internal/conversations"
 )
 
@@ -17,9 +18,11 @@ const maxConversationWait = 10 * time.Minute
 
 // Conversations connects one repository's conversation store to the API.
 type Conversations struct {
-	Root  string
-	Human func() conversations.Participant
-	Open  func() (*conversations.Store, error)
+	Settings *agentrun.SettingsFile
+	Enabled  func() bool
+	Root     string
+	Human    func() conversations.Participant
+	Open     func() (*conversations.Store, error)
 	conversations.Sources
 }
 
@@ -80,6 +83,10 @@ type pendingResponse struct {
 func (s *Server) handleConversations(w http.ResponseWriter, r *http.Request, rest string) {
 	if s.conversations == nil {
 		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "conversations unavailable"})
+		return
+	}
+	if rest == "/settings" && r.Method == http.MethodGet {
+		s.conversations.settings(w)
 		return
 	}
 	if s.hub.src != nil {

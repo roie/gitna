@@ -11,6 +11,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/roie/gitna/internal/agentrun"
 	"github.com/roie/gitna/internal/conversations"
 	"github.com/roie/gitna/internal/drafts"
 	"github.com/roie/gitna/internal/folder"
@@ -37,6 +38,7 @@ type folderRegistryOptions struct {
 	preferences   *prefs.File
 	pdfPreviews   *server.PDFPreviews
 	conversations *conversations.Library
+	agentSettings *agentrun.SettingsFile
 }
 
 type folderRoute struct {
@@ -79,6 +81,7 @@ type folderRegistry struct {
 	preferences   *prefs.File
 	pdfPreviews   *server.PDFPreviews
 	conversations *conversations.Library
+	agentSettings *agentrun.SettingsFile
 	closing       atomic.Bool
 	closeOnce     sync.Once
 	closeErr      error
@@ -127,6 +130,7 @@ func newFolderRegistry(
 		config.preferences = options[0].preferences
 		config.pdfPreviews = options[0].pdfPreviews
 		config.conversations = options[0].conversations
+		config.agentSettings = options[0].agentSettings
 	}
 	staticServer, err := server.New(static, server.Options{Version: version, Preferences: config.preferences})
 	if err != nil {
@@ -148,6 +152,7 @@ func newFolderRegistry(
 		preferences:   config.preferences,
 		pdfPreviews:   config.pdfPreviews,
 		conversations: config.conversations,
+		agentSettings: config.agentSettings,
 		byRoot:        make(map[string]string),
 		byRoute:       make(map[string]*folderRoute),
 	}
