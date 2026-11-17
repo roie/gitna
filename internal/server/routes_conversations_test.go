@@ -122,7 +122,7 @@ func decodeBody[T any](t *testing.T, rec *httptest.ResponseRecorder) T {
 func TestHumanAndAgentExchangeThroughAPI(t *testing.T) {
 	f := newConversationFixture(t)
 	create := f.browserDo(t, http.MethodPost, "/conversations",
-		`{"id":"c1","anchor":{"path":"main.go","side":"additions","startLine":3,"endLine":4,"code":"func main() {\n\tprintln(1)"},"body":"Why println?"}`)
+		`{"id":"c1","anchor":{"path":"main.go","side":"additions","startLine":3,"endLine":4,"code":"func main() {\n\tprintln(1)"},"body":"Why println?","to":["all"]}`)
 	if create.Code != http.StatusOK {
 		t.Fatalf("create = %d %s", create.Code, create.Body)
 	}
@@ -365,7 +365,7 @@ func TestPendingDefersConversationsWhoseFileIsMissing(t *testing.T) {
 	path := filepath.Join(f.root, "main.go")
 	original, _ := os.ReadFile(path)
 	if rec := f.browserDo(t, http.MethodPost, "/conversations",
-		`{"id":"c1","anchor":{"path":"main.go","side":"additions","startLine":1,"endLine":1},"body":"Rename the package"}`); rec.Code != http.StatusOK {
+		`{"id":"c1","anchor":{"path":"main.go","side":"additions","startLine":1,"endLine":1},"body":"Rename the package","to":["all"]}`); rec.Code != http.StatusOK {
 		t.Fatalf("create = %d %s", rec.Code, rec.Body)
 	}
 	pending := func() []conversations.Pending {
@@ -399,7 +399,7 @@ func TestPendingWaitWakesWhenHeldMessagesReturn(t *testing.T) {
 	original, _ := os.ReadFile(path)
 	for _, id := range []string{"c1", "c2"} {
 		if rec := f.browserDo(t, http.MethodPost, "/conversations",
-			`{"id":"`+id+`","anchor":{"path":"main.go","side":"additions","startLine":1,"endLine":1},"body":"`+id+`"}`); rec.Code != http.StatusOK {
+			`{"id":"`+id+`","anchor":{"path":"main.go","side":"additions","startLine":1,"endLine":1},"body":"`+id+`","to":["all"]}`); rec.Code != http.StatusOK {
 			t.Fatalf("create = %d %s", rec.Code, rec.Body)
 		}
 	}

@@ -73,10 +73,10 @@ func TestConversationsCLIRoundTrip(t *testing.T) {
 		}
 		return out
 	}
-	join := func(name string) string {
+	join := func(name, want string) string {
 		t.Helper()
 		participant := run("", "join", "--as", name)["participant"].(map[string]any)
-		if participant["name"] != name || participant["kind"] != "agent" {
+		if participant["name"] != want || participant["kind"] != "agent" {
 			t.Fatalf("joined = %+v", participant)
 		}
 		return participant["id"].(string)
@@ -86,8 +86,7 @@ func TestConversationsCLIRoundTrip(t *testing.T) {
 		return run("", "pending", "--participant", participant)["pending"].([]any)
 	}
 
-	// Two agents may show the same name but get their own ids.
-	first, second := join("Helper"), join("Helper")
+	first, second := join("Helper", "Helper"), join("Helper", "Helper 2")
 	if first == second {
 		t.Fatalf("both joins returned %q", first)
 	}
@@ -123,12 +122,12 @@ func TestConversationsCLIRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := store.Reply(conversations.Participant{ID: "human:local", Kind: "human", Name: "Ada"}, id, "m-human", "Please explain", nil); err != nil {
+	if _, err := store.Reply(conversations.Participant{ID: "human:local", Kind: "human", Name: "Ada"}, id, "m-human", "Please explain", []string{first}); err != nil {
 		t.Fatal(err)
 	}
 	store.Close()
 
-	// The person's reply goes to the agent that wrote in the thread.
+	// The person's reply goes only to its named recipient.
 	if got := pending(first); len(got) != 1 {
 		t.Fatalf("first pending = %+v", got)
 	}
@@ -169,7 +168,7 @@ func TestConversationsCLIRoundTrip(t *testing.T) {
 	if messages := shown["messages"].([]any); len(messages) != 4 {
 		t.Fatalf("messages after retry = %+v", messages)
 	}
-	if author := shown["messages"].([]any)[3].(map[string]any)["author"].(map[string]any); author["id"] != second || author["name"] != "Helper" {
+	if author := shown["messages"].([]any)[3].(map[string]any)["author"].(map[string]any); author["id"] != second || author["name"] != "Helper 2" {
 		t.Fatalf("retry author = %+v", author)
 	}
 	if status := run("", "resolve", id, "--participant", first)["status"]; status != "resolved" {

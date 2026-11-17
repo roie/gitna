@@ -120,7 +120,7 @@ var conversationCommands = map[string]conversationOperation{
 		return out, c.client.Do(c.ctx, http.MethodPost, "/conversations/"+url.PathEscape(id)+"/messages", nil,
 			map[string]any{"id": messageID, "body": body, "to": c.flags.to}, &out)
 	}},
-	"leave": {"", "Remove the participant from the joined agents: no longer a default recipient; its id keeps working and can rejoin", func(c *conversationCall) (any, error) {
+	"leave": {"", "Remove the participant from the joined agents; its id keeps working and can rejoin", func(c *conversationCall) (any, error) {
 		var out json.RawMessage
 		return out, c.client.Do(c.ctx, http.MethodPost, "/participants/leave", nil, struct{}{}, &out)
 	}},
@@ -324,18 +324,17 @@ was invalid; 1 means the command failed.
 Identity: run 'join' once, with --as NAME for the name people see (default
 "Agent"). Gitna returns a participant id that owns your inbox and
 acknowledgments. Pass it with --participant to every other command, also
-after reconnecting. Several participants may share a NAME.
+after reconnecting. Gitna adds a numeric suffix when a NAME is taken.
 
-Joined agents are the default recipients. Joined means taking part, not that
+Joined means taking part, not that
 the agent is running. 'leave --participant ID' removes an agent from the
 joined agents, also one that stopped without leaving ('session' lists them);
 'join --participant ID' brings it back with the same id, name and inbox.
 
 Routing: a message is pending only for the participants it is addressed to.
-Name them with --to ID. A person's message without --to goes to the agents
-last addressed in the conversation, otherwise the agent that wrote there
-last, otherwise the only joined agent; with several joined agents it stays
-unassigned. Agent messages without --to notify no other agent.
+Name them with --to ID (repeat for several). Messages without recipients
+notify no agent, even when only one is joined. Only people can address all
+joined agents; --to all is refused for agent messages.
 
 Commands:
 `, conversationsCommand)

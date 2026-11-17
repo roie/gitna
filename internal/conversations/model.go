@@ -12,6 +12,8 @@ const (
 	KindHuman = "human"
 	KindAgent = "agent"
 
+	RecipientAll = "all"
+
 	StatusOpen     = "open"
 	StatusResolved = "resolved"
 
@@ -102,11 +104,8 @@ type Message struct {
 	Seq            uint64      `json:"seq"`
 	Author         Participant `json:"author"`
 	Body           string      `json:"body"`
-	// To lists the participants the message is addressed to: the ones its
-	// author named, or for a person's message without names, the default
-	// recipients of its conversation. Only they receive it as pending.
-	To        []string  `json:"to,omitempty"`
-	CreatedAt time.Time `json:"createdAt"`
+	To             []string    `json:"to,omitempty"`
+	CreatedAt      time.Time   `json:"createdAt"`
 }
 
 type Conversation struct {
@@ -121,8 +120,6 @@ type Conversation struct {
 	UpdatedAt time.Time   `json:"updatedAt"`
 	Seq       uint64      `json:"seq"`
 	Messages  []Message   `json:"messages"`
-	// DefaultTo is who a person's next message without recipients goes to.
-	DefaultTo []string `json:"defaultTo,omitempty"`
 }
 
 // Event is one durable log entry. Seq is assigned by log position.

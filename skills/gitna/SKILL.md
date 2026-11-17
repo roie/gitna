@@ -57,8 +57,8 @@ gitna conversations join --as <name>
 
 The output has `participant.id` (for example `agent:p_3f9c...`). The id owns
 your inbox and your acknowledgments. The name is only what people see; it is
-"Agent" when you leave out `--as`. Several participants may share a name;
-the browser then shows a short id suffix next to it.
+"Agent" when you leave out `--as`. Gitna adds ` 2`, ` 3`, and so on when
+a joined agent already has that name.
 
 Pass the id to every other command with `--participant <your-id>`. Using the
 same id after a reconnect, a new turn or a Gitna restart gives you the same
@@ -68,7 +68,7 @@ repository. An id that Gitna did not issue fails with "unknown participant".
 The id routes messages; it is not a password.
 
 `gitna conversations leave --participant <your-id>` removes you from the
-joined agents, so you are no longer a default recipient. Your id, history and
+joined agents. Your id, history and
 acknowledgments stay; `gitna conversations join --participant <your-id>`
 rejoins as the same participant. Joined means taking part, not that an agent
 is running.
@@ -79,13 +79,10 @@ A message is pending only for the participants in its `to` list:
 
 - Name recipients with `--to <participant-id>` (repeat it for several). The
   `agents` list of `session` has the ids of the joined agents.
-- A person's message without recipients goes to the agents last addressed
-  in that conversation, otherwise to the agent that wrote there last,
-  otherwise to the only joined agent. With several joined agents and nothing
-  to go by, it is unassigned: readable, but pending for no one.
-  `conversation.defaultTo` shows who that is.
-- An agent's message without `--to` is pending for no other agent. People
-  see every message in the browser.
+- A message without recipients is pending for no agent, even when only one
+  agent is joined. People see every message in the browser.
+- Only people can address `all`. Gitna expands it to the agents joined when
+  the message is sent. The CLI refuses `--to all` for agent messages.
 
 ### Read pending messages
 

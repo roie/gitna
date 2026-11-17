@@ -432,8 +432,6 @@ func (s *Store) append(event Event) (Event, error) {
 
 // Create starts a conversation with its first message. Repeating a create
 // with the same id and content returns the existing conversation.
-// Create starts a conversation addressed to the participants in to, or for
-// a person without recipients, to the only joined agent.
 func (s *Store) Create(actor Participant, id string, anchor Anchor, body string, to []string) (Conversation, error) {
 	if id == "" {
 		id = newID("c")
@@ -476,9 +474,6 @@ func (s *Store) Create(actor Participant, id string, anchor Anchor, body string,
 	if s.byID[id] != nil {
 		return existing()
 	}
-	if len(to) == 0 && actor.Kind == KindHuman {
-		to = s.defaultTo(nil)
-	}
 	message := Message{ID: id + "-1", Author: actor, Body: body, To: to, CreatedAt: s.now().UTC()}
 	if _, err := s.append(Event{
 		Type: EventConversationCreated, ConversationID: id, Actor: actor, Anchor: &anchor, Message: &message,
@@ -490,8 +485,7 @@ func (s *Store) Create(actor Participant, id string, anchor Anchor, body string,
 	return s.clone(s.byID[id]), nil
 }
 
-// Reply adds a message addressed to the participants in to, or for a person
-// without recipients, to the conversation's default recipients. A person's
+// Reply adds a message addressed to the participants in to. A person's
 // reply reopens a resolved conversation. Repeating a reply with the same
 // message id returns the stored message.
 func (s *Store) Reply(actor Participant, conversationID, messageID, body string, to []string) (Message, error) {
@@ -531,9 +525,6 @@ func (s *Store) Reply(actor Participant, conversationID, messageID, body string,
 	}
 	if owner, exists := s.messageAt[messageID]; exists {
 		return existing(owner)
-	}
-	if len(to) == 0 && actor.Kind == KindHuman {
-		to = s.defaultTo(conversation)
 	}
 	message := Message{ID: messageID, Author: actor, Body: body, To: to, CreatedAt: s.now().UTC()}
 	event, err := s.append(Event{Type: EventMessageCreated, ConversationID: conversationID, Actor: actor, Message: &message})
@@ -656,6 +647,16 @@ func (s *Store) Join(name string) (Participant, error) {
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if _, err := s.catchUp(); err != nil {
+		return Participant{}, err
+	}
+	name = participant.Name
+	for suffix := 2; slices.ContainsFunc(s.agents(), func(p Participant) bool { return strings.EqualFold(p.Name, participant.Name) }); suffix++ {
+		participant.Name = fmt.Sprintf("%s %d", name, suffix)
+	}
+	if err := validateParticipant(participant); err != nil {
+		return Participant{}, err
+	}
 	if _, err := s.append(Event{Type: EventParticipantJoined, Actor: participant}); err != nil {
 		return Participant{}, err
 	}
@@ -693,8 +694,7 @@ func (s *Store) Touch() {
 }
 
 // Leave records that the agent participant id stopped taking part. It keeps
-// its history and can still use its id, but is no longer a default
-// recipient. Leaving twice is harmless.
+// its history and can still use its id. Leaving twice is harmless.
 func (s *Store) Leave(id string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -992,12 +992,10 @@ func (s *Store) write(key string, value uint64) error {
 	return s.catchUpCursors()
 }
 
-// clone copies conversation for callers, with its current default
-// recipients. The caller holds s.mu.
+// clone copies conversation for callers. The caller holds s.mu.
 func (s *Store) clone(conversation *Conversation) Conversation {
 	clone := *conversation
 	clone.Messages = s.visible(conversation.Messages)
-	clone.DefaultTo = s.defaultTo(conversation)
 	return clone
 }
 
@@ -1006,6 +1004,17 @@ func (s *Store) clone(conversation *Conversation) Conversation {
 func (s *Store) recipients(actor Participant, to []string) ([]string, error) {
 	var out []string
 	for _, id := range to {
+		if id == RecipientAll {
+			if actor.Kind != KindHuman {
+				return nil, fmt.Errorf("%w: only people may address all agents", ErrInvalid)
+			}
+			for _, agent := range s.agents() {
+				if !slices.Contains(out, agent.ID) {
+					out = append(out, agent.ID)
+				}
+			}
+			continue
+		}
 		if _, ok := s.participants[id]; !ok {
 			return nil, fmt.Errorf("%w: unknown recipient %q", ErrInvalid, id)
 		}
@@ -1014,37 +1023,6 @@ func (s *Store) recipients(actor Participant, to []string) ([]string, error) {
 		}
 	}
 	return out, nil
-}
-
-// defaultTo is who a person's message without recipients goes to in
-// conversation, or in a new one when it is nil: the joined agents last
-// addressed there, otherwise the joined agent that wrote there last,
-// otherwise the only joined agent. With several joined agents and nothing to
-// go by, the message stays unassigned.
-func (s *Store) defaultTo(conversation *Conversation) []string {
-	if conversation != nil {
-		messages := s.visible(conversation.Messages)
-		for index := len(messages) - 1; index >= 0; index-- {
-			var to []string
-			for _, id := range messages[index].To {
-				if !s.left[id] {
-					to = append(to, id)
-				}
-			}
-			if len(to) > 0 {
-				return to
-			}
-		}
-		for index := len(messages) - 1; index >= 0; index-- {
-			if author := messages[index].Author; author.Kind == KindAgent && s.isAgent(author.ID) {
-				return []string{author.ID}
-			}
-		}
-	}
-	if agents := s.agents(); len(agents) == 1 {
-		return []string{agents[0].ID}
-	}
-	return nil
 }
 
 func (s *Store) isAgent(id string) bool {
