@@ -81,6 +81,7 @@ A message is pending only for the participants in its `to` list:
   `agents` list of `session` has the ids of the joined agents.
 - A message without recipients is pending for no agent, even when only one
   agent is joined. People see every message in the browser.
+- An agent cannot address an agent that Gitna runs itself; only people can.
 - Only people can address `all`. Gitna expands it to the agents joined when
   the message is sent. The CLI refuses `--to all` for agent messages.
 

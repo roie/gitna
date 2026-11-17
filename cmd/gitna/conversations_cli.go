@@ -326,7 +326,8 @@ was invalid; 1 means the command failed.
 
 Identity: run 'join' once, with --as NAME for the name people see (default
 "Agent"). Gitna returns a participant id that owns your inbox and
-acknowledgments. Pass it with --participant to every other command, also
+acknowledgments. An agent cannot address an agent that Gitna runs itself;
+only people can. Pass it with --participant to every other command, also
 after reconnecting. Gitna adds a numeric suffix when a NAME is taken.
 
 Joined means taking part, not that

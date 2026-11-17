@@ -43,6 +43,8 @@ const (
 	// EventParticipantLeft records that it stopped taking part.
 	EventParticipantJoined = "participant.joined"
 	EventParticipantLeft   = "participant.left"
+	EventRunStarted        = "run.started"
+	EventRunEnded          = "run.ended"
 
 	MaxBodyBytes = 32 << 10
 	MaxCodeBytes = 64 << 10
@@ -55,9 +57,10 @@ var (
 )
 
 type Participant struct {
-	ID   string `json:"id"`
-	Kind string `json:"kind"`
-	Name string `json:"name"`
+	ID    string `json:"id"`
+	Kind  string `json:"kind"`
+	Name  string `json:"name"`
+	Agent string `json:"agent,omitempty"`
 }
 
 // Anchor is the code a conversation was started on. It is never rewritten;
@@ -105,6 +108,7 @@ type Message struct {
 	Author         Participant `json:"author"`
 	Body           string      `json:"body"`
 	To             []string    `json:"to,omitempty"`
+	Run            uint64      `json:"run,omitempty"`
 	CreatedAt      time.Time   `json:"createdAt"`
 }
 
@@ -120,6 +124,7 @@ type Conversation struct {
 	UpdatedAt time.Time   `json:"updatedAt"`
 	Seq       uint64      `json:"seq"`
 	Messages  []Message   `json:"messages"`
+	Runs      []Run       `json:"runs,omitempty"`
 }
 
 // Event is one durable log entry. Seq is assigned by log position.
@@ -134,6 +139,18 @@ type Event struct {
 	// MessageID is the message a message.deleted or message.restored event is about.
 	MessageID string `json:"messageId,omitempty"`
 	Path      string `json:"path,omitempty"`
+	Run       uint64 `json:"run,omitempty"`
+	Outcome   string `json:"outcome,omitempty"`
+	Detail    string `json:"detail,omitempty"`
+}
+
+type Run struct {
+	ID            uint64    `json:"id"`
+	ParticipantID string    `json:"participantId"`
+	MessageID     string    `json:"messageId"`
+	State         string    `json:"state"`
+	Detail        string    `json:"detail,omitempty"`
+	StartedAt     time.Time `json:"startedAt"`
 }
 
 // Pending is an unacknowledged message addressed to a participant, with the

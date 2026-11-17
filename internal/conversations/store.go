@@ -360,6 +360,28 @@ func (s *Store) apply(rec record) (Event, bool) {
 		if _, exists := s.messageAt[event.Message.ID]; exists {
 			return Event{}, false
 		}
+		if event.Message.Run != 0 {
+			run := findRun(conversation, event.Actor.ID, event.Message.Run)
+			if run == nil || run.State != "running" {
+				return Event{}, false
+			}
+			run.State = "completed"
+		}
+	case EventRunStarted:
+		if conversation == nil || s.messageAt[event.MessageID] != conversation.ID {
+			return Event{}, false
+		}
+		event.Run = uint64(len(s.events) + 1)
+		conversation.Runs = append(conversation.Runs, Run{ID: event.Run, ParticipantID: event.Actor.ID, MessageID: event.MessageID, State: "running", StartedAt: event.At})
+	case EventRunEnded:
+		if conversation == nil {
+			return Event{}, false
+		}
+		run := findRun(conversation, event.Actor.ID, event.Run)
+		if run == nil || run.State != "running" {
+			return Event{}, false
+		}
+		run.State, run.Detail = event.Outcome, event.Detail
 	case EventConversationResolved, EventConversationReopened:
 		if conversation == nil {
 			return Event{}, false
@@ -540,6 +562,96 @@ func (s *Store) Reply(actor Participant, conversationID, messageID, body string,
 	return *event.Message, nil
 }
 
+func findRun(conversation *Conversation, participantID string, id uint64) *Run {
+	for i := range conversation.Runs {
+		run := &conversation.Runs[i]
+		if run.ID == id && run.ParticipantID == participantID {
+			return run
+		}
+	}
+	return nil
+}
+
+func (s *Store) StartRun(agent Participant, conversationID, messageID string) (Run, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if _, err := s.catchUp(); err != nil {
+		return Run{}, err
+	}
+	participant, ok := s.participants[agent.ID]
+	if !ok || participant.Agent == "" {
+		return Run{}, fmt.Errorf("%w: not a native agent", ErrInvalid)
+	}
+	conversation := s.byID[conversationID]
+	if conversation == nil || s.messageAt[messageID] != conversationID {
+		return Run{}, ErrNotFound
+	}
+	message := conversation.Messages[slices.IndexFunc(conversation.Messages, func(m Message) bool { return m.ID == messageID })]
+	if message.Author.Kind != KindHuman || !slices.Contains(message.To, agent.ID) {
+		return Run{}, fmt.Errorf("%w: run needs an addressed human message", ErrInvalid)
+	}
+	event, err := s.append(Event{Type: EventRunStarted, ConversationID: conversationID, MessageID: messageID, Actor: participant})
+	if err != nil {
+		return Run{}, err
+	}
+	return *findRun(conversation, agent.ID, event.Seq), nil
+}
+
+func (s *Store) EndRun(agent Participant, conversationID string, runID uint64, outcome, detail string) error {
+	switch outcome {
+	case "failed", "cancelled", "interrupted":
+	default:
+		return fmt.Errorf("%w: invalid run outcome", ErrInvalid)
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if _, err := s.catchUp(); err != nil {
+		return err
+	}
+	conversation := s.byID[conversationID]
+	if conversation == nil {
+		return ErrNotFound
+	}
+	run := findRun(conversation, agent.ID, runID)
+	if run == nil {
+		return ErrNotFound
+	}
+	if run.State != "running" {
+		return nil
+	}
+	_, err := s.append(Event{Type: EventRunEnded, ConversationID: conversationID, Actor: agent, Run: runID, Outcome: outcome, Detail: detail})
+	return err
+}
+
+func (s *Store) ReplyRun(agent Participant, conversationID string, runID uint64, body string) (Message, error) {
+	body, err := validateBody(body)
+	if err != nil {
+		return Message{}, err
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if _, err := s.catchUp(); err != nil {
+		return Message{}, err
+	}
+	conversation := s.byID[conversationID]
+	if conversation == nil {
+		return Message{}, ErrNotFound
+	}
+	run := findRun(conversation, agent.ID, runID)
+	if run == nil {
+		return Message{}, ErrNotFound
+	}
+	if run.State != "running" {
+		return Message{}, ErrConflict
+	}
+	message := Message{ID: newID("m"), Author: s.participants[agent.ID], Body: body, Run: runID, CreatedAt: s.now().UTC()}
+	event, err := s.append(Event{Type: EventMessageCreated, ConversationID: conversationID, Actor: message.Author, Message: &message})
+	if err != nil {
+		return Message{}, err
+	}
+	return *event.Message, nil
+}
+
 // SetStatus resolves or reopens a conversation. It is idempotent.
 func (s *Store) SetStatus(actor Participant, conversationID, status string) (Conversation, error) {
 	if err := validateParticipant(actor); err != nil {
@@ -637,10 +749,20 @@ func (s *Store) visible(messages []Message) []Message {
 const DefaultAgentName = "Agent"
 
 // Join issues a new agent participant shown as name, or DefaultAgentName.
-// Its id owns an inbox and acknowledgment cursor; the agent passes it again
-// to reconnect. Names may repeat, so several agents can show the same name.
+// Its id owns an inbox; the agent passes it again to reconnect.
 func (s *Store) Join(name string) (Participant, error) {
-	participant := Participant{ID: "agent:" + newID("p"), Kind: KindAgent, Name: cmp.Or(strings.TrimSpace(name), DefaultAgentName)}
+	return s.join(name, "")
+}
+
+func (s *Store) JoinNative(name, definitionID string) (Participant, error) {
+	if definitionID == "" {
+		return Participant{}, fmt.Errorf("%w: missing definition", ErrInvalid)
+	}
+	return s.join(name, definitionID)
+}
+
+func (s *Store) join(name, definitionID string) (Participant, error) {
+	participant := Participant{ID: "agent:" + newID("p"), Kind: KindAgent, Name: cmp.Or(strings.TrimSpace(name), DefaultAgentName), Agent: definitionID}
 	if validateParticipant(participant) != nil {
 		return Participant{}, fmt.Errorf("%w: a name must be at most 128 bytes", ErrInvalid)
 	}
@@ -965,6 +1087,7 @@ func (s *Store) write(key string, value uint64) error {
 func (s *Store) clone(conversation *Conversation) Conversation {
 	clone := *conversation
 	clone.Messages = s.visible(conversation.Messages)
+	clone.Runs = slices.Clone(conversation.Runs)
 	return clone
 }
 
@@ -983,6 +1106,9 @@ func (s *Store) recipients(actor Participant, to []string) ([]string, error) {
 				}
 			}
 			continue
+		}
+		if actor.Kind == KindAgent && s.participants[id].Agent != "" {
+			return nil, fmt.Errorf("%w: native agents answer only people", ErrInvalid)
 		}
 		if _, ok := s.participants[id]; !ok {
 			return nil, fmt.Errorf("%w: unknown recipient %q", ErrInvalid, id)
