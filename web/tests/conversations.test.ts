@@ -8,6 +8,7 @@ import {
   captureLines,
   createConversationsApi,
   ConversationsModel,
+  suggestName,
   type Conversation,
   type ConversationEvent,
   type ConversationsApi,
@@ -419,5 +420,18 @@ describe('ConversationsModel', () => {
     const lines = ['1\n', '2\r\n', '3', '4', '5', '6', '7']
     expect(captureLines(lines, 2, 3)).toEqual({ code: '2\n3', before: '1', after: '4\n5\n6' })
     expect(captureLines(lines, 1, 1).before).toBe('')
+  })
+})
+
+describe('custom agent name suggestions', () => {
+  const known = [{ name: 'OpenCode', command: 'opencode acp' }]
+  it.each([
+    ['my-agent --acp', 'my-agent'],
+    ['"C:\\Program Files\\Agent\\helper-acp.exe" --acp', 'helper'],
+    ['/usr/local/bin/opencode acp', 'OpenCode'],
+    ['node ./agent.mjs', 'node'],
+    ['', ''],
+  ])('%s → %s', (command, name) => {
+    expect(suggestName(command, known)).toBe(name)
   })
 })

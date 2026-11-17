@@ -970,7 +970,7 @@ test('one comment can be deleted from its menu, keeping the conversation, and un
 async function addNative(page: Page, name: string, mode: string) {
   await page.getByRole('button', { name: 'Agents', exact: true }).click()
   await page.getByRole('menuitem', { name: 'Add custom agent…' }).click()
-  const dialog = page.getByRole('dialog', { name: 'Add agent' })
+  const dialog = page.getByRole('dialog', { name: 'Add custom agent' })
   await expect(dialog.getByText(/can read and change anything you can/)).toBeVisible()
   await dialog.getByRole('textbox', { name: 'Name', exact: true }).fill(name)
   const script = fileURLToPath(new URL('./fake-acp-agent.mjs', import.meta.url))
@@ -982,25 +982,29 @@ async function addNative(page: Page, name: string, mode: string) {
   await dialog.getByRole('button', { name: 'Done', exact: true }).click()
 }
 
-test('a found agent switches on after confirmation and an ACP check, and off without being forgotten', async ({
+test('found agents connect from Agents, sign in when asked, disconnect without being forgotten, and missing adapters get setup guidance', async ({
   page,
   app,
 }) => {
   const bin = join(dirname(app.repo), 'bin')
-  const marker = join(dirname(app.repo), 'opencode-ran')
+  const ran = join(dirname(app.repo), 'ran')
   const script = fileURLToPath(new URL('./fake-acp-agent.mjs', import.meta.url))
   mkdirSync(bin)
-  if (process.platform === 'win32')
-    writeFileSync(
-      join(bin, 'opencode.cmd'),
-      `@echo ran> "${marker}"\r\n@"${process.execPath}" "${script}" reply %*\r\n`,
-    )
-  else
-    writeFileSync(
-      join(bin, 'opencode'),
-      `#!/bin/sh\necho ran > '${marker}'\nexec '${process.execPath}' '${script}' reply "$@"\n`,
-      { mode: 0o700 },
-    )
+  const program = (name: string, mode: string) =>
+    process.platform === 'win32'
+      ? writeFileSync(
+          join(bin, `${name}.cmd`),
+          `@echo ${name}>> "${ran}"\r\n@"${process.execPath}" "${script}" ${mode} %*\r\n`,
+        )
+      : writeFileSync(
+          join(bin, name),
+          `#!/bin/sh\necho ${name} >> '${ran}'\nexec '${process.execPath}' '${script}' ${mode} "$@"\n`,
+          { mode: 0o700 },
+        )
+  program('opencode', 'reply')
+  program('goose', 'auth')
+  program('claude', 'reply')
+  const runs = () => (existsSync(ran) ? readFileSync(ran, 'utf8').split(/\s+/).filter(Boolean) : [])
   const pathKey = Object.keys(process.env).find((key) => key.toUpperCase() === 'PATH') ?? 'PATH'
   const second = await startGitna(process.env.GITNA_E2E_BINARY!, app.repo, {
     ...process.env,
@@ -1010,32 +1014,34 @@ test('a found agent switches on after confirmation and an ACP check, and off wit
     await page.goto(second.url)
     await openFile(page, 'two-hunk.txt')
     const agents = page.getByRole('button', { name: 'Agents', exact: true })
-    const opencode = page.getByRole('menuitemcheckbox', { name: 'OpenCode', exact: true })
+    const item = (name: string) => page.getByRole('menuitem', { name, exact: true })
     await agents.click()
-    await expect(opencode).toHaveAttribute('aria-checked', 'false')
-    await opencode.click()
-    const dialog = page.getByRole('dialog', { name: 'Add agent' })
-    await expect(dialog.getByText(/can read and change anything you can/)).toBeVisible()
-    await expect(dialog.getByRole('textbox', { name: 'Name', exact: true })).toHaveValue('OpenCode')
-    await expect(dialog.getByRole('textbox', { name: 'Command', exact: true })).toHaveValue(
-      'opencode acp',
-    )
-    expect(existsSync(marker)).toBe(false)
-    await dialog.getByRole('button', { name: 'Add agent', exact: true }).click()
-    await expect(dialog.getByRole('status')).toContainText('Added OpenCode')
-    expect(existsSync(marker)).toBe(true)
-    await dialog.getByRole('button', { name: 'Done', exact: true }).click()
+    await expect(item('Connect OpenCode')).toBeVisible()
+    await expect(page.getByRole('menuitemcheckbox')).toHaveCount(0)
+    expect(runs()).toEqual([])
+
+    await item('Connect OpenCode').click()
+    await expect(item('Disconnect OpenCode')).toBeVisible()
+    expect(runs()).toEqual(['opencode'])
+    await item('Disconnect OpenCode').click()
+    await expect(item('Connect OpenCode')).toBeVisible()
+    await expect(item('Forget command for OpenCode')).toBeVisible()
+    await item('Connect OpenCode').click()
+    await expect(item('Disconnect OpenCode')).toBeVisible()
+
+    await item('Connect goose').click()
+    const signIn = page.getByRole('dialog', { name: 'Sign in to goose' })
+    await signIn.getByRole('button', { name: 'Sign in', exact: true }).click()
+    await expect(signIn).toHaveCount(0)
     await agents.click()
-    await expect(opencode).toHaveAttribute('aria-checked', 'true')
-    await expect(page.getByRole('menuitemcheckbox')).toHaveCount(1)
-    await opencode.click()
-    await expect(opencode).toHaveAttribute('aria-checked', 'false')
-    await expect(page.getByRole('menuitem', { name: 'Forget command for OpenCode' })).toBeVisible()
-    rmSync(marker)
-    await opencode.click()
-    await expect(opencode).toHaveAttribute('aria-checked', 'true')
-    await expect(dialog).toHaveCount(0)
-    expect(existsSync(marker)).toBe(true)
+    await expect(item('Disconnect goose')).toBeVisible()
+
+    await page.getByRole('menuitem', { name: /^Claude Agent/ }).click()
+    const setup = page.getByRole('dialog', { name: 'Set up an agent' })
+    const claude = setup.getByRole('region', { name: 'Claude Agent' })
+    await expect(claude).toContainText('the ACP adapter is missing')
+    await expect(claude).toContainText('npm install -g @agentclientprotocol/claude-agent-acp')
+    expect(runs()).not.toContain('claude')
   } finally {
     await stopGitna(second.child)
   }

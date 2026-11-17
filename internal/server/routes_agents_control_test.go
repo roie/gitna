@@ -199,6 +199,9 @@ func TestAgentVerificationFailureSavesNothing(t *testing.T) {
 		if r.Code != want {
 			t.Fatalf("%s: %d %s", mode, r.Code, r.Body)
 		}
+		if mode == "garbage" && !strings.Contains(r.Body.String(), "did not start an ACP agent") {
+			t.Fatalf("garbage: %s", r.Body)
+		}
 		if mode == "auth" {
 			v := decodeBody[struct {
 				Code    string

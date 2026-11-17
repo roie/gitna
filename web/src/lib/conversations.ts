@@ -14,10 +14,32 @@ export interface FoundAgent {
   args: string[]
 }
 
+export interface AgentSetup {
+  name: string
+  command: string
+  install: string
+  website: string
+  adapterMissing: boolean
+}
+
 export interface AgentSettings {
   enabled: boolean
   agents: AgentDefinition[]
   available: FoundAgent[]
+  setup: AgentSetup[]
+}
+
+// suggestName names a custom agent after its program, or after the known agent
+// that uses that program.
+export function suggestName(command: string, known: { name: string; command: string }[]): string {
+  const [, double, single, plain] = /^\s*(?:"([^"]*)"|'([^']*)'|(\S+))/.exec(command) ?? []
+  const program = double ?? single ?? plain ?? ''
+  const base = program
+    .split(/[\\/]/)
+    .pop()!
+    .replace(/\.(exe|cmd|bat|ps1|js|mjs)$/i, '')
+  const match = known.find((k) => k.command.split(' ')[0] === base.toLowerCase())
+  return match?.name ?? base.replace(/[-_]acp$/i, '')
 }
 
 export interface AuthMethod {
@@ -35,7 +57,7 @@ export class AgentAuthRequired extends Error {
 
 export type AddAgent =
   | { name: string; command: string; authMethod?: string }
-  | { definition: string }
+  | { definition: string; authMethod?: string }
 export interface AgentAdded {
   definition: AgentDefinition
   participant: Participant

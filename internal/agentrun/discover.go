@@ -9,22 +9,27 @@ import (
 	"sync"
 )
 
-// known lists agents by the program their installer puts on PATH and the
-// arguments the ACP registry starts them with:
+// known lists agents by the program their installer puts on PATH, the
+// arguments the ACP registry starts them with, and how to install them:
 // https://cdn.agentclientprotocol.com/registry/v1/latest/registry.json
+// An adapter names the vendor CLI it wraps, so a missing adapter can be told
+// apart from a missing agent.
 var known = []struct {
 	name    string
 	program string
 	args    []string
+	adapts  string
+	install string
+	website string
 }{
-	{"Claude Agent", "claude-agent-acp", nil},
-	{"Codex", "codex-acp", nil},
-	{"Cursor", "cursor-agent", []string{"acp"}},
-	{"Gemini CLI", "gemini", []string{"--acp"}},
-	{"GitHub Copilot", "copilot", []string{"--acp"}},
-	{"goose", "goose", []string{"acp"}},
-	{"OpenCode", "opencode", []string{"acp"}},
-	{"Qwen Code", "qwen", []string{"--acp"}},
+	{"Claude Agent", "claude-agent-acp", nil, "claude", "npm install -g @agentclientprotocol/claude-agent-acp", "https://github.com/agentclientprotocol/claude-agent-acp"},
+	{"Codex", "codex-acp", nil, "codex", "npm install -g @agentclientprotocol/codex-acp", "https://github.com/agentclientprotocol/codex-acp"},
+	{"Cursor", "cursor-agent", []string{"acp"}, "", "", "https://cursor.com/docs/cli/acp"},
+	{"Gemini CLI", "gemini", []string{"--acp"}, "", "npm install -g @google/gemini-cli", "https://geminicli.com"},
+	{"GitHub Copilot", "copilot", []string{"--acp"}, "", "npm install -g @github/copilot", "https://github.com/features/copilot/cli/"},
+	{"goose", "goose", []string{"acp"}, "", "", "https://block.github.io/goose/"},
+	{"OpenCode", "opencode", []string{"acp"}, "", "", "https://opencode.ai"},
+	{"Qwen Code", "qwen", []string{"--acp"}, "", "npm install -g @qwen-code/qwen-code", "https://qwenlm.github.io/qwen-code-docs/en/users/overview"},
 }
 
 type Found struct {
@@ -34,37 +39,50 @@ type Found struct {
 	Args       []string `json:"args"`
 }
 
+// Setup tells the user how to install a known agent that is not on PATH.
+// AdapterMissing means the vendor CLI is installed but its ACP adapter is not.
+type Setup struct {
+	Name           string `json:"name"`
+	Command        string `json:"command"`
+	Install        string `json:"install"`
+	Website        string `json:"website"`
+	AdapterMissing bool   `json:"adapterMissing"`
+}
+
 // Discover returns the known agents found on PATH that saved does not already
-// define. It only reads directories and starts no process. Each PATH directory
-// is listed once, because probing every program and extension separately takes
-// hundreds of milliseconds on Windows and WSL drives.
-func Discover(saved []Definition) []Found {
+// define, and setup guidance for the rest. It only reads directories and
+// starts no process. Each PATH directory is listed once, because probing
+// every program and extension separately takes hundreds of milliseconds on
+// Windows and WSL drives.
+func Discover(saved []Definition) ([]Found, []Setup) {
 	names := pathNames()
-	found := []Found{}
+	found, setup := []Found{}, []Setup{}
 	for _, k := range known {
-		if !names[k.program] {
-			continue
-		}
-		path, err := exec.LookPath(k.program)
-		if err != nil {
-			continue
-		}
-		if path, err = filepath.Abs(path); err != nil {
-			continue
-		}
 		args := slices.Clone(k.args)
 		if args == nil {
 			args = []string{}
+		}
+		command := strings.Join(append([]string{k.program}, args...), " ")
+		path, err := "", exec.ErrNotFound
+		if names[k.program] {
+			path, err = exec.LookPath(k.program)
+		}
+		if err == nil {
+			path, err = filepath.Abs(path)
+		}
+		if err != nil {
+			adapterMissing := k.adapts != "" && names[k.adapts]
+			setup = append(setup, Setup{Name: k.name, Command: command, Install: k.install, Website: k.website, AdapterMissing: adapterMissing})
+			continue
 		}
 		if slices.ContainsFunc(saved, func(d Definition) bool {
 			return strings.EqualFold(d.Executable, path) && slices.Equal(d.Args, args)
 		}) {
 			continue
 		}
-		command := strings.Join(append([]string{k.program}, args...), " ")
 		found = append(found, Found{Name: k.name, Command: command, Executable: path, Args: args})
 	}
-	return found
+	return found, setup
 }
 
 // pathNames returns the lowercase file names on PATH, with and without their

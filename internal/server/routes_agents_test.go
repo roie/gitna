@@ -44,11 +44,12 @@ func TestConversationSettings(t *testing.T) {
 			Enabled   bool
 			Agents    []agentrun.Definition
 			Available []agentrun.Found
+			Setup     []agentrun.Setup
 		}](t, rec)
-		if got.Enabled != enabled || got.Agents == nil || len(got.Agents) != 0 || got.Available == nil {
+		if got.Enabled != enabled || got.Agents == nil || len(got.Agents) != 0 || got.Available == nil || got.Setup == nil {
 			t.Fatalf("settings = %+v", got)
 		}
-		if found := len(got.Available) == 1 && got.Available[0].Command == "goose acp"; found != enabled {
+		if found := len(got.Available) == 1 && got.Available[0].Command == "goose acp" && len(got.Setup) > 0; found != enabled {
 			t.Fatalf("available = %+v", got.Available)
 		}
 	}

@@ -4,6 +4,7 @@ import { createInterface } from 'node:readline'
 
 const mode = process.argv[2] ?? 'reply'
 let root = ''
+let authed = false
 let promptID
 let permissionID
 let active
@@ -33,9 +34,21 @@ createInterface({ input: process.stdin })
     const message = JSON.parse(line)
     switch (message.method) {
       case 'initialize':
-        reply(message.id, { protocolVersion: 1, agentCapabilities: {}, authMethods: [] })
+        reply(message.id, {
+          protocolVersion: 1,
+          agentCapabilities: {},
+          authMethods: mode === 'auth' ? [{ id: 'login', name: 'Sign in' }] : [],
+        })
+        break
+      case 'authenticate':
+        authed = true
+        reply(message.id, {})
         break
       case 'session/new':
+        if (mode === 'auth' && !authed) {
+          send({ id: message.id, error: { code: -32000, message: 'Authentication required' } })
+          break
+        }
         root = message.params.cwd
         reply(message.id, { sessionId: 'test' })
         break

@@ -136,7 +136,7 @@ func (c *Conversations) addAgent(w http.ResponseWriter, r *http.Request) {
 				Methods []agentrun.AuthMethod `json:"methods"`
 			}{"auth-required", auth.Methods})
 		} else {
-			writeJSON(w, 422, map[string]string{"error": err.Error()})
+			writeJSON(w, 422, map[string]string{"error": "The command did not start an ACP agent. Check that it includes the agent's ACP option. " + err.Error()})
 		}
 		return
 	}
@@ -169,13 +169,14 @@ func (c *Conversations) settings(w http.ResponseWriter) {
 		settings = c.Settings.Get()
 	}
 	enabled := c.Enabled != nil && c.Enabled()
-	available := []agentrun.Found{}
+	available, setup := []agentrun.Found{}, []agentrun.Setup{}
 	if enabled {
-		available = agentrun.Discover(settings.Agents)
+		available, setup = agentrun.Discover(settings.Agents)
 	}
 	writeJSON(w, http.StatusOK, struct {
 		Enabled   bool                  `json:"enabled"`
 		Agents    []agentrun.Definition `json:"agents"`
 		Available []agentrun.Found      `json:"available"`
-	}{Enabled: enabled, Agents: nonNil(settings.Agents), Available: available})
+		Setup     []agentrun.Setup      `json:"setup"`
+	}{Enabled: enabled, Agents: nonNil(settings.Agents), Available: available, Setup: setup})
 }

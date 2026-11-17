@@ -3,6 +3,7 @@ package agentrun
 import (
 	"crypto/rand"
 	"errors"
+	"fmt"
 	"os/exec"
 	"path/filepath"
 	"strings"
@@ -58,6 +59,9 @@ func Resolve(name, line string) (Definition, error) {
 		return Definition{}, err
 	}
 	path, err := exec.LookPath(words[0])
+	if errors.Is(err, exec.ErrNotFound) {
+		return Definition{}, fmt.Errorf("%s was not found on PATH. Install the agent, or enter the full path to its program", words[0])
+	}
 	if err != nil {
 		return Definition{}, err
 	}

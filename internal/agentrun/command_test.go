@@ -71,6 +71,9 @@ func TestResolve(t *testing.T) {
 	if err != nil || again.ID == def.ID {
 		t.Fatalf("new definition: %+v, %v", again, err)
 	}
+	if _, err := Resolve("Helper", "missing-agent --acp"); err == nil || !strings.Contains(err.Error(), "missing-agent was not found on PATH") {
+		t.Fatalf("missing program: %v", err)
+	}
 	for _, tc := range []struct{ name, command string }{
 		{"Helper", "missing-agent"},
 		{"", name},
