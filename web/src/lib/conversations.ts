@@ -7,6 +7,19 @@ export interface AgentDefinition {
   args: string[]
 }
 
+export interface FoundAgent {
+  name: string
+  command: string
+  executable: string
+  args: string[]
+}
+
+export interface AgentSettings {
+  enabled: boolean
+  agents: AgentDefinition[]
+  available: FoundAgent[]
+}
+
 export interface AuthMethod {
   id: string
   name: string
@@ -143,7 +156,7 @@ export interface ConversationsApi {
   cancelRun(id: number): Promise<unknown>
   answerPermission(id: number, requestId: string, optionId: string): Promise<unknown>
   retry(conversation: string, message: string, participantId: string): Promise<unknown>
-  settings(): Promise<{ enabled: boolean; agents: AgentDefinition[] }>
+  settings(): Promise<AgentSettings>
   setEnabled(enabled: boolean): void
   addAgent(request: AddAgent): Promise<AgentAdded>
   deleteDefinition(id: string): Promise<void>
@@ -208,10 +221,9 @@ export function createConversationsApi(
         { participant },
       ),
     async settings() {
-      return (await (await expectOK(await fetch('api/v1/conversations/settings'))).json()) as {
-        enabled: boolean
-        agents: AgentDefinition[]
-      }
+      return (await (
+        await expectOK(await fetch('api/v1/conversations/settings'))
+      ).json()) as AgentSettings
     },
     setEnabled: (enabled) => savePreference('gitna:conversations', String(enabled)),
     addAgent: (request) => post('api/v1/conversations/agents', request),

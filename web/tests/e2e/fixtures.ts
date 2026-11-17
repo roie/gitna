@@ -87,12 +87,13 @@ function createRepository(root: string): { repo: string; baseOid: string; headOi
 export async function startGitna(
   binary: string,
   repo: string,
+  env: NodeJS.ProcessEnv = process.env,
 ): Promise<{ child: ChildProcess; url: string; root: string }> {
   const fixtureRoot = dirname(repo)
   const child = spawn(binary, [repo], {
     detached: process.platform !== 'win32',
     env: {
-      ...process.env,
+      ...env,
       GITNA_HOME: join(fixtureRoot, 'config'),
       GITNA_NO_BROWSER: '1',
     },

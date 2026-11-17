@@ -240,7 +240,12 @@ func TestRunRelaysPermissionChoice(t *testing.T) {
 }
 
 func TestRunCancelStopsTheProcessTree(t *testing.T) {
-	def, root := fakeDefinition(t, "child"), t.TempDir()
+	assertCancelStopsTheProcessTree(t, fakeDefinition(t, "child"))
+}
+
+func assertCancelStopsTheProcessTree(t *testing.T, def Definition) {
+	t.Helper()
+	root := t.TempDir()
 	ctx, cancel := context.WithCancel(t.Context())
 	defer cancel()
 	done := make(chan error, 1)

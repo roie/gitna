@@ -6,6 +6,7 @@ import {
   type AgentDefinition,
   type AuthMethod,
   type ConversationsModel,
+  type FoundAgent,
 } from '../../lib/conversations'
 import { Button } from '../components/Button'
 import {
@@ -26,6 +27,7 @@ export function AgentsMenu({ model }: { model: ConversationsModel }) {
   )
   const id = useId()
   const [definitions, setDefinitions] = useState<AgentDefinition[]>([])
+  const [available, setAvailable] = useState<FoundAgent[]>([])
   const [form, setForm] = useState(false)
   const [name, setName] = useState('')
   const [command, setCommand] = useState('')
@@ -34,7 +36,19 @@ export function AgentsMenu({ model }: { model: ConversationsModel }) {
   const [methods, setMethods] = useState<AuthMethod[]>([])
   const [pending, setPending] = useState<AddAgent | null>(null)
   const [added, setAdded] = useState<AgentDefinition | null>(null)
-  const refresh = async () => setDefinitions((await model.api.settings()).agents)
+  const refresh = async () => {
+    const settings = await model.api.settings()
+    setDefinitions(settings.agents)
+    setAvailable(settings.available)
+  }
+  const open = (agent: { name: string; command: string }) => {
+    setName(agent.name)
+    setCommand(agent.command)
+    setError(null)
+    setMethods([])
+    setAdded(null)
+    setForm(true)
+  }
   const attempt = async (action: () => Promise<unknown>) => {
     setBusy(true)
     setError(null)
@@ -109,16 +123,24 @@ export function AgentsMenu({ model }: { model: ConversationsModel }) {
               Forget command for {d.name}
             </DropdownMenuItem>
           ))}
+          {available.length > 0 && (
+            <>
+              <DropdownMenuSeparator />
+              <DropdownMenuLabel>Found on this computer</DropdownMenuLabel>
+              {available.map((agent) => (
+                <DropdownMenuItem
+                  key={agent.executable}
+                  disabled={busy}
+                  onSelect={() => open(agent)}
+                >
+                  Add {agent.name}…
+                </DropdownMenuItem>
+              ))}
+            </>
+          )}
           <DropdownMenuSeparator />
-          <DropdownMenuItem
-            onSelect={() => {
-              setError(null)
-              setMethods([])
-              setAdded(null)
-              setForm(true)
-            }}
-          >
-            Add agent…
+          <DropdownMenuItem onSelect={() => open({ name: '', command: '' })}>
+            Add custom agent…
           </DropdownMenuItem>
           {!form && error != null && (
             <p role="alert" className="max-w-72 p-2 text-xs text-red-600">

@@ -169,8 +169,13 @@ func (c *Conversations) settings(w http.ResponseWriter) {
 		settings = c.Settings.Get()
 	}
 	enabled := c.Enabled != nil && c.Enabled()
+	available := []agentrun.Found{}
+	if enabled {
+		available = agentrun.Discover(settings.Agents)
+	}
 	writeJSON(w, http.StatusOK, struct {
-		Enabled bool                  `json:"enabled"`
-		Agents  []agentrun.Definition `json:"agents"`
-	}{Enabled: enabled, Agents: nonNil(settings.Agents)})
+		Enabled   bool                  `json:"enabled"`
+		Agents    []agentrun.Definition `json:"agents"`
+		Available []agentrun.Found      `json:"available"`
+	}{Enabled: enabled, Agents: nonNil(settings.Agents), Available: available})
 }

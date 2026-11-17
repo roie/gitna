@@ -1,6 +1,14 @@
 import { execFileSync } from 'node:child_process'
-import { readFileSync, readdirSync, renameSync, rmSync, writeFileSync } from 'node:fs'
-import { dirname, join } from 'node:path'
+import {
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  readdirSync,
+  renameSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs'
+import { delimiter, dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import type { Locator, Page } from '@playwright/test'
 import { expect, startGitna, stopGitna, test, type GitnaFixture } from './fixtures.js'
@@ -961,7 +969,7 @@ test('one comment can be deleted from its menu, keeping the conversation, and un
 
 async function addNative(page: Page, name: string, mode: string) {
   await page.getByRole('button', { name: 'Agents', exact: true }).click()
-  await page.getByRole('menuitem', { name: 'Add agent…' }).click()
+  await page.getByRole('menuitem', { name: 'Add custom agent…' }).click()
   const dialog = page.getByRole('dialog', { name: 'Add agent' })
   await expect(dialog.getByText(/can read and change anything you can/)).toBeVisible()
   await dialog.getByRole('textbox', { name: 'Name', exact: true }).fill(name)
@@ -973,6 +981,54 @@ async function addNative(page: Page, name: string, mode: string) {
   await expect(dialog.getByRole('status')).toContainText(`Added ${name}`)
   await dialog.getByRole('button', { name: 'Done', exact: true }).click()
 }
+
+test('an agent found on PATH is added only after confirmation and an ACP check', async ({
+  page,
+  app,
+}) => {
+  const bin = join(dirname(app.repo), 'bin')
+  const marker = join(dirname(app.repo), 'opencode-ran')
+  const script = fileURLToPath(new URL('./fake-acp-agent.mjs', import.meta.url))
+  mkdirSync(bin)
+  if (process.platform === 'win32')
+    writeFileSync(
+      join(bin, 'opencode.cmd'),
+      `@echo ran> "${marker}"\r\n@"${process.execPath}" "${script}" reply %*\r\n`,
+    )
+  else
+    writeFileSync(
+      join(bin, 'opencode'),
+      `#!/bin/sh\necho ran > '${marker}'\nexec '${process.execPath}' '${script}' reply "$@"\n`,
+      { mode: 0o700 },
+    )
+  const pathKey = Object.keys(process.env).find((key) => key.toUpperCase() === 'PATH') ?? 'PATH'
+  const second = await startGitna(process.env.GITNA_E2E_BINARY!, app.repo, {
+    ...process.env,
+    [pathKey]: `${bin}${delimiter}${process.env[pathKey] ?? ''}`,
+  })
+  try {
+    await page.goto(second.url)
+    await openFile(page, 'two-hunk.txt')
+    await page.getByRole('button', { name: 'Agents', exact: true }).click()
+    await page.getByRole('menuitem', { name: 'Add OpenCode…' }).click()
+    const dialog = page.getByRole('dialog', { name: 'Add agent' })
+    await expect(dialog.getByText(/can read and change anything you can/)).toBeVisible()
+    await expect(dialog.getByRole('textbox', { name: 'Name', exact: true })).toHaveValue('OpenCode')
+    await expect(dialog.getByRole('textbox', { name: 'Command', exact: true })).toHaveValue(
+      'opencode acp',
+    )
+    expect(existsSync(marker)).toBe(false)
+    await dialog.getByRole('button', { name: 'Add agent', exact: true }).click()
+    await expect(dialog.getByRole('status')).toContainText('Added OpenCode')
+    expect(existsSync(marker)).toBe(true)
+    await dialog.getByRole('button', { name: 'Done', exact: true }).click()
+    await page.getByRole('button', { name: 'Agents', exact: true }).click()
+    await expect(page.getByRole('menuitem', { name: 'OpenCode · Native · Remove' })).toBeVisible()
+    await expect(page.getByRole('menuitem', { name: 'Add OpenCode…' })).toHaveCount(0)
+  } finally {
+    await stopGitna(second.child)
+  }
+})
 
 async function nativeThread(page: Page, body: string) {
   await comment(page, page.locator('[data-file] [data-column-number="5"]'), null, body)
