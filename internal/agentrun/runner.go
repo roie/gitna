@@ -3,6 +3,8 @@ package agentrun
 import (
 	"context"
 	"errors"
+	"fmt"
+	"os"
 	"slices"
 	"sort"
 	"strings"
@@ -40,6 +42,7 @@ type Manager struct {
 	cancel   context.CancelCauseFunc
 	wg       sync.WaitGroup
 	after    func(time.Duration, func()) runTimer
+	report   func(root string, err error)
 }
 type repoWorker struct {
 	repo           Repo
@@ -70,7 +73,9 @@ type runResult struct {
 
 func NewManager(settings *SettingsFile, enabled func() bool) *Manager {
 	ctx, cancel := context.WithCancelCause(context.Background())
-	return &Manager{settings: settings, enabled: enabled, repos: make(map[string]*repoWorker), ctx: ctx, cancel: cancel, after: func(d time.Duration, fn func()) runTimer { return time.AfterFunc(d, fn) }}
+	return &Manager{settings: settings, enabled: enabled, repos: make(map[string]*repoWorker), ctx: ctx, cancel: cancel, after: func(d time.Duration, fn func()) runTimer { return time.AfterFunc(d, fn) }, report: func(root string, err error) {
+		fmt.Fprintf(os.Stderr, "gitna: agent runs stopped in %s: %v\n", root, err)
+	}}
 }
 func (m *Manager) Ensure(repo Repo) {
 	m.mu.Lock()
@@ -99,7 +104,11 @@ func (m *Manager) Ensure(repo Repo) {
 		return
 	}
 	w.running = true
-	m.wg.Go(func() { m.work(w, s, baseline) })
+	m.wg.Go(func() {
+		if err := m.work(w, s, baseline); err != nil {
+			m.report(repo.Root, err)
+		}
+	})
 }
 func (m *Manager) Refresh() {
 	m.mu.Lock()
@@ -307,7 +316,7 @@ func (m *Manager) recover(s *conversations.Store) error {
 	}
 	return nil
 }
-func (m *Manager) work(w *repoWorker, s *conversations.Store, baseline uint64) {
+func (m *Manager) work(w *repoWorker, s *conversations.Store, baseline uint64) error {
 	var unlock func()
 	var result <-chan runResult
 	defer func() {
@@ -328,11 +337,11 @@ func (m *Manager) work(w *repoWorker, s *conversations.Store, baseline uint64) {
 	}()
 	for unlock == nil {
 		if m.ctx.Err() != nil {
-			return
+			return nil
 		}
 		release, held, err := s.LockRuns()
 		if err != nil {
-			return
+			return err
 		}
 		if held {
 			unlock = release
@@ -340,17 +349,17 @@ func (m *Manager) work(w *repoWorker, s *conversations.Store, baseline uint64) {
 		}
 		_, changed, err := s.Events(baseline)
 		if err != nil {
-			return
+			return err
 		}
 		select {
 		case <-m.ctx.Done():
-			return
+			return nil
 		case <-changed:
 		case <-w.wake:
 		}
 	}
 	if err := m.recover(s); err != nil {
-		return
+		return err
 	}
 	m.mu.Lock()
 	w.owned = true
@@ -358,19 +367,19 @@ func (m *Manager) work(w *repoWorker, s *conversations.Store, baseline uint64) {
 	m.mu.Unlock()
 	for {
 		if m.ctx.Err() != nil {
-			return
+			return nil
 		}
 		_, seq, err := s.List("")
 		if err != nil {
-			return
+			return err
 		}
 		_, changed, err := s.Events(seq)
 		if err != nil {
-			return
+			return err
 		}
 		jobs, err := m.jobs(w, s)
 		if err != nil {
-			return
+			return err
 		}
 		m.mu.Lock()
 		active := w.active
@@ -382,7 +391,7 @@ func (m *Manager) work(w *repoWorker, s *conversations.Store, baseline uint64) {
 			}
 			if terminalFor(j) {
 				if err := s.Ack(j.agent.ID, []uint64{j.pending.Message.Seq}); err != nil {
-					return
+					return err
 				}
 				continue
 			}
@@ -392,14 +401,14 @@ func (m *Manager) work(w *repoWorker, s *conversations.Store, baseline uint64) {
 					detail = "Conversations was turned off"
 				}
 				if err := m.interrupt(s, j, detail); err != nil {
-					return
+					return err
 				}
 				continue
 			}
 			if active == nil {
 				result, err = m.begin(w, s, j)
 				if err != nil {
-					return
+					return err
 				}
 				m.mu.Lock()
 				active = w.active
@@ -417,7 +426,7 @@ func (m *Manager) work(w *repoWorker, s *conversations.Store, baseline uint64) {
 				err = m.interrupt(s, j, "Conversations was turned off")
 			}
 			if err != nil {
-				return
+				return err
 			}
 		} else {
 			m.mu.Unlock()
@@ -429,7 +438,7 @@ func (m *Manager) work(w *repoWorker, s *conversations.Store, baseline uint64) {
 		case r := <-result:
 			result = nil
 			if err := m.finish(w, s, r); err != nil {
-				return
+				return err
 			}
 		}
 	}

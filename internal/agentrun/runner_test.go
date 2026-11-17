@@ -426,6 +426,26 @@ func TestTakeoverRunsAMessageWrittenAfterTheOwnerClosed(t *testing.T) {
 		t.Fatalf("run %s (%s), want completed", run.State, run.Detail)
 	}
 }
+func TestWorkerReportsWhyItStopped(t *testing.T) {
+	f := newRunnerFixture(t, "reply")
+	reported := make(chan error, 1)
+	f.manager.report = func(root string, err error) {
+		if root == f.root {
+			reported <- err
+		}
+	}
+	f.ready()
+	f.store.Close()
+	f.manager.Refresh()
+	select {
+	case err := <-reported:
+		if !errors.Is(err, os.ErrClosed) {
+			t.Fatalf("reported %v, want a closed-store error", err)
+		}
+	case <-time.After(10 * time.Second):
+		t.Fatal("worker stopped without reporting why")
+	}
+}
 func TestRunHoldsTheFolderUntilItEnds(t *testing.T) {
 	f := newRunnerFixture(t, "hang")
 	f.ready()
