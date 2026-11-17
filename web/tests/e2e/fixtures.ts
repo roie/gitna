@@ -93,10 +93,8 @@ async function startGitna(
     detached: process.platform !== 'win32',
     env: {
       ...process.env,
-      APPDATA: join(fixtureRoot, 'config'),
+      GITNA_HOME: join(fixtureRoot, 'config'),
       GITNA_NO_BROWSER: '1',
-      HOME: process.platform === 'darwin' ? join(fixtureRoot, 'home') : process.env.HOME,
-      XDG_CONFIG_HOME: join(fixtureRoot, 'config'),
     },
     stdio: ['ignore', 'pipe', 'pipe'],
   })

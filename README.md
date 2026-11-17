@@ -124,6 +124,8 @@ Gitna requires an installed `git` executable and a modern browser.
 
 Gitna binds only to a random loopback port. Every process creates a high-entropy capability URL, and mutating requests are protected by Host, Origin, content-type, and size checks.
 
+Gitna keeps its local state (recent folders, drafts, conversations and agent endpoints) in one directory: `~/.config/gitna` on Linux, `~/Library/Application Support/gitna` on macOS and `%LocalAppData%\Gitna` on Windows. Set `GITNA_HOME` to an absolute path to use another directory.
+
 Repository reads and mutations go through the system Git executable. Gitna does not upload repository data or replace Git's storage, configuration, credentials, or hooks.
 
 See [SECURITY.md](SECURITY.md) for the complete security model and vulnerability reporting instructions.

@@ -23,6 +23,7 @@ import (
 	"github.com/roie/gitna/internal/protocol"
 	"github.com/roie/gitna/internal/server"
 	"github.com/roie/gitna/internal/session"
+	"github.com/roie/gitna/internal/statedir"
 	"github.com/roie/gitna/internal/webui"
 )
 
@@ -531,16 +532,16 @@ func Run(ctx context.Context, path, version string) error {
 		return fmt.Errorf("app: load embedded assets: %w", err)
 	}
 
-	configDir, err := os.UserConfigDir()
+	stateDir, err := statedir.Dir()
 	if err != nil {
-		return fmt.Errorf("app: draft journal config directory: %w", err)
+		return fmt.Errorf("app: state directory: %w", err)
 	}
-	draftJournal, err := drafts.Open(filepath.Join(configDir, "gitna", "drafts", "v1"), drafts.Options{})
+	draftJournal, err := drafts.Open(filepath.Join(stateDir, "drafts", "v1"), drafts.Options{})
 	if err != nil {
 		return fmt.Errorf("app: open draft journal: %w", err)
 	}
 
-	library := conversations.NewLibrary(filepath.Join(configDir, "gitna", "conversations", "v1"))
+	library := conversations.NewLibrary(filepath.Join(stateDir, "conversations", "v1"))
 	defer library.Close()
 	agentToken, err := session.NewToken()
 	if err != nil {
@@ -553,7 +554,7 @@ func Run(ctx context.Context, path, version string) error {
 		runner,
 		staticFS,
 		version,
-		folder.OpenDefault(),
+		folder.Open(filepath.Join(stateDir, "folders.json"), folder.DefaultRecentLimit),
 		basePath,
 		repo,
 		folderRegistryOptions{

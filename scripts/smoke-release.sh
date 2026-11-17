@@ -26,7 +26,7 @@ trap cleanup EXIT
 
 mkdir "$smoke_root/home" "$smoke_root/folder"
 printf 'macOS release smoke\n' >"$smoke_root/folder/README.txt"
-HOME="$smoke_root/home" GITNA_NO_BROWSER=1 "$binary" "$smoke_root/folder" >"$smoke_root/server.log" 2>&1 &
+GITNA_HOME="$smoke_root/home" GITNA_NO_BROWSER=1 "$binary" "$smoke_root/folder" >"$smoke_root/server.log" 2>&1 &
 pid=$!
 
 url=""

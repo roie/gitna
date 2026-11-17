@@ -39,9 +39,8 @@ const test = base.extend<{ localApp: { url: string; repo: string } }>({
       detached: process.platform !== 'win32',
       env: {
         ...process.env,
-        APPDATA: join(root, 'config'),
+        GITNA_HOME: join(root, 'config'),
         GITNA_NO_BROWSER: '1',
-        XDG_CONFIG_HOME: join(root, 'config'),
       },
       stdio: ['ignore', 'pipe', 'pipe'],
     })

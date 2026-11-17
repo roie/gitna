@@ -21,7 +21,7 @@ function gitnaCLI(app: Pick<GitnaFixture, 'repo'>, ...args: string[]): string {
   return execFileSync(
     process.env.GITNA_E2E_BINARY!,
     ['conversations', ...args, '--repo', app.repo],
-    { encoding: 'utf8', env: { ...process.env, APPDATA: config, XDG_CONFIG_HOME: config } },
+    { encoding: 'utf8', env: { ...process.env, GITNA_HOME: config } },
   )
 }
 

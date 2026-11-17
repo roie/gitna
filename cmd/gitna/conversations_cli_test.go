@@ -49,9 +49,7 @@ func gitnaProcess(t *testing.T, repo, storeDir string, pid int) func() {
 
 func TestConversationsCLIRoundTrip(t *testing.T) {
 	config := t.TempDir()
-	t.Setenv("XDG_CONFIG_HOME", config)
-	t.Setenv("AppData", config)
-	t.Setenv("HOME", config)
+	t.Setenv("GITNA_HOME", config)
 	repo := t.TempDir()
 	os.WriteFile(filepath.Join(repo, "a.go"), []byte("one\ntwo\nthree\n"), 0o644)
 	storeDir := t.TempDir()

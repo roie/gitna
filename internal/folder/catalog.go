@@ -61,20 +61,6 @@ func Open(path string, limit int) *Catalog {
 	return catalog
 }
 
-// OpenDefault uses the operating system's per-user configuration directory.
-func OpenDefault() *Catalog {
-	dir, err := os.UserConfigDir()
-	if err != nil {
-		return &Catalog{
-			limit:   DefaultRecentLimit,
-			now:     time.Now,
-			recent:  make([]Entry, 0),
-			lastErr: err,
-		}
-	}
-	return Open(filepath.Join(dir, "gitna", "folders.json"), DefaultRecentLimit)
-}
-
 // Record promotes path to the front of the catalog and persists the bounded
 // result. The path must exist so symlink aliases can be normalized.
 func (c *Catalog) Record(path string, repository bool) {

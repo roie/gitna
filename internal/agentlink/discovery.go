@@ -9,6 +9,8 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+
+	"github.com/roie/gitna/internal/statedir"
 )
 
 type Endpoint struct {
@@ -18,13 +20,13 @@ type Endpoint struct {
 	Version string `json:"version"`
 }
 
-// Dir is the discovery directory under the user's configuration directory.
+// Dir is the discovery directory under the state directory.
 func Dir() (string, error) {
-	config, err := os.UserConfigDir()
+	state, err := statedir.Dir()
 	if err != nil {
 		return "", err
 	}
-	return filepath.Join(config, "gitna", "agents"), nil
+	return filepath.Join(state, "agents"), nil
 }
 
 // Publish writes endpoint for this process and returns a function that

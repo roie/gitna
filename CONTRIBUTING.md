@@ -22,6 +22,8 @@ Run the application from a Git repository:
 go run ./cmd/gitna /path/to/repository
 ```
 
+Set `GITNA_HOME` to an absolute path to keep recent folders, drafts and conversations out of your real state directory.
+
 ## Validation
 
 Run the standard checks before opening a pull request:
