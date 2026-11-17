@@ -1,6 +1,7 @@
 import { useEffect, useSyncExternalStore } from 'react'
 
 import { AuthorInitial, CommentComposer } from '@/components/DraftAnnotation'
+import { Button } from '@/components/Button'
 import { ExampleAnnotation } from '@/components/ExampleAnnotation'
 import { annotationCardBase } from '@/lib/annotation'
 import { cn } from '@/lib/cn'
@@ -16,6 +17,7 @@ export function ConversationThread({
 }) {
   useSyncExternalStore(
     (listener) => model.subscribe(listener),
+    () => model.version,
     () => model.version,
   )
   const conversation = model.find(initial.id) ?? initial
@@ -61,6 +63,69 @@ export function ConversationThread({
         author: model.displayName(message.author),
         agent: message.author.kind === 'agent',
         message: message.body,
+        after: (
+          <div className="flex flex-col gap-2 text-xs">
+            {model.waiting(conversation, message).map((agent) => (
+              <p key={agent.id} role="status" className="m-0 text-muted-foreground">
+                {agent.name}: Waiting
+              </p>
+            ))}
+            {(conversation.runs ?? [])
+              .filter((run) => run.messageId === message.id && run.state !== 'completed')
+              .map((run) => {
+                const live = model.live.get(run.id)
+                const name =
+                  model.agents.find((agent) => agent.id === run.participantId)?.name ?? 'Agent'
+                return (
+                  <div key={run.id} className="flex flex-col gap-1">
+                    <p role="status" className="m-0 text-muted-foreground">
+                      {name}:{' '}
+                      {run.state === 'running'
+                        ? (live?.permission?.title ?? live?.activity ?? 'Writing reply')
+                        : run.state[0]!.toUpperCase() + run.state.slice(1)}
+                      {run.detail == null || run.detail === '' ? '' : `: ${run.detail}`}
+                    </p>
+                    <div className="flex flex-wrap gap-2">
+                      {run.state === 'running' ? (
+                        <>
+                          {live?.permission?.options.map((option) => (
+                            <Button
+                              key={option.id}
+                              type="button"
+                              variant="outline"
+                              size="sm"
+                              onClick={() =>
+                                void model.answerPermission(run.id, live.permission!.id, option.id)
+                              }
+                            >
+                              {option.name}
+                            </Button>
+                          ))}
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            onClick={() => void model.cancelRun(run.id)}
+                          >
+                            Cancel
+                          </Button>
+                        </>
+                      ) : (
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          onClick={() => void model.retry(conversation, message, run.participantId)}
+                        >
+                          Retry
+                        </Button>
+                      )}
+                    </div>
+                  </div>
+                )
+              })}
+          </div>
+        ),
       }))}
       onSelect={() => model.setExpanded(conversation.id, false)}
       onResolve={() => void model.setStatus(conversation, 'resolved')}
@@ -80,6 +145,7 @@ export function ConversationThread({
         avatar={<AuthorInitial name={model.participant?.name ?? 'You'} />}
         placeholder="Reply…"
         agents={model.agents}
+        unsavedCount={model.unsavedCount}
         initialText={replyPrefill(conversation, model.agents)}
         onSubmit={(body, to) => model.reply(conversation, body, to)}
       />

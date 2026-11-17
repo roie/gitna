@@ -1,4 +1,8 @@
 import { describe, expect, it, vi } from 'vite-plus/test'
+import { createElement } from 'react'
+import { renderToStaticMarkup } from 'react-dom/server'
+import { ConversationThread } from '../src/diffshub/gitna/ConversationThread'
+import { CommentComposer } from '../src/diffshub/components/DraftAnnotation'
 
 import {
   captureLines,
@@ -8,7 +12,15 @@ import {
   type ConversationEvent,
   type ConversationsApi,
   type Participant,
+  type Live,
 } from '../src/lib/conversations'
+
+vi.mock('@pierre/icons', () => ({
+  IconArrowRight: () => null,
+  IconX: () => null,
+  IconCheck: () => null,
+  IconEllipsis: () => null,
+}))
 
 const worktree = { source: 'worktree' } as const
 const human = { id: 'human:local', kind: 'human', name: 'Ada' } as const
@@ -50,6 +62,7 @@ function conversation(
 
 function fakeApi(lists: Conversation[][], agents: Participant[] = []) {
   let emit: (event: ConversationEvent) => void = () => {}
+  let emitLive: (live: Live) => void = () => {}
   const list = vi.fn(async () => ({
     participant: human,
     conversations: lists.shift() ?? [],
@@ -58,11 +71,17 @@ function fakeApi(lists: Conversation[][], agents: Participant[] = []) {
     agents,
   }))
   const markRead = vi.fn(async (_id: string, seq: number) => seq)
-  const subscribe = vi.fn((_after: number, onEvent: (event: ConversationEvent) => void) => {
-    emit = onEvent
-    return () => {}
-  })
+  const subscribe = vi.fn(
+    (_after: number, onEvent: (event: ConversationEvent) => void, onLive: (live: Live) => void) => {
+      emit = onEvent
+      emitLive = onLive
+      return () => {}
+    },
+  )
   const api: ConversationsApi = {
+    cancelRun: vi.fn(),
+    answerPermission: vi.fn(),
+    retry: vi.fn(),
     settings: vi.fn(),
     setEnabled: vi.fn(),
     addAgent: vi.fn(),
@@ -77,7 +96,14 @@ function fakeApi(lists: Conversation[][], agents: Participant[] = []) {
     markRead,
     subscribe,
   }
-  return { api, list, markRead, subscribe, emit: (event: ConversationEvent) => emit(event) }
+  return {
+    api,
+    list,
+    markRead,
+    subscribe,
+    emit: (event: ConversationEvent) => emit(event),
+    emitLive: (live: Live) => emitLive(live),
+  }
 }
 
 async function loaded(list: Conversation[], agents: Participant[]) {
@@ -85,6 +111,116 @@ async function loaded(list: Conversation[], agents: Participant[]) {
   await model.load()
   return model
 }
+
+describe('native run presentation', () => {
+  const native = { ...agent, agent: 'definition' }
+  const run = {
+    id: 3,
+    participantId: agent.id,
+    messageId: 'c-1',
+    state: 'running' as const,
+    startedAt: '',
+  }
+  const live = { runId: 3, participantId: agent.id, conversationId: 'c', activity: 'Read a file' }
+  const render = (model: ConversationsModel, thread: Conversation) =>
+    renderToStaticMarkup(createElement(ConversationThread, { model, conversation: thread }))
+
+  it('shows activity and removes live state when the reply completes the run', async () => {
+    const thread = conversation('c', 'a', [[1, human]])
+    thread.runs = [run]
+    const f = fakeApi([[thread]], [native])
+    const model = new ConversationsModel(f.api)
+    await model.load()
+    f.emit({ seq: 3, type: 'run.started', conversationId: 'c', actor: native })
+    f.emitLive(live)
+    expect(render(model, thread)).toContain('Read a file')
+    expect(render(model, thread)).toContain('role="status"')
+    thread.runs[0] = { ...run, state: 'completed' }
+    f.list.mockResolvedValueOnce({
+      participant: human,
+      conversations: [thread],
+      seq: 4,
+      read: {},
+      agents: [native],
+    })
+    await model.load()
+    expect(model.live.size).toBe(0)
+    expect(render(model, thread)).not.toContain('Read a file')
+    model.dispose()
+  })
+
+  it.each(['failed', 'cancelled', 'interrupted'] as const)(
+    'shows %s detail and Retry',
+    async (state) => {
+      const thread = conversation('c', 'a', [[1, human]])
+      thread.runs = [{ ...run, state, detail: 'Connection ended' }]
+      const model = await loaded([thread], [native])
+      const html = render(model, thread)
+      expect(html).toContain(state[0]!.toUpperCase() + state.slice(1))
+      expect(html).toContain('Connection ended')
+      expect(html).toContain('Retry')
+      model.dispose()
+    },
+  )
+
+  it('shows permission option names and posts the chosen option ID', async () => {
+    const thread = conversation('c', 'a', [[1, human]])
+    thread.runs = [run]
+    const f = fakeApi([[thread]], [native])
+    const answerPermission = vi.fn().mockResolvedValue({})
+    f.api.answerPermission = answerPermission
+    const model = new ConversationsModel(f.api)
+    await model.load()
+    f.emitLive({
+      ...live,
+      permission: {
+        id: 'request',
+        title: 'Write a file',
+        options: [{ id: 'yes', name: 'Allow once', kind: 'allow_once' }],
+      },
+    })
+    expect(render(model, thread)).toContain('Allow once')
+    await model.answerPermission(3, 'request', 'yes')
+    expect(answerPermission).toHaveBeenCalledWith(3, 'request', 'yes')
+    model.dispose()
+  })
+
+  it('shows when another Gitna owns a run', async () => {
+    const api = createConversationsApi(
+      vi.fn().mockResolvedValue(Response.json({ code: 'other-process' }, { status: 409 })),
+      async (response) => response,
+    )
+    await expect(api.cancelRun(3)).rejects.toThrow('Running in another Gitna window')
+  })
+
+  it('derives Waiting only for joined native recipients without a run', async () => {
+    const thread = conversation('c', 'a', [[1, human]])
+    thread.messages[0]!.to = [native.id, 'agent:cli', 'agent:left']
+    const model = await loaded([thread], [native, { id: 'agent:cli', kind: 'agent', name: 'CLI' }])
+    expect(model.waiting(thread, thread.messages[0]!)).toEqual([native])
+    expect(render(model, thread)).toContain('Waiting')
+    thread.runs = [run]
+    expect(model.waiting(thread, thread.messages[0]!)).toEqual([])
+    expect(render(model, thread)).not.toContain('Waiting')
+    model.dispose()
+  })
+
+  it('shows unsaved guidance only with recipients and unsaved files', () => {
+    const composer = (text: string, unsavedCount: number) =>
+      renderToStaticMarkup(
+        createElement(CommentComposer, {
+          avatar: null,
+          agents: [native],
+          initialText: text,
+          unsavedCount,
+          onSubmit: vi.fn(),
+        }),
+      )
+    expect(composer('@helper fix', 2)).toContain('2 unsaved files')
+    expect(composer('fix', 2)).not.toContain('unsaved')
+    expect(composer('@helper fix', 0)).not.toContain('unsaved')
+  })
+})
 
 describe('agent settings', () => {
   it('posts a command and refreshes the repository roster', async () => {
@@ -177,7 +313,7 @@ describe('ConversationsModel', () => {
     const { api, list, subscribe, emit } = fakeApi([[], [conversation('c1', 'a.go', [[3, agent]])]])
     const model = new ConversationsModel(api)
     await model.load()
-    expect(subscribe).toHaveBeenCalledWith(2, expect.any(Function))
+    expect(subscribe).toHaveBeenCalledWith(2, expect.any(Function), expect.any(Function))
 
     emit({ seq: 2, type: 'message.created', conversationId: 'c1', actor: agent })
     emit({ seq: 3, type: 'message.created', conversationId: 'c1', actor: agent })

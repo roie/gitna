@@ -15,6 +15,7 @@ export interface ExampleAnnotationMessage {
   author: string;
   agent: boolean;
   message: string;
+  after?: ReactNode;
 }
 
 interface ExampleAnnotationProps {
@@ -113,6 +114,7 @@ export const ExampleAnnotation = memo(function ExampleAnnotation({
             <p className="m-0 text-[14px] break-words whitespace-pre-wrap">
               {message.message}
             </p>
+            {message.after != null && <div onClick={isolate} onKeyDown={isolate}>{message.after}</div>}
           </div>
         </div>
       ))}

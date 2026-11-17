@@ -90,7 +90,25 @@ export interface ConversationMessage {
   createdAt: string
 }
 
+export interface Run {
+  id: number
+  participantId: string
+  messageId: string
+  state: 'running' | 'completed' | 'failed' | 'cancelled' | 'interrupted'
+  detail?: string
+  startedAt: string
+}
+
+export interface Live {
+  runId: number
+  conversationId: string
+  participantId: string
+  activity: string
+  permission?: { id: string; title: string; options: { id: string; name: string; kind: string }[] }
+}
+
 export interface Conversation {
+  runs?: Run[]
   id: string
   anchor: ConversationAnchor & { code: string }
   path: string
@@ -122,6 +140,9 @@ export interface ConversationList {
 }
 
 export interface ConversationsApi {
+  cancelRun(id: number): Promise<unknown>
+  answerPermission(id: number, requestId: string, optionId: string): Promise<unknown>
+  retry(conversation: string, message: string, participantId: string): Promise<unknown>
   settings(): Promise<{ enabled: boolean; agents: AgentDefinition[] }>
   setEnabled(enabled: boolean): void
   addAgent(request: AddAgent): Promise<AgentAdded>
@@ -143,7 +164,11 @@ export interface ConversationsApi {
     deleted: boolean,
   ): Promise<Conversation>
   markRead(conversationId: string, seq: number): Promise<number>
-  subscribe(after: number, onEvent: (event: ConversationEvent) => void): () => void
+  subscribe(
+    after: number,
+    onEvent: (event: ConversationEvent) => void,
+    onLive: (live: Live) => void,
+  ): () => void
 }
 
 type Fetch = (url: string, options?: RequestInit) => Promise<Response>
@@ -168,11 +193,20 @@ export function createConversationsApi(
     if (raw.status === 409) {
       const error = (await raw.clone().json()) as { code?: string; methods?: AuthMethod[] }
       if (error.code === 'auth-required') throw new AgentAuthRequired(error.methods ?? [])
+      if (error.code === 'other-process') throw new Error('Running in another Gitna window')
     }
     const response = await expectOK(raw)
     return (await response.json()) as T
   }
   return {
+    cancelRun: (id) => post(`api/v1/conversations/runs/${String(id)}/cancel`, {}),
+    answerPermission: (id, requestId, optionId) =>
+      post(`api/v1/conversations/runs/${String(id)}/permission`, { requestId, optionId }),
+    retry: (conversation, message, participant) =>
+      post(
+        `api/v1/conversations/${encodeURIComponent(conversation)}/messages/${encodeURIComponent(message)}/retry`,
+        { participant },
+      ),
     async settings() {
       return (await (await expectOK(await fetch('api/v1/conversations/settings'))).json()) as {
         enabled: boolean
@@ -219,7 +253,7 @@ export function createConversationsApi(
       const url = `api/v1/conversations/${encodeURIComponent(conversationId)}/read`
       return (await post<{ seq: number }>(url, { seq })).seq
     },
-    subscribe(after, onEvent) {
+    subscribe(after, onEvent, onLive) {
       let source: EventSource
       let retry: ReturnType<typeof setTimeout> | undefined
       const connect = () => {
@@ -229,6 +263,9 @@ export function createConversationsApi(
           const event = JSON.parse((message as MessageEvent<string>).data) as ConversationEvent
           after = Math.max(after, event.seq)
           onEvent(event)
+        })
+        source.addEventListener('run', (message) => {
+          onLive(JSON.parse((message as MessageEvent<string>).data) as Live)
         })
         // EventSource resumes a dropped stream by itself, but gives up for
         // good when the server answers with an error, as during a restart.
@@ -275,6 +312,8 @@ export function captureLines(
 export class ConversationsModel {
   private byContent = new Map<string, Conversation[]>()
   private all: readonly Conversation[] = []
+  readonly live = new Map<number, Live>()
+  unsavedCount = 0
   participant: Participant | null = null
   /** The joined agents a message can explicitly mention. */
   agents: readonly Participant[] = []
@@ -341,6 +380,11 @@ export class ConversationsModel {
       }
       this.byContent = byContent
       this.all = visible
+      for (const conversation of visible) {
+        for (const run of conversation.runs ?? []) {
+          if (run.state !== 'running') this.live.delete(run.id)
+        }
+      }
       this.agents = list.agents ?? []
       this.participant = list.participant
       for (const [id, seq] of Object.entries(list.read)) {
@@ -349,13 +393,61 @@ export class ConversationsModel {
       this.error = null
       if (this.stop == null) {
         this.seq = list.seq
-        this.stop = this.api.subscribe(list.seq, (event) => this.receive(event))
+        this.stop = this.api.subscribe(
+          list.seq,
+          (event) => this.receive(event),
+          (live) => {
+            const run = this.find(live.conversationId)?.runs?.find((run) => run.id === live.runId)
+            if (run != null && run.state !== 'running') return
+            this.live.set(live.runId, live)
+            this.emit()
+          },
+        )
       }
     } catch (error) {
       if (controller.signal.aborted) return
       this.error = error instanceof Error ? error.message : String(error)
     }
     this.emit()
+  }
+
+  waiting(conversation: Conversation, message: ConversationMessage): readonly Participant[] {
+    return this.agents.filter(
+      (agent) =>
+        agent.agent != null &&
+        message.to?.includes(agent.id) &&
+        !(conversation.runs ?? []).some(
+          (run) => run.messageId === message.id && run.participantId === agent.id,
+        ),
+    )
+  }
+
+  setUnsavedCount(count: number): void {
+    if (this.unsavedCount === count) return
+    this.unsavedCount = count
+    this.emit()
+  }
+
+  async cancelRun(id: number): Promise<void> {
+    await this.attempt(async () => {
+      await this.api.cancelRun(id)
+    })
+  }
+
+  async answerPermission(id: number, requestId: string, optionId: string): Promise<void> {
+    await this.attempt(async () => {
+      await this.api.answerPermission(id, requestId, optionId)
+    })
+  }
+
+  async retry(
+    conversation: Conversation,
+    message: ConversationMessage,
+    participantId: string,
+  ): Promise<void> {
+    await this.attempt(async () => {
+      await this.api.retry(conversation.id, message.id, participantId)
+    })
   }
 
   async addAgent(request: AddAgent): Promise<AgentAdded> {

@@ -17,6 +17,7 @@ interface DraftAnnotationProps {
   author: string;
   itemId: string;
   agents: readonly Participant[];
+  unsavedCount: number;
   onCancel: (itemId: string, key: string) => void;
   onSave: (itemId: string, key: string, message: string, to: string[]) => void | Promise<void>;
 }
@@ -27,6 +28,7 @@ interface CommentComposerProps {
   className?: string;
   initialText?: string;
   placeholder?: string;
+  unsavedCount: number;
   agents: readonly Participant[];
   onCancel?: () => void;
   onChange?: (message: string) => void;
@@ -43,6 +45,7 @@ export function CommentComposer({
   initialText = '',
   placeholder = 'Add a comment…',
   agents,
+  unsavedCount,
   onCancel,
   onChange,
   onSubmit,
@@ -220,6 +223,7 @@ export function CommentComposer({
             </ul>
           )}
           {toNames.length > 0 && <p className="m-0 py-1 text-xs text-muted-foreground">To: {toNames.join(', ')}</p>}
+          {to.length > 0 && unsavedCount > 0 && <p className="m-0 py-1 text-xs text-muted-foreground">{unsavedCount} unsaved {unsavedCount === 1 ? 'file' : 'files'}. Agents see files on disk, not unsaved edits.</p>}
           {error != null && (
             <p role="alert" className="m-0 text-xs text-red-600 dark:text-red-400">
               {error}
@@ -292,6 +296,7 @@ export function DraftAnnotation({
   author,
   itemId,
   agents,
+  unsavedCount,
   onCancel,
   onSave,
 }: DraftAnnotationProps) {
@@ -302,6 +307,7 @@ export function DraftAnnotation({
       avatar={<AuthorInitial name={author} />}
       initialText={metadata.message}
       agents={agents}
+      unsavedCount={unsavedCount}
       onCancel={() => onCancel(itemId, metadata.key)}
       onChange={(message) => {
         metadata.message = message;

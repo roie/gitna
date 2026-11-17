@@ -465,6 +465,7 @@ export const DiffsHubViewer = memo(function DiffsHubViewer({
               author={gitnaConversations.model.participant?.name ?? 'You'}
               itemId={item.id}
               agents={gitnaConversations.model.agents}
+              unsavedCount={gitnaConversations.model.unsavedCount}
               onCancel={handleRemoveDraft}
               onSave={handleSaveDraft}
             />

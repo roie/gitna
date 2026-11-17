@@ -1701,6 +1701,9 @@ function GitnaReviewUIInner({
 
   const dirtyPaths = useMemo(() => new Set(worktreeDrafts.keys()), [worktreeDrafts])
   useEffect(() => {
+    conversationsModel?.setUnsavedCount(dirtyPaths.size)
+  }, [conversationsModel, dirtyPaths.size])
+  useEffect(() => {
     onNavigationGuardChange?.(() => {
       if (repository.busy || savingPathRef.current != null) return false
       return (
