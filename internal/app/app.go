@@ -547,7 +547,7 @@ func Run(ctx context.Context, path, version string) error {
 	if err != nil {
 		return fmt.Errorf("app: open agent settings: %w", err)
 	}
-	library := conversations.NewLibrary(filepath.Join(stateDir, "conversations", "v1"))
+	library := conversations.NewLibrary(filepath.Join(stateDir, "conversations", "v2"))
 	defer library.Close()
 	agentToken, err := session.NewToken()
 	if err != nil {

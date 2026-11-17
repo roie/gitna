@@ -35,11 +35,11 @@ func TestExchangePersistsAcrossReopen(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	pending, cursor, err := store.Pending(agent.ID)
-	if err != nil || len(pending) != 1 || cursor != 0 || pending[0].Message.Body != "Why this?\nSecond line" {
-		t.Fatalf("pending = %+v, %d, %v", pending, cursor, err)
+	pending, err := store.Pending(agent.ID)
+	if err != nil || len(pending) != 1 || pending[0].Message.Body != "Why this?\nSecond line" {
+		t.Fatalf("pending = %+v, %v", pending, err)
 	}
-	if _, err := store.Ack(agent.ID, pending[0].Message.Seq, nil); err != nil {
+	if err := store.Ack(agent.ID, []uint64{pending[0].Message.Seq}); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := store.Reply(agent, conversation.ID, "m1", "Because.", nil); err != nil {
@@ -65,9 +65,9 @@ func TestExchangePersistsAcrossReopen(t *testing.T) {
 	if len(got.Messages) != 3 || got.Status != StatusResolved || got.Messages[1].Author != agent {
 		t.Fatalf("reopened conversation = %+v", got)
 	}
-	pending, cursor, _ = reopened.Pending(agent.ID)
-	if cursor != 2 || len(pending) != 1 || pending[0].Message.ID != "m2" {
-		t.Fatalf("pending after reopen = %+v cursor %d", pending, cursor)
+	pending, _ = reopened.Pending(agent.ID)
+	if len(pending) != 1 || pending[0].Message.ID != "m2" {
+		t.Fatalf("pending after reopen = %+v", pending)
 	}
 }
 
@@ -124,7 +124,7 @@ func TestReadingOneConversationLeavesOthersUnread(t *testing.T) {
 	if read, _ := store.Read(agent.ID); len(read) != 1 || read[second.ID] != second.Seq || read[first.ID] != 0 {
 		t.Fatalf("read = %+v", read)
 	}
-	if pending, _, _ := store.Pending(agent.ID); len(pending) != 2 {
+	if pending, _ := store.Pending(agent.ID); len(pending) != 2 {
 		t.Fatalf("reading must not acknowledge the inbox: %+v", pending)
 	}
 }
@@ -164,7 +164,7 @@ func TestWaitPendingWakesOnReply(t *testing.T) {
 	defer cancel()
 	done := make(chan []Pending)
 	go func() {
-		pending, _, _ := store.WaitPending(ctx, agent.ID, all)
+		pending, _ := store.WaitPending(ctx, agent.ID, all)
 		done <- pending
 	}()
 	time.Sleep(20 * time.Millisecond)
@@ -177,7 +177,7 @@ func TestWaitPendingWakesOnReply(t *testing.T) {
 	// Own messages never count as pending.
 	short, stop := context.WithTimeout(context.Background(), 30*time.Millisecond)
 	defer stop()
-	if pending, _, _ := store.WaitPending(short, human.ID, all); len(pending) != 0 {
+	if pending, _ := store.WaitPending(short, human.ID, all); len(pending) != 0 {
 		t.Fatalf("own pending = %+v", pending)
 	}
 }
@@ -399,7 +399,7 @@ func TestDeleteHidesAndRestoreReturnsHistory(t *testing.T) {
 	if _, err := store.Create(human, "c0", anchorAt("main.go", 1, 1, "a"), "Handled", []string{RecipientAll}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := store.Ack(agent.ID, 2, nil); err != nil {
+	if err := store.Ack(agent.ID, []uint64{2}); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := store.Reply(human, "c0", "m0", "Also handled", []string{RecipientAll}); err != nil {
@@ -408,7 +408,7 @@ func TestDeleteHidesAndRestoreReturnsHistory(t *testing.T) {
 	if _, err := store.Create(human, "c1", anchorAt("main.go", 1, 1, "a"), "Remove me", []string{RecipientAll}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := store.Ack(agent.ID, 3, nil); err != nil {
+	if err := store.Ack(agent.ID, []uint64{3}); err != nil {
 		t.Fatal(err)
 	}
 	for _, id := range []string{"c0", "c1"} {
@@ -419,12 +419,11 @@ func TestDeleteHidesAndRestoreReturnsHistory(t *testing.T) {
 	if list, _, _ := store.List(""); len(list) != 0 {
 		t.Fatalf("list after delete = %+v", list)
 	}
-	// Deleted conversations are not pending, and an acknowledgment passing
-	// over them defers their messages instead of discarding them.
-	if pending, _, _ := store.Pending(agent.ID); len(pending) != 0 {
+	// Deleted conversations are not pending.
+	if pending, _ := store.Pending(agent.ID); len(pending) != 0 {
 		t.Fatalf("pending after delete = %+v", pending)
 	}
-	if _, err := store.Ack(agent.ID, 100, nil); err != nil {
+	if err := store.Ack(agent.ID, []uint64{100}); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := store.Reply(agent, "c1", "m1", "late", nil); !errors.Is(err, ErrNotFound) {
@@ -448,13 +447,13 @@ func TestDeleteHidesAndRestoreReturnsHistory(t *testing.T) {
 		t.Fatal(err)
 	}
 	// Restoring brings back what was never handled, not what was acknowledged.
-	if pending, _, _ := reopened.Pending(agent.ID); len(pending) != 1 || pending[0].Message.Body != "Remove me" {
+	if pending, _ := reopened.Pending(agent.ID); len(pending) != 1 || pending[0].Message.Body != "Remove me" {
 		t.Fatalf("pending after restore = %+v", pending)
 	}
-	if _, err := reopened.Ack(agent.ID, 4, nil); err != nil {
+	if err := reopened.Ack(agent.ID, []uint64{4}); err != nil {
 		t.Fatal(err)
 	}
-	if pending, _, _ := reopened.Pending(agent.ID); len(pending) != 0 {
+	if pending, _ := reopened.Pending(agent.ID); len(pending) != 0 {
 		t.Fatalf("pending after acknowledging the restored message = %+v", pending)
 	}
 }
@@ -477,17 +476,17 @@ func TestProcessesSharingARepositoryKeepEachOthersCursors(t *testing.T) {
 	}
 	// Each process advances different cursors after opening; neither may
 	// overwrite the other, and an older acknowledgement never moves one back.
-	if _, err := first.Ack(agent.ID, 3, nil); err != nil {
+	if err := first.Ack(agent.ID, []uint64{2, 3}); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := second.MarkRead(agent.ID, "c3", 4); err != nil {
 		t.Fatal(err)
 	}
-	if seq, err := second.Ack(agent.ID, 1, nil); err != nil || seq != 3 {
-		t.Fatalf("stale ack = %d, %v", seq, err)
+	if err := second.Ack(agent.ID, []uint64{2}); err != nil {
+		t.Fatalf("repeated ack = %v", err)
 	}
-	if pending, cursor, _ := second.Pending(agent.ID); cursor != 3 || len(pending) != 1 || pending[0].Message.Body != "c3" {
-		t.Fatalf("second sees pending %+v at %d", pending, cursor)
+	if pending, _ := second.Pending(agent.ID); len(pending) != 1 || pending[0].Message.Body != "c3" {
+		t.Fatalf("second sees pending %+v", pending)
 	}
 	first.Close()
 	second.Close()
@@ -497,10 +496,10 @@ func TestProcessesSharingARepositoryKeepEachOthersCursors(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer reopened.Close()
-	cursor, _ := reopened.Cursor(agent.ID)
+	pending, _ := reopened.Pending(agent.ID)
 	read, _ := reopened.Read(agent.ID)
-	if cursor != 3 || read["c3"] != 4 {
-		t.Fatalf("after reopen cursor = %d, read = %+v", cursor, read)
+	if len(pending) != 1 || pending[0].Message.Body != "c3" || read["c3"] != 4 {
+		t.Fatalf("after reopen pending = %+v, read = %+v", pending, read)
 	}
 }
 
@@ -737,7 +736,7 @@ func TestJoinIssuesDistinctParticipantsSharedAcrossProcesses(t *testing.T) {
 		t.Fatalf("unissued id: %v", err)
 	}
 	// Joining is not a message, so it never lands in anyone's inbox.
-	if pending, _, _ := second.Pending(b.ID); len(pending) != 0 {
+	if pending, _ := second.Pending(b.ID); len(pending) != 0 {
 		t.Fatalf("pending = %+v", pending)
 	}
 }
@@ -892,7 +891,7 @@ func TestMessageWithoutRecipientsReachesNobody(t *testing.T) {
 	if _, err := store.Reply(human, c.ID, "m1", "again", nil); err != nil {
 		t.Fatal(err)
 	}
-	if pending, _, err := store.Pending(a.ID); err != nil || len(pending) != 0 {
+	if pending, err := store.Pending(a.ID); err != nil || len(pending) != 0 {
 		t.Fatalf("pending = %v, %v", pending, err)
 	}
 }
@@ -916,7 +915,7 @@ func TestAllReachesAgentsJoinedAtSendTime(t *testing.T) {
 		if p.ID == later.ID {
 			want = 0
 		}
-		if pending, _, err := store.Pending(p.ID); err != nil || len(pending) != want {
+		if pending, err := store.Pending(p.ID); err != nil || len(pending) != want {
 			t.Fatalf("%s pending = %v, %v", p.ID, pending, err)
 		}
 	}
@@ -954,7 +953,7 @@ func TestRoutingDeliversOnlyToAddressedAgents(t *testing.T) {
 	defer store.Close()
 	bodies := func(agent Participant) []string {
 		t.Helper()
-		pending, _, err := store.Pending(agent.ID)
+		pending, err := store.Pending(agent.ID)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -1047,42 +1046,32 @@ func TestRoutingDeliversOnlyToAddressedAgents(t *testing.T) {
 	create("after leave")
 	reply(human, "open question", "anyone")
 	expect(b, "for b", "a asks b")
-	if _, _, err := store.Pending(a.ID); err != nil {
+	if _, err := store.Pending(a.ID); err != nil {
 		t.Fatalf("a left agent keeps its inbox: %v", err)
 	}
 }
 
-// TestAcknowledgmentDefersHiddenMessages keeps a message whose code is
-// missing out of pending without letting a later acknowledgment discard it.
-func TestAcknowledgmentDefersHiddenMessages(t *testing.T) {
+func TestHiddenMessageStaysPendingUntilShown(t *testing.T) {
 	store, err := Open(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer store.Close()
-	agent := joinAgent(t, store)
-	for _, id := range []string{"gone", "here"} {
-		if _, err := store.Create(human, id, anchorAt(id, 1, 1, "x"), id, []string{RecipientAll}); err != nil {
-			t.Fatal(err)
-		}
-	}
-	// The caller hides "gone" while its file is missing and acknowledges the rest.
-	if _, err := store.Ack(agent.ID, 3, map[string]bool{"gone": true}); err != nil {
+	a := joinAgent(t, store)
+	gone, _ := store.Create(human, "gone", anchorAt("gone", 1, 1, "x"), "gone", []string{a.ID})
+	here, _ := store.Create(human, "here", anchorAt("here", 1, 1, "x"), "here", []string{a.ID})
+	if err := store.Ack(a.ID, []uint64{here.Messages[0].Seq}); err != nil {
 		t.Fatal(err)
 	}
-	pending, cursor, _ := store.Pending(agent.ID)
-	if cursor != 3 || len(pending) != 1 || pending[0].Message.Body != "gone" {
-		t.Fatalf("pending = %+v at %d", pending, cursor)
+	pending, err := store.Pending(a.ID)
+	if err != nil || len(pending) != 1 || pending[0].Message.Body != "gone" {
+		t.Fatalf("pending = %+v, %v", pending, err)
 	}
-	// Still hidden: acknowledging again keeps it deferred.
-	store.Ack(agent.ID, 3, map[string]bool{"gone": true})
-	if pending, _, _ := store.Pending(agent.ID); len(pending) != 1 {
-		t.Fatalf("deferred message lost: %+v", pending)
+	if err := store.Ack(a.ID, []uint64{gone.Messages[0].Seq}); err != nil {
+		t.Fatal(err)
 	}
-	// Once its file is back and it is handled, it is acknowledged.
-	store.Ack(agent.ID, 2, nil)
-	if pending, _, _ := store.Pending(agent.ID); len(pending) != 0 {
-		t.Fatalf("pending after acknowledging = %+v", pending)
+	if pending, _ := store.Pending(a.ID); len(pending) != 0 {
+		t.Fatalf("pending = %+v", pending)
 	}
 }
 
@@ -1099,7 +1088,7 @@ func TestRejoinKeepsIdentityNameAndAcknowledgments(t *testing.T) {
 			t.Fatal(err)
 		}
 		if id == "c1" {
-			store.Ack(a.ID, 3, nil)
+			store.Ack(a.ID, []uint64{3})
 		}
 	}
 	if err := store.Leave(a.ID); err != nil {
@@ -1131,8 +1120,8 @@ func TestRejoinKeepsIdentityNameAndAcknowledgments(t *testing.T) {
 	if agents, _ := store.Agents(); !slices.Equal(agents, []Participant{a, b}) {
 		t.Fatalf("agents after reopen = %+v", agents)
 	}
-	if pending, cursor, _ := store.Pending(a.ID); cursor != 3 || len(pending) != 1 || pending[0].Message.Body != "c2" {
-		t.Fatalf("pending after rejoin = %+v at %d", pending, cursor)
+	if pending, _ := store.Pending(a.ID); len(pending) != 1 || pending[0].Message.Body != "c2" {
+		t.Fatalf("pending after rejoin = %+v", pending)
 	}
 }
 
@@ -1157,7 +1146,7 @@ func TestTouchWakesWaitersForHeldMessages(t *testing.T) {
 	defer cancel()
 	done := make(chan []Pending)
 	go func() {
-		pending, _, _ := store.WaitPending(ctx, agent.ID, keep)
+		pending, _ := store.WaitPending(ctx, agent.ID, keep)
 		done <- pending
 	}()
 	time.Sleep(20 * time.Millisecond)
@@ -1197,11 +1186,11 @@ func TestDeletingAMessageKeepsTheRestAndCanBeUndone(t *testing.T) {
 	if err != nil || !slices.Equal(bodies(deleted), []string{"first", "answer"}) {
 		t.Fatalf("after delete = %v, %v", bodies(deleted), err)
 	}
-	if pending, _, _ := store.Pending(agent.ID); len(pending) != 1 || pending[0].Message.Body != "first" {
+	if pending, _ := store.Pending(agent.ID); len(pending) != 1 || pending[0].Message.Body != "first" {
 		t.Fatalf("pending after delete = %+v", pending)
 	}
-	// Acknowledging past a deleted message keeps it for Undo.
-	store.Ack(agent.ID, second.Seq, nil)
+	// Only the visible message is acknowledged.
+	store.Ack(agent.ID, []uint64{2})
 	store.Close()
 	if store, err = Open(dir); err != nil {
 		t.Fatal(err)
@@ -1211,7 +1200,7 @@ func TestDeletingAMessageKeepsTheRestAndCanBeUndone(t *testing.T) {
 	if err != nil || !slices.Equal(bodies(restored), []string{"first", "answer", "second"}) {
 		t.Fatalf("after undo = %v, %v", bodies(restored), err)
 	}
-	if pending, _, _ := store.Pending(agent.ID); len(pending) != 1 || pending[0].Message.ID != second.ID {
+	if pending, _ := store.Pending(agent.ID); len(pending) != 1 || pending[0].Message.ID != second.ID {
 		t.Fatalf("pending after undo = %+v", pending)
 	}
 

@@ -136,8 +136,8 @@ func TestConversationsCLIRoundTrip(t *testing.T) {
 	}
 	seq := run("", "pending", "--wait", "1", "--participant", first)["pending"].([]any)[0].(map[string]any)["message"].(map[string]any)["seq"].(float64)
 	run("", "reply", id, "--id", "m-because", "--to", second, "--body", "Because.", "--participant", first)
-	if cursor := run("", "ack", strconv.FormatFloat(seq, 'f', 0, 64), "--participant", first)["cursor"]; cursor != seq {
-		t.Fatalf("cursor = %v, want %v", cursor, seq)
+	if result := run("", "ack", strconv.FormatFloat(seq, 'f', 0, 64), "999", "--participant", first); result["cursor"] != nil {
+		t.Fatalf("ack returned a cursor: %+v", result)
 	}
 	// Acknowledgments stay with the agent that made them; --to reaches second.
 	if got := pending(first); len(got) != 0 {
@@ -151,7 +151,7 @@ func TestConversationsCLIRoundTrip(t *testing.T) {
 	stop()
 	stop = gitnaProcess(t, repo, storeDir, 2)
 	session := run("", "session", "--participant", first)
-	if participant := session["participant"].(map[string]any); participant["id"] != first || participant["name"] != "Helper" || session["cursor"] != seq {
+	if participant := session["participant"].(map[string]any); participant["id"] != first || participant["name"] != "Helper" || session["cursor"] != nil {
 		t.Fatalf("session after restart = %+v", session)
 	}
 	if got := pending(first); len(got) != 0 {

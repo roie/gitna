@@ -35,7 +35,6 @@ type agentSession struct {
 	Version     string                     `json:"version"`
 	Root        string                     `json:"root"`
 	Participant *conversations.Participant `json:"participant,omitempty"`
-	Cursor      uint64                     `json:"cursor"`
 	Seq         uint64                     `json:"seq"`
 	// Agents are the joined agents that have not left.
 	Agents []conversations.Participant `json:"agents"`
@@ -137,7 +136,7 @@ func (a *AgentAPI) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 }
 
 // writeSession describes the open repository and, when known, the calling
-// participant with its acknowledgment cursor.
+// participant.
 func (a *AgentAPI) writeSession(w http.ResponseWriter, store *conversations.Store, backend *Conversations, actor *conversations.Participant) {
 	_, seq, err := store.List("")
 	if err != nil {
@@ -150,11 +149,5 @@ func (a *AgentAPI) writeSession(w http.ResponseWriter, store *conversations.Stor
 		return
 	}
 	session := agentSession{Version: a.Version, Root: backend.Root, Participant: actor, Seq: seq, Agents: nonNil(agents)}
-	if actor != nil {
-		if session.Cursor, err = store.Cursor(actor.ID); err != nil {
-			writeConversationError(w, err)
-			return
-		}
-	}
 	writeJSON(w, http.StatusOK, session)
 }

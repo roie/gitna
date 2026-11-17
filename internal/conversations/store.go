@@ -65,8 +65,7 @@ type Store struct {
 	participants map[string]Participant
 	joined       []string
 	left         map[string]bool
-	// cursors merges every line of the cursor log by maximum, so processes
-	// sharing a repository never undo each other's acknowledgements.
+	// cursors merges read markers and per-message acknowledgements.
 	cursors      map[string]uint64
 	cursorLog    *os.File
 	cursorOffset int64
@@ -818,117 +817,87 @@ func (s *Store) Wait(ctx context.Context, after uint64) ([]Event, error) {
 	}
 }
 
-func (s *Store) Cursor(participantID string) (uint64, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	err := s.catchUpCursors()
-	return s.cursors[participantID], err
-}
-
-// Delivery states of a message an acknowledgment passed over while it was
-// hidden, kept under deferKey so later acknowledgments cannot discard it.
-const (
-	deferred     = 1
-	acknowledged = 2
-)
-
-func deferKey(participantID string, seq uint64) string {
+func ackKey(participantID string, seq uint64) string {
 	return participantID + "\x00" + strconv.FormatUint(seq, 10)
 }
 
-// Pending returns the messages addressed to participantID that it has not
-// acknowledged, including ones deferred while hidden, except in deleted
-// conversations. Callers drop the ones whose code is missing.
-func (s *Store) Pending(participantID string) ([]Pending, uint64, error) {
+// Pending returns unacknowledged messages addressed to participantID.
+func (s *Store) Pending(participantID string) ([]Pending, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if _, err := s.catchUp(); err != nil {
-		return nil, 0, err
+		return nil, err
 	}
 	if err := s.catchUpCursors(); err != nil {
-		return nil, 0, err
+		return nil, err
 	}
-	cursor := s.cursors[participantID]
 	pending := make([]Pending, 0)
-	s.inbox(participantID, uint64(len(s.events)), func(event Event, conversation *Conversation, state uint64) {
-		if !conversation.Deleted && !s.deletedMessages[event.Message.ID] && (state == deferred || (event.Seq > cursor && state == 0)) {
-			pending = append(pending, Pending{Conversation: s.clone(conversation), Message: *event.Message})
-		}
-	})
-	return pending, cursor, nil
-}
-
-// inbox calls visit for each message up to seq addressed to participantID
-// by someone else, with its delivery state. The caller holds s.mu.
-func (s *Store) inbox(participantID string, seq uint64, visit func(Event, *Conversation, uint64)) {
-	for _, event := range s.events[:min(seq, uint64(len(s.events)))] {
+	for _, event := range s.events {
 		if event.Message == nil || event.Message.Author.ID == participantID || !slices.Contains(event.Message.To, participantID) {
 			continue
 		}
-		visit(event, s.byID[event.ConversationID], s.cursors[deferKey(participantID, event.Seq)])
+		conversation := s.byID[event.ConversationID]
+		if !conversation.Deleted && !s.deletedMessages[event.Message.ID] && s.cursors[ackKey(participantID, event.Seq)] == 0 {
+			pending = append(pending, Pending{Conversation: s.clone(conversation), Message: *event.Message})
+		}
 	}
+	return pending, nil
 }
 
-// WaitPending blocks until keep, applied outside the store lock, leaves
-// pending messages for participantID, or ctx ends.
-func (s *Store) WaitPending(ctx context.Context, participantID string, keep func([]Pending) []Pending) ([]Pending, uint64, error) {
+// WaitPending waits for visible pending messages or cancellation.
+func (s *Store) WaitPending(ctx context.Context, participantID string, keep func([]Pending) []Pending) ([]Pending, error) {
 	for {
 		s.mu.Lock()
 		changed := s.changed
 		s.mu.Unlock()
-		pending, cursor, err := s.Pending(participantID)
+		pending, err := s.Pending(participantID)
 		if err == nil {
 			pending = keep(pending)
 		}
 		if err != nil || len(pending) > 0 {
-			return pending, cursor, err
+			return pending, err
 		}
 		select {
 		case <-changed:
 		case <-ctx.Done():
-			return pending, cursor, nil
+			return pending, nil
 		}
 	}
 }
 
-// Ack acknowledges participantID's messages up to seq and advances its
-// cursor, which never moves backwards. Messages in deleted conversations or
-// in the hidden ones, whose code is missing, are deferred instead: they
-// become pending again once they can be shown, and a later Ack covering them
-// acknowledges them.
-func (s *Store) Ack(participantID string, seq uint64, hidden map[string]bool) (uint64, error) {
+// Ack acknowledges only the listed messages addressed to participantID.
+func (s *Store) Ack(participantID string, seqs []uint64) error {
 	if !participantPattern.MatchString(participantID) {
-		return 0, fmt.Errorf("%w: invalid participant", ErrInvalid)
+		return fmt.Errorf("%w: invalid participant", ErrInvalid)
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if _, err := s.catchUp(); err != nil {
-		return 0, err
+		return err
 	}
 	if err := s.catchUpCursors(); err != nil {
-		return 0, err
+		return err
 	}
-	cursor := s.cursors[participantID]
-	var err error
-	s.inbox(participantID, seq, func(event Event, conversation *Conversation, state uint64) {
-		key := deferKey(participantID, event.Seq)
-		switch held := conversation.Deleted || s.deletedMessages[event.Message.ID] || hidden[conversation.ID]; {
-		case err != nil:
-		case held && state == 0 && event.Seq > cursor:
-			err = s.write(key, deferred)
-		case !held && state == deferred:
-			err = s.write(key, acknowledged)
+	for _, seq := range seqs {
+		if seq == 0 || seq > uint64(len(s.events)) {
+			continue
 		}
-	})
-	if err != nil {
-		return 0, err
+		message := s.events[seq-1].Message
+		if message == nil || message.Author.ID == participantID || !slices.Contains(message.To, participantID) {
+			continue
+		}
+		key := ackKey(participantID, seq)
+		if s.cursors[key] == 0 {
+			if err := s.write(key, 1); err != nil {
+				return err
+			}
+		}
 	}
-	return s.advance(participantID, seq)
+	return nil
 }
 
 // MarkRead records that participantID has seen one conversation up to seq.
-// It is separate from the inbox cursor, so reading one conversation leaves
-// the others unread.
+// Reading one conversation leaves the others unread.
 func (s *Store) MarkRead(participantID, conversationID string, seq uint64) (uint64, error) {
 	if !participantPattern.MatchString(participantID) {
 		return 0, fmt.Errorf("%w: invalid participant", ErrInvalid)

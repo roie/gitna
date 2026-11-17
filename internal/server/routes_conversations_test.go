@@ -138,7 +138,7 @@ func TestHumanAndAgentExchangeThroughAPI(t *testing.T) {
 	if reply.Code != http.StatusOK {
 		t.Fatalf("reply = %d %s", reply.Code, reply.Body)
 	}
-	if rec := f.agentDo(t, http.MethodPost, "/conversations/ack", `{"seq":2}`, nil); rec.Code != http.StatusOK {
+	if rec := f.agentDo(t, http.MethodPost, "/conversations/ack", `{"seqs":[2]}`, nil); rec.Code != http.StatusOK {
 		t.Fatalf("ack = %d %s", rec.Code, rec.Body)
 	}
 	if rec := f.agentDo(t, http.MethodGet, "/conversations/pending", "", nil); len(decodeBody[pendingResponse](t, rec).Pending) != 0 {
@@ -256,7 +256,7 @@ func TestAgentAPIRejectsBrowsersAndBadCredentials(t *testing.T) {
 	if rec := f.agentDo(t, http.MethodGet, "/snapshot", "", nil); rec.Code != http.StatusNotFound {
 		t.Errorf("non-conversation route: status %d", rec.Code)
 	}
-	if rec := f.agentDo(t, http.MethodPost, "/conversations/ack", `{"seq":1}`, func(r *http.Request) {
+	if rec := f.agentDo(t, http.MethodPost, "/conversations/ack", `{"seqs":[1]}`, func(r *http.Request) {
 		r.Header.Set("Content-Type", "text/plain")
 	}); rec.Code != http.StatusUnsupportedMediaType {
 		t.Errorf("text/plain mutation: status %d", rec.Code)
@@ -378,7 +378,7 @@ func TestPendingDefersConversationsWhoseFileIsMissing(t *testing.T) {
 	if got := pending(); len(got) != 0 {
 		t.Fatalf("pending while missing = %+v", got)
 	}
-	if rec := f.agentDo(t, http.MethodPost, "/conversations/ack", `{"seq":100}`, nil); rec.Code != http.StatusOK {
+	if rec := f.agentDo(t, http.MethodPost, "/conversations/ack", `{"seqs":[100]}`, nil); rec.Code != http.StatusOK {
 		t.Fatalf("ack = %d %s", rec.Code, rec.Body)
 	}
 	os.WriteFile(path, original, 0o644)
@@ -386,7 +386,7 @@ func TestPendingDefersConversationsWhoseFileIsMissing(t *testing.T) {
 	if len(got) != 1 || got[0].Message.Body != "Rename the package" || got[0].Conversation.Location.Status != conversations.LocationCurrent {
 		t.Fatalf("pending after the file returned = %+v", got)
 	}
-	f.agentDo(t, http.MethodPost, "/conversations/ack", fmt.Sprintf(`{"seq":%d}`, got[0].Message.Seq), nil)
+	f.agentDo(t, http.MethodPost, "/conversations/ack", fmt.Sprintf(`{"seqs":[%d]}`, got[0].Message.Seq), nil)
 	if got := pending(); len(got) != 0 {
 		t.Fatalf("pending after ack = %+v", got)
 	}
@@ -408,7 +408,7 @@ func TestPendingWaitWakesWhenHeldMessagesReturn(t *testing.T) {
 	f.browserDo(t, http.MethodPost, "/conversations/c2/delete", `{}`)
 	os.Remove(path)
 	// Acknowledging while both are held keeps them.
-	f.agentDo(t, http.MethodPost, "/conversations/ack", `{"seq":100}`, nil)
+	f.agentDo(t, http.MethodPost, "/conversations/ack", `{"seqs":[100]}`, nil)
 	wait := func(change func()) []conversations.Pending {
 		t.Helper()
 		done := make(chan []conversations.Pending)
@@ -433,7 +433,7 @@ func TestPendingWaitWakesWhenHeldMessagesReturn(t *testing.T) {
 	if len(pending) != 1 || pending[0].Message.Body != "c1" {
 		t.Fatalf("pending after the file returned = %+v", pending)
 	}
-	f.agentDo(t, http.MethodPost, "/conversations/ack", fmt.Sprintf(`{"seq":%d}`, pending[0].Message.Seq), nil)
+	f.agentDo(t, http.MethodPost, "/conversations/ack", fmt.Sprintf(`{"seqs":[%d]}`, pending[0].Message.Seq), nil)
 	pending = wait(func() { f.browserDo(t, http.MethodPost, "/conversations/c2/restore", `{}`) })
 	if len(pending) != 1 || pending[0].Message.Body != "c2" {
 		t.Fatalf("pending after undo = %+v", pending)

@@ -58,10 +58,10 @@ func TestWaitPendingAcrossProcesses(t *testing.T) {
 	if err := cmd.Wait(); err != nil || readErr != nil {
 		t.Fatalf("waiting process failed: %v, %v\n%s", err, readErr, result)
 	}
-	if pending, _, err := writer.Pending(reader.ID); err != nil || len(pending) != 0 {
+	if pending, err := writer.Pending(reader.ID); err != nil || len(pending) != 0 {
 		t.Fatalf("acknowledged pending = %+v, %v", pending, err)
 	}
-	if pending, _, err := writer.Pending(other.ID); err != nil || len(pending) != 1 {
+	if pending, err := writer.Pending(other.ID); err != nil || len(pending) != 1 {
 		t.Fatalf("other agent pending = %+v, %v", pending, err)
 	}
 }
@@ -77,7 +77,7 @@ func waitPendingInProcess(t *testing.T, dir string) {
 	defer cancel()
 	ready := false
 	id := os.Getenv("GITNA_TEST_WAIT_PARTICIPANT")
-	pending, _, err := store.WaitPending(ctx, id, func(pending []Pending) []Pending {
+	pending, err := store.WaitPending(ctx, id, func(pending []Pending) []Pending {
 		if !ready {
 			fmt.Println("waiting")
 			ready = true
@@ -87,7 +87,7 @@ func waitPendingInProcess(t *testing.T, dir string) {
 	if err != nil || len(pending) != 1 || pending[0].Message.Body != "ping" {
 		t.Fatalf("cross-process pending = %+v, %v", pending, err)
 	}
-	if _, err := store.Ack(id, pending[0].Message.Seq, nil); err != nil {
+	if err := store.Ack(id, []uint64{pending[0].Message.Seq}); err != nil {
 		t.Fatal(err)
 	}
 }

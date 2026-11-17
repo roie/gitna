@@ -132,17 +132,20 @@ var conversationCommands = map[string]conversationOperation{
 		var out json.RawMessage
 		return out, c.client.Do(c.ctx, http.MethodGet, "/conversations/pending", query, nil, &out)
 	}},
-	"ack": {"SEQ", "Mark messages up to SEQ as processed", func(c *conversationCall) (any, error) {
-		value, err := c.arg(0, "sequence number")
-		if err != nil {
+	"ack": {"SEQ...", "Mark the listed messages as processed", func(c *conversationCall) (any, error) {
+		if _, err := c.arg(0, "sequence number"); err != nil {
 			return nil, err
 		}
-		seq, err := strconv.ParseUint(value, 10, 64)
-		if err != nil {
-			return nil, fmt.Errorf("invalid sequence number %q", value)
+		var seqs []uint64
+		for _, value := range c.positional {
+			seq, err := strconv.ParseUint(value, 10, 64)
+			if err != nil {
+				return nil, fmt.Errorf("invalid sequence number %q", value)
+			}
+			seqs = append(seqs, seq)
 		}
 		var out json.RawMessage
-		return out, c.client.Do(c.ctx, http.MethodPost, "/conversations/ack", nil, map[string]uint64{"seq": seq}, &out)
+		return out, c.client.Do(c.ctx, http.MethodPost, "/conversations/ack", nil, map[string][]uint64{"seqs": seqs}, &out)
 	}},
 	"events": {"[--after SEQ] [--timeout SECONDS]", "Wait for conversation events after SEQ", func(c *conversationCall) (any, error) {
 		query := url.Values{"after": {strconv.FormatUint(c.flags.after, 10)}}

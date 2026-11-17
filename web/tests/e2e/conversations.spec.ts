@@ -101,7 +101,7 @@ test('the first conversation reaches another Gitna process without a reload', as
     await other.goto(second.url)
     await openFile(page, 'two-hunk.txt')
     await openFile(other, 'two-hunk.txt')
-    const base = join(dirname(app.repo), 'config', 'conversations', 'v1')
+    const base = join(dirname(app.repo), 'config', 'conversations', 'v2')
     expect(readdirSync(base)).toEqual([])
     const line = page.locator('[data-file] [data-column-number="5"]')
     await expect(line).toBeVisible()

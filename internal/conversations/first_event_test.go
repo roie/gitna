@@ -38,16 +38,13 @@ func TestStoreWaitsForFirstEvent(t *testing.T) {
 	if agents, err := s.Agents(); err != nil || len(agents) != 0 {
 		t.Fatalf("agents = %v, %v", agents, err)
 	}
-	if pending, seq, err := s.Pending("agent:absent"); err != nil || len(pending) != 0 || seq != 0 {
-		t.Fatalf("pending = %v, %d, %v", pending, seq, err)
+	if pending, err := s.Pending("agent:absent"); err != nil || len(pending) != 0 {
+		t.Fatalf("pending = %v, %v", pending, err)
 	}
 	if read, err := s.Read(human.ID); err != nil || len(read) != 0 {
 		t.Fatalf("read = %v, %v", read, err)
 	}
-	if seq, err := s.Cursor("agent:absent"); err != nil || seq != 0 {
-		t.Fatalf("cursor = %d, %v", seq, err)
-	}
-	if _, err := s.Ack("agent:absent", 100, nil); err != nil {
+	if err := s.Ack("agent:absent", []uint64{100}); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := s.MarkRead(human.ID, "absent", 100); err != ErrNotFound {

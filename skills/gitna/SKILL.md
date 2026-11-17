@@ -137,15 +137,15 @@ again with the same `--id` and body stores the message once, so a `create` or
 ### Acknowledge
 
 ```sh
-gitna conversations ack <seq> --participant <your-id>
+gitna conversations ack <seq> [<seq> ...] --participant <your-id>
 ```
 
-Messages up to that `seq` stop being pending for your id. Unacknowledged
-messages stay pending across restarts of your session and of Gitna.
-Deleted messages, messages in deleted conversations, and messages in
-conversations whose code is `missing` are not pending. An `ack` that passes over them keeps them, and
-they become pending again if the conversation is restored or its code
-returns. A `pending --wait` then wakes up for them.
+Only the listed messages stop being pending for your id. Acknowledge the
+`message.seq` of each message you processed. Other messages stay pending
+across restarts. Deleted messages and conversations whose code is `missing`
+are hidden from pending. If you did not acknowledge them, they return when
+the conversation is restored or its code returns. A `pending --wait` then
+wakes up for them.
 
 ### Wait for messages
 
@@ -182,7 +182,7 @@ refer to that version of the file.
   `gitna conversations reopen <conversation-id> --participant <your-id>`:
   change `conversation.status`. Resolved conversations leave the code view.
 - `gitna conversations session --participant <your-id>`: the Gitna instance,
-  the repository root, your participant, your acknowledgment cursor, and the
+  the repository root, your participant, and the
   joined `agents`.
 - `gitna conversations events --after <seq> --timeout <s> --participant <your-id>`:
   the raw event stream, for tools that follow every change.

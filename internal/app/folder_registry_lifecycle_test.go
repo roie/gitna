@@ -463,7 +463,7 @@ func TestAgentRequestWatchesDormantFolderUntilReleased(t *testing.T) {
 	waited := make(chan struct{})
 	go func() {
 		defer close(waited)
-		_, _, _ = store.WaitPending(ctx, agent.ID, func([]conversations.Pending) []conversations.Pending {
+		_, _ = store.WaitPending(ctx, agent.ID, func([]conversations.Pending) []conversations.Pending {
 			woken <- struct{}{}
 			return nil
 		})
