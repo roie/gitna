@@ -3,6 +3,7 @@
 package filelock
 
 import (
+	"errors"
 	"os"
 
 	"golang.org/x/sys/windows"
@@ -16,6 +17,15 @@ const lockOffsetHigh = 0x7fff0000
 // file, so a second open of the same path conflicts even in one process.
 func Lock(f *os.File) error {
 	return windows.LockFileEx(windows.Handle(f.Fd()), windows.LOCKFILE_EXCLUSIVE_LOCK, 0, 1, 0, lockRange())
+}
+
+// TryLock attempts an exclusive lock without waiting.
+func TryLock(f *os.File) (bool, error) {
+	err := windows.LockFileEx(windows.Handle(f.Fd()), windows.LOCKFILE_EXCLUSIVE_LOCK|windows.LOCKFILE_FAIL_IMMEDIATELY, 0, 1, 0, lockRange())
+	if errors.Is(err, windows.ERROR_LOCK_VIOLATION) {
+		return false, nil
+	}
+	return err == nil, err
 }
 
 // Unlock releases the lock taken by Lock. Closing f releases it too.

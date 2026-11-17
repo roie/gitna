@@ -24,6 +24,23 @@ func lockAsync(t *testing.T, f *os.File) <-chan error {
 	return acquired
 }
 
+func TestTryLockDoesNotWait(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "x.lock")
+	first, second := openLockFile(t, path), openLockFile(t, path)
+	if held, err := TryLock(first); err != nil || !held {
+		t.Fatalf("first: held=%v err=%v", held, err)
+	}
+	if held, err := TryLock(second); err != nil || held {
+		t.Fatalf("contended: held=%v err=%v", held, err)
+	}
+	if err := Unlock(first); err != nil {
+		t.Fatal(err)
+	}
+	if held, err := TryLock(second); err != nil || !held {
+		t.Fatalf("released: held=%v err=%v", held, err)
+	}
+}
+
 func TestSecondLockWaitsForUnlock(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "x.lock")
 	first, second := openLockFile(t, path), openLockFile(t, path)

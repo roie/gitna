@@ -3,6 +3,7 @@ package conversations
 import (
 	"context"
 	"errors"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -14,6 +15,100 @@ import (
 	"testing"
 	"time"
 )
+
+func TestRunLockIsExclusiveAcrossProcesses(t *testing.T) {
+	if dir := os.Getenv("GITNA_TEST_RUN_LOCK"); dir != "" {
+		s, err := Open(dir)
+		if err != nil {
+			t.Fatal(err)
+		}
+		_, held, err := s.LockRuns()
+		if err != nil || !held {
+			t.Fatalf("helper lock: held=%v err=%v", held, err)
+		}
+		os.Stdout.Write([]byte("!"))
+		os.Stdin.Read(make([]byte, 1))
+		return
+	}
+	s, err := Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	joinAgent(t, s)
+	exe, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithTimeout(t.Context(), 20*time.Second)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, exe, "-test.run=^TestRunLockIsExclusiveAcrossProcesses$")
+	cmd.Env = append(os.Environ(), "GITNA_TEST_RUN_LOCK="+s.dir)
+	cmd.Stderr = os.Stderr
+	stdin, err := cmd.StdinPipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	stdout, err := cmd.StdoutPipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := cmd.Start(); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { stdin.Close(); cmd.Wait() })
+	if _, err := io.ReadFull(stdout, make([]byte, 1)); err != nil {
+		t.Fatal(err)
+	}
+	unlock, held, err := s.LockRuns()
+	if err != nil || held || unlock != nil {
+		t.Fatalf("contended lock: held=%v unlock=%v err=%v", held, unlock != nil, err)
+	}
+	stdin.Close()
+	if err := cmd.Wait(); err != nil {
+		t.Fatal(err)
+	}
+	unlock, held, err = s.LockRuns()
+	if err != nil || !held {
+		t.Fatalf("released process lock: held=%v err=%v", held, err)
+	}
+	unlock()
+}
+
+func TestRunLockReleasesOnUnlock(t *testing.T) {
+	s, err := Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	joinAgent(t, s)
+	unlock, held, err := s.LockRuns()
+	if err != nil || !held {
+		t.Fatalf("first lock: held=%v err=%v", held, err)
+	}
+	unlock()
+	unlock, held, err = s.LockRuns()
+	if err != nil || !held {
+		t.Fatalf("second lock: held=%v err=%v", held, err)
+	}
+	unlock()
+}
+
+func TestRunLockDoesNotCreateStore(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "absent")
+	s, err := Open(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	unlock, held, err := s.LockRuns()
+	if err != nil || held || unlock != nil {
+		t.Fatalf("absent store lock: held=%v err=%v", held, err)
+	}
+	if _, err := os.Stat(dir); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("store created: %v", err)
+	}
+}
 
 var (
 	human = Participant{ID: "human:local", Kind: KindHuman, Name: "Ada"}
