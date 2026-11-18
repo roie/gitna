@@ -83,7 +83,7 @@ func TestInstallUnpacksVerifiedAdapters(t *testing.T) {
 				t.Fatal(err)
 			}
 			want := filepath.Join(dir, claude, "1.0.0", program(claude))
-			if found.Name != "Claude Agent" || found.Executable != want {
+			if found.Name != "Claude" || found.Executable != want {
 				t.Fatalf("found %+v, want %s", found, want)
 			}
 			if got, err := os.ReadFile(want); err != nil || string(got) != "adapter" {
@@ -102,7 +102,7 @@ func TestInstallUnpacksVerifiedAdapters(t *testing.T) {
 				t.Fatalf("left behind: %v", entries)
 			}
 			available, _ := Discover(nil, dir)
-			if i := slices.IndexFunc(available, func(f Found) bool { return f.Name == "Claude Agent" }); i < 0 || available[i].Executable != want {
+			if i := slices.IndexFunc(available, func(f Found) bool { return f.Name == "Claude" }); i < 0 || available[i].Executable != want {
 				t.Fatalf("discover = %+v", available)
 			}
 			if a := Adapters(dir); len(a) != 1 || a[0].Program != claude || a[0].Size != int64(len("adapter")) {
@@ -159,7 +159,7 @@ func TestRemoveAdapterDeletesItAndForgetsItsAgents(t *testing.T) {
 	}
 	other := Definition{ID: "other", Name: "Other", Executable: filepath.Join(t.TempDir(), "other")}
 	settings.Update(func(s *Settings) error {
-		s.Agents = []Definition{{ID: "claude", Name: "Claude Agent", Executable: found.Executable}, other}
+		s.Agents = []Definition{{ID: "claude", Name: "Claude", Executable: found.Executable}, other}
 		return nil
 	})
 	if err := RemoveAdapter(dir, claude, settings); err != nil {

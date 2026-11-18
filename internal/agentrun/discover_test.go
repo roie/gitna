@@ -41,7 +41,7 @@ func TestDiscoverFindsKnownAgentsWithoutRunningThem(t *testing.T) {
 	if _, err := os.Stat(marker); !os.IsNotExist(err) {
 		t.Fatalf("discovery ran a program: %v", err)
 	}
-	if len(setup) != len(known)-2 || setup[0] != (Setup{Name: "Claude Agent", Command: "claude-agent-acp", Install: "npm install -g @agentclientprotocol/claude-agent-acp", Website: "https://github.com/agentclientprotocol/claude-agent-acp", AdapterMissing: true, Program: "claude-agent-acp"}) {
+	if len(setup) != len(known)-2 || setup[0] != (Setup{Name: "Claude", Command: "claude-agent-acp", Install: "npm install -g @agentclientprotocol/claude-agent-acp", Website: "https://github.com/agentclientprotocol/claude-agent-acp", AdapterMissing: true, Program: "claude-agent-acp"}) {
 		t.Fatalf("setup %+v", setup)
 	}
 	for _, s := range setup[1:] {

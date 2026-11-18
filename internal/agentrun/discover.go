@@ -24,7 +24,7 @@ type knownAgent struct {
 }
 
 var known = []knownAgent{
-	{"Claude Agent", "claude-agent-acp", nil, "claude", "npm install -g @agentclientprotocol/claude-agent-acp", "https://github.com/agentclientprotocol/claude-agent-acp"},
+	{"Claude", "claude-agent-acp", nil, "claude", "npm install -g @agentclientprotocol/claude-agent-acp", "https://github.com/agentclientprotocol/claude-agent-acp"},
 	{"Codex", "codex-acp", nil, "codex", "npm install -g @agentclientprotocol/codex-acp", "https://github.com/agentclientprotocol/codex-acp"},
 	{"Cursor", "cursor-agent", []string{"acp"}, "", "", "https://cursor.com/docs/cli/acp"},
 	{"Gemini CLI", "gemini", []string{"--acp"}, "", "npm install -g @google/gemini-cli", "https://geminicli.com"},

@@ -5,6 +5,7 @@ export interface AgentDefinition {
   name: string
   executable: string
   args: string[]
+  model?: string
 }
 
 export interface FoundAgent {

@@ -1,11 +1,9 @@
+import * as DropdownMenuPrimitive from '@radix-ui/react-dropdown-menu'
 import {
-  IconAsterisk,
   IconBox,
-  IconBrandCursor,
-  IconBrandGithub,
   IconDownload,
+  IconEllipsis,
   IconPlus,
-  IconSparkle,
   IconTerminal,
   IconTrash,
   IconUnlink,
@@ -31,18 +29,34 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuRadioGroup,
+  DropdownMenuRadioItem,
   DropdownMenuSeparator,
+  DropdownMenuSub,
+  DropdownMenuSubContent,
+  DropdownMenuSubTrigger,
   DropdownMenuTrigger,
 } from '../components/DropdownMenu'
 import { Input } from '../components/Input'
 import { Modal } from './Modal'
+import claude from './agent-logos/claude.svg?raw'
+import codex from './agent-logos/codex.svg?raw'
+import copilot from './agent-logos/copilot.svg?raw'
+import cursor from './agent-logos/cursor.svg?raw'
+import gemini from './agent-logos/gemini.svg?raw'
+import goose from './agent-logos/goose.svg?raw'
+import opencode from './agent-logos/opencode.svg?raw'
+import qwen from './agent-logos/qwen.svg?raw'
 
-const PROGRAM_ICONS: Record<string, typeof IconTerminal> = {
-  'claude-agent-acp': IconAsterisk,
-  'codex-acp': IconBox,
-  'cursor-agent': IconBrandCursor,
-  gemini: IconSparkle,
-  copilot: IconBrandGithub,
+const PROGRAM_LOGOS: Record<string, string> = {
+  'claude-agent-acp': claude,
+  'codex-acp': codex,
+  copilot,
+  'cursor-agent': cursor,
+  gemini,
+  goose,
+  opencode,
+  qwen,
 }
 
 function AgentIcon({ row }: { row: Row }) {
@@ -51,11 +65,60 @@ function AgentIcon({ row }: { row: Row }) {
     .split(/[\\/]/)
     .pop()!
     .replace(/\.(exe|cmd)$/i, '')
-  const Icon = PROGRAM_ICONS[program] ?? IconTerminal
-  return <Icon aria-hidden="true" className="size-4 shrink-0" />
+  const logo = PROGRAM_LOGOS[program]
+  return logo == null ? (
+    <IconTerminal aria-hidden="true" className="size-4 shrink-0" />
+  ) : (
+    <span
+      aria-hidden="true"
+      className="size-4 shrink-0 [&>svg]:size-full"
+      dangerouslySetInnerHTML={{ __html: logo }}
+    />
+  )
 }
 
-type Dialog = 'custom' | 'auth' | 'setup' | 'confirm' | 'download' | 'remove' | 'model' | null
+function ModelChoices({
+  definition,
+  models,
+  onChoose,
+}: {
+  definition: AgentDefinition
+  models: { list?: AgentModels; error?: string } | null
+  onChoose: (model: string) => void
+}) {
+  const note = 'm-0 px-3 py-1.5 text-xs'
+  if (models?.error != null)
+    return (
+      <p role="alert" className={`${note} text-destructive`}>
+        {models.error}
+      </p>
+    )
+  const list = models?.list
+  if (list == null)
+    return (
+      <p role="status" className={`${note} text-muted-foreground`}>
+        Starting {definition.name} to list its models…
+      </p>
+    )
+  return (
+    <DropdownMenuRadioGroup value={list.model} onValueChange={onChoose}>
+      <DropdownMenuRadioItem value="">
+        Agent default ({list.options.find((m) => m.id === list.default)?.name ?? list.default})
+      </DropdownMenuRadioItem>
+      {list.options.map((m) => (
+        <DropdownMenuRadioItem key={m.id} value={m.id}>
+          {m.name}
+        </DropdownMenuRadioItem>
+      ))}
+    </DropdownMenuRadioGroup>
+  )
+}
+
+function inside(folder: string, path: string) {
+  return path.startsWith(folder) && /[\\/]/.test(path.charAt(folder.length))
+}
+
+type Dialog = 'custom' | 'auth' | 'setup' | 'confirm' | 'download' | 'remove' | 'forget' | null
 
 interface Row {
   key: string
@@ -83,9 +146,12 @@ export function AgentsMenu({ model }: { model: ConversationsModel }) {
   )
   const [downloadFor, setDownloadFor] = useState<AgentSetup | null>(null)
   const [removing, setRemoving] = useState<{ row: Row; adapter: InstalledAdapter } | null>(null)
-  const [modelFor, setModelFor] = useState<AgentDefinition | null>(null)
-  const [models, setModels] = useState<AgentModels | null>(null)
-  const [chosen, setChosen] = useState('')
+  const [forgetting, setForgetting] = useState<Row | null>(null)
+  const [models, setModels] = useState<{
+    definition: string
+    list?: AgentModels
+    error?: string
+  } | null>(null)
   const [name, setName] = useState('')
   const [command, setCommand] = useState('')
   const [busy, setBusy] = useState(false)
@@ -203,32 +269,37 @@ export function AgentsMenu({ model }: { model: ConversationsModel }) {
       }
     })
   const adapterOf = (row: Row) =>
-    adapters.find((a) => {
-      const path = row.definition?.executable ?? ''
-      return path.startsWith(a.folder) && /[\\/]/.test(path.charAt(a.folder.length))
-    })
-  const chooseModel = async (definition: AgentDefinition) => {
-    setModelFor(definition)
-    setModels(null)
-    setMenu(false)
-    openDialog('model')
-    setBusy(true)
+    adapters.find((a) => inside(a.folder, row.definition?.executable ?? ''))
+  const loadModels = async (definition: AgentDefinition) => {
+    if (models?.definition === definition.id && models.list != null) return
+    setModels({ definition: definition.id })
     try {
-      const listed = await model.api.agentModels(definition.id)
-      setModels(listed)
-      setChosen(listed.model)
+      setModels({ definition: definition.id, list: await model.api.agentModels(definition.id) })
     } catch (error) {
-      setError(
-        error instanceof AgentAuthRequired
-          ? `Sign in to ${definition.name} first, then try again.`
-          : error instanceof Error
-            ? error.message
-            : String(error),
-      )
-    } finally {
-      setBusy(false)
+      setModels({
+        definition: definition.id,
+        error:
+          error instanceof AgentAuthRequired
+            ? `Sign in to ${definition.name} first, then try again.`
+            : error instanceof Error
+              ? error.message
+              : String(error),
+      })
     }
   }
+  const modelName = (definition: AgentDefinition) => {
+    const list = models?.definition === definition.id ? models.list : undefined
+    const current = list?.model ?? definition.model ?? ''
+    if (current === '') return 'Default'
+    return list?.options.find((m) => m.id === current)?.name ?? current
+  }
+  const sharing =
+    removing == null
+      ? []
+      : definitions.filter(
+          (d) =>
+            d.id !== removing.row.definition?.id && inside(removing.adapter.folder, d.executable),
+        )
   const megabytes = (size: number) => `${Math.round(size / 1e6)} MB`
   const forget = (row: Row) =>
     attempt(async () => {
@@ -277,60 +348,99 @@ export function AgentsMenu({ model }: { model: ConversationsModel }) {
               </DropdownMenuItem>
               {expanded === row.key && row.participant != null && (
                 <>
-                  <DropdownMenuItem
-                    aria-label={`Disconnect ${row.name}`}
-                    disabled={busy}
-                    className="gap-2 pl-6"
-                    onSelect={(event) => {
-                      event.preventDefault()
-                      const participant = row.participant!.id
-                      void attempt(async () => {
-                        await model.leave(participant)
-                        setExpanded(null)
-                      })
-                    }}
-                  >
-                    <IconUnlink aria-hidden="true" className="size-4" />
-                    Disconnect
-                  </DropdownMenuItem>
-                  {row.definition != null && (
+                  <div className="flex items-center gap-1">
                     <DropdownMenuItem
-                      aria-label={`Model for ${row.name}`}
+                      aria-label={`Disconnect ${row.name}`}
                       disabled={busy}
-                      className="gap-2 pl-6"
-                      onSelect={() => void chooseModel(row.definition!)}
-                    >
-                      <IconBox aria-hidden="true" className="size-4" />
-                      Model…
-                    </DropdownMenuItem>
-                  )}
-                  {adapterOf(row) != null && (
-                    <DropdownMenuItem
-                      aria-label={`Remove ${row.name} adapter`}
-                      disabled={busy}
-                      className="gap-2 pl-6"
-                      onSelect={() => {
-                        setRemoving({ row, adapter: adapterOf(row)! })
-                        openDialog('remove')
-                      }}
-                    >
-                      <IconTrash aria-hidden="true" className="size-4" />
-                      Remove adapter
-                    </DropdownMenuItem>
-                  )}
-                  {row.definition != null && (
-                    <DropdownMenuItem
-                      aria-label={`Forget ${row.name}`}
-                      disabled={busy}
-                      className="gap-2 pl-6"
+                      className="flex-1 gap-2 pl-6"
                       onSelect={(event) => {
                         event.preventDefault()
-                        void forget(row)
+                        const participant = row.participant!.id
+                        void attempt(async () => {
+                          await model.leave(participant)
+                          setExpanded(null)
+                        })
                       }}
                     >
-                      <IconX aria-hidden="true" className="size-4" />
-                      Forget
+                      <IconUnlink aria-hidden="true" className="size-4" />
+                      Disconnect
                     </DropdownMenuItem>
+                    {(row.definition != null || adapterOf(row) != null) && (
+                      <DropdownMenuSub>
+                        <DropdownMenuPrimitive.SubTrigger
+                          aria-label={`More actions for ${row.name}`}
+                          disabled={busy}
+                          className="rounded-md p-1.5 text-muted-foreground outline-none select-none focus:bg-accent data-[state=open]:bg-accent"
+                        >
+                          <IconEllipsis aria-hidden="true" className="size-4" />
+                        </DropdownMenuPrimitive.SubTrigger>
+                        <DropdownMenuSubContent>
+                          {row.definition != null && (
+                            <DropdownMenuItem
+                              aria-label={`Forget ${row.name}`}
+                              className="gap-2"
+                              onSelect={() => {
+                                setForgetting(row)
+                                openDialog('forget')
+                              }}
+                            >
+                              <IconX aria-hidden="true" className="size-4" />
+                              Forget agent
+                            </DropdownMenuItem>
+                          )}
+                          {adapterOf(row) != null && (
+                            <DropdownMenuItem
+                              aria-label={`Remove ${row.name} adapter`}
+                              className="gap-2"
+                              onSelect={() => {
+                                setRemoving({ row, adapter: adapterOf(row)! })
+                                openDialog('remove')
+                              }}
+                            >
+                              <IconTrash aria-hidden="true" className="size-4" />
+                              Remove adapter
+                            </DropdownMenuItem>
+                          )}
+                        </DropdownMenuSubContent>
+                      </DropdownMenuSub>
+                    )}
+                  </div>
+                  {row.definition != null && (
+                    <DropdownMenuSub
+                      onOpenChange={(open) => {
+                        if (open) void loadModels(row.definition!)
+                      }}
+                    >
+                      <DropdownMenuSubTrigger
+                        aria-label={`Model for ${row.name}`}
+                        disabled={busy}
+                        className="gap-2 rounded-md px-3 pl-6"
+                      >
+                        <IconBox aria-hidden="true" className="size-4" />
+                        Model
+                        <span className={`ml-auto max-w-40 truncate ${hint}`}>
+                          {modelName(row.definition)}
+                        </span>
+                      </DropdownMenuSubTrigger>
+                      <DropdownMenuSubContent className="max-w-80">
+                        <ModelChoices
+                          definition={row.definition}
+                          models={models?.definition === row.definition.id ? models : null}
+                          onChoose={(value) =>
+                            void attempt(async () => {
+                              const definition = row.definition!
+                              await model.api.setAgentModel(definition.id, value)
+                              setModels((current) =>
+                                current?.definition === definition.id && current.list != null
+                                  ? { ...current, list: { ...current.list, model: value } }
+                                  : current,
+                              )
+                              await refresh()
+                            })
+                          }
+                        />
+                      </DropdownMenuSubContent>
+                    </DropdownMenuSub>
                   )}
                 </>
               )}
@@ -431,13 +541,22 @@ export function AgentsMenu({ model }: { model: ConversationsModel }) {
               This frees {megabytes(removing.adapter.size)} and forgets {removing.row.name} in every
               repository.
             </p>
+            {sharing.length > 0 && (
+              <p role="alert" className="m-0 text-sm text-destructive">
+                {sharing.map((d) => d.name).join(', ')} also {sharing.length === 1 ? 'uses' : 'use'}{' '}
+                this adapter and will be forgotten in every repository too.
+              </p>
+            )}
             <Button
               type="button"
               disabled={busy}
               onClick={() =>
                 void attempt(async () => {
-                  if (removing.row.participant != null)
-                    await model.leave(removing.row.participant.id)
+                  const forgotten = definitions
+                    .filter((d) => inside(removing.adapter.folder, d.executable))
+                    .map((d) => d.id)
+                  for (const p of model.agents)
+                    if (forgotten.includes(p.agent ?? '')) await model.leave(p.id)
                   await model.api.removeAdapter(removing.adapter.program)
                   setExpanded(null)
                   await refresh()
@@ -450,50 +569,21 @@ export function AgentsMenu({ model }: { model: ConversationsModel }) {
           </div>
         </Modal>
       )}
-      {dialog === 'model' && modelFor != null && (
-        <Modal title={`Model for ${modelFor.name}`} error={error} onClose={() => setDialog(null)}>
-          {models == null ? (
-            error == null && (
-              <p role="status" className="m-0 text-sm text-muted-foreground">
-                Starting {modelFor.name} to list its models…
-              </p>
-            )
-          ) : (
-            <form
-              className="flex flex-col gap-3"
-              onSubmit={(event) => {
-                event.preventDefault()
-                void attempt(async () => {
-                  await model.api.setAgentModel(modelFor.id, chosen)
-                  setDialog(null)
-                })
-              }}
+      {dialog === 'forget' && forgetting != null && (
+        <Modal title={`Forget ${forgetting.name}`} error={error} onClose={() => setDialog(null)}>
+          <div className="flex flex-col gap-3">
+            <p className="m-0 text-sm">
+              Gitna removes its saved command and model and disconnects it in every repository. Its
+              conversations stay.
+            </p>
+            <Button
+              type="button"
+              disabled={busy}
+              onClick={() => void forget(forgetting).then((done) => done && setDialog(null))}
             >
-              <label htmlFor={`${id}-model`} className="grid gap-1 text-sm">
-                Model
-                <select
-                  id={`${id}-model`}
-                  className="h-9 rounded-md border border-border bg-background px-2 text-sm"
-                  value={chosen}
-                  onChange={(event) => setChosen(event.currentTarget.value)}
-                >
-                  <option value="">
-                    Agent default (
-                    {models.options.find((m) => m.id === models.default)?.name ?? models.default})
-                  </option>
-                  {models.options.map((m) => (
-                    <option key={m.id} value={m.id}>
-                      {m.name}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <p className={`m-0 ${hint}`}>Applies to every run of {modelFor.name}.</p>
-              <Button type="submit" disabled={busy}>
-                Save
-              </Button>
-            </form>
-          )}
+              Forget agent
+            </Button>
+          </div>
         </Modal>
       )}
       {dialog === 'auth' && pending != null && (
