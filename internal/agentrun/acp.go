@@ -104,7 +104,9 @@ func (c *runClient) RequestPermission(ctx context.Context, p acp.RequestPermissi
 }
 
 func startClient(ctx context.Context, def Definition, root string, client *runClient) (*stdio.ClientProcess, error) {
-	return stdio.StartClient(context.WithoutCancel(ctx), client, stdio.Command{Executable: def.Executable, Args: def.Args, Dir: root}, acp.ConnectionOptions{})
+	return stdio.StartClient(context.WithoutCancel(ctx), client, stdio.Command{Executable: def.Executable, Args: def.Args, Dir: root}, acp.ConnectionOptions{
+		AcceptNotification: func(method string) bool { return method == acp.ClientMethodSessionUpdate },
+	})
 }
 
 func shutdown(process *stdio.ClientProcess) {

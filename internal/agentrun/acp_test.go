@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -29,6 +30,10 @@ func TestMain(m *testing.M) {
 		if mode == "garbage" {
 			fmt.Println("not a protocol message")
 			os.Exit(0)
+		}
+		if mode == "unknown-notification" {
+			fmt.Println(`{"jsonrpc":"2.0","method":"auth/status_update","params":{}}`)
+			mode = "reply"
 		}
 		fake := &fakeAgent{mode: mode}
 		conn, err := stdio.NewAgentConnection(fake, acp.ConnectionOptions{})
@@ -211,6 +216,17 @@ func TestRunReturnsTheReply(t *testing.T) {
 	reply, err := Run(t.Context(), fakeDefinition(t, "reply"), t.TempDir(), "Question", Hooks{})
 	if err != nil || reply != "Hello." {
 		t.Fatalf("reply=%q err=%v", reply, err)
+	}
+}
+
+func TestRunIgnoresUnknownNotifications(t *testing.T) {
+	var log strings.Builder
+	previous := slog.Default()
+	slog.SetDefault(slog.New(slog.NewTextHandler(&log, nil)))
+	t.Cleanup(func() { slog.SetDefault(previous) })
+	reply, err := Run(t.Context(), fakeDefinition(t, "unknown-notification"), t.TempDir(), "Question", Hooks{})
+	if err != nil || reply != "Hello." || log.Len() != 0 {
+		t.Fatalf("reply=%q err=%v log=%q", reply, err, log.String())
 	}
 }
 
