@@ -246,8 +246,13 @@ func TestRunReplyIsTheFinalMessage(t *testing.T) {
 			if err != nil || reply != want || updates < 5 {
 				t.Fatalf("reply=%q updates=%d err=%v", reply, updates, err)
 			}
-			if len(texts) < 3 || texts[0] != "Before." || texts[len(texts)-1] != want {
+			if len(texts) < 2 || texts[0] != "Before." || !strings.HasSuffix(texts[len(texts)-1], want) {
 				t.Fatalf("streamed %q, want it to start with the first chunk and end with the reply", texts)
+			}
+			for i := 1; i < len(texts); i++ {
+				if !strings.HasPrefix(texts[i], texts[i-1]) {
+					t.Fatalf("streamed text shrank from %q to %q", texts[i-1], texts[i])
+				}
 			}
 		})
 	}

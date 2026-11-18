@@ -499,7 +499,7 @@ func (m *Manager) begin(w *repoWorker, s *conversations.Store, j job) (<-chan ru
 				m.mu.Lock()
 				defer m.mu.Unlock()
 				if w.active == a {
-					a.live.Text = text
+					a.live.Text = truncateBody(text)
 					notify(w)
 				}
 			},
@@ -572,14 +572,7 @@ func (m *Manager) finish(w *repoWorker, s *conversations.Store, r runResult) err
 		}
 		err = s.EndRun(a.job.agent, c, a.live.RunID, state, r.err.Error())
 	} else {
-		reply := strings.TrimSpace(r.reply)
-		if len(reply) > conversations.MaxBodyBytes {
-			reply = reply[:conversations.MaxBodyBytes]
-			for !utf8.ValidString(reply) {
-				reply = reply[:len(reply)-1]
-			}
-		}
-		_, err = s.ReplyRun(a.job.agent, c, a.live.RunID, reply)
+		_, err = s.ReplyRun(a.job.agent, c, a.live.RunID, truncateBody(strings.TrimSpace(r.reply)))
 	}
 	if err == nil {
 		err = s.Ack(a.job.agent.ID, []uint64{a.job.pending.Message.Seq})
@@ -589,4 +582,16 @@ func (m *Manager) finish(w *repoWorker, s *conversations.Store, r runResult) err
 	notify(w)
 	m.mu.Unlock()
 	return err
+}
+
+// truncateBody cuts text to the longest valid UTF-8 prefix a message can hold.
+func truncateBody(text string) string {
+	if len(text) <= conversations.MaxBodyBytes {
+		return text
+	}
+	text = text[:conversations.MaxBodyBytes]
+	for !utf8.ValidString(text) {
+		text = text[:len(text)-1]
+	}
+	return text
 }

@@ -41,7 +41,9 @@ type PermissionRequest struct {
 
 type Hooks struct {
 	Activity func(string)
-	// Text receives the reply so far, which the finished reply replaces.
+	// Text receives everything the agent has written so far. It only grows;
+	// the finished reply, which drops text written before its last tool call,
+	// replaces it.
 	Text       func(string)
 	Permission func(context.Context, PermissionRequest) (optionID string, ok bool)
 }
@@ -69,9 +71,9 @@ func (c *runClient) SessionUpdate(_ context.Context, p acp.SessionNotification) 
 	if u.ToolCallUpdate != nil && u.ToolCallUpdate.Title != nil {
 		activity = *u.ToolCallUpdate.Title
 	}
-	text := c.replyLocked()
+	text := strings.TrimSpace(c.all.String())
 	c.mu.Unlock()
-	if c.hooks.Text != nil && (u.AgentMessageChunk != nil || u.ToolCall != nil) {
+	if c.hooks.Text != nil && u.AgentMessageChunk != nil {
 		c.hooks.Text(text)
 	}
 	if c.hooks.Activity != nil {
@@ -83,10 +85,6 @@ func (c *runClient) SessionUpdate(_ context.Context, p acp.SessionNotification) 
 func (c *runClient) reply() string {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	return c.replyLocked()
-}
-
-func (c *runClient) replyLocked() string {
 	if reply := strings.TrimSpace(c.tail.String()); reply != "" {
 		return reply
 	}

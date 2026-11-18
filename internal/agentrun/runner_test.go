@@ -10,6 +10,7 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
+	"unicode/utf8"
 
 	"github.com/roie/gitna/internal/conversations"
 )
@@ -511,5 +512,17 @@ func TestDisabledSettingsStartNoWorker(t *testing.T) {
 	}
 	if err := f.manager.Cancel(f.root, 1); !errors.Is(err, ErrNotRunner) {
 		t.Fatal(err)
+	}
+}
+
+func TestTruncateBodyKeepsValidUTF8WithinTheLimit(t *testing.T) {
+	short := "short"
+	if got := truncateBody(short); got != short {
+		t.Fatalf("short = %q", got)
+	}
+	long := strings.Repeat("a", conversations.MaxBodyBytes-1) + "é"
+	got := truncateBody(long)
+	if len(got) != conversations.MaxBodyBytes-1 || !utf8.ValidString(got) {
+		t.Fatalf("len %d, valid %v", len(got), utf8.ValidString(got))
 	}
 }
