@@ -1,3 +1,16 @@
+import {
+  IconAsterisk,
+  IconBox,
+  IconBrandCursor,
+  IconBrandGithub,
+  IconDownload,
+  IconPlus,
+  IconSparkle,
+  IconTerminal,
+  IconTrash,
+  IconUnlink,
+  IconX,
+} from '@pierre/icons'
 import { Fragment, useId, useState, useSyncExternalStore } from 'react'
 
 import {
@@ -23,6 +36,24 @@ import {
 } from '../components/DropdownMenu'
 import { Input } from '../components/Input'
 import { Modal } from './Modal'
+
+const PROGRAM_ICONS: Record<string, typeof IconTerminal> = {
+  'claude-agent-acp': IconAsterisk,
+  'codex-acp': IconBox,
+  'cursor-agent': IconBrandCursor,
+  gemini: IconSparkle,
+  copilot: IconBrandGithub,
+}
+
+function AgentIcon({ row }: { row: Row }) {
+  const executable = row.definition?.executable ?? row.found?.executable ?? row.setup?.program ?? ''
+  const program = executable
+    .split(/[\\/]/)
+    .pop()!
+    .replace(/\.(exe|cmd)$/i, '')
+  const Icon = PROGRAM_ICONS[program] ?? IconTerminal
+  return <Icon aria-hidden="true" className="size-4 shrink-0" />
+}
 
 type Dialog = 'custom' | 'auth' | 'setup' | 'confirm' | 'download' | 'remove' | 'model' | null
 
@@ -235,8 +266,9 @@ export function AgentsMenu({ model }: { model: ConversationsModel }) {
                   select(row)
                 }}
               >
-                <span className="min-w-0 truncate">
-                  {row.name}
+                <span className="flex min-w-0 items-center gap-2">
+                  <AgentIcon row={row} />
+                  <span className="truncate">{row.name}</span>
                   {row.participant != null && row.participant.agent == null && (
                     <span className={hint}> · CLI</span>
                   )}
@@ -248,7 +280,7 @@ export function AgentsMenu({ model }: { model: ConversationsModel }) {
                   <DropdownMenuItem
                     aria-label={`Disconnect ${row.name}`}
                     disabled={busy}
-                    className="pl-6"
+                    className="gap-2 pl-6"
                     onSelect={(event) => {
                       event.preventDefault()
                       const participant = row.participant!.id
@@ -258,15 +290,17 @@ export function AgentsMenu({ model }: { model: ConversationsModel }) {
                       })
                     }}
                   >
+                    <IconUnlink aria-hidden="true" className="size-4" />
                     Disconnect
                   </DropdownMenuItem>
                   {row.definition != null && (
                     <DropdownMenuItem
                       aria-label={`Model for ${row.name}`}
                       disabled={busy}
-                      className="pl-6"
+                      className="gap-2 pl-6"
                       onSelect={() => void chooseModel(row.definition!)}
                     >
+                      <IconBox aria-hidden="true" className="size-4" />
                       Model…
                     </DropdownMenuItem>
                   )}
@@ -274,12 +308,13 @@ export function AgentsMenu({ model }: { model: ConversationsModel }) {
                     <DropdownMenuItem
                       aria-label={`Remove ${row.name} adapter`}
                       disabled={busy}
-                      className="pl-6"
+                      className="gap-2 pl-6"
                       onSelect={() => {
                         setRemoving({ row, adapter: adapterOf(row)! })
                         openDialog('remove')
                       }}
                     >
+                      <IconTrash aria-hidden="true" className="size-4" />
                       Remove adapter
                     </DropdownMenuItem>
                   )}
@@ -287,12 +322,13 @@ export function AgentsMenu({ model }: { model: ConversationsModel }) {
                     <DropdownMenuItem
                       aria-label={`Forget ${row.name}`}
                       disabled={busy}
-                      className="pl-6"
+                      className="gap-2 pl-6"
                       onSelect={(event) => {
                         event.preventDefault()
                         void forget(row)
                       }}
                     >
+                      <IconX aria-hidden="true" className="size-4" />
                       Forget
                     </DropdownMenuItem>
                   )}
@@ -302,15 +338,20 @@ export function AgentsMenu({ model }: { model: ConversationsModel }) {
           ))}
           <DropdownMenuSeparator />
           {setup.length > 0 && (
-            <DropdownMenuItem onSelect={() => openDialog('setup')}>More agents…</DropdownMenuItem>
+            <DropdownMenuItem className="gap-2" onSelect={() => openDialog('setup')}>
+              <IconDownload aria-hidden="true" className="size-4" />
+              More agents…
+            </DropdownMenuItem>
           )}
           <DropdownMenuItem
+            className="gap-2"
             onSelect={() => {
               setName('')
               setCommand('')
               openDialog('custom')
             }}
           >
+            <IconPlus aria-hidden="true" className="size-4" />
             Add custom agent…
           </DropdownMenuItem>
           {dialog == null && error != null && (
