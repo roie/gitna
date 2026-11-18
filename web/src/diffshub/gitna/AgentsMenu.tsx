@@ -1,4 +1,4 @@
-import { useId, useState, useSyncExternalStore } from 'react'
+import { Fragment, useId, useState, useSyncExternalStore } from 'react'
 
 import {
   AgentAuthRequired,
@@ -8,6 +8,7 @@ import {
   type AuthMethod,
   type ConversationsModel,
   type FoundAgent,
+  type Participant,
   suggestName,
 } from '../../lib/conversations'
 import { Button } from '../components/Button'
@@ -15,14 +16,22 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
-  DropdownMenuLabel,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '../components/DropdownMenu'
 import { Input } from '../components/Input'
 import { Modal } from './Modal'
 
-type Dialog = 'custom' | 'auth' | 'setup' | null
+type Dialog = 'custom' | 'auth' | 'setup' | 'confirm' | null
+
+interface Row {
+  key: string
+  name: string
+  participant?: Participant
+  definition?: AgentDefinition
+  found?: FoundAgent
+  setup?: AgentSetup
+}
 
 export function AgentsMenu({ model }: { model: ConversationsModel }) {
   useSyncExternalStore(
@@ -39,6 +48,9 @@ export function AgentsMenu({ model }: { model: ConversationsModel }) {
   const [command, setCommand] = useState('')
   const [busy, setBusy] = useState(false)
   const [connecting, setConnecting] = useState<string | null>(null)
+  const [failed, setFailed] = useState<string | null>(null)
+  const [expanded, setExpanded] = useState<string | null>(null)
+  const [confirming, setConfirming] = useState<FoundAgent | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [methods, setMethods] = useState<AuthMethod[]>([])
   const [pending, setPending] = useState<{ name: string; request: AddAgent } | null>(null)
@@ -54,12 +66,14 @@ export function AgentsMenu({ model }: { model: ConversationsModel }) {
     setError(null)
     try {
       await action()
+      return true
     } catch (error) {
       if (error instanceof AgentAuthRequired) {
         setMethods(error.methods)
         setMenu(false)
         setDialog('auth')
       } else setError(error instanceof Error ? error.message : String(error))
+      return false
     } finally {
       setBusy(false)
     }
@@ -67,14 +81,14 @@ export function AgentsMenu({ model }: { model: ConversationsModel }) {
   const connect = async (key: string, agentName: string, request: AddAgent) => {
     setPending({ name: agentName, request })
     setConnecting(key)
-    let connected = false
-    await attempt(async () => {
+    setFailed(null)
+    const connected = await attempt(async () => {
       const result = await model.addAgent(request)
       setAdded(result.definition)
-      connected = true
       await refresh()
     })
     setConnecting(null)
+    if (!connected) setFailed(key)
     return connected
   }
   const openDialog = (next: Dialog) => {
@@ -84,9 +98,52 @@ export function AgentsMenu({ model }: { model: ConversationsModel }) {
   }
   const known = [...available, ...setup]
   const suggestion = suggestName(command, known)
-  const connected = new Set(model.agents.map((p) => p.agent))
-  const saved = definitions.filter((d) => !connected.has(d.id))
-  const needsAdapter = setup.filter((s) => s.adapterMissing)
+  const joined = new Set(model.agents.map((p) => p.agent))
+  const rows: Row[] = [
+    ...model.agents.map((p) => ({
+      key: p.id,
+      name: p.name,
+      participant: p,
+      definition: definitions.find((d) => d.id === p.agent),
+    })),
+    ...definitions
+      .filter((d) => !joined.has(d.id))
+      .map((d) => ({ key: d.id, name: d.name, definition: d })),
+    ...available.map((f) => ({ key: f.executable, name: f.name, found: f })),
+    ...setup
+      .filter((s) => s.adapterMissing)
+      .map((s) => ({ key: s.command, name: s.name, setup: s })),
+  ]
+  const status = (row: Row) =>
+    connecting === row.key
+      ? 'Connecting…'
+      : failed === row.key
+        ? "Couldn't connect"
+        : row.participant != null
+          ? 'Connected'
+          : row.setup != null
+            ? 'Set up'
+            : ''
+  const select = (row: Row) => {
+    if (row.participant != null) setExpanded(expanded === row.key ? null : row.key)
+    else if (row.definition != null)
+      void connect(row.key, row.name, { definition: row.definition.id })
+    else if (row.found != null) {
+      setConfirming(row.found)
+      setMenu(false)
+      openDialog('confirm')
+    } else {
+      setMenu(false)
+      openDialog('setup')
+    }
+  }
+  const forget = (row: Row) =>
+    attempt(async () => {
+      if (row.participant != null) await model.leave(row.participant.id)
+      if (row.definition != null) await model.api.deleteDefinition(row.definition.id)
+      setExpanded(null)
+      await refresh()
+    })
   const hint = 'text-xs text-muted-foreground'
   return (
     <>
@@ -94,6 +151,7 @@ export function AgentsMenu({ model }: { model: ConversationsModel }) {
         open={menu}
         onOpenChange={(open) => {
           setMenu(open)
+          setExpanded(null)
           if (open) void attempt(refresh)
         }}
       >
@@ -102,85 +160,64 @@ export function AgentsMenu({ model }: { model: ConversationsModel }) {
             Agents
           </Button>
         </DropdownMenuTrigger>
-        <DropdownMenuContent align="end" className="max-w-[calc(100vw-2rem)]">
-          <DropdownMenuLabel>In this repository</DropdownMenuLabel>
-          {model.agents.length === 0 && (
-            <p className={`m-0 px-2 py-1.5 ${hint}`}>No agents connected</p>
-          )}
-          {model.agents.map((p) => (
-            <DropdownMenuItem
-              key={p.id}
-              aria-label={`Disconnect ${p.name}`}
-              disabled={busy}
-              className="justify-between gap-4"
-              onSelect={(event) => {
-                event.preventDefault()
-                void attempt(() => model.leave(p.id))
-              }}
-            >
-              <span className="min-w-0 truncate">
-                {p.name}
-                {p.agent == null && <span className={hint}> · CLI</span>}
-              </span>
-              <span className={hint}>Disconnect</span>
-            </DropdownMenuItem>
+        <DropdownMenuContent align="end" className="min-w-56 max-w-[calc(100vw-2rem)]">
+          {rows.length === 0 && <p className={`m-0 px-2 py-1.5 ${hint}`}>No agents found</p>}
+          {rows.map((row) => (
+            <Fragment key={row.key}>
+              <DropdownMenuItem
+                disabled={busy}
+                aria-expanded={row.participant != null ? expanded === row.key : undefined}
+                className="justify-between gap-4"
+                onSelect={(event) => {
+                  if (row.found == null && row.setup == null) event.preventDefault()
+                  select(row)
+                }}
+              >
+                <span className="min-w-0 truncate">
+                  {row.name}
+                  {row.participant != null && row.participant.agent == null && (
+                    <span className={hint}> · CLI</span>
+                  )}
+                </span>
+                <span className={hint}>{status(row)}</span>
+              </DropdownMenuItem>
+              {expanded === row.key && row.participant != null && (
+                <>
+                  <DropdownMenuItem
+                    aria-label={`Disconnect ${row.name}`}
+                    disabled={busy}
+                    className="pl-6"
+                    onSelect={(event) => {
+                      event.preventDefault()
+                      const participant = row.participant!.id
+                      void attempt(async () => {
+                        await model.leave(participant)
+                        setExpanded(null)
+                      })
+                    }}
+                  >
+                    Disconnect
+                  </DropdownMenuItem>
+                  {row.definition != null && (
+                    <DropdownMenuItem
+                      aria-label={`Forget ${row.name}`}
+                      disabled={busy}
+                      className="pl-6"
+                      onSelect={(event) => {
+                        event.preventDefault()
+                        void forget(row)
+                      }}
+                    >
+                      Forget
+                    </DropdownMenuItem>
+                  )}
+                </>
+              )}
+            </Fragment>
           ))}
-          {(saved.length > 0 || available.length > 0 || needsAdapter.length > 0) && (
-            <>
-              <DropdownMenuSeparator />
-              <DropdownMenuLabel>Available</DropdownMenuLabel>
-              {saved.map((d) => (
-                <DropdownMenuItem
-                  key={d.id}
-                  aria-label={`Connect ${d.name}`}
-                  disabled={busy}
-                  className="justify-between gap-4"
-                  onSelect={(event) => {
-                    event.preventDefault()
-                    void connect(d.id, d.name, { definition: d.id })
-                  }}
-                >
-                  <span className="min-w-0 truncate">{d.name}</span>
-                  <span className={hint}>{connecting === d.id ? 'Connecting…' : 'Saved'}</span>
-                </DropdownMenuItem>
-              ))}
-              {available.map((f) => (
-                <DropdownMenuItem
-                  key={f.executable}
-                  aria-label={`Connect ${f.name}`}
-                  disabled={busy}
-                  className="justify-between gap-4"
-                  onSelect={(event) => {
-                    event.preventDefault()
-                    void connect(f.executable, f.name, { name: f.name, command: f.command })
-                  }}
-                >
-                  <span className="min-w-0 truncate">{f.name}</span>
-                  <span className={hint}>
-                    {connecting === f.executable ? 'Connecting…' : f.command}
-                  </span>
-                </DropdownMenuItem>
-              ))}
-              {needsAdapter.map((s) => (
-                <DropdownMenuItem
-                  key={s.command}
-                  className="justify-between gap-4"
-                  onSelect={() => openDialog('setup')}
-                >
-                  <span className="min-w-0 truncate">{s.name}</span>
-                  <span className={hint}>Needs ACP adapter…</span>
-                </DropdownMenuItem>
-              ))}
-              <p className={`m-0 max-w-72 px-2 py-1.5 ${hint}`}>
-                Connected agents run as you and can change any file you can.
-              </p>
-            </>
-          )}
           <DropdownMenuSeparator />
           {setup.length > 0 && (
-            <DropdownMenuItem onSelect={() => openDialog('setup')}>
-              Set up an agent…
-            </DropdownMenuItem>
+            <DropdownMenuItem onSelect={() => openDialog('setup')}>More agents…</DropdownMenuItem>
           )}
           <DropdownMenuItem
             onSelect={() => {
@@ -191,21 +228,6 @@ export function AgentsMenu({ model }: { model: ConversationsModel }) {
           >
             Add custom agent…
           </DropdownMenuItem>
-          {definitions.map((d) => (
-            <DropdownMenuItem
-              key={`forget-${d.id}`}
-              disabled={busy}
-              onSelect={(event) => {
-                event.preventDefault()
-                void attempt(async () => {
-                  await model.api.deleteDefinition(d.id)
-                  await refresh()
-                })
-              }}
-            >
-              Forget command for {d.name}
-            </DropdownMenuItem>
-          ))}
           {dialog == null && error != null && (
             <p role="alert" className="max-w-72 p-2 text-xs text-red-600">
               {error}
@@ -213,6 +235,32 @@ export function AgentsMenu({ model }: { model: ConversationsModel }) {
           )}
         </DropdownMenuContent>
       </DropdownMenu>
+      {dialog === 'confirm' && confirming != null && (
+        <Modal title={`Connect ${confirming.name}`} error={error} onClose={() => setDialog(null)}>
+          <div className="flex flex-col gap-3">
+            <p className="m-0 text-sm text-muted-foreground">
+              {confirming.name} runs with your user's permissions. It can read and change anything
+              you can, may act without asking, and may send repository content to its provider. Once
+              connected, it is available in every repository and runs only when a message names it.
+            </p>
+            <p className="m-0 text-sm">
+              Gitna runs <code className="break-all">{confirming.command}</code>
+            </p>
+            <Button
+              type="button"
+              disabled={busy}
+              onClick={() =>
+                void connect(confirming.executable, confirming.name, {
+                  name: confirming.name,
+                  command: confirming.command,
+                }).then((ok) => ok && setDialog(null))
+              }
+            >
+              {busy ? 'Connecting…' : 'Connect'}
+            </Button>
+          </div>
+        </Modal>
+      )}
       {dialog === 'auth' && pending != null && (
         <Modal title={`Sign in to ${pending.name}`} error={error} onClose={() => setDialog(null)}>
           <div className="flex flex-col gap-3">
@@ -258,13 +306,16 @@ export function AgentsMenu({ model }: { model: ConversationsModel }) {
         </Modal>
       )}
       {dialog === 'setup' && (
-        <Modal title="Set up an agent" error={error} onClose={() => setDialog(null)}>
+        <Modal title="More agents" error={error} onClose={() => setDialog(null)}>
           <div className="flex flex-col gap-4">
             <p className={`m-0 ${hint}`}>
               Install an agent, then check again. Gitna looks for these programs on your PATH and
               never installs anything.
             </p>
-            {[...needsAdapter, ...setup.filter((s) => !s.adapterMissing)].map((s) => (
+            {[
+              ...setup.filter((s) => s.adapterMissing),
+              ...setup.filter((s) => !s.adapterMissing),
+            ].map((s) => (
               <section key={s.command} aria-label={s.name} className="flex flex-col gap-1">
                 <h3 className="m-0 text-sm font-semibold">{s.name}</h3>
                 {s.adapterMissing && (

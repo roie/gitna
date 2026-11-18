@@ -982,7 +982,7 @@ async function addNative(page: Page, name: string, mode: string) {
   await dialog.getByRole('button', { name: 'Done', exact: true }).click()
 }
 
-test('found agents connect from Agents, sign in when asked, disconnect without being forgotten, and missing adapters get setup guidance', async ({
+test('agents connect after one confirmation, stay remembered in other repositories, and run only when named', async ({
   page,
   app,
 }) => {
@@ -1014,36 +1014,94 @@ test('found agents connect from Agents, sign in when asked, disconnect without b
     await page.goto(second.url)
     await openFile(page, 'two-hunk.txt')
     const agents = page.getByRole('button', { name: 'Agents', exact: true })
-    const item = (name: string) => page.getByRole('menuitem', { name, exact: true })
+    const row = (name: string) => page.getByRole('menuitem', { name: new RegExp(`^${name}`) })
     await agents.click()
-    await expect(item('Connect OpenCode')).toBeVisible()
+    await expect(row('OpenCode')).toBeVisible()
     await expect(page.getByRole('menuitemcheckbox')).toHaveCount(0)
     expect(runs()).toEqual([])
 
-    await item('Connect OpenCode').click()
-    await expect(item('Disconnect OpenCode')).toBeVisible()
+    await row('OpenCode').click()
+    const confirm = page.getByRole('dialog', { name: 'Connect OpenCode' })
+    await expect(confirm).toContainText('opencode acp')
+    await expect(confirm).toContainText('can read and change anything you can')
+    expect(runs()).toEqual([])
+    await confirm.getByRole('button', { name: 'Connect', exact: true }).click()
+    await expect(confirm).toHaveCount(0)
     expect(runs()).toEqual(['opencode'])
-    await item('Disconnect OpenCode').click()
-    await expect(item('Connect OpenCode')).toBeVisible()
-    await expect(item('Forget command for OpenCode')).toBeVisible()
-    await item('Connect OpenCode').click()
-    await expect(item('Disconnect OpenCode')).toBeVisible()
 
-    await item('Connect goose').click()
+    await agents.click()
+    await expect(row('OpenCode')).toContainText('Connected')
+    await row('OpenCode').click()
+    await page.getByRole('menuitem', { name: 'Disconnect OpenCode', exact: true }).click()
+    await expect(row('OpenCode')).not.toContainText('Connected')
+    await row('OpenCode').click()
+    await expect(row('OpenCode')).toContainText('Connected')
+    await expect(page.getByRole('dialog')).toHaveCount(0)
+    expect(runs()).toEqual(['opencode'])
+
+    await row('goose').click()
+    await page
+      .getByRole('dialog', { name: 'Connect goose' })
+      .getByRole('button', { name: 'Connect', exact: true })
+      .click()
     const signIn = page.getByRole('dialog', { name: 'Sign in to goose' })
     await signIn.getByRole('button', { name: 'Sign in', exact: true }).click()
     await expect(signIn).toHaveCount(0)
     await agents.click()
-    await expect(item('Disconnect goose')).toBeVisible()
+    await expect(row('goose')).toContainText('Connected')
 
-    await page.getByRole('menuitem', { name: /^Claude Agent/ }).click()
-    const setup = page.getByRole('dialog', { name: 'Set up an agent' })
-    const claude = setup.getByRole('region', { name: 'Claude Agent' })
+    await row('Claude Agent').click()
+    const more = page.getByRole('dialog', { name: 'More agents' })
+    const claude = more.getByRole('region', { name: 'Claude Agent' })
     await expect(claude).toContainText('the ACP adapter is missing')
     await expect(claude).toContainText('npm install -g @agentclientprotocol/claude-agent-acp')
     expect(runs()).not.toContain('claude')
+    await page.keyboard.press('Escape')
   } finally {
     await stopGitna(second.child)
+  }
+
+  const other = join(dirname(app.repo), 'other')
+  execFileSync('git', ['clone', '-q', app.repo, other])
+  writeFileSync(join(other, 'two-hunk.txt'), readFileSync(join(app.repo, 'two-hunk.txt')))
+  const stores = join(dirname(app.repo), 'config', 'conversations', 'v2')
+  const before = readdirSync(stores).length
+  const third = await startGitna(process.env.GITNA_E2E_BINARY!, other, {
+    ...process.env,
+    [pathKey]: `${bin}${delimiter}${process.env[pathKey] ?? ''}`,
+  })
+  try {
+    await page.goto(third.url)
+    await openFile(page, 'two-hunk.txt')
+    await page.getByRole('button', { name: 'Agents', exact: true }).click()
+    await expect(page.getByRole('menuitem', { name: /^OpenCode/ })).toContainText('Connected')
+    await page.keyboard.press('Escape')
+    expect(readdirSync(stores)).toHaveLength(before)
+    expect(runs()).toEqual(['opencode', 'goose', 'goose'])
+    const thread = await nativeThread(page, '@OpenCode Explain this')
+    await expect(thread.getByText('Reply from reply', { exact: true })).toBeVisible()
+    expect(runs().filter((r) => r === 'opencode')).toHaveLength(2)
+
+    await page.getByRole('button', { name: 'Agents', exact: true }).click()
+    await page.getByRole('menuitem', { name: /^goose/ }).click()
+    await page.getByRole('menuitem', { name: 'Disconnect goose' }).click()
+    await expect(page.getByRole('menuitem', { name: /^goose/ })).not.toContainText('Connected')
+    await page.keyboard.press('Escape')
+  } finally {
+    await stopGitna(third.child)
+  }
+
+  const first = await startGitna(process.env.GITNA_E2E_BINARY!, app.repo, {
+    ...process.env,
+    [pathKey]: `${bin}${delimiter}${process.env[pathKey] ?? ''}`,
+  })
+  try {
+    await page.goto(first.url)
+    await openFile(page, 'two-hunk.txt')
+    await page.getByRole('button', { name: 'Agents', exact: true }).click()
+    await expect(page.getByRole('menuitem', { name: /^goose/ })).toContainText('Connected')
+  } finally {
+    await stopGitna(first.child)
   }
 })
 
