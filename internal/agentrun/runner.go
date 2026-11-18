@@ -452,14 +452,15 @@ func (m *Manager) begin(w *repoWorker, s *conversations.Store, j job) (<-chan ru
 			return nil, err
 		}
 	}
+	m.mu.Lock()
 	run, err := s.StartRun(j.agent, j.pending.Conversation.ID, j.pending.Message.ID)
 	if err != nil {
+		m.mu.Unlock()
 		release()
 		return nil, err
 	}
 	ctx, cancel := context.WithCancelCause(m.ctx)
 	a := &activeRun{job: j, live: Live{RunID: run.ID, ConversationID: j.pending.Conversation.ID, ParticipantID: j.agent.ID, Activity: "Writing a reply"}, cancel: cancel, answer: make(chan string, 1), release: release}
-	m.mu.Lock()
 	w.active = a
 	m.arm(w, a, 30*time.Minute, "No activity for 30 minutes")
 	notify(w)
