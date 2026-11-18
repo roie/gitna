@@ -5,7 +5,7 @@ import { Button } from '@/components/Button'
 import { ExampleAnnotation } from '@/components/ExampleAnnotation'
 import { annotationCardBase } from '@/lib/annotation'
 import { cn } from '@/lib/cn'
-import type { Conversation, ConversationsModel } from '../../lib/conversations'
+import type { Conversation, ConversationsModel, Run } from '../../lib/conversations'
 import { replyPrefill } from '../../lib/mentions'
 
 export function ConversationThread({
@@ -70,8 +70,8 @@ export function ConversationThread({
                 {agent.name}: Waiting
               </p>
             ))}
-            {(conversation.runs ?? [])
-              .filter((run) => run.messageId === message.id && run.state !== 'completed')
+            {latestRuns(conversation.runs ?? [], message.id)
+              .filter((run) => run.state !== 'completed')
               .map((run) => {
                 const live = model.live.get(run.id)
                 const name =
@@ -151,4 +151,16 @@ export function ConversationThread({
       />
     </ExampleAnnotation>
   )
+}
+
+// latestRuns returns the newest run of each agent for a message: a retry
+// replaces the run it retried.
+function latestRuns(runs: Run[], messageId: string): Run[] {
+  const latest = new Map<string, Run>()
+  for (const run of runs) {
+    if (run.messageId !== messageId) continue
+    const previous = latest.get(run.participantId)
+    if (previous == null || run.id > previous.id) latest.set(run.participantId, run)
+  }
+  return [...latest.values()]
 }

@@ -1281,3 +1281,23 @@ test('turning conversations off interrupts queued runs without stopping the acti
     .toEqual(['cancelled', 'interrupted'])
   expect((await stored(page, app))[0].messages).toHaveLength(1)
 })
+
+test('a retried run replaces the one it retried', async ({ page, app }) => {
+  await page.goto(app.url)
+  await openFile(page, 'two-hunk.txt')
+  await addNative(page, 'Flaky', 'fail-once')
+  const thread = await nativeThread(page, '@Flaky Try twice')
+  await expect(thread.getByRole('status')).toContainText('Failed')
+  await thread.getByRole('button', { name: 'Retry', exact: true }).click()
+  await expect(thread.getByText('Reply from fail-once', { exact: true })).toBeVisible()
+  await expect(thread.getByRole('status')).toHaveCount(0)
+  await expect(thread.getByRole('button', { name: 'Retry', exact: true })).toHaveCount(0)
+
+  await addNative(page, 'Stuck', 'hang')
+  const stuck = await nativeThread(page, '@Stuck Cancel me twice')
+  await stuck.getByRole('button', { name: 'Cancel', exact: true }).click()
+  await stuck.getByRole('button', { name: 'Retry', exact: true }).click()
+  await stuck.getByRole('button', { name: 'Cancel', exact: true }).click()
+  await expect(stuck.getByRole('status')).toHaveCount(1)
+  await expect(stuck.getByRole('button', { name: 'Retry', exact: true })).toHaveCount(1)
+})

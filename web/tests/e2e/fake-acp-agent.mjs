@@ -1,4 +1,4 @@
-import { appendFileSync, closeSync, openSync, readFileSync, unlinkSync } from 'node:fs'
+import { appendFileSync, closeSync, existsSync, openSync, readFileSync, unlinkSync } from 'node:fs'
 import { join } from 'node:path'
 import { createInterface } from 'node:readline'
 
@@ -55,6 +55,12 @@ createInterface({ input: process.stdin })
       case 'session/prompt':
         promptID = message.id
         if (mode === 'hang') break
+        if (mode === 'fail-once' && !existsSync(join(root, '.git', 'failed-once'))) {
+          appendFileSync(join(root, '.git', 'failed-once'), '')
+          send({ id: promptID, error: { code: -32603, message: 'Model unavailable' } })
+          promptID = undefined
+          break
+        }
         active = openSync(join(root, '.git', 'native-active'), 'wx')
         appendFileSync(join(root, '.git', 'native-runs'), `${mode}\n`)
         if (mode === 'permission') {
