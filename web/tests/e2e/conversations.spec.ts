@@ -8,7 +8,7 @@ import {
   rmSync,
   writeFileSync,
 } from 'node:fs'
-import { delimiter, dirname, join } from 'node:path'
+import { basename, delimiter, dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import type { Locator, Page } from '@playwright/test'
 import { expect, startGitna, stopGitna, test, type GitnaFixture } from './fixtures.js'
@@ -1326,6 +1326,26 @@ test('a connected agent runs with the model chosen for it', async ({ page, app }
   await page.keyboard.press('Escape')
   const thread = await nativeThread(page, '@Modeler Which model?')
   await expect(thread.getByText('Reply from large', { exact: true })).toBeVisible()
+
+  // Renaming reaches past replies; an empty name restores the default.
+  const rename = async (from: string, to: string) => {
+    await page.getByRole('button', { name: 'Agents', exact: true }).click()
+    await page.getByRole('menuitem', { name: new RegExp(`^${from}`) }).click()
+    const more = page.getByRole('menuitem', { name: `More actions for ${from}` })
+    await more.hover()
+    await expect(page.getByRole('menuitem', { name: `Rename ${from}` })).toHaveCount(0)
+    await more.click()
+    await page.getByRole('menuitem', { name: `Rename ${from}` }).click()
+    const dialog = page.getByRole('dialog', { name: `Rename ${from}` })
+    await dialog.getByRole('textbox', { name: 'Name' }).fill(to)
+    await dialog.getByRole('button', { name: 'Rename' }).click()
+    await expect(dialog).toHaveCount(0)
+  }
+  await rename('Modeler', 'Reviewer')
+  await expect(thread.getByText('Reviewer', { exact: true })).toBeVisible()
+  const fallback = basename(process.execPath).replace(/\.exe$/i, '')
+  await rename('Reviewer', '')
+  await expect(thread.getByText(fallback, { exact: true })).toBeVisible()
 })
 
 test('a retried run replaces the one it retried', async ({ page, app }) => {

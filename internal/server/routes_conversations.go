@@ -129,6 +129,12 @@ func (c *Conversations) serve(w http.ResponseWriter, r *http.Request, rest strin
 			writeConversationError(w, err)
 			return
 		}
+		if actor.Kind == conversations.KindHuman {
+			if err := c.syncNames(store); err != nil {
+				writeConversationError(w, err)
+				return
+			}
+		}
 		agents, err := store.Agents()
 		if err == nil && actor.Kind == conversations.KindHuman {
 			var remembered []conversations.Participant

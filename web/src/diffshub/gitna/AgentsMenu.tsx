@@ -1,9 +1,11 @@
+import * as DropdownMenuPrimitive from '@radix-ui/react-dropdown-menu'
 import {
   IconBox,
   IconCheck,
   IconChevronSm,
   IconDownload,
   IconEllipsis,
+  IconPencil,
   IconPlus,
   IconTerminal,
   IconTrash,
@@ -31,6 +33,8 @@ import {
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuSeparator,
+  DropdownMenuSub,
+  DropdownMenuSubContent,
   DropdownMenuTrigger,
 } from '../components/DropdownMenu'
 import { Input } from '../components/Input'
@@ -145,7 +149,16 @@ function inside(folder: string, path: string) {
   return path.startsWith(folder) && /[\\/]/.test(path.charAt(folder.length))
 }
 
-type Dialog = 'custom' | 'auth' | 'setup' | 'confirm' | 'download' | 'remove' | 'forget' | null
+type Dialog =
+  | 'custom'
+  | 'auth'
+  | 'setup'
+  | 'confirm'
+  | 'download'
+  | 'remove'
+  | 'forget'
+  | 'rename'
+  | null
 
 interface Row {
   key: string
@@ -173,7 +186,8 @@ export function AgentsMenu({ model }: { model: ConversationsModel }) {
   )
   const [downloadFor, setDownloadFor] = useState<AgentSetup | null>(null)
   const [removing, setRemoving] = useState<{ row: Row; adapter: InstalledAdapter } | null>(null)
-  const [panel, setPanel] = useState<{ kind: 'model' | 'more'; row: Row } | null>(null)
+  const [panel, setPanel] = useState<{ row: Row } | null>(null)
+  const [renaming, setRenaming] = useState<AgentDefinition | null>(null)
   const [forgetting, setForgetting] = useState<Row | null>(null)
   const [listing, setListing] = useState<{ definition: string; error?: string } | null>(null)
   const [name, setName] = useState('')
@@ -349,40 +363,7 @@ export function AgentsMenu({ model }: { model: ConversationsModel }) {
           </Button>
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end" className="min-w-56 max-w-[calc(100vw-2rem)]">
-          {panel?.kind === 'more' ? (
-            <>
-              <DropdownMenuBackItem onBack={() => setPanel(null)}>
-                <AgentIcon row={panel.row} />
-                <span className="flex-1 truncate">{panel.row.name}</span>
-              </DropdownMenuBackItem>
-              {panel.row.definition != null && (
-                <DropdownMenuItem
-                  aria-label={`Forget ${panel.row.name}`}
-                  className="gap-2"
-                  onSelect={() => {
-                    setForgetting(panel.row)
-                    openDialog('forget')
-                  }}
-                >
-                  <IconX aria-hidden="true" className="size-4" />
-                  Forget agent
-                </DropdownMenuItem>
-              )}
-              {adapterOf(panel.row) != null && (
-                <DropdownMenuItem
-                  aria-label={`Remove ${panel.row.name} adapter`}
-                  className="gap-2"
-                  onSelect={() => {
-                    setRemoving({ row: panel.row, adapter: adapterOf(panel.row)! })
-                    openDialog('remove')
-                  }}
-                >
-                  <IconTrash aria-hidden="true" className="size-4" />
-                  Remove adapter
-                </DropdownMenuItem>
-              )}
-            </>
-          ) : panel?.kind === 'model' && panel.row.definition != null ? (
+          {panel != null && panel.row.definition != null ? (
             <ModelChoices
               definition={
                 definitions.find((d) => d.id === panel.row.definition!.id) ?? panel.row.definition
@@ -441,17 +422,60 @@ export function AgentsMenu({ model }: { model: ConversationsModel }) {
                           Disconnect
                         </DropdownMenuItem>
                         {(row.definition != null || adapterOf(row) != null) && (
-                          <DropdownMenuItem
-                            aria-label={`More actions for ${row.name}`}
-                            disabled={busy}
-                            className="p-1.5 text-muted-foreground"
-                            onSelect={(event) => {
-                              event.preventDefault()
-                              setPanel({ kind: 'more', row })
-                            }}
-                          >
-                            <IconEllipsis aria-hidden="true" className="size-4" />
-                          </DropdownMenuItem>
+                          <DropdownMenuSub>
+                            <DropdownMenuPrimitive.SubTrigger
+                              aria-label={`More actions for ${row.name}`}
+                              disabled={busy}
+                              className="rounded-md p-1.5 text-muted-foreground outline-none select-none focus:bg-accent data-[state=open]:bg-accent"
+                              // Opens on click or keyboard only, not on hover.
+                              onPointerMove={(event) => event.preventDefault()}
+                              onPointerLeave={(event) => event.preventDefault()}
+                            >
+                              <IconEllipsis aria-hidden="true" className="size-4" />
+                            </DropdownMenuPrimitive.SubTrigger>
+                            <DropdownMenuSubContent sideOffset={6}>
+                              {row.definition != null && (
+                                <DropdownMenuItem
+                                  aria-label={`Rename ${row.name}`}
+                                  className="gap-2"
+                                  onSelect={() => {
+                                    setRenaming(row.definition!)
+                                    setName(row.definition!.name)
+                                    openDialog('rename')
+                                  }}
+                                >
+                                  <IconPencil aria-hidden="true" className="size-4" />
+                                  Rename…
+                                </DropdownMenuItem>
+                              )}
+                              {row.definition != null && (
+                                <DropdownMenuItem
+                                  aria-label={`Forget ${row.name}`}
+                                  className="gap-2"
+                                  onSelect={() => {
+                                    setForgetting(row)
+                                    openDialog('forget')
+                                  }}
+                                >
+                                  <IconX aria-hidden="true" className="size-4" />
+                                  Forget agent
+                                </DropdownMenuItem>
+                              )}
+                              {adapterOf(row) != null && (
+                                <DropdownMenuItem
+                                  aria-label={`Remove ${row.name} adapter`}
+                                  className="gap-2"
+                                  onSelect={() => {
+                                    setRemoving({ row, adapter: adapterOf(row)! })
+                                    openDialog('remove')
+                                  }}
+                                >
+                                  <IconTrash aria-hidden="true" className="size-4" />
+                                  Remove adapter
+                                </DropdownMenuItem>
+                              )}
+                            </DropdownMenuSubContent>
+                          </DropdownMenuSub>
                         )}
                       </div>
                       {row.definition != null && (
@@ -461,7 +485,7 @@ export function AgentsMenu({ model }: { model: ConversationsModel }) {
                           className="gap-2 pl-6"
                           onSelect={(event) => {
                             event.preventDefault()
-                            setPanel({ kind: 'model', row })
+                            setPanel({ row })
                             void loadModels(row.definition!)
                           }}
                         >
@@ -600,6 +624,39 @@ export function AgentsMenu({ model }: { model: ConversationsModel }) {
               Remove adapter
             </Button>
           </div>
+        </Modal>
+      )}
+      {dialog === 'rename' && renaming != null && (
+        <Modal title={`Rename ${renaming.name}`} error={error} onClose={() => setDialog(null)}>
+          <form
+            className="flex flex-col gap-4"
+            onSubmit={(event) => {
+              event.preventDefault()
+              void attempt(async () => {
+                await model.renameAgent(renaming.id, name)
+                await refresh()
+                setDialog(null)
+              })
+            }}
+          >
+            <div className="flex flex-col gap-1">
+              <label htmlFor={`${id}-rename`}>Name</label>
+              <Input
+                id={`${id}-rename`}
+                autoFocus
+                maxLength={128}
+                value={name}
+                aria-describedby={`${id}-rename-hint`}
+                onChange={(event) => setName(event.target.value)}
+              />
+              <p id={`${id}-rename-hint`} className={`m-0 ${hint}`}>
+                Used to @mention it in every repository. Leave empty for its default name.
+              </p>
+            </div>
+            <Button type="submit" disabled={busy}>
+              Rename
+            </Button>
+          </form>
         </Modal>
       )}
       {dialog === 'forget' && forgetting != null && (

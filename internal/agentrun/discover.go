@@ -41,6 +41,22 @@ type Found struct {
 	Args       []string `json:"args"`
 }
 
+// DefaultName names an agent by its program: a known agent's name, or the
+// program's own name without an "acp" suffix.
+func DefaultName(executable string) string {
+	program := filepath.Base(executable)
+	program = strings.TrimSuffix(program, filepath.Ext(program))
+	if i := slices.IndexFunc(known, func(k knownAgent) bool { return strings.EqualFold(k.program, program) }); i >= 0 {
+		return known[i].name
+	}
+	for _, suffix := range []string{"-acp", "_acp"} {
+		if trimmed, ok := strings.CutSuffix(program, suffix); ok && trimmed != "" {
+			return trimmed
+		}
+	}
+	return program
+}
+
 // Setup tells the user how to install a known agent that is not on PATH.
 // AdapterMissing means the vendor CLI is installed but its ACP adapter is not.
 type Setup struct {

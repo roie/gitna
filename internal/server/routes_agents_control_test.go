@@ -268,7 +268,7 @@ func TestRunControlRoutes(t *testing.T) {
 }
 func TestNativeRoutesAreBrowserOnly(t *testing.T) {
 	f := managedFixture(t)
-	for _, route := range []struct{ method, path string }{{"GET", "/settings"}, {"POST", "/agents"}, {"DELETE", "/agents/a"}, {"POST", "/participants/a/leave"}, {"POST", "/runs/1/cancel"}, {"POST", "/runs/1/permission"}, {"POST", "/c/messages/m/retry"}, {"POST", "/agents/adapters/codex-acp"}, {"DELETE", "/agents/adapters/codex-acp"}, {"POST", "/agents/a/models"}, {"POST", "/agents/a/model"}} {
+	for _, route := range []struct{ method, path string }{{"GET", "/settings"}, {"POST", "/agents"}, {"DELETE", "/agents/a"}, {"POST", "/participants/a/leave"}, {"POST", "/runs/1/cancel"}, {"POST", "/runs/1/permission"}, {"POST", "/c/messages/m/retry"}, {"POST", "/agents/adapters/codex-acp"}, {"DELETE", "/agents/adapters/codex-acp"}, {"POST", "/agents/a/models"}, {"POST", "/agents/a/model"}, {"POST", "/agents/a/name"}} {
 		r := f.agentDo(t, route.method, "/conversations"+route.path, `{}`, nil)
 		if r.Code != 404 {
 			t.Fatalf("%s: %d %s", route.path, r.Code, r.Body)
@@ -464,6 +464,50 @@ func TestAgentModel(t *testing.T) {
 		t.Fatalf("model = %q", got)
 	}
 	if r := f.browserDo(t, "POST", "/conversations/agents/missing/model", `{"model":"large"}`); r.Code != 404 {
+		t.Fatalf("missing: %d %s", r.Code, r.Body)
+	}
+}
+
+func TestRenameAgent(t *testing.T) {
+	f := managedFixture(t)
+	p := addNative(t, f, "reply")
+	native := func() string {
+		t.Helper()
+		store, err := f.backend.Open()
+		if err != nil {
+			t.Fatal(err)
+		}
+		natives, err := store.Natives()
+		if err != nil {
+			t.Fatal(err)
+		}
+		return natives[p.Agent].Name
+	}
+	if r := f.browserDo(t, "POST", "/conversations/agents/"+p.Agent+"/name", `{"name":" Builder "}`); r.Code != 200 {
+		t.Fatalf("rename: %d %s", r.Code, r.Body)
+	}
+	if got := f.backend.Settings.Get().Agents[0].Name; got != "Builder" || native() != "Builder" {
+		t.Fatalf("definition %q, participant %q", got, native())
+	}
+	if r := f.browserDo(t, "POST", "/conversations/agents/"+p.Agent+"/name", `{"name":""}`); r.Code != 200 {
+		t.Fatalf("reset: %d %s", r.Code, r.Body)
+	}
+	exe, _ := os.Executable()
+	if got, want := f.backend.Settings.Get().Agents[0].Name, agentrun.DefaultName(exe); got != want {
+		t.Fatalf("reset name = %q, want %q", got, want)
+	}
+
+	// Another process renamed the agent; this repository catches up when it lists agents.
+	if err := f.backend.Settings.Update(func(s *agentrun.Settings) error { s.Agents[0].Name = "Elsewhere"; return nil }); err != nil {
+		t.Fatal(err)
+	}
+	if r := f.browserDo(t, "GET", "/conversations", ""); r.Code != 200 {
+		t.Fatalf("list: %d %s", r.Code, r.Body)
+	}
+	if native() != "Elsewhere" {
+		t.Fatalf("participant = %q", native())
+	}
+	if r := f.browserDo(t, "POST", "/conversations/agents/missing/name", `{"name":"x"}`); r.Code != 404 {
 		t.Fatalf("missing: %d %s", r.Code, r.Body)
 	}
 }

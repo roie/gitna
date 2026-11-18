@@ -41,10 +41,11 @@ const (
 	EventMessageRestored      = "message.restored"
 	// EventParticipantJoined records an agent participant Gitna issued;
 	// EventParticipantLeft records that it stopped taking part.
-	EventParticipantJoined = "participant.joined"
-	EventParticipantLeft   = "participant.left"
-	EventRunStarted        = "run.started"
-	EventRunEnded          = "run.ended"
+	EventParticipantJoined  = "participant.joined"
+	EventParticipantLeft    = "participant.left"
+	EventParticipantRenamed = "participant.renamed"
+	EventRunStarted         = "run.started"
+	EventRunEnded           = "run.ended"
 
 	MaxBodyBytes = 32 << 10
 	MaxCodeBytes = 64 << 10

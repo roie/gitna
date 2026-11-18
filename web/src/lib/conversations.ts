@@ -211,6 +211,7 @@ export interface ConversationsApi {
   removeAdapter(program: string): Promise<void>
   agentModels(id: string): Promise<AgentModels>
   setAgentModel(id: string, model: string): Promise<unknown>
+  renameAgent(id: string, name: string): Promise<unknown>
   leave(participantId: string): Promise<unknown>
   list(path: string, signal?: AbortSignal): Promise<ConversationList>
   create(anchor: ConversationAnchor, body: string, id: string, to?: string[]): Promise<Conversation>
@@ -316,6 +317,8 @@ export function createConversationsApi(
     agentModels: (id) => post(`api/v1/conversations/agents/${encodeURIComponent(id)}/models`, {}),
     setAgentModel: (id, model) =>
       post(`api/v1/conversations/agents/${encodeURIComponent(id)}/model`, { model }),
+    renameAgent: (id, name) =>
+      post(`api/v1/conversations/agents/${encodeURIComponent(id)}/name`, { name }),
     async removeAdapter(program) {
       await expectOK(
         await fetch(`api/v1/conversations/agents/adapters/${encodeURIComponent(program)}`, {
@@ -562,6 +565,11 @@ export class ConversationsModel {
 
   async leave(id: string): Promise<void> {
     await this.api.leave(id)
+    await this.load()
+  }
+
+  async renameAgent(id: string, name: string): Promise<void> {
+    await this.api.renameAgent(id, name)
     await this.load()
   }
 

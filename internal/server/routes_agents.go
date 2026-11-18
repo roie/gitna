@@ -1,6 +1,7 @@
 package server
 
 import (
+	"cmp"
 	"context"
 	"encoding/json"
 	"errors"
@@ -101,7 +102,7 @@ func (c *Conversations) browserControl(w http.ResponseWriter, r *http.Request, r
 	control := len(parts) == 3 && parts[0] == "runs" && (parts[2] == "cancel" || parts[2] == "permission") && r.Method == http.MethodPost
 	retry := len(parts) == 4 && parts[1] == "messages" && parts[3] == "retry" && r.Method == http.MethodPost
 	adapter := len(parts) == 3 && parts[0] == "agents" && parts[1] == "adapters" && (r.Method == http.MethodPost || r.Method == http.MethodDelete)
-	model := len(parts) == 3 && parts[0] == "agents" && parts[1] != "adapters" && (parts[2] == "models" || parts[2] == "model") && r.Method == http.MethodPost
+	model := len(parts) == 3 && parts[0] == "agents" && parts[1] != "adapters" && (parts[2] == "models" || parts[2] == "model" || parts[2] == "name") && r.Method == http.MethodPost
 	if !add && !del && !leave && !control && !retry && !adapter && !model {
 		return false
 	}
@@ -113,6 +114,9 @@ func (c *Conversations) browserControl(w http.ResponseWriter, r *http.Request, r
 	switch {
 	case add:
 		c.addAgent(w, r)
+		return true
+	case model && parts[2] == "name":
+		c.renameAgent(w, r, parts[1])
 		return true
 	case model:
 		c.agentModel(w, r, parts[1], parts[2] == "models")
@@ -320,6 +324,61 @@ func (c *Conversations) installAdapter(w http.ResponseWriter, r *http.Request, p
 	default:
 		send(map[string]agentrun.Found{"found": found})
 	}
+}
+
+// renameAgent renames a saved agent everywhere; an empty name restores its
+// default name. Other repositories catch up when their agents are next listed.
+func (c *Conversations) renameAgent(w http.ResponseWriter, r *http.Request, id string) {
+	var body struct {
+		Name string `json:"name"`
+	}
+	if !decodeConversationRequest(w, r, &body) {
+		return
+	}
+	name := strings.TrimSpace(body.Name)
+	if len(name) > 128 {
+		writeJSON(w, 400, map[string]string{"error": "an agent name must be at most 128 bytes"})
+		return
+	}
+	err := c.Settings.Update(func(s *agentrun.Settings) error {
+		i := slices.IndexFunc(s.Agents, func(d agentrun.Definition) bool { return d.ID == id })
+		if i < 0 {
+			return conversations.ErrNotFound
+		}
+		s.Agents[i].Name = cmp.Or(name, agentrun.DefaultName(s.Agents[i].Executable))
+		return nil
+	})
+	if err == nil {
+		var store *conversations.Store
+		if store, err = c.Open(); err == nil {
+			err = c.syncNames(store)
+		}
+	}
+	if err != nil {
+		writeAgentError(w, err)
+		return
+	}
+	writeJSON(w, 200, struct{}{})
+}
+
+// syncNames gives this repository's native participants the names of their
+// saved agents.
+func (c *Conversations) syncNames(store *conversations.Store) error {
+	if c.Settings == nil {
+		return nil
+	}
+	natives, err := store.Natives()
+	if err != nil {
+		return err
+	}
+	for _, d := range c.Settings.Get().Agents {
+		if n, ok := natives[d.ID]; ok && n.Name != d.Name {
+			if _, err := store.Rename(n.ID, d.Name); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
 }
 
 // agentModel lists the models a saved agent offers, which starts it once, or

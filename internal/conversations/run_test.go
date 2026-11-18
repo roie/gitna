@@ -143,3 +143,38 @@ func TestRunEventsReachAnotherProcess(t *testing.T) {
 		t.Fatalf("thread: %+v", got)
 	}
 }
+
+func TestRenameUpdatesTheAgentAndItsMessages(t *testing.T) {
+	s, a, c := nativeThread(t)
+	r, err := s.StartRun(a, c.ID, c.Messages[0].ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.ReplyRun(a, c.ID, r.ID, "answer"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.JoinNative("Claude", "other"); err != nil {
+		t.Fatal(err)
+	}
+	renamed, err := s.Rename(a.ID, "Claude")
+	if err != nil || renamed.Name != "Claude 2" {
+		t.Fatalf("rename = %+v, %v", renamed, err)
+	}
+	_, before, _ := s.List("")
+	if again, err := s.Rename(a.ID, "Claude"); err != nil || again.Name != "Claude 2" {
+		t.Fatalf("rename again = %+v, %v", again, err)
+	}
+	if _, after, _ := s.List(""); after != before {
+		t.Fatal("renaming to the same name appended an event")
+	}
+	got, err := s.Get(c.ID)
+	if err != nil || got.Messages[1].Author.Name != "Claude 2" {
+		t.Fatalf("author = %+v, %v", got.Messages, err)
+	}
+	if natives, _ := s.Natives(); natives["definition"].Name != "Claude 2" {
+		t.Fatalf("natives = %+v", natives)
+	}
+	if _, err := s.Rename(a.ID, " "); !errors.Is(err, ErrInvalid) {
+		t.Fatalf("blank: %v", err)
+	}
+}

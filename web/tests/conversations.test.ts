@@ -91,6 +91,7 @@ function fakeApi(lists: Conversation[][], agents: Participant[] = []) {
     removeAdapter: vi.fn(),
     agentModels: vi.fn(),
     setAgentModel: vi.fn(),
+    renameAgent: vi.fn(),
     leave: vi.fn(),
     list,
     create: vi.fn(),

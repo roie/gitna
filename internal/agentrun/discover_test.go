@@ -88,3 +88,16 @@ func TestDiscoveredWrapperRunsThroughTheTransport(t *testing.T) {
 	def.Args = []string{"child"}
 	assertCancelStopsTheProcessTree(t, def)
 }
+
+func TestDefaultNameUsesTheKnownAgentName(t *testing.T) {
+	for executable, want := range map[string]string{
+		filepath.Join("adapters", "claude-agent-acp", "1", "claude-agent-acp"): "Claude",
+		filepath.Join("bin", "opencode.cmd"):                                   "OpenCode",
+		filepath.Join("bin", "my-agent-acp"):                                   "my-agent",
+		filepath.Join("bin", "helper"):                                         "helper",
+	} {
+		if got := DefaultName(executable); got != want {
+			t.Errorf("DefaultName(%q) = %q, want %q", executable, got, want)
+		}
+	}
+}

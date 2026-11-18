@@ -310,7 +310,7 @@ func (s *Store) apply(rec record) (Event, bool) {
 	}
 	event := rec.Event
 	switch event.Type {
-	case EventParticipantJoined, EventParticipantLeft:
+	case EventParticipantJoined, EventParticipantLeft, EventParticipantRenamed:
 		_, exists := s.participants[event.Actor.ID]
 		switch {
 		case event.Type == EventParticipantJoined && exists:
@@ -325,6 +325,11 @@ func (s *Store) apply(rec record) (Event, bool) {
 			}
 			s.participants[event.Actor.ID] = event.Actor
 			s.joined = append(s.joined, event.Actor.ID)
+		case event.Type == EventParticipantRenamed:
+			if !exists || validateParticipant(event.Actor) != nil {
+				return Event{}, false
+			}
+			s.rename(event.Actor)
 		default:
 			if !exists || s.left[event.Actor.ID] {
 				return Event{}, false
@@ -803,6 +808,56 @@ func (s *Store) Rejoin(id string) (Participant, error) {
 		}
 	}
 	return participant, nil
+}
+
+// Rename shows the agent participant id as name from now on, in its past
+// messages too. A name another agent uses gets a numeric suffix, and a rename
+// that changes nothing writes nothing.
+func (s *Store) Rename(id, name string) (Participant, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if _, err := s.catchUp(); err != nil {
+		return Participant{}, err
+	}
+	participant, ok := s.participants[id]
+	if !ok {
+		return Participant{}, fmt.Errorf("%w: unknown participant %q", ErrNotFound, id)
+	}
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return Participant{}, fmt.Errorf("%w: a name must not be empty", ErrInvalid)
+	}
+	taken := func(candidate string) bool {
+		return slices.ContainsFunc(s.agents(), func(p Participant) bool { return p.ID != id && strings.EqualFold(p.Name, candidate) })
+	}
+	renamed := participant
+	renamed.Name = name
+	for suffix := 2; taken(renamed.Name); suffix++ {
+		renamed.Name = fmt.Sprintf("%s %d", name, suffix)
+	}
+	if err := validateParticipant(renamed); err != nil {
+		return Participant{}, fmt.Errorf("%w: a name must be at most 128 bytes", ErrInvalid)
+	}
+	if renamed.Name == participant.Name {
+		return participant, nil
+	}
+	if _, err := s.append(Event{Type: EventParticipantRenamed, Actor: renamed}); err != nil {
+		return Participant{}, err
+	}
+	return renamed, nil
+}
+
+func (s *Store) rename(p Participant) {
+	current := s.participants[p.ID]
+	current.Name = p.Name
+	s.participants[p.ID] = current
+	for _, conversation := range s.byID {
+		for i := range conversation.Messages {
+			if conversation.Messages[i].Author.ID == p.ID {
+				conversation.Messages[i].Author.Name = p.Name
+			}
+		}
+	}
 }
 
 // Touch wakes waiters without writing an event, for changes outside the
