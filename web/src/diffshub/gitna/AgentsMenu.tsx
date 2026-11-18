@@ -7,6 +7,7 @@ import {
   IconEllipsis,
   IconPencil,
   IconPlus,
+  IconSparkle,
   IconTerminal,
   IconTrash,
   IconUnlink,
@@ -27,6 +28,7 @@ import {
   suggestName,
 } from '../../lib/conversations'
 import { Button } from '../components/Button'
+import { CHROME_ICON_BUTTON_CLASS } from '../components/chromeButtonStyles'
 import {
   DropdownMenu,
   DropdownMenuBackItem,
@@ -358,8 +360,15 @@ export function AgentsMenu({ model }: { model: ConversationsModel }) {
         }}
       >
         <DropdownMenuTrigger asChild>
-          <Button type="button" variant="ghost" size="sm">
-            Agents
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon-only"
+            aria-label="Agents"
+            title="Agents"
+            className={CHROME_ICON_BUTTON_CLASS}
+          >
+            <IconSparkle className="size-4 md:size-3" />
           </Button>
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end" className="min-w-56 max-w-[calc(100vw-2rem)]">

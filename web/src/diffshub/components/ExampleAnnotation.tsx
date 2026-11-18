@@ -1,6 +1,6 @@
 // Modified by Gitna: render a conversation's messages with real authors, add
-// resolve beside delete, a per-message menu to delete one message, and accept a
-// reply form as children.
+// resolve beside delete, a per-message menu to copy or delete one message, and
+// accept a reply form as children.
 import { IconCheck, IconEllipsis, IconX } from '@pierre/icons';
 import { memo, type ReactNode } from 'react';
 
@@ -15,6 +15,8 @@ export interface ExampleAnnotationMessage {
   author: string;
   agent: boolean;
   message: ReactNode;
+  // text is the message as written, for copying.
+  text: string;
   after?: ReactNode;
   // live marks an agent reply that is still being written; it has no actions.
   live?: boolean;
@@ -55,6 +57,7 @@ export const ExampleAnnotation = memo(function ExampleAnnotation({
         variant="ghost"
         size="icon-sm"
         aria-label="Resolve conversation"
+        title="Resolve conversation"
         onClick={onResolve}
         className={cn(annotationCornerButton, 'right-9')}
       >
@@ -64,6 +67,7 @@ export const ExampleAnnotation = memo(function ExampleAnnotation({
         variant="ghost"
         size="icon-sm"
         aria-label="Delete conversation"
+        title="Delete conversation"
         onClick={onDelete}
         className={cn(annotationCornerButton, 'right-2')}
       >
@@ -92,8 +96,8 @@ export const ExampleAnnotation = memo(function ExampleAnnotation({
           <AuthorInitial name={message.author} agent={message.agent} />
           <div className="flex min-w-0 flex-col">
             <div className="mt-1 flex items-center gap-1">
-              <strong className="block text-[14px]">{message.author}</strong>
-              {messages.length > 1 && !message.live && (
+              <strong className="block text-[14px] font-semibold">{message.author}</strong>
+              {!message.live && (
                 <span className="contents" onClick={isolate} onKeyDown={isolate}>
                   <DropdownMenu>
                     <DropdownMenuTrigger asChild>
@@ -101,13 +105,19 @@ export const ExampleAnnotation = memo(function ExampleAnnotation({
                         variant="ghost"
                         size="icon-sm"
                         aria-label={`More actions for ${message.author}'s comment`}
+                        title="More actions"
                         className="size-5 text-muted-foreground opacity-0 group-hover/message:opacity-100 focus-visible:opacity-100 data-[state=open]:opacity-100"
                       >
                         <IconEllipsis size={12} />
                       </Button>
                     </DropdownMenuTrigger>
                     <DropdownMenuContent align="start">
-                      <DropdownMenuItem onSelect={() => onDeleteMessage(message.id)}>Delete</DropdownMenuItem>
+                      <DropdownMenuItem onSelect={() => void navigator.clipboard.writeText(message.text)}>Copy</DropdownMenuItem>
+                      {messages.length > 1 && (
+                        <DropdownMenuItem variant="danger" onSelect={() => onDeleteMessage(message.id)}>
+                          Delete
+                        </DropdownMenuItem>
+                      )}
                     </DropdownMenuContent>
                   </DropdownMenu>
                 </span>

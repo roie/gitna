@@ -42,11 +42,18 @@ export function ConversationThread({
         onClick={() => model.setExpanded(conversation.id, true)}
         onPointerDown={(event) => event.stopPropagation()}
         onMouseDown={(event) => event.stopPropagation()}
-        className={cn(annotationCardBase, 'w-full cursor-pointer items-center py-1.5 text-left')}
+        title={first == null ? undefined : `${model.displayName(first.author)}: ${first.body}`}
+        className={cn(
+          annotationCardBase,
+          'w-[calc(100%-1rem)] cursor-pointer items-center py-1.5 text-left',
+        )}
       >
         <AuthorInitial name={first?.author.name ?? ''} className="size-5 text-[11px]" />
         <span className="min-w-0 flex-1 truncate text-[14px]">
-          <strong>{first == null ? '' : model.displayName(first.author)}</strong> {first?.body}
+          <strong className="font-semibold">
+            {first == null ? '' : model.displayName(first.author)}
+          </strong>{' '}
+          {first?.body}
         </span>
         {unread && (
           <span
@@ -66,6 +73,7 @@ export function ConversationThread({
           id: message.id,
           author: model.displayName(message.author),
           agent: message.author.kind === 'agent',
+          text: message.body,
           message:
             message.author.kind === 'agent' ? (
               <MessageMarkdown body={message.body} />
@@ -126,6 +134,7 @@ export function ConversationThread({
               author: agentName(run),
               agent: true,
               live: true,
+              text: live?.text ?? '',
               message:
                 live?.text == null || live.text === '' ? null : (
                   <MessageMarkdown body={live.text} />

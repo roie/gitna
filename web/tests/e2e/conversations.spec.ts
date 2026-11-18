@@ -263,7 +263,7 @@ test('diff conversations anchor to the content on the commented side', async ({ 
   execFileSync('git', ['-C', app.repo, 'checkout', '--', 'modified.txt'])
   await page.reload()
   const pane = page.getByRole('region', { name: 'Source Control workflow' })
-  await pane.getByRole('button', { name: 'Conversations', exact: true }).click()
+  await pane.locator('[data-section="conversations"]').click()
   await pane.getByRole('button', { name: /index side/ }).click()
   await expect(page.getByRole('article').filter({ hasText: 'index side' })).toBeVisible()
   await expect(page.getByRole('tab', { name: 'modified.txt' })).toBeVisible()
@@ -275,22 +275,23 @@ test('diff conversations anchor to the content on the commented side', async ({ 
   expect((indexSide as { location?: { source?: string } }).location?.source).toBeUndefined()
 })
 
-test('the repository pane lists conversations; resolve hides them and delete can be undone', async ({
+test('the conversations pane lists conversations; resolve hides them and delete can be undone', async ({
   page,
   app,
 }) => {
   agent(app, 'session')
   await page.goto(app.url)
   const pane = page.getByRole('region', { name: 'Source Control workflow' })
-  // The toggle appears with the first conversation; its count shows only open ones.
-  const toggle = pane.getByRole('button', { name: 'Conversations', exact: true })
-  await expect(pane.locator('[data-section="repository"]')).toBeVisible()
-  await expect(toggle).toHaveCount(0)
+  // The pane's count shows only open conversations.
+  const toggle = pane.locator('[data-section="conversations"]')
+  const count = toggle.locator('.section-count')
+  await expect(toggle).toBeVisible()
+  await expect(count).toHaveCount(0)
   const item = (text: string) => page.locator('diffs-container', { hasText: text })
   const line = item('unstaged change').locator('[data-column-number="1"]').last()
   await expect(line).toBeVisible()
   await comment(page, line, null, '@e2e-agent resolve me')
-  await expect(toggle).toHaveText('1')
+  await expect(count).toHaveText('1')
   const thread = page.getByRole('article').filter({ hasText: 'resolve me' })
   await expect(thread).toBeVisible()
 
@@ -298,7 +299,7 @@ test('the repository pane lists conversations; resolve hides them and delete can
   await thread.hover()
   await thread.getByRole('button', { name: 'Resolve conversation' }).click()
   await expect(thread).toHaveCount(0)
-  await expect(toggle).toHaveText('')
+  await expect(count).toHaveCount(0)
 
   await toggle.click()
   const list = (text: string) => pane.getByRole('button', { name: new RegExp(text) })
@@ -315,7 +316,7 @@ test('the repository pane lists conversations; resolve hides them and delete can
   await thread.hover()
   await thread.getByRole('button', { name: 'Delete conversation' }).click()
   await expect(thread).toHaveCount(0)
-  await expect(toggle).toHaveCount(0)
+  await expect(count).toHaveCount(0)
   expect(await stored(page, app)).toEqual([])
   const pending = () =>
     (JSON.parse(agent(app, 'pending')) as { pending: { message: { body: string } }[] }).pending.map(
@@ -326,7 +327,7 @@ test('the repository pane lists conversations; resolve hides them and delete can
   agent(app, 'ack', '1000')
   await page.getByRole('button', { name: 'Undo' }).click()
   await expect(thread).toBeVisible()
-  await expect(toggle).toHaveAttribute('aria-pressed', 'true')
+  await expect(toggle).toHaveAttribute('aria-expanded', 'true')
   expect((await stored(page, app)).map(({ messages }) => messages[0].body)).toEqual([
     '@e2e-agent resolve me',
   ])
@@ -501,7 +502,7 @@ test('clean files, commits, ref comparisons and file comparisons anchor to their
   // After a reload, the pane reopens each conversation where it was made.
   await page.reload()
   const pane = page.getByRole('region', { name: 'Source Control workflow' })
-  await pane.getByRole('button', { name: 'Conversations', exact: true }).click()
+  await pane.locator('[data-section="conversations"]').click()
   for (const body of ['commit new', 'compare right', 'clean file']) {
     await pane.getByRole('button', { name: new RegExp(body) }).click()
     await expect(page.getByRole('article').filter({ hasText: body })).toBeVisible()
@@ -613,7 +614,7 @@ test('conversations follow edited, moved and deleted code, and hide code Git nev
   await expect(followed.locator('pre')).toHaveText('line 5')
 
   const pane = page.getByRole('region', { name: 'Source Control workflow' })
-  await pane.getByRole('button', { name: 'Conversations', exact: true }).click()
+  await pane.locator('[data-section="conversations"]').click()
   await expect(pane.getByRole('button', { name: /untracked note/ })).toHaveCount(0)
   // The deleted file's conversation opens on the deletion Git can still show.
   await pane.getByRole('button', { name: /deleted file/ }).click()
@@ -625,7 +626,7 @@ test('conversations follow edited, moved and deleted code, and hide code Git nev
   writeFileSync(untracked, 'untracked content\n')
   expect(await locations()).toMatchObject({ 'untracked note': { status: 'current' } })
   await page.reload()
-  await pane.getByRole('button', { name: 'Conversations', exact: true }).click()
+  await pane.locator('[data-section="conversations"]').click()
   await expect(pane.getByRole('button', { name: /untracked note/ })).toBeVisible()
 })
 
@@ -640,18 +641,18 @@ test('unread replies are marked until read and live updates keep the reading pos
   await comment(page, number(3), null, 'above the fold')
   const [first] = await stored(page, app)
 
-  // Collapsed threads and the pane button show unread replies.
+  // Collapsed threads and the conversations pane show unread replies.
   const thread = page.getByRole('article').filter({ hasText: 'above the fold' })
   await thread.getByRole('button', { expanded: true }).click()
   agent(app, 'reply', first.id, '--id', 'm-agent-reply', '--body', 'Agent reply')
   const summary = page.getByRole('button', { expanded: false, name: /above the fold/ })
   await expect(summary.getByRole('img', { name: 'Unread' })).toBeVisible()
   const pane = page.getByRole('region', { name: 'Source Control workflow' })
-  const toggle = pane.getByRole('button', { name: 'Conversations', exact: true })
-  await expect(toggle.getByRole('img', { name: 'Unread' })).toBeVisible()
+  const conversations = pane.locator('[data-pane="conversations"]')
+  await expect(conversations.getByRole('img', { name: 'Unread' })).toBeVisible()
   await summary.click()
   await expect(thread.getByText('Agent reply')).toBeVisible()
-  await expect(toggle.getByRole('img', { name: 'Unread' })).toHaveCount(0)
+  await expect(conversations.getByRole('img', { name: 'Unread' })).toHaveCount(0)
 
   // A reply growing a thread above the viewport does not move what is being read.
   await page.locator('[data-file]').first().hover()
@@ -717,7 +718,7 @@ test('display settings turn conversations off and on, and explain them', async (
   const number = (line: number) => page.locator(`[data-file] [data-column-number="${line}"]`)
   const thread = page.getByRole('article').filter({ hasText: 'keep me' })
   const pane = page.getByRole('region', { name: 'Source Control workflow' })
-  const toggle = pane.getByRole('button', { name: 'Conversations', exact: true })
+  const toggle = pane.locator('[data-section="conversations"]')
 
   await page.goto(app.url)
   await openFile(page, 'notes.md')
@@ -880,6 +881,11 @@ test('mentions address agents, with keyboard choices and editable reply prefill'
   await reply.press('Control+Enter')
   await expect.poll(() => pending(first)).toEqual(['Over to you'])
   await expect(thread.getByText('To: Builder', { exact: true })).toBeVisible()
+
+  // With every agent picked there is no one left to add, not even @all.
+  await recipients.getByRole('button', { name: 'Add recipient' }).click()
+  await page.getByRole('menuitem', { name: '@Reviewer' }).click()
+  await expect(recipients.getByRole('button', { name: 'Add recipient' })).toHaveCount(0)
 })
 
 test('an unsent draft survives refreshes, follows its code, and never moves onto other code', async ({
@@ -959,9 +965,11 @@ test('one comment can be deleted from its menu, keeping the conversation, and un
   await comment(page, number(5), null, 'Keep this')
   const thread = page.getByRole('article').filter({ hasText: 'Keep this' })
   const menus = thread.getByRole('button', { name: /^More actions for .*'s comment$/ })
-  // A lone comment is deleted with its conversation.
+  // A lone comment is deleted with its conversation; its menu only copies it.
   await expect(thread.getByRole('button', { name: 'Delete conversation' })).toHaveCount(1)
-  await expect(menus).toHaveCount(0)
+  await menus.click()
+  await expect(page.getByRole('menuitem')).toHaveText(['Copy'])
+  await page.keyboard.press('Escape')
   await thread.getByRole('textbox', { name: 'Reply…' }).fill('Drop this')
   await thread.getByRole('textbox', { name: 'Reply…' }).press('Control+Enter')
   await expect(thread.getByRole('textbox', { name: 'Reply…' })).toHaveValue('')
@@ -973,10 +981,11 @@ test('one comment can be deleted from its menu, keeping the conversation, and un
     await expect(menus.last()).toHaveCSS('opacity', '1', { timeout: 1000 })
   }).toPass()
   await menus.last().click()
+  await expect(page.getByRole('menuitem')).toHaveText(['Copy', 'Delete'])
   await page.getByRole('menuitem', { name: 'Delete' }).click()
   await expect(thread.getByText('Drop this')).toHaveCount(0)
   await expect(thread.getByText('Keep this')).toBeVisible()
-  await expect(menus).toHaveCount(0)
+  await expect(menus).toHaveCount(1)
   expect((await stored(page, app))[0].messages.map(({ body }) => body)).toEqual(['Keep this'])
 
   await page.getByRole('button', { name: 'Undo' }).click()

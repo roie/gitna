@@ -1,13 +1,14 @@
 // Modified by Gitna: declare callbacks as receiver-independent function properties,
 // show the real author, save asynchronously, share the form as CommentComposer, and
-// let it pick a recipient, with a corner button to discard the draft.
+// let it pick a recipient, with a corner button to discard the draft like the
+// conversation card's.
 import type { DiffLineAnnotation } from '@pierre/diffs';
 import { IconArrowRight, IconPlus, IconX } from '@pierre/icons';
 import { useEffect, useId, useRef, useState, type ReactNode } from 'react';
 
 import { Button } from '@/components/Button';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/DropdownMenu';
-import { annotationCardBase } from '@/lib/annotation';
+import { annotationCardBase, annotationCornerButton } from '@/lib/annotation';
 import { cn } from '@/lib/cn';
 import type { DraftCommentMetadata } from '@/lib/types';
 import type { Participant } from '../../lib/conversations';
@@ -72,7 +73,8 @@ export function CommentComposer({
   const mentioned = resolveMentions(message, agents);
   const to = chosen.includes('all') || mentioned.includes('all') ? ['all'] : [...new Set([...chosen, ...mentioned])];
   const toNames = to.map((id) => id === 'all' ? 'all' : agents.find((agent) => agent.id === id)!.name);
-  const addable = to.includes('all') ? [] : [{ id: 'all', name: 'all' }, ...agents].filter(({ id }) => !to.includes(id));
+  const everyone = to.includes('all') || agents.every(({ id }) => to.includes(id));
+  const addable = everyone ? [] : [{ id: 'all', name: 'all' }, ...agents].filter(({ id }) => !to.includes(id));
 
   function setRecipients(next: readonly string[]) {
     setChosen(next);
@@ -144,7 +146,7 @@ export function CommentComposer({
 
   return (
     <form
-      className={cn(annotationCardBase, 'group relative flex-col md:flex-row', className)}
+      className={cn(annotationCardBase, 'group relative flex-col md:flex-row', onCancel != null && 'md:pr-10', className)}
       onKeyDown={isolate}
       onPointerDown={isolate}
       onMouseDown={isolate}
@@ -155,6 +157,19 @@ export function CommentComposer({
         void handleSave();
       }}
     >
+      {onCancel != null && (
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon-sm"
+          aria-label="Discard comment"
+          title="Discard comment"
+          onClick={tryCancel}
+          className={cn(annotationCornerButton, 'right-2 hidden md:flex')}
+        >
+          <IconX size={12} />
+        </Button>
+      )}
       <div className="flex w-full gap-2.5">
         {avatar}
         <div className="flex w-full flex-col">
@@ -243,6 +258,7 @@ export function CommentComposer({
                   <button
                     type="button"
                     aria-label={`Remove ${toNames[index]}`}
+                    title={`Remove ${toNames[index]}`}
                     onClick={() => remove(id)}
                     className="rounded-full p-0.5 text-muted-foreground hover:bg-accent hover:text-foreground"
                   >
@@ -258,6 +274,7 @@ export function CommentComposer({
                       variant="ghost"
                       size="sm"
                       aria-label="Add recipient"
+                      title="Add recipient"
                       className="h-5 gap-1 px-1 text-xs font-normal text-muted-foreground hover:text-foreground"
                     >
                       <IconPlus size={12} />
@@ -277,7 +294,7 @@ export function CommentComposer({
           )}
           {to.length > 0 && unsavedCount > 0 && <p className="m-0 py-1 text-xs text-muted-foreground">{unsavedCount} unsaved {unsavedCount === 1 ? 'file' : 'files'}. Agents see files on disk, not unsaved edits.</p>}
           {error != null && (
-            <p role="alert" className="m-0 text-xs text-red-600 dark:text-red-400">
+            <p role="alert" className="m-0 text-xs text-destructive">
               {error}
             </p>
           )}
@@ -294,23 +311,12 @@ export function CommentComposer({
             Cancel
           </Button>
         )}
-        {onCancel != null && (
-          <Button
-            type="button"
-            variant="ghost"
-            size="icon-md"
-            aria-label="Discard comment"
-            onClick={tryCancel}
-            className="hidden rounded-full text-muted-foreground hover:text-foreground md:flex"
-          >
-            <IconX size={14} />
-          </Button>
-        )}
         <Button
           type="submit"
           variant="default"
           size="icon-md"
           aria-label="Submit"
+          title="Submit"
           disabled={busy || trimmedMessage.length === 0}
           className="hidden rounded-full bg-blue-500 hover:bg-blue-600 md:flex"
         >

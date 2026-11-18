@@ -325,17 +325,19 @@ function treeViewportHeight(source: DiffsHubFileTreeSource): number {
 }
 
 const PANE_SIZES_STORAGE_KEY = 'gitna-source-control-pane-sizes-v2'
-const DEFAULT_PANE_SIZES = [52, 28, 20] as const
+const DEFAULT_PANE_SIZES = [46, 26, 14, 14] as const
+type PaneSizes = [number, number, number, number]
+type PaneResizeIndex = 0 | 1 | 2
 
-function readPaneSizes(): [number, number, number] {
+function readPaneSizes(): PaneSizes {
   try {
     const value = JSON.parse(localStorage.getItem(PANE_SIZES_STORAGE_KEY) ?? 'null') as unknown
     if (
       Array.isArray(value) &&
-      value.length === 3 &&
+      (value.length === 3 || value.length === 4) &&
       value.every((entry) => typeof entry === 'number' && entry >= 8)
     ) {
-      return [value[0], value[1], value[2]]
+      return [value[0], value[1], value[2], value[3] ?? DEFAULT_PANE_SIZES[3]]
     }
   } catch {
     // Invalid local state falls back to the stable VS Code-style proportions.
@@ -345,7 +347,7 @@ function readPaneSizes(): [number, number, number] {
 
 function usePaneSizes() {
   const containerRef = useRef<HTMLDivElement>(null)
-  const [sizes, setSizes] = useState<[number, number, number]>(readPaneSizes)
+  const [sizes, setSizes] = useState<PaneSizes>(readPaneSizes)
   const [customized, setCustomized] = useState(() => {
     try {
       return localStorage.getItem(PANE_SIZES_STORAGE_KEY) != null
@@ -353,10 +355,10 @@ function usePaneSizes() {
       return false
     }
   })
-  const resizeBy = useCallback((index: 0 | 1, delta: number) => {
+  const resizeBy = useCallback((index: PaneResizeIndex, delta: number) => {
     setCustomized(true)
     setSizes((current) => {
-      const next = [...current] as [number, number, number]
+      const next = [...current] as PaneSizes
       const bounded = Math.max(8 - current[index], Math.min(delta, current[index + 1] - 8))
       next[index] += bounded
       next[index + 1] -= bounded
@@ -365,17 +367,17 @@ function usePaneSizes() {
     })
   }, [])
   const startResize = useCallback(
-    (index: 0 | 1, event: React.PointerEvent<HTMLElement>) => {
+    (index: PaneResizeIndex, event: React.PointerEvent<HTMLElement>) => {
       if (event.button !== 0 || containerRef.current == null) return
       event.preventDefault()
       const startY = event.clientY
-      const startSizes = [...sizes] as [number, number, number]
+      const startSizes = [...sizes] as PaneSizes
       setCustomized(true)
       const height = containerRef.current.getBoundingClientRect().height
       const onPointerMove = (moveEvent: PointerEvent) => {
         const delta = ((moveEvent.clientY - startY) / Math.max(1, height)) * 100
         const bounded = Math.max(8 - startSizes[index], Math.min(delta, startSizes[index + 1] - 8))
-        const next = [...startSizes] as [number, number, number]
+        const next = [...startSizes] as PaneSizes
         next[index] += bounded
         next[index + 1] -= bounded
         savePreference(PANE_SIZES_STORAGE_KEY, JSON.stringify(next))
@@ -401,9 +403,9 @@ function PaneResizeHandle({
   size,
 }: {
   disabled: boolean
-  index: 0 | 1
-  onResize: (index: 0 | 1, delta: number) => void
-  onStart: (index: 0 | 1, event: React.PointerEvent<HTMLElement>) => void
+  index: PaneResizeIndex
+  onResize: (index: PaneResizeIndex, delta: number) => void
+  onStart: (index: PaneResizeIndex, event: React.PointerEvent<HTMLElement>) => void
   size: number
 }) {
   return (
@@ -486,8 +488,6 @@ function useNaturalPaneHeight(
   return height
 }
 
-const noConversations: readonly Conversation[] = []
-
 export interface ConversationsPane {
   model: ConversationsModel
   onOpen: (conversation: Conversation) => void
@@ -567,30 +567,8 @@ function GitnaSourceControlInner({
 }) {
   const repository = useRepository()
   const [repositoryOpen, setRepositoryOpen] = useState(false)
-  const conversationsModel = conversations?.model
-  useSyncExternalStore(
-    useCallback(
-      (listener: () => void) => conversationsModel?.subscribe(listener) ?? (() => {}),
-      [conversationsModel],
-    ),
-    () => conversationsModel?.version ?? 0,
-  )
-  const conversationList = conversationsModel?.list() ?? noConversations
-  const [conversationsShown, setConversationsShown] = useState(false)
-  const [conversationFilter, setConversationFilter] = useState<'open' | 'resolved'>('open')
-  const hasConversations = conversationsModel != null && conversationList.length > 0
-  const showingConversations = conversationsShown && hasConversations
-  const openConversations = conversationList.filter(({ status }) => status === 'open').length
-  const shownConversationCount =
-    conversationFilter === 'open' ? openConversations : conversationList.length - openConversations
-  const shownConversations = useMemo(
-    () =>
-      conversationSections(
-        conversationList.filter(({ status }) => status === conversationFilter),
-        (author) => conversationsModel?.displayName(author) ?? author.name,
-      ),
-    [conversationList, conversationFilter, conversationsModel],
-  )
+  const [conversationsOpen, setConversationsOpen] = useState(false)
+  const conversationsPaneOpen = conversations != null && conversationsOpen
   const [workflowOpen, setWorkflowOpen] = useState(true)
   const [changesOpen, setChangesOpen] = useState(true)
   const [stagedOpen, setStagedOpen] = useState(true)
@@ -677,7 +655,8 @@ function GitnaSourceControlInner({
   const useNaturalWorkflowHeight =
     workflowOpen &&
     !workflowCompact &&
-    (!hasLargeOpenChangeSection || ((repositoryOpen || graphOpen) && !paneSizesCustomized))
+    (!hasLargeOpenChangeSection ||
+      ((repositoryOpen || graphOpen || conversationsPaneOpen) && !paneSizesCustomized))
   const naturalWorkflowHeight = Math.min(
     measuredWorkflowHeight || 142,
     Math.max(142, (paneStackHeight * sizes[0]) / 100),
@@ -685,7 +664,7 @@ function GitnaSourceControlInner({
   const workflowRow =
     !workflowOpen || workflowCompact
       ? 'max-content'
-      : !repositoryOpen && !graphOpen
+      : !repositoryOpen && !graphOpen && !conversationsPaneOpen
         ? 'minmax(142px, 1fr)'
         : useNaturalWorkflowHeight
           ? `${naturalWorkflowHeight}px`
@@ -994,11 +973,16 @@ function GitnaSourceControlInner({
         ref={containerRef}
         className="pane-stack gitna-scrollbar grid min-h-0 flex-1 overflow-hidden max-md:block max-md:overflow-y-auto"
         style={{
-          gridTemplateRows: snapshot.repository
-            ? `${workflowRow} 0 ${repositoryOpen ? `minmax(142px, ${sizes[1]}fr)` : 'max-content'} 0 ${graphOpen ? `minmax(142px, ${sizes[2]}fr)` : 'max-content'}`
-            : repositoryOpen
-              ? 'minmax(142px, 1fr)'
-              : 'max-content',
+          gridTemplateRows: [
+            ...(snapshot.repository ? [workflowRow, '0'] : []),
+            repositoryOpen ? `minmax(142px, ${sizes[1]}fr)` : 'max-content',
+            ...(snapshot.repository
+              ? ['0', graphOpen ? `minmax(142px, ${sizes[2]}fr)` : 'max-content']
+              : []),
+            ...(conversations == null
+              ? []
+              : ['0', conversationsOpen ? `minmax(142px, ${sizes[3]}fr)` : 'max-content']),
+          ].join(' '),
         }}
       >
         {snapshot.repository && (
@@ -1130,12 +1114,8 @@ function GitnaSourceControlInner({
 
         <TreeSection
           pane
-          count={showingConversations ? shownConversationCount || null : repositoryCount}
-          countTitle={
-            showingConversations
-              ? `${shownConversationCount} ${conversationFilter} conversations`
-              : repositoryCountTitle
-          }
+          count={repositoryCount}
+          countTitle={repositoryCountTitle}
           headerClassName={snapshot.repository ? undefined : 'border-t-0'}
           dragAndDrop={repositoryDragAndDrop}
           dataSection="repository"
@@ -1180,116 +1160,44 @@ function GitnaSourceControlInner({
             </>
           }
           renderContextMenu={renderRepositoryContextMenu}
-          titleAccessory={
-            <>
-              {conversationsModel != null && <AgentsMenu model={conversationsModel} />}
-              {hasConversations ? (
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="sm"
-                  aria-label="Conversations"
-                  aria-pressed={showingConversations}
-                  title="Conversations"
-                  className={cn(
-                    CHROME_ICON_BUTTON_CLASS,
-                    'relative w-auto gap-1 px-1.5 text-xs tabular-nums',
-                  )}
-                  onClick={() => {
-                    setConversationsShown(!showingConversations)
-                    setRepositoryOpen(true)
-                  }}
-                >
-                  {showingConversations ? (
-                    <>
-                      <IconFileTree className="size-4 md:size-3" />
-                      {repositoryCount}
-                    </>
-                  ) : (
-                    <>
-                      <IconComment className="size-4 md:size-3" />
-                      {openConversations > 0 && openConversations}
-                    </>
-                  )}
-                  {conversationList.some((conversation) =>
-                    conversationsModel.unread(conversation),
-                  ) && (
-                    <span
-                      role="img"
-                      aria-label="Unread"
-                      className="absolute -right-0.5 -top-0.5 size-2 rounded-full border-[1px] border-[var(--diffshub-sidebar-bg)] bg-blue-500 dark:bg-blue-400"
-                    />
-                  )}
-                </Button>
-              ) : undefined}
-            </>
-          }
-          body={
-            showingConversations && conversations != null ? (
-              <DiffsHubCommentsList
-                commentSections={shownConversations}
-                emptyTitle={`No ${conversationFilter} conversations`}
-                onSelectComment={({ key }) => {
-                  const conversation = conversationsModel?.find(key)
-                  if (conversation != null) conversations.onOpen(conversation)
-                }}
-                onReopen={
-                  conversationFilter === 'resolved'
-                    ? ({ key }) => {
-                        const conversation = conversationsModel?.find(key)
-                        if (conversation != null)
-                          void conversationsModel?.setStatus(conversation, 'open')
-                      }
-                    : undefined
-                }
-              />
-            ) : undefined
-          }
-          renderHeaderActions={(model) =>
-            showingConversations ? (
-              conversationList.length > 0 && (
-                <ConversationFilter value={conversationFilter} onChange={setConversationFilter} />
-              )
-            ) : (
-              <RepositoryHeaderActions
-                availableStatuses={availableRepositoryStatuses}
-                repositoryMode={snapshot.repository}
-                loading={repositoryRefreshing}
-                refreshing={repositoryRefreshVisible}
-                model={model}
-                paths={repositoryView === 'tree' ? filteredRepositoryPaths : []}
-                selectedStatuses={activeRepositoryFilters}
-                showHiddenFiles={showHiddenFiles}
-                showIgnoredFiles={showIgnoredFiles}
-                view={repositoryView}
-                onClearFilters={() => setRepositoryFilters(new Set())}
-                onIsolateFilter={(status) => setRepositoryFilters(new Set([status]))}
-                onCreate={(kind, initialPath) => setRepositoryEntryDialog({ kind, initialPath })}
-                onFindInFiles={onFindInFiles}
-                onRefresh={() => void repository.refreshExplorer()}
-                onShowHiddenFilesChange={setShowHiddenFiles}
-                onShowIgnoredFilesChange={setShowIgnoredFiles}
-                onRename={(source) =>
-                  setRepositoryEntryDialog({
-                    kind: 'rename',
-                    source: source.replace(/\/$/, ''),
-                    initialPath: source.replace(/\/$/, ''),
-                  })
-                }
-                onToggleFilter={(status) =>
-                  setRepositoryFilters(() => {
-                    const next = new Set(activeRepositoryFilters)
-                    if (next.has(status)) next.delete(status)
-                    else next.add(status)
-                    return next
-                  })
-                }
-                onViewChange={setRepositoryView}
-              />
-            )
-          }
+          renderHeaderActions={(model) => (
+            <RepositoryHeaderActions
+              availableStatuses={availableRepositoryStatuses}
+              repositoryMode={snapshot.repository}
+              loading={repositoryRefreshing}
+              refreshing={repositoryRefreshVisible}
+              model={model}
+              paths={repositoryView === 'tree' ? filteredRepositoryPaths : []}
+              selectedStatuses={activeRepositoryFilters}
+              showHiddenFiles={showHiddenFiles}
+              showIgnoredFiles={showIgnoredFiles}
+              view={repositoryView}
+              onClearFilters={() => setRepositoryFilters(new Set())}
+              onIsolateFilter={(status) => setRepositoryFilters(new Set([status]))}
+              onCreate={(kind, initialPath) => setRepositoryEntryDialog({ kind, initialPath })}
+              onFindInFiles={onFindInFiles}
+              onRefresh={() => void repository.refreshExplorer()}
+              onShowHiddenFilesChange={setShowHiddenFiles}
+              onShowIgnoredFilesChange={setShowIgnoredFiles}
+              onRename={(source) =>
+                setRepositoryEntryDialog({
+                  kind: 'rename',
+                  source: source.replace(/\/$/, ''),
+                  initialPath: source.replace(/\/$/, ''),
+                })
+              }
+              onToggleFilter={(status) =>
+                setRepositoryFilters(() => {
+                  const next = new Set(activeRepositoryFilters)
+                  if (next.has(status)) next.delete(status)
+                  else next.add(status)
+                  return next
+                })
+              }
+              onViewChange={setRepositoryView}
+            />
+          )}
           icon={<IconFileTree className="size-3" />}
-          paneIcon={showingConversations ? IconComment : IconFileTree}
           lazyDirectories={
             repositoryView === 'tree' ? repository.ordinaryUnloadedDirectories : undefined
           }
@@ -1330,6 +1238,24 @@ function GitnaSourceControlInner({
             open={graphOpen}
             onConfirm={setPendingConfirm}
             onOpenChange={setGraphOpen}
+          />
+        )}
+
+        {conversations != null && snapshot.repository && (
+          <PaneResizeHandle
+            disabled={!graphOpen || !conversationsOpen}
+            index={2}
+            onResize={resizeBy}
+            onStart={startResize}
+            size={sizes[2]}
+          />
+        )}
+
+        {conversations != null && (
+          <ConversationsSection
+            conversations={conversations}
+            open={conversationsOpen}
+            onOpenChange={setConversationsOpen}
           />
         )}
       </div>
@@ -2241,6 +2167,83 @@ function ChangeContextMenu({
   )
 }
 
+function ConversationsSection({
+  conversations: { model, onOpen },
+  open,
+  onOpenChange,
+}: {
+  conversations: ConversationsPane
+  open: boolean
+  onOpenChange: (open: boolean) => void
+}) {
+  useSyncExternalStore(
+    useCallback((listener: () => void) => model.subscribe(listener), [model]),
+    () => model.version,
+  )
+  const list = model.list()
+  const [filter, setFilter] = useState<'open' | 'resolved'>('open')
+  const openCount = list.filter(({ status }) => status === 'open').length
+  const sections = useMemo(
+    () =>
+      conversationSections(
+        list.filter(({ status }) => status === filter),
+        (author) => model.displayName(author),
+      ),
+    [list, filter, model],
+  )
+  return (
+    <section
+      data-pane="conversations"
+      className="section flex min-h-0 flex-col overflow-hidden max-md:max-h-[50vh]"
+    >
+      <PaneSectionHeader
+        actions={
+          <>
+            <AgentsMenu model={model} />
+            <ConversationFilter value={filter} onChange={setFilter} />
+          </>
+        }
+        count={openCount || null}
+        countTitle={`${openCount} open conversations`}
+        dataSection="conversations"
+        icon={IconComment}
+        open={open}
+        title="Conversations"
+        titleAccessory={
+          list.some((conversation) => model.unread(conversation)) && (
+            <span
+              role="img"
+              aria-label="Unread"
+              className="size-2 shrink-0 rounded-full bg-blue-500 dark:bg-blue-400"
+            />
+          )
+        }
+        onOpenChange={onOpenChange}
+      />
+      {open && (
+        <div className="min-h-0 flex-1">
+          <DiffsHubCommentsList
+            commentSections={sections}
+            emptyTitle={`No ${filter} conversations`}
+            onSelectComment={({ key }) => {
+              const conversation = model.find(key)
+              if (conversation != null) onOpen(conversation)
+            }}
+            onReopen={
+              filter === 'resolved'
+                ? ({ key }) => {
+                    const conversation = model.find(key)
+                    if (conversation != null) void model.setStatus(conversation, 'open')
+                  }
+                : undefined
+            }
+          />
+        </div>
+      )}
+    </section>
+  )
+}
+
 function ConversationFilter({
   value,
   onChange,
@@ -2533,7 +2536,6 @@ function RepositoryHeaderActions({
 }
 
 interface TreeSectionProps {
-  body?: ReactNode
   count?: ReactNode
   countTitle?: string
   dataSection: string
@@ -2572,7 +2574,6 @@ interface TreeSectionProps {
 }
 
 function TreeSection({
-  body,
   count,
   countTitle,
   dataSection,
@@ -2628,17 +2629,13 @@ function TreeSection({
           className={headerClassName}
           actions={
             <>
-              {open &&
-                body == null &&
-                model != null &&
-                source.pathCount > 0 &&
-                lazyDirectories == null && (
-                  <TreeSearchToggle
-                    model={model}
-                    title={dataSection === 'repository' ? 'Repository' : title}
-                    onOpenChange={setSearchOpen}
-                  />
-                )}
+              {open && model != null && source.pathCount > 0 && lazyDirectories == null && (
+                <TreeSearchToggle
+                  model={model}
+                  title={dataSection === 'repository' ? 'Repository' : title}
+                  onOpenChange={setSearchOpen}
+                />
+              )}
               {renderHeaderActions?.(model)}
               {headerActions}
             </>
@@ -2677,9 +2674,8 @@ function TreeSection({
           </span>
         </div>
       )}
-      {open && body != null && <div className="min-h-0 flex-1">{body}</div>}
       {open && (
-        <div hidden={body != null} className="contents">
+        <div className="contents">
           <div
             data-pane-body={pane ? 'repository' : undefined}
             className={cn(
