@@ -1,5 +1,4 @@
-import { IconSearch } from '@pierre/icons'
-import { FileX, GitBranch, GitCommitHorizontal, LoaderCircle } from 'lucide-react'
+import { IconBranch, IconCommit, IconFileStatusD, IconInProgress, IconSearch } from '@pierre/icons'
 import {
   Fragment,
   type ReactNode,
@@ -244,7 +243,7 @@ export function GitnaCommandPalette({
           kind: 'command',
           command: {
             id: `commit:${commit.oid}`,
-            icon: <GitCommitHorizontal />,
+            icon: <IconCommit />,
             label: commit.subject || '(No commit message)',
             description: `${commit.oid.slice(0, 8)} · ${commit.authorName} · ${new Date(commit.authorTime).toLocaleString(undefined, { dateStyle: 'short', timeStyle: 'short' })}`,
             detail: allBranches
@@ -539,7 +538,7 @@ export function GitnaCommandPalette({
           style={{ visibility: showFileSearchBusy || showCommitBusy ? 'visible' : 'hidden' }}
           role={showFileSearchBusy || showCommitBusy ? 'status' : undefined}
         >
-          <LoaderCircle
+          <IconInProgress
             aria-hidden="true"
             className="size-3.5 animate-spin motion-reduce:animate-none"
           />
@@ -559,7 +558,7 @@ export function GitnaCommandPalette({
             )}
             onClick={() => setAllBranches((current) => !current)}
           >
-            <GitBranch aria-hidden="true" className="size-4" />
+            <IconBranch aria-hidden="true" className="size-4" />
           </button>
         )}
         {!commitMode && !commandMode && !lineMode && supportsIgnoredFiles && (
@@ -577,7 +576,7 @@ export function GitnaCommandPalette({
               setActiveIndex(0)
             }}
           >
-            <FileX aria-hidden="true" className="size-4" />
+            <IconFileStatusD aria-hidden="true" className="size-4" />
           </button>
         )}
       </div>
