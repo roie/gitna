@@ -14,14 +14,16 @@ import (
 // https://cdn.agentclientprotocol.com/registry/v1/latest/registry.json
 // An adapter names the vendor CLI it wraps, so a missing adapter can be told
 // apart from a missing agent.
-var known = []struct {
+type knownAgent struct {
 	name    string
 	program string
 	args    []string
 	adapts  string
 	install string
 	website string
-}{
+}
+
+var known = []knownAgent{
 	{"Claude Agent", "claude-agent-acp", nil, "claude", "npm install -g @agentclientprotocol/claude-agent-acp", "https://github.com/agentclientprotocol/claude-agent-acp"},
 	{"Codex", "codex-acp", nil, "codex", "npm install -g @agentclientprotocol/codex-acp", "https://github.com/agentclientprotocol/codex-acp"},
 	{"Cursor", "cursor-agent", []string{"acp"}, "", "", "https://cursor.com/docs/cli/acp"},
@@ -42,19 +44,22 @@ type Found struct {
 // Setup tells the user how to install a known agent that is not on PATH.
 // AdapterMissing means the vendor CLI is installed but its ACP adapter is not.
 type Setup struct {
-	Name           string `json:"name"`
-	Command        string `json:"command"`
-	Install        string `json:"install"`
-	Website        string `json:"website"`
-	AdapterMissing bool   `json:"adapterMissing"`
+	Name           string    `json:"name"`
+	Command        string    `json:"command"`
+	Install        string    `json:"install"`
+	Website        string    `json:"website"`
+	AdapterMissing bool      `json:"adapterMissing"`
+	Program        string    `json:"program"`
+	Download       *Download `json:"download,omitempty"`
 }
 
-// Discover returns the known agents found on PATH that saved does not already
-// define, and setup guidance for the rest. It only reads directories and
-// starts no process. Each PATH directory is listed once, because probing
-// every program and extension separately takes hundreds of milliseconds on
-// Windows and WSL drives.
-func Discover(saved []Definition) ([]Found, []Setup) {
+// Discover returns the known agents found on PATH or among the adapters
+// installed under adapterDir that saved does not already define, and setup
+// guidance for the rest. It only reads directories and starts no process.
+// Each PATH directory is listed once, because probing every program and
+// extension separately takes hundreds of milliseconds on Windows and WSL
+// drives.
+func Discover(saved []Definition, adapterDir string) ([]Found, []Setup) {
 	names := pathNames()
 	found, setup := []Found{}, []Setup{}
 	for _, k := range known {
@@ -70,9 +75,16 @@ func Discover(saved []Definition) ([]Found, []Setup) {
 		if err == nil {
 			path, err = filepath.Abs(path)
 		}
+		if adapter, ok := installed(adapterDir, k.program); err != nil && ok {
+			path, err, command = adapter, nil, adapterFound(adapterDir, k.program).Command
+		}
 		if err != nil {
 			adapterMissing := k.adapts != "" && names[k.adapts]
-			setup = append(setup, Setup{Name: k.name, Command: command, Install: k.install, Website: k.website, AdapterMissing: adapterMissing})
+			s := Setup{Name: k.name, Command: command, Install: k.install, Website: k.website, AdapterMissing: adapterMissing, Program: k.program}
+			if adapterMissing {
+				s.Download = download(adapterDir, k.program)
+			}
+			setup = append(setup, s)
 			continue
 		}
 		if slices.ContainsFunc(saved, func(d Definition) bool {

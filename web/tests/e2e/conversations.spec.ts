@@ -1051,10 +1051,12 @@ test('agents connect after one confirmation, stay remembered in other repositori
     await expect(row('goose')).toContainText('Connected')
 
     await row('Claude Agent').click()
-    const more = page.getByRole('dialog', { name: 'More agents' })
-    const claude = more.getByRole('region', { name: 'Claude Agent' })
-    await expect(claude).toContainText('the ACP adapter is missing')
-    await expect(claude).toContainText('npm install -g @agentclientprotocol/claude-agent-acp')
+    const download = page.getByRole('dialog', { name: 'Connect Claude Agent' })
+    await expect(download).toContainText('/claude-agent-acp/releases/download/v0.108.0/')
+    await expect(download).toContainText('0.108.0')
+    await expect(download).toContainText(/\d+ MB/)
+    await expect(download).toContainText(join('config', 'adapters', 'claude-agent-acp', '0.108.0'))
+    await expect(download.getByRole('button', { name: 'Download and connect' })).toBeVisible()
     expect(runs()).not.toContain('claude')
     await page.keyboard.press('Escape')
   } finally {
@@ -1108,6 +1110,47 @@ test('agents connect after one confirmation, stay remembered in other repositori
     await page.keyboard.press('Escape')
   } finally {
     await stopGitna(first.child)
+  }
+})
+
+test('a downloaded adapter connects like any agent and Remove adapter deletes it', async ({
+  page,
+  app,
+}) => {
+  test.skip(process.platform === 'win32', 'the fake adapter is a shell script')
+  const script = fileURLToPath(new URL('./fake-acp-agent.mjs', import.meta.url))
+  const folder = join(dirname(app.repo), 'config', 'adapters', 'claude-agent-acp')
+  mkdirSync(join(folder, '0.108.0'), { recursive: true })
+  const adapter = join(folder, '0.108.0', 'claude-agent-acp')
+  writeFileSync(adapter, `#!/bin/sh\nexec '${process.execPath}' '${script}' reply "$@"\n`, {
+    mode: 0o700,
+  })
+  const gitna = await startGitna(process.env.GITNA_E2E_BINARY!, app.repo)
+  try {
+    await page.goto(gitna.url)
+    await openFile(page, 'two-hunk.txt')
+    const agents = page.getByRole('button', { name: 'Agents', exact: true })
+    const claude = page.getByRole('menuitem', { name: /^Claude Agent/ })
+    await agents.click()
+    await claude.click()
+    const confirm = page.getByRole('dialog', { name: 'Connect Claude Agent' })
+    await expect(confirm).toContainText(adapter)
+    await confirm.getByRole('button', { name: 'Connect', exact: true }).click()
+    await expect(confirm).toHaveCount(0)
+
+    await agents.click()
+    await expect(claude).toContainText('Connected')
+    await claude.click()
+    await page.getByRole('menuitem', { name: 'Remove Claude Agent adapter' }).click()
+    const remove = page.getByRole('dialog', { name: 'Remove Claude Agent adapter' })
+    await expect(remove).toContainText('forgets Claude Agent in every repository')
+    await remove.getByRole('button', { name: 'Remove adapter' }).click()
+    await expect(remove).toHaveCount(0)
+    expect(existsSync(folder)).toBe(false)
+    await agents.click()
+    await expect(page.getByRole('menuitem', { name: 'Claude Agent Connected' })).toHaveCount(0)
+  } finally {
+    await stopGitna(gitna.child)
   }
 })
 

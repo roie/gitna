@@ -21,6 +21,8 @@ type Settings struct {
 }
 
 type SettingsFile struct {
+	// Adapters is the folder that holds the adapters Gitna installs.
+	Adapters string
 	mu       sync.Mutex
 	path     string
 	settings Settings

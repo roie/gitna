@@ -20,6 +20,22 @@ export interface AgentSetup {
   install: string
   website: string
   adapterMissing: boolean
+  program: string
+  download?: AdapterDownload
+}
+
+export interface AdapterDownload {
+  source: string
+  version: string
+  size: number
+  folder: string
+  requiresNode: boolean
+}
+
+export interface InstalledAdapter {
+  program: string
+  folder: string
+  size: number
 }
 
 export interface AgentSettings {
@@ -27,6 +43,7 @@ export interface AgentSettings {
   agents: AgentDefinition[]
   available: FoundAgent[]
   setup: AgentSetup[]
+  adapters: InstalledAdapter[]
 }
 
 // suggestName names a custom agent after its program, or after the known agent
@@ -182,6 +199,8 @@ export interface ConversationsApi {
   setEnabled(enabled: boolean): void
   addAgent(request: AddAgent): Promise<AgentAdded>
   deleteDefinition(id: string): Promise<void>
+  installAdapter(program: string, onProgress: (percent: number) => void): Promise<FoundAgent>
+  removeAdapter(program: string): Promise<void>
   leave(participantId: string): Promise<unknown>
   list(path: string, signal?: AbortSignal): Promise<ConversationList>
   create(anchor: ConversationAnchor, body: string, id: string, to?: string[]): Promise<Conversation>
@@ -252,6 +271,41 @@ export function createConversationsApi(
     async deleteDefinition(id) {
       await expectOK(
         await fetch(`api/v1/conversations/agents/${encodeURIComponent(id)}`, {
+          method: 'DELETE',
+          headers: { 'Content-Type': 'application/json' },
+        }),
+      )
+    },
+    async installAdapter(program, onProgress) {
+      const response = await expectOK(
+        await fetch(`api/v1/conversations/agents/adapters/${encodeURIComponent(program)}`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+        }),
+      )
+      const reader = response.body!.pipeThrough(new TextDecoderStream()).getReader()
+      let buffered = ''
+      for (;;) {
+        const { value, done } = await reader.read()
+        buffered += value ?? ''
+        const lines = buffered.split('\n')
+        buffered = lines.pop()!
+        for (const line of lines.filter(Boolean)) {
+          const frame = JSON.parse(line) as {
+            progress?: number
+            found?: FoundAgent
+            error?: string
+          }
+          if (frame.error != null) throw new Error(frame.error)
+          if (frame.found != null) return frame.found
+          if (frame.progress != null) onProgress(frame.progress)
+        }
+        if (done) throw new Error('The adapter install ended without a result')
+      }
+    },
+    async removeAdapter(program) {
+      await expectOK(
+        await fetch(`api/v1/conversations/agents/adapters/${encodeURIComponent(program)}`, {
           method: 'DELETE',
           headers: { 'Content-Type': 'application/json' },
         }),

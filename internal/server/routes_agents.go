@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
@@ -99,7 +100,8 @@ func (c *Conversations) browserControl(w http.ResponseWriter, r *http.Request, r
 	leave := len(parts) == 3 && parts[0] == "participants" && parts[2] == "leave" && r.Method == http.MethodPost
 	control := len(parts) == 3 && parts[0] == "runs" && (parts[2] == "cancel" || parts[2] == "permission") && r.Method == http.MethodPost
 	retry := len(parts) == 4 && parts[1] == "messages" && parts[3] == "retry" && r.Method == http.MethodPost
-	if !add && !del && !leave && !control && !retry {
+	adapter := len(parts) == 3 && parts[0] == "agents" && parts[1] == "adapters" && (r.Method == http.MethodPost || r.Method == http.MethodDelete)
+	if !add && !del && !leave && !control && !retry && !adapter {
 		return false
 	}
 	if c.Agents == nil || c.Settings == nil {
@@ -111,6 +113,11 @@ func (c *Conversations) browserControl(w http.ResponseWriter, r *http.Request, r
 	case add:
 		c.addAgent(w, r)
 		return true
+	case adapter && r.Method == http.MethodPost:
+		c.installAdapter(w, r, parts[2])
+		return true
+	case adapter:
+		err = agentrun.RemoveAdapter(c.Settings.Adapters, parts[2], c.Settings)
 	case del:
 		err = c.Settings.Update(func(s *agentrun.Settings) error {
 			i := slices.IndexFunc(s.Agents, func(d agentrun.Definition) bool { return d.ID == parts[1] })
@@ -274,14 +281,39 @@ func (c *Conversations) settings(w http.ResponseWriter) {
 		settings = c.Settings.Get()
 	}
 	enabled := c.Enabled != nil && c.Enabled()
-	available, setup := []agentrun.Found{}, []agentrun.Setup{}
+	available, setup, adapters := []agentrun.Found{}, []agentrun.Setup{}, []agentrun.Adapter{}
 	if enabled {
-		available, setup = agentrun.Discover(settings.Agents)
+		available, setup = agentrun.Discover(settings.Agents, c.Settings.Adapters)
+		adapters = agentrun.Adapters(c.Settings.Adapters)
 	}
 	writeJSON(w, http.StatusOK, struct {
 		Enabled   bool                  `json:"enabled"`
 		Agents    []agentrun.Definition `json:"agents"`
 		Available []agentrun.Found      `json:"available"`
 		Setup     []agentrun.Setup      `json:"setup"`
-	}{Enabled: enabled, Agents: nonNil(settings.Agents), Available: available, Setup: setup})
+		Adapters  []agentrun.Adapter    `json:"adapters"`
+	}{Enabled: enabled, Agents: nonNil(settings.Agents), Available: available, Setup: setup, Adapters: adapters})
+}
+
+// installAdapter streams the install as JSON lines: progress percentages,
+// then the found agent or an error.
+func (c *Conversations) installAdapter(w http.ResponseWriter, r *http.Request, program string) {
+	w.Header().Set("Content-Type", "application/x-ndjson")
+	rc := http.NewResponseController(w)
+	enc := json.NewEncoder(w)
+	send := func(v any) {
+		_ = enc.Encode(v)
+		_ = rc.Flush()
+	}
+	found, err := agentrun.Install(r.Context(), c.Settings.Adapters, program, func(percent int) {
+		send(map[string]int{"progress": percent})
+	})
+	switch {
+	case errors.Is(err, agentrun.ErrRequiresNode):
+		send(map[string]string{"error": "Requires Node.js"})
+	case err != nil:
+		send(map[string]string{"error": err.Error()})
+	default:
+		send(map[string]agentrun.Found{"found": found})
+	}
 }

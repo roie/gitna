@@ -30,7 +30,7 @@ func TestDiscoverFindsKnownAgentsWithoutRunningThem(t *testing.T) {
 	codex := writeProgram(t, dir, "codex-acp", "echo ran > '"+marker+"'", `echo ran> "`+marker+`"`)
 	writeProgram(t, dir, "claude", "echo ran > '"+marker+"'", `echo ran> "`+marker+`"`)
 	t.Setenv("PATH", dir)
-	found, setup := Discover(nil)
+	found, setup := Discover(nil, "")
 	want := []Found{
 		{Name: "Codex", Command: "codex-acp", Executable: codex, Args: []string{}},
 		{Name: "OpenCode", Command: "opencode acp", Executable: opencode, Args: []string{"acp"}},
@@ -41,7 +41,7 @@ func TestDiscoverFindsKnownAgentsWithoutRunningThem(t *testing.T) {
 	if _, err := os.Stat(marker); !os.IsNotExist(err) {
 		t.Fatalf("discovery ran a program: %v", err)
 	}
-	if len(setup) != len(known)-2 || setup[0] != (Setup{Name: "Claude Agent", Command: "claude-agent-acp", Install: "npm install -g @agentclientprotocol/claude-agent-acp", Website: "https://github.com/agentclientprotocol/claude-agent-acp", AdapterMissing: true}) {
+	if len(setup) != len(known)-2 || setup[0] != (Setup{Name: "Claude Agent", Command: "claude-agent-acp", Install: "npm install -g @agentclientprotocol/claude-agent-acp", Website: "https://github.com/agentclientprotocol/claude-agent-acp", AdapterMissing: true, Program: "claude-agent-acp"}) {
 		t.Fatalf("setup %+v", setup)
 	}
 	for _, s := range setup[1:] {
@@ -50,11 +50,11 @@ func TestDiscoverFindsKnownAgentsWithoutRunningThem(t *testing.T) {
 		}
 	}
 	saved := []Definition{{ID: "x", Name: "Mine", Executable: opencode, Args: []string{"acp"}}}
-	if found, setup := Discover(saved); len(found) != 1 || found[0].Name != "Codex" || len(setup) != len(known)-2 {
+	if found, setup := Discover(saved, ""); len(found) != 1 || found[0].Name != "Codex" || len(setup) != len(known)-2 {
 		t.Fatalf("with a saved definition: %+v %+v", found, setup)
 	}
 	t.Setenv("PATH", t.TempDir())
-	if found, setup := Discover(nil); len(found) != 0 || len(setup) != len(known) || setup[0].AdapterMissing {
+	if found, setup := Discover(nil, ""); len(found) != 0 || len(setup) != len(known) || setup[0].AdapterMissing {
 		t.Fatalf("empty PATH: %+v %+v", found, setup)
 	}
 }
@@ -68,7 +68,7 @@ func TestDiscoveredWrapperRunsThroughTheTransport(t *testing.T) {
 	dir := t.TempDir()
 	wrapper := writeProgram(t, dir, "opencode", `exec "`+exe+`" "$@"`, `"`+exe+`" %*`)
 	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
-	all, _ := Discover(nil)
+	all, _ := Discover(nil, "")
 	i := slices.IndexFunc(all, func(f Found) bool { return f.Executable == wrapper })
 	if i < 0 {
 		t.Fatalf("wrapper not found: %+v", all)

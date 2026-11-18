@@ -8,6 +8,7 @@ import {
   type AuthMethod,
   type ConversationsModel,
   type FoundAgent,
+  type InstalledAdapter,
   type Participant,
   suggestName,
 } from '../../lib/conversations'
@@ -22,7 +23,7 @@ import {
 import { Input } from '../components/Input'
 import { Modal } from './Modal'
 
-type Dialog = 'custom' | 'auth' | 'setup' | 'confirm' | null
+type Dialog = 'custom' | 'auth' | 'setup' | 'confirm' | 'download' | 'remove' | null
 
 interface Row {
   key: string
@@ -44,6 +45,12 @@ export function AgentsMenu({ model }: { model: ConversationsModel }) {
   const [definitions, setDefinitions] = useState<AgentDefinition[]>([])
   const [available, setAvailable] = useState<FoundAgent[]>([])
   const [setup, setSetup] = useState<AgentSetup[]>([])
+  const [adapters, setAdapters] = useState<InstalledAdapter[]>([])
+  const [downloading, setDownloading] = useState<{ key: string; percent: number | null } | null>(
+    null,
+  )
+  const [downloadFor, setDownloadFor] = useState<AgentSetup | null>(null)
+  const [removing, setRemoving] = useState<{ row: Row; adapter: InstalledAdapter } | null>(null)
   const [name, setName] = useState('')
   const [command, setCommand] = useState('')
   const [busy, setBusy] = useState(false)
@@ -60,6 +67,7 @@ export function AgentsMenu({ model }: { model: ConversationsModel }) {
     setDefinitions(settings.agents)
     setAvailable(settings.available)
     setSetup(settings.setup)
+    setAdapters(settings.adapters)
   }
   const attempt = async (action: () => Promise<unknown>) => {
     setBusy(true)
@@ -115,15 +123,19 @@ export function AgentsMenu({ model }: { model: ConversationsModel }) {
       .map((s) => ({ key: s.command, name: s.name, setup: s })),
   ]
   const status = (row: Row) =>
-    connecting === row.key
-      ? 'Connecting…'
-      : failed === row.key
-        ? "Couldn't connect"
-        : row.participant != null
-          ? 'Connected'
-          : row.setup != null
-            ? 'Set up'
-            : ''
+    downloading?.key === row.key
+      ? downloading.percent == null
+        ? 'Downloading…'
+        : `Downloading ${downloading.percent}%`
+      : connecting === row.key
+        ? 'Connecting…'
+        : failed === row.key
+          ? "Couldn't connect"
+          : row.participant != null
+            ? 'Connected'
+            : row.setup?.download?.requiresNode
+              ? 'Requires Node.js'
+              : ''
   const select = (row: Row) => {
     if (row.participant != null) setExpanded(expanded === row.key ? null : row.key)
     else if (row.definition != null)
@@ -132,11 +144,35 @@ export function AgentsMenu({ model }: { model: ConversationsModel }) {
       setConfirming(row.found)
       setMenu(false)
       openDialog('confirm')
+    } else if (row.setup?.download != null && !row.setup.download.requiresNode) {
+      setDownloadFor(row.setup)
+      setMenu(false)
+      openDialog('download')
     } else {
       setMenu(false)
       openDialog('setup')
     }
   }
+  const install = (s: AgentSetup) =>
+    attempt(async () => {
+      setDownloading({ key: s.command, percent: s.download?.source.startsWith('npm ') ? null : 0 })
+      try {
+        const found = await model.api.installAdapter(s.program, (percent) =>
+          setDownloading({ key: s.command, percent }),
+        )
+        setDownloading(null)
+        if (await connect(s.command, found.name, { name: found.name, command: found.command }))
+          setDialog(null)
+      } finally {
+        setDownloading(null)
+      }
+    })
+  const adapterOf = (row: Row) =>
+    adapters.find((a) => {
+      const path = row.definition?.executable ?? ''
+      return path.startsWith(a.folder) && /[\\/]/.test(path.charAt(a.folder.length))
+    })
+  const megabytes = (size: number) => `${Math.round(size / 1e6)} MB`
   const forget = (row: Row) =>
     attempt(async () => {
       if (row.participant != null) await model.leave(row.participant.id)
@@ -198,6 +234,19 @@ export function AgentsMenu({ model }: { model: ConversationsModel }) {
                   >
                     Disconnect
                   </DropdownMenuItem>
+                  {adapterOf(row) != null && (
+                    <DropdownMenuItem
+                      aria-label={`Remove ${row.name} adapter`}
+                      disabled={busy}
+                      className="pl-6"
+                      onSelect={() => {
+                        setRemoving({ row, adapter: adapterOf(row)! })
+                        openDialog('remove')
+                      }}
+                    >
+                      Remove adapter
+                    </DropdownMenuItem>
+                  )}
                   {row.definition != null && (
                     <DropdownMenuItem
                       aria-label={`Forget ${row.name}`}
@@ -261,6 +310,69 @@ export function AgentsMenu({ model }: { model: ConversationsModel }) {
           </div>
         </Modal>
       )}
+      {dialog === 'download' && downloadFor?.download != null && (
+        <Modal title={`Connect ${downloadFor.name}`} error={error} onClose={() => setDialog(null)}>
+          <div className="flex flex-col gap-3">
+            <p className="m-0 text-sm text-muted-foreground">
+              {downloadFor.name} runs with your user's permissions. It can read and change anything
+              you can, may act without asking, and may send repository content to its provider. Once
+              connected, it is available in every repository and runs only when a message names it.
+            </p>
+            <p className="m-0 text-sm">Gitna first downloads its ACP adapter once:</p>
+            <dl className="m-0 grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-sm">
+              <dt className="text-muted-foreground">Source</dt>
+              <dd className="m-0 break-all">{downloadFor.download.source}</dd>
+              <dt className="text-muted-foreground">Version</dt>
+              <dd className="m-0">{downloadFor.download.version}</dd>
+              <dt className="text-muted-foreground">Size</dt>
+              <dd className="m-0">
+                {downloadFor.download.source.startsWith('npm ')
+                  ? `About ${megabytes(downloadFor.download.size)} installed`
+                  : `${megabytes(downloadFor.download.size)} download`}
+              </dd>
+              <dt className="text-muted-foreground">Folder</dt>
+              <dd className="m-0 break-all">{downloadFor.download.folder}</dd>
+            </dl>
+            <Button type="button" disabled={busy} onClick={() => void install(downloadFor)}>
+              {downloading != null
+                ? status({ key: downloadFor.command, name: downloadFor.name })
+                : busy
+                  ? 'Connecting…'
+                  : 'Download and connect'}
+            </Button>
+          </div>
+        </Modal>
+      )}
+      {dialog === 'remove' && removing != null && (
+        <Modal
+          title={`Remove ${removing.row.name} adapter`}
+          error={error}
+          onClose={() => setDialog(null)}
+        >
+          <div className="flex flex-col gap-3">
+            <p className="m-0 text-sm">
+              This frees {megabytes(removing.adapter.size)} and forgets {removing.row.name} in every
+              repository.
+            </p>
+            <Button
+              type="button"
+              disabled={busy}
+              onClick={() =>
+                void attempt(async () => {
+                  if (removing.row.participant != null)
+                    await model.leave(removing.row.participant.id)
+                  await model.api.removeAdapter(removing.adapter.program)
+                  setExpanded(null)
+                  await refresh()
+                  setDialog(null)
+                })
+              }
+            >
+              Remove adapter
+            </Button>
+          </div>
+        </Modal>
+      )}
       {dialog === 'auth' && pending != null && (
         <Modal title={`Sign in to ${pending.name}`} error={error} onClose={() => setDialog(null)}>
           <div className="flex flex-col gap-3">
@@ -309,8 +421,7 @@ export function AgentsMenu({ model }: { model: ConversationsModel }) {
         <Modal title="More agents" error={error} onClose={() => setDialog(null)}>
           <div className="flex flex-col gap-4">
             <p className={`m-0 ${hint}`}>
-              Install an agent, then check again. Gitna looks for these programs on your PATH and
-              never installs anything.
+              Install an agent, then check again. Gitna looks for these programs on your PATH.
             </p>
             {[
               ...setup.filter((s) => s.adapterMissing),

@@ -547,6 +547,7 @@ func Run(ctx context.Context, path, version string) error {
 	if err != nil {
 		return fmt.Errorf("app: open agent settings: %w", err)
 	}
+	agentSettings.Adapters = filepath.Join(stateDir, "adapters")
 	library := conversations.NewLibrary(filepath.Join(stateDir, "conversations", "v2"))
 	defer library.Close()
 	preferences := prefs.Open(filepath.Join(stateDir, "preferences.json"))
