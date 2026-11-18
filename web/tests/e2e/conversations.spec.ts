@@ -1282,6 +1282,24 @@ test('turning conversations off interrupts queued runs without stopping the acti
   expect((await stored(page, app))[0].messages).toHaveLength(1)
 })
 
+test('a connected agent runs with the model chosen for it', async ({ page, app }) => {
+  await page.goto(app.url)
+  await openFile(page, 'two-hunk.txt')
+  await addNative(page, 'Modeler', 'model')
+  await page.getByRole('button', { name: 'Agents', exact: true }).click()
+  await page.getByRole('menuitem', { name: /^Modeler/ }).click()
+  await page.getByRole('menuitem', { name: 'Model for Modeler' }).click()
+  const dialog = page.getByRole('dialog', { name: 'Model for Modeler' })
+  const select = dialog.getByRole('combobox', { name: 'Model' })
+  await expect(select).toHaveValue('')
+  await expect(select.locator('option').first()).toHaveText('Agent default (Small)')
+  await select.selectOption('large')
+  await dialog.getByRole('button', { name: 'Save' }).click()
+  await expect(dialog).toHaveCount(0)
+  const thread = await nativeThread(page, '@Modeler Which model?')
+  await expect(thread.getByText('Reply from large', { exact: true })).toBeVisible()
+})
+
 test('a retried run replaces the one it retried', async ({ page, app }) => {
   await page.goto(app.url)
   await openFile(page, 'two-hunk.txt')

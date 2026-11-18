@@ -16,6 +16,8 @@ type Definition struct {
 	Name       string   `json:"name"`
 	Executable string   `json:"executable"`
 	Args       []string `json:"args"`
+	// Model is the agent's model option value; empty uses the agent's default.
+	Model string `json:"model,omitempty"`
 }
 
 type Settings struct {

@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -112,14 +113,14 @@ func shutdown(process *stdio.ClientProcess) {
 	process.Shutdown(ctx)
 }
 
-func newSession(ctx context.Context, process *stdio.ClientProcess, root, method string) (acp.SessionId, error) {
+func newSession(ctx context.Context, process *stdio.ClientProcess, root, method string) (acp.NewSessionResponse, error) {
 	conn := process.Connection
 	init, err := conn.Initialize(ctx, acp.InitializeRequest{ProtocolVersion: 1})
 	if err != nil {
-		return "", err
+		return acp.NewSessionResponse{}, err
 	}
 	if init.ProtocolVersion != 1 {
-		return "", fmt.Errorf("unsupported ACP protocol version %d", init.ProtocolVersion)
+		return acp.NewSessionResponse{}, fmt.Errorf("unsupported ACP protocol version %d", init.ProtocolVersion)
 	}
 	methods := make([]AuthMethod, 0, len(init.AuthMethods))
 	for _, m := range init.AuthMethods {
@@ -151,14 +152,14 @@ func newSession(ctx context.Context, process *stdio.ClientProcess, root, method 
 			}
 		}
 		if !found {
-			return "", errors.New("this authentication method cannot run in Gitna")
+			return acp.NewSessionResponse{}, errors.New("this authentication method cannot run in Gitna")
 		}
 		if _, err := conn.Authenticate(ctx, acp.AuthenticateRequest{MethodId: acp.AuthMethodId(method)}); err != nil {
-			return "", authError(err)
+			return acp.NewSessionResponse{}, authError(err)
 		}
 	}
 	session, err := conn.NewSession(ctx, acp.NewSessionRequest{Cwd: root, McpServers: []acp.McpServer{}})
-	return session.SessionId, authError(err)
+	return session, authError(err)
 }
 
 func Verify(ctx context.Context, def Definition, root, authMethod string) error {
@@ -180,8 +181,12 @@ func Run(ctx context.Context, def Definition, root, prompt string, hooks Hooks) 
 		return "", err
 	}
 	defer shutdown(process)
-	session, err := newSession(ctx, process, root, "")
+	started, err := newSession(ctx, process, root, "")
 	if err != nil {
+		return "", err
+	}
+	session := started.SessionId
+	if err := setModel(ctx, process.Connection, started, def.Model); err != nil {
 		return "", err
 	}
 	type result struct {
@@ -217,4 +222,80 @@ func Run(ctx context.Context, def Definition, root, prompt string, hooks Hooks) 
 		return "", fmt.Errorf("agent stopped without a reply: %s", r.response.StopReason)
 	}
 	return reply, nil
+}
+
+// Model is one model an agent offers.
+type Model struct {
+	ID   string `json:"id"`
+	Name string `json:"name"`
+}
+
+// Models are the models an agent offers and the one it uses by default.
+type Models struct {
+	Default string  `json:"default"`
+	Options []Model `json:"options"`
+}
+
+var ErrNoModels = errors.New("This agent does not offer a choice of model")
+
+// modelOption returns the agent's model selector from its session options.
+func modelOption(options []acp.SessionConfigOption) (*acp.SessionConfigOptionSelect, []Model) {
+	for _, o := range options {
+		s := o.Select
+		if s == nil || s.Category == nil || *s.Category != acp.SessionConfigOptionCategoryModel {
+			continue
+		}
+		var flat []acp.SessionConfigSelectOption
+		if s.Options.Ungrouped != nil {
+			flat = *s.Options.Ungrouped
+		}
+		if s.Options.Grouped != nil {
+			for _, g := range *s.Options.Grouped {
+				flat = append(flat, g.Options...)
+			}
+		}
+		models := make([]Model, len(flat))
+		for i, m := range flat {
+			models[i] = Model{ID: string(m.Value), Name: m.Name}
+		}
+		return s, models
+	}
+	return nil, nil
+}
+
+func setModel(ctx context.Context, conn *acp.ClientSideConnection, session acp.NewSessionResponse, model string) error {
+	if model == "" {
+		return nil
+	}
+	option, models := modelOption(session.ConfigOptions)
+	if option == nil || !slices.ContainsFunc(models, func(m Model) bool { return m.ID == model }) {
+		return fmt.Errorf("This agent no longer offers the model %s. Choose another model in Agents", model)
+	}
+	if string(option.CurrentValue) == model {
+		return nil
+	}
+	_, err := conn.SetSessionConfigOption(ctx, acp.SetSessionConfigOptionRequest{ValueId: &acp.SetSessionConfigOptionValueId{
+		SessionId: session.SessionId, ConfigId: option.Id, Value: acp.SessionConfigValueId(model),
+	}})
+	return err
+}
+
+// ListModels starts the agent, reads the models it offers, and stops it.
+func ListModels(ctx context.Context, def Definition, root string) (Models, error) {
+	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+	process, err := startClient(ctx, def, root, &runClient{})
+	if err != nil {
+		return Models{}, err
+	}
+	defer shutdown(process)
+	session, err := newSession(ctx, process, root, "")
+	if err != nil {
+		return Models{}, err
+	}
+	option, models := modelOption(session.ConfigOptions)
+	if option == nil {
+		return Models{}, ErrNoModels
+	}
+	return Models{Default: string(option.CurrentValue), Options: models}, nil
 }

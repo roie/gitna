@@ -4,6 +4,7 @@ import {
   AgentAuthRequired,
   type AddAgent,
   type AgentDefinition,
+  type AgentModels,
   type AgentSetup,
   type AuthMethod,
   type ConversationsModel,
@@ -23,7 +24,7 @@ import {
 import { Input } from '../components/Input'
 import { Modal } from './Modal'
 
-type Dialog = 'custom' | 'auth' | 'setup' | 'confirm' | 'download' | 'remove' | null
+type Dialog = 'custom' | 'auth' | 'setup' | 'confirm' | 'download' | 'remove' | 'model' | null
 
 interface Row {
   key: string
@@ -51,6 +52,9 @@ export function AgentsMenu({ model }: { model: ConversationsModel }) {
   )
   const [downloadFor, setDownloadFor] = useState<AgentSetup | null>(null)
   const [removing, setRemoving] = useState<{ row: Row; adapter: InstalledAdapter } | null>(null)
+  const [modelFor, setModelFor] = useState<AgentDefinition | null>(null)
+  const [models, setModels] = useState<AgentModels | null>(null)
+  const [chosen, setChosen] = useState('')
   const [name, setName] = useState('')
   const [command, setCommand] = useState('')
   const [busy, setBusy] = useState(false)
@@ -172,6 +176,28 @@ export function AgentsMenu({ model }: { model: ConversationsModel }) {
       const path = row.definition?.executable ?? ''
       return path.startsWith(a.folder) && /[\\/]/.test(path.charAt(a.folder.length))
     })
+  const chooseModel = async (definition: AgentDefinition) => {
+    setModelFor(definition)
+    setModels(null)
+    setMenu(false)
+    openDialog('model')
+    setBusy(true)
+    try {
+      const listed = await model.api.agentModels(definition.id)
+      setModels(listed)
+      setChosen(listed.model)
+    } catch (error) {
+      setError(
+        error instanceof AgentAuthRequired
+          ? `Sign in to ${definition.name} first, then try again.`
+          : error instanceof Error
+            ? error.message
+            : String(error),
+      )
+    } finally {
+      setBusy(false)
+    }
+  }
   const megabytes = (size: number) => `${Math.round(size / 1e6)} MB`
   const forget = (row: Row) =>
     attempt(async () => {
@@ -234,6 +260,16 @@ export function AgentsMenu({ model }: { model: ConversationsModel }) {
                   >
                     Disconnect
                   </DropdownMenuItem>
+                  {row.definition != null && (
+                    <DropdownMenuItem
+                      aria-label={`Model for ${row.name}`}
+                      disabled={busy}
+                      className="pl-6"
+                      onSelect={() => void chooseModel(row.definition!)}
+                    >
+                      Model…
+                    </DropdownMenuItem>
+                  )}
                   {adapterOf(row) != null && (
                     <DropdownMenuItem
                       aria-label={`Remove ${row.name} adapter`}
@@ -371,6 +407,52 @@ export function AgentsMenu({ model }: { model: ConversationsModel }) {
               Remove adapter
             </Button>
           </div>
+        </Modal>
+      )}
+      {dialog === 'model' && modelFor != null && (
+        <Modal title={`Model for ${modelFor.name}`} error={error} onClose={() => setDialog(null)}>
+          {models == null ? (
+            error == null && (
+              <p role="status" className="m-0 text-sm text-muted-foreground">
+                Starting {modelFor.name} to list its models…
+              </p>
+            )
+          ) : (
+            <form
+              className="flex flex-col gap-3"
+              onSubmit={(event) => {
+                event.preventDefault()
+                void attempt(async () => {
+                  await model.api.setAgentModel(modelFor.id, chosen)
+                  setDialog(null)
+                })
+              }}
+            >
+              <label htmlFor={`${id}-model`} className="grid gap-1 text-sm">
+                Model
+                <select
+                  id={`${id}-model`}
+                  className="h-9 rounded-md border border-border bg-background px-2 text-sm"
+                  value={chosen}
+                  onChange={(event) => setChosen(event.currentTarget.value)}
+                >
+                  <option value="">
+                    Agent default (
+                    {models.options.find((m) => m.id === models.default)?.name ?? models.default})
+                  </option>
+                  {models.options.map((m) => (
+                    <option key={m.id} value={m.id}>
+                      {m.name}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <p className={`m-0 ${hint}`}>Applies to every run of {modelFor.name}.</p>
+              <Button type="submit" disabled={busy}>
+                Save
+              </Button>
+            </form>
+          )}
         </Modal>
       )}
       {dialog === 'auth' && pending != null && (

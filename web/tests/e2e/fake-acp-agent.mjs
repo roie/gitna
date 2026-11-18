@@ -8,6 +8,7 @@ let authed = false
 let promptID
 let permissionID
 let active
+let model = 'small'
 const send = (message) =>
   process.stdout.write(`${JSON.stringify({ jsonrpc: '2.0', ...message })}\n`)
 const reply = (id, result) => send({ id, result })
@@ -50,7 +51,29 @@ createInterface({ input: process.stdin })
           break
         }
         root = message.params.cwd
-        reply(message.id, { sessionId: 'test' })
+        reply(message.id, {
+          sessionId: 'test',
+          configOptions:
+            mode === 'model'
+              ? [
+                  {
+                    type: 'select',
+                    id: 'model',
+                    name: 'Model',
+                    category: 'model',
+                    currentValue: model,
+                    options: [
+                      { value: 'small', name: 'Small' },
+                      { value: 'large', name: 'Large' },
+                    ],
+                  },
+                ]
+              : undefined,
+        })
+        break
+      case 'session/set_config_option':
+        model = message.params.value
+        reply(message.id, { configOptions: [] })
         break
       case 'session/prompt':
         promptID = message.id
@@ -85,7 +108,8 @@ createInterface({ input: process.stdin })
             const path = join(root, 'modified.txt')
             appendFileSync(path, 'agent edit\n')
             text(`Edited modified.txt: ${readFileSync(path, 'utf8').trim()}`)
-          } else text(`Reply from ${mode}`)
+          } else if (mode === 'model') text(`Reply from ${model}`)
+          else text(`Reply from ${mode}`)
           finish()
         }, 500)
         break

@@ -38,6 +38,12 @@ export interface InstalledAdapter {
   size: number
 }
 
+export interface AgentModels {
+  default: string
+  options: { id: string; name: string }[]
+  model: string
+}
+
 export interface AgentSettings {
   enabled: boolean
   agents: AgentDefinition[]
@@ -201,6 +207,8 @@ export interface ConversationsApi {
   deleteDefinition(id: string): Promise<void>
   installAdapter(program: string, onProgress: (percent: number) => void): Promise<FoundAgent>
   removeAdapter(program: string): Promise<void>
+  agentModels(id: string): Promise<AgentModels>
+  setAgentModel(id: string, model: string): Promise<unknown>
   leave(participantId: string): Promise<unknown>
   list(path: string, signal?: AbortSignal): Promise<ConversationList>
   create(anchor: ConversationAnchor, body: string, id: string, to?: string[]): Promise<Conversation>
@@ -303,6 +311,9 @@ export function createConversationsApi(
         if (done) throw new Error('The adapter install ended without a result')
       }
     },
+    agentModels: (id) => post(`api/v1/conversations/agents/${encodeURIComponent(id)}/models`, {}),
+    setAgentModel: (id, model) =>
+      post(`api/v1/conversations/agents/${encodeURIComponent(id)}/model`, { model }),
     async removeAdapter(program) {
       await expectOK(
         await fetch(`api/v1/conversations/agents/adapters/${encodeURIComponent(program)}`, {

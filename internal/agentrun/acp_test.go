@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"reflect"
 	"runtime"
 	"strconv"
 	"strings"
@@ -43,6 +44,7 @@ func TestMain(m *testing.M) {
 
 type fakeAgent struct {
 	mode   string
+	model  string
 	root   string
 	authed bool
 	conn   *acp.AgentSideConnection
@@ -78,7 +80,19 @@ func (f *fakeAgent) NewSession(_ context.Context, p acp.NewSessionRequest) (acp.
 		return acp.NewSessionResponse{}, acp.NewAuthRequired(nil)
 	}
 	f.root = p.Cwd
-	return acp.NewSessionResponse{SessionId: "session"}, nil
+	f.model = "small"
+	options := acp.SessionConfigSelectOptionsUngrouped{{Value: "small", Name: "Small"}, {Value: "large", Name: "Large"}}
+	model := acp.NewSessionConfigOptionSelect("small", acp.SessionConfigSelectOptions{Ungrouped: &options})
+	model.Select.Id, model.Select.Name, model.Select.Category = "model", "Model", new(acp.SessionConfigOptionCategoryModel)
+	return acp.NewSessionResponse{SessionId: "session", ConfigOptions: []acp.SessionConfigOption{model}}, nil
+}
+
+func (f *fakeAgent) SetSessionConfigOption(_ context.Context, p acp.SetSessionConfigOptionRequest) (acp.SetSessionConfigOptionResponse, error) {
+	if p.ValueId == nil || p.ValueId.ConfigId != "model" {
+		return acp.SetSessionConfigOptionResponse{}, errors.New("unknown option")
+	}
+	f.model = string(p.ValueId.Value)
+	return acp.SetSessionConfigOptionResponse{ConfigOptions: []acp.SessionConfigOption{}}, nil
 }
 
 func (f *fakeAgent) Cancel(context.Context, acp.CancelNotification) error { return nil }
@@ -141,6 +155,8 @@ func (f *fakeAgent) Prompt(ctx context.Context, _ acp.PromptRequest) (acp.Prompt
 	case "hang":
 		<-ctx.Done()
 		return acp.PromptResponse{StopReason: "cancelled"}, nil
+	case "model":
+		send(acp.UpdateAgentMessageText("Model " + f.model))
 	default:
 		send(acp.UpdateAgentMessageText("Hello."))
 	}
@@ -291,5 +307,27 @@ func TestRunFailsWhenTheAgentExits(t *testing.T) {
 	}
 	if data, err := os.ReadFile(filepath.Join(root, "agent.txt")); err != nil || string(data) != "edit\n" {
 		t.Fatalf("edit=%q err=%v", data, err)
+	}
+}
+
+func TestModels(t *testing.T) {
+	def := fakeDefinition(t, "model")
+	models, err := ListModels(t.Context(), def, t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := Models{Default: "small", Options: []Model{{ID: "small", Name: "Small"}, {ID: "large", Name: "Large"}}}
+	if !reflect.DeepEqual(models, want) {
+		t.Fatalf("models = %+v", models)
+	}
+	for model, reply := range map[string]string{"": "Model small", "large": "Model large"} {
+		def.Model = model
+		if got, err := Run(t.Context(), def, t.TempDir(), "Question", Hooks{}); err != nil || got != reply {
+			t.Fatalf("model %q: %q, %v", model, got, err)
+		}
+	}
+	def.Model = "gone"
+	if _, err := Run(t.Context(), def, t.TempDir(), "Question", Hooks{}); err == nil || !strings.Contains(err.Error(), "gone") {
+		t.Fatalf("missing model: %v", err)
 	}
 }

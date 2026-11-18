@@ -101,7 +101,8 @@ func (c *Conversations) browserControl(w http.ResponseWriter, r *http.Request, r
 	control := len(parts) == 3 && parts[0] == "runs" && (parts[2] == "cancel" || parts[2] == "permission") && r.Method == http.MethodPost
 	retry := len(parts) == 4 && parts[1] == "messages" && parts[3] == "retry" && r.Method == http.MethodPost
 	adapter := len(parts) == 3 && parts[0] == "agents" && parts[1] == "adapters" && (r.Method == http.MethodPost || r.Method == http.MethodDelete)
-	if !add && !del && !leave && !control && !retry && !adapter {
+	model := len(parts) == 3 && parts[0] == "agents" && parts[1] != "adapters" && (parts[2] == "models" || parts[2] == "model") && r.Method == http.MethodPost
+	if !add && !del && !leave && !control && !retry && !adapter && !model {
 		return false
 	}
 	if c.Agents == nil || c.Settings == nil {
@@ -112,6 +113,9 @@ func (c *Conversations) browserControl(w http.ResponseWriter, r *http.Request, r
 	switch {
 	case add:
 		c.addAgent(w, r)
+		return true
+	case model:
+		c.agentModel(w, r, parts[1], parts[2] == "models")
 		return true
 	case adapter && r.Method == http.MethodPost:
 		c.installAdapter(w, r, parts[2])
@@ -316,4 +320,57 @@ func (c *Conversations) installAdapter(w http.ResponseWriter, r *http.Request, p
 	default:
 		send(map[string]agentrun.Found{"found": found})
 	}
+}
+
+// agentModel lists the models a saved agent offers, which starts it once, or
+// saves the model its runs use.
+func (c *Conversations) agentModel(w http.ResponseWriter, r *http.Request, id string, list bool) {
+	i := slices.IndexFunc(c.Settings.Get().Agents, func(d agentrun.Definition) bool { return d.ID == id })
+	if i < 0 {
+		writeConversationError(w, conversations.ErrNotFound)
+		return
+	}
+	def := c.Settings.Get().Agents[i]
+	if list {
+		models, err := agentrun.ListModels(r.Context(), def, c.Root)
+		if auth, ok := errors.AsType[*agentrun.AuthError](err); ok {
+			writeJSON(w, 409, struct {
+				Code    string                `json:"code"`
+				Methods []agentrun.AuthMethod `json:"methods"`
+			}{"auth-required", auth.Methods})
+			return
+		}
+		if err != nil {
+			writeJSON(w, 422, map[string]string{"error": err.Error()})
+			return
+		}
+		writeJSON(w, 200, struct {
+			agentrun.Models
+			Model string `json:"model"`
+		}{models, def.Model})
+		return
+	}
+	var body struct {
+		Model string `json:"model"`
+	}
+	if !decodeConversationRequest(w, r, &body) {
+		return
+	}
+	if len(body.Model) > 256 {
+		writeJSON(w, 400, map[string]string{"error": "model is too long"})
+		return
+	}
+	err := c.Settings.Update(func(s *agentrun.Settings) error {
+		i := slices.IndexFunc(s.Agents, func(d agentrun.Definition) bool { return d.ID == id })
+		if i < 0 {
+			return conversations.ErrNotFound
+		}
+		s.Agents[i].Model = body.Model
+		return nil
+	})
+	if err != nil {
+		writeAgentError(w, err)
+		return
+	}
+	writeJSON(w, 200, struct{}{})
 }

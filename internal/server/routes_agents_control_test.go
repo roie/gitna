@@ -268,7 +268,7 @@ func TestRunControlRoutes(t *testing.T) {
 }
 func TestNativeRoutesAreBrowserOnly(t *testing.T) {
 	f := managedFixture(t)
-	for _, route := range []struct{ method, path string }{{"GET", "/settings"}, {"POST", "/agents"}, {"DELETE", "/agents/a"}, {"POST", "/participants/a/leave"}, {"POST", "/runs/1/cancel"}, {"POST", "/runs/1/permission"}, {"POST", "/c/messages/m/retry"}} {
+	for _, route := range []struct{ method, path string }{{"GET", "/settings"}, {"POST", "/agents"}, {"DELETE", "/agents/a"}, {"POST", "/participants/a/leave"}, {"POST", "/runs/1/cancel"}, {"POST", "/runs/1/permission"}, {"POST", "/c/messages/m/retry"}, {"POST", "/agents/adapters/codex-acp"}, {"DELETE", "/agents/adapters/codex-acp"}, {"POST", "/agents/a/models"}, {"POST", "/agents/a/model"}} {
 		r := f.agentDo(t, route.method, "/conversations"+route.path, `{}`, nil)
 		if r.Code != 404 {
 			t.Fatalf("%s: %d %s", route.path, r.Code, r.Body)
@@ -449,4 +449,21 @@ func TestRememberedAgentRunsOnTheFirstMessage(t *testing.T) {
 	}
 	c := createFor(t, f, conversations.Participant{ID: "def:" + def.ID})
 	awaitRun(t, f, c.ID, "completed")
+}
+
+func TestAgentModel(t *testing.T) {
+	f := managedFixture(t)
+	p := addNative(t, f, "reply")
+	if r := f.browserDo(t, "POST", "/conversations/agents/"+p.Agent+"/models", `{}`); r.Code != 422 || !strings.Contains(r.Body.String(), "does not offer") {
+		t.Fatalf("models: %d %s", r.Code, r.Body)
+	}
+	if r := f.browserDo(t, "POST", "/conversations/agents/"+p.Agent+"/model", `{"model":"large"}`); r.Code != 200 {
+		t.Fatalf("save: %d %s", r.Code, r.Body)
+	}
+	if got := f.backend.Settings.Get().Agents[0].Model; got != "large" {
+		t.Fatalf("model = %q", got)
+	}
+	if r := f.browserDo(t, "POST", "/conversations/agents/missing/model", `{"model":"large"}`); r.Code != 404 {
+		t.Fatalf("missing: %d %s", r.Code, r.Body)
+	}
 }
