@@ -2,15 +2,16 @@
 // show the real author, save asynchronously, share the form as CommentComposer, and
 // let it pick a recipient, with a corner button to discard the draft.
 import type { DiffLineAnnotation } from '@pierre/diffs';
-import { IconArrowRight, IconX } from '@pierre/icons';
+import { IconArrowRight, IconPlus, IconX } from '@pierre/icons';
 import { useEffect, useId, useRef, useState, type ReactNode } from 'react';
 
 import { Button } from '@/components/Button';
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/DropdownMenu';
 import { annotationCardBase, annotationCornerButton } from '@/lib/annotation';
 import { cn } from '@/lib/cn';
 import type { DraftCommentMetadata } from '@/lib/types';
 import type { Participant } from '../../lib/conversations';
-import { mentionAt, resolveMentions } from '../../lib/mentions';
+import { mentionAt, removeMention, resolveMentions } from '../../lib/mentions';
 
 interface DraftAnnotationProps {
   annotation: DiffLineAnnotation<DraftCommentMetadata>;
@@ -65,6 +66,16 @@ export function CommentComposer({
   const active = Math.min(selected, choices.length - 1);
   const to = resolveMentions(message, agents);
   const toNames = to.map((id) => id === 'all' ? 'all' : agents.find((agent) => agent.id === id)!.name);
+  const addable = to.includes('all') ? [] : [{ id: 'all', name: 'all' }, ...agents].filter(({ id }) => !to.includes(id));
+
+  function edit(text: string) {
+    setMessage(text);
+    onChange?.(text);
+    requestAnimationFrame(() => {
+      textareaRef.current?.focus({ preventScroll: true });
+      textareaRef.current?.setSelectionRange(text.length, text.length);
+    });
+  }
 
   function choose(name: string) {
     if (mention == null || caret == null) return;
@@ -222,7 +233,41 @@ export function CommentComposer({
               ))}
             </ul>
           )}
-          {toNames.length > 0 && <p className="m-0 py-1 text-xs text-muted-foreground">To: {toNames.join(', ')}</p>}
+          {agents.length > 0 && (
+            <div role="group" aria-label="Recipients" className="flex flex-wrap items-center gap-1 py-1 text-xs text-muted-foreground">
+              <span>To:</span>
+              {to.length === 0 && <span>No agents</span>}
+              {to.map((id, index) => (
+                <span key={id} className="inline-flex items-center gap-0.5 rounded-full bg-muted py-0.5 pr-0.5 pl-2 text-foreground">
+                  {toNames[index]}
+                  <button
+                    type="button"
+                    aria-label={`Remove ${toNames[index]}`}
+                    onClick={() => edit(removeMention(message, id, agents))}
+                    className="rounded-full p-0.5 text-muted-foreground hover:bg-accent hover:text-foreground"
+                  >
+                    <IconX size={10} />
+                  </button>
+                </span>
+              ))}
+              {addable.length > 0 && (
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <Button type="button" variant="ghost" size="icon-sm" aria-label="Add recipient" className="size-5 text-muted-foreground">
+                      <IconPlus size={12} />
+                    </Button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="start">
+                    {addable.map(({ id, name }) => (
+                      <DropdownMenuItem key={id} onSelect={() => edit(`@${name} ${message}`)}>
+                        @{name}
+                      </DropdownMenuItem>
+                    ))}
+                  </DropdownMenuContent>
+                </DropdownMenu>
+              )}
+            </div>
+          )}
           {to.length > 0 && unsavedCount > 0 && <p className="m-0 py-1 text-xs text-muted-foreground">{unsavedCount} unsaved {unsavedCount === 1 ? 'file' : 'files'}. Agents see files on disk, not unsaved edits.</p>}
           {error != null && (
             <p role="alert" className="m-0 text-xs text-red-600 dark:text-red-400">

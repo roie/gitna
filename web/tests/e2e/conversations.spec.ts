@@ -178,7 +178,7 @@ test('conversations on a file persist, take replies from an agent, and survive a
   await expect(thread.getByText('Agent answer')).toBeVisible()
   await expect(thread.locator('strong', { hasText: 'answer' })).toBeVisible()
   await expect(thread.getByRole('listitem')).toHaveText('with a list')
-  await expect(thread.getByText('e2e-agent', { exact: true })).toBeVisible()
+  await expect(thread.locator('strong', { hasText: /^e2e-agent$/ })).toBeVisible()
   // No donor demo identity is ever shown.
   await expect(page.locator('img[src*="diffshub-avatars"]')).toHaveCount(0)
 
@@ -765,12 +765,12 @@ test('hiding conversations preserves a draft and releases its review after cance
   await setVisible(true)
   await expect(draft).toBeVisible()
   await expect(draft).toHaveValue('@Reviewer Not sent yet')
-  await expect(page.getByText('To: Reviewer', { exact: true })).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Remove Reviewer' })).toBeVisible()
   await setVisible(false)
   writeFileSync(join(app.repo, 'modified.txt'), 'base\n')
   await setVisible(true)
   await expect(draft).toHaveValue('@Reviewer Not sent yet')
-  await expect(page.getByText('To: Reviewer', { exact: true })).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Remove Reviewer' })).toBeVisible()
   await expect(page.locator('div:has(> form [aria-label="Add a comment…"]) > pre')).toHaveText(
     'unstaged change',
   )
@@ -862,6 +862,21 @@ test('mentions address agents, with keyboard choices and editable reply prefill'
   await expect(thread.getByRole('paragraph').filter({ hasText: 'And the tests' })).toBeVisible()
   expect(pending(second)).toEqual(['@Reviewer Please review', '@Reviewer And the tests'])
   expect(pending(first)).toEqual([])
+
+  // Recipients show as chips that edit the mentions in the reply.
+  const recipients = thread.getByRole('group', { name: 'Recipients' })
+  await expect(reply).toHaveValue('@Reviewer ')
+  await recipients.getByRole('button', { name: 'Remove Reviewer' }).click()
+  await expect(reply).toHaveValue('')
+  await expect(recipients).toContainText('No agents')
+  await recipients.getByRole('button', { name: 'Add recipient' }).click()
+  await page.getByRole('menuitem', { name: '@Builder' }).click()
+  await expect(reply).toHaveValue('@Builder ')
+  await expect(recipients.getByRole('button', { name: 'Remove Builder' })).toBeVisible()
+  await reply.press('End')
+  await reply.pressSequentially('Over to you')
+  await reply.press('Control+Enter')
+  await expect.poll(() => pending(first)).toEqual(['@Builder Over to you'])
 })
 
 test('an unsent draft survives refreshes, follows its code, and never moves onto other code', async ({

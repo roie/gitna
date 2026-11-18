@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vite-plus/test'
 
-import { mentionAt, replyPrefill, resolveMentions } from '../src/lib/mentions'
+import { mentionAt, removeMention, replyPrefill, resolveMentions } from '../src/lib/mentions'
 import type { Conversation, Participant } from '../src/lib/conversations'
 
 const agents: Participant[] = [
@@ -54,5 +54,17 @@ describe('replyPrefill', () => {
   it('does not inherit recipients from an older human message', () => {
     expect(replyPrefill(thread([{ author: human, to: ['a'] }, { author: human }]), agents)).toBe('')
     expect(replyPrefill(thread([]), agents)).toBe('')
+  })
+})
+
+describe('removeMention', () => {
+  it.each([
+    ['@Agent A please @Agent look', 'a', '@Agent A please look'],
+    ['@Reviewer @Agent hi', 'c', '@Agent hi'],
+    ['hi @reviewer, thanks @Reviewer', 'c', 'hi, thanks'],
+    ['@all hi', 'all', 'hi'],
+    ['mail@Agent stays', 'a', 'mail@Agent stays'],
+  ])('removes the mention from %s', (text, id, want) => {
+    expect(removeMention(text, id, agents)).toBe(want)
   })
 })

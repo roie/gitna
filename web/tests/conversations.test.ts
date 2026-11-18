@@ -21,6 +21,9 @@ vi.mock('@pierre/icons', () => ({
   IconX: () => null,
   IconCheck: () => null,
   IconEllipsis: () => null,
+  IconPlus: () => null,
+  IconChevronSm: () => null,
+  IconCircleFill: () => null,
 }))
 
 const worktree = { source: 'worktree' } as const
