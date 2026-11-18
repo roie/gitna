@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"runtime"
+	"slices"
 	"testing"
 )
 
@@ -45,5 +46,37 @@ func TestSettingsPersist(t *testing.T) {
 	}
 	if got := file.Get(); !reflect.DeepEqual(got, want) {
 		t.Fatalf("rejected update changed settings: %+v", got)
+	}
+}
+
+func TestSettingsAreSharedBetweenProcesses(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "settings.json")
+	a, err := Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, err := Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	add := func(f *SettingsFile, id string) {
+		t.Helper()
+		if err := f.Update(func(s *Settings) error { s.Agents = append(s.Agents, Definition{ID: id}); return nil }); err != nil {
+			t.Fatal(err)
+		}
+	}
+	ids := func(f *SettingsFile) (out []string) {
+		for _, d := range f.Get().Agents {
+			out = append(out, d.ID)
+		}
+		return out
+	}
+	add(a, "x")
+	if got := ids(b); !slices.Equal(got, []string{"x"}) {
+		t.Fatalf("b sees %v", got)
+	}
+	add(b, "y")
+	if got := ids(a); !slices.Equal(got, []string{"x", "y"}) {
+		t.Fatalf("a sees %v", got)
 	}
 }

@@ -7,6 +7,8 @@ import (
 	"path/filepath"
 	"slices"
 	"sync"
+
+	"github.com/roie/gitna/internal/filelock"
 )
 
 type Definition struct {
@@ -28,19 +30,28 @@ type SettingsFile struct {
 	settings Settings
 }
 
+// Open reads the settings at path. Every Gitna process shares the file, so
+// Get rereads it and Update changes it under a lock.
 func Open(path string) (*SettingsFile, error) {
 	file := &SettingsFile{path: path}
-	data, err := os.ReadFile(path)
-	if errors.Is(err, os.ErrNotExist) {
-		return file, nil
-	}
+	settings, err := file.read()
 	if err != nil {
 		return nil, err
 	}
-	if err := json.Unmarshal(data, &file.settings); err != nil {
-		return nil, err
-	}
+	file.settings = settings
 	return file, nil
+}
+
+func (f *SettingsFile) read() (Settings, error) {
+	var settings Settings
+	data, err := os.ReadFile(f.path)
+	if errors.Is(err, os.ErrNotExist) {
+		return settings, nil
+	}
+	if err != nil {
+		return settings, err
+	}
+	return settings, json.Unmarshal(data, &settings)
 }
 
 func cloneSettings(settings Settings) Settings {
@@ -51,25 +62,42 @@ func cloneSettings(settings Settings) Settings {
 	return settings
 }
 
+// Get returns the saved settings, or the last ones read if the file cannot
+// be read now.
 func (f *SettingsFile) Get() Settings {
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	if settings, err := f.read(); err == nil {
+		f.settings = settings
+	}
 	return cloneSettings(f.settings)
 }
 
 func (f *SettingsFile) Update(update func(*Settings) error) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	next := cloneSettings(f.settings)
+	dir := filepath.Dir(f.path)
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return err
+	}
+	lock, err := os.OpenFile(f.path+".lock", os.O_RDWR|os.O_CREATE, 0o600)
+	if err != nil {
+		return err
+	}
+	defer lock.Close()
+	if err := filelock.Lock(lock); err != nil {
+		return err
+	}
+	defer filelock.Unlock(lock)
+	next, err := f.read()
+	if err != nil {
+		return err
+	}
 	if err := update(&next); err != nil {
 		return err
 	}
 	data, err := json.Marshal(next)
 	if err != nil {
-		return err
-	}
-	dir := filepath.Dir(f.path)
-	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return err
 	}
 	tmp, err := os.CreateTemp(dir, "settings.json.tmp-*")
