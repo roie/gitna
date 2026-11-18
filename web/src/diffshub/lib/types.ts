@@ -23,6 +23,8 @@ export interface DraftCommentMetadata {
   kind: 'draft';
   key: string;
   message: string;
+  /** Recipients picked from the To line; mentions in the message add to them. */
+  to?: string[];
   range: SelectedLineRange;
   /** The selected lines as they were when the draft was started. */
   code: string;

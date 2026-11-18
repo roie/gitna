@@ -164,6 +164,7 @@ export interface Live {
   conversationId: string
   participantId: string
   activity: string
+  detail?: string
   text?: string
   permission?: { id: string; title: string; options: { id: string; name: string; kind: string }[] }
 }

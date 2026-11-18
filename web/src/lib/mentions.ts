@@ -51,12 +51,10 @@ export function removeMention(text: string, id: string, agents: readonly Partici
   return out + text.slice(from)
 }
 
-export function replyPrefill(conversation: Conversation, agents: readonly Participant[]): string {
+export function replyRecipients(
+  conversation: Conversation,
+  agents: readonly Participant[],
+): string[] {
   const message = conversation.messages.findLast(({ author }) => author.kind === 'human')
-  return (message?.to ?? [])
-    .flatMap((id) => {
-      const agent = agents.find((candidate) => candidate.id === id)
-      return agent == null ? [] : [`@${agent.name} `]
-    })
-    .join('')
+  return (message?.to ?? []).filter((id) => agents.some((agent) => agent.id === id))
 }

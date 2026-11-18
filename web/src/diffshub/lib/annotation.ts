@@ -3,4 +3,4 @@ export const annotationCardBase =
 
 
 export const annotationCornerButton =
-  'pointer-events-none absolute top-0 z-1 inline-flex -translate-y-[35%] cursor-pointer items-center justify-center rounded-full bg-neutral-500 opacity-0 transition-opacity duration-100 group-hover:pointer-events-auto group-hover:opacity-100 group-focus-within:pointer-events-auto group-focus-within:opacity-100';
+  'pointer-events-none absolute top-2 z-1 size-6 text-muted-foreground opacity-0 transition-opacity duration-100 group-hover:pointer-events-auto group-hover:opacity-100 group-focus-within:pointer-events-auto group-focus-within:opacity-100';

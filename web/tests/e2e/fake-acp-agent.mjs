@@ -104,6 +104,22 @@ createInterface({ input: process.stdin })
         }
         if (mode === 'stream') {
           text('Thinking about **it**')
+          setTimeout(
+            () =>
+              send({
+                method: 'session/update',
+                params: {
+                  sessionId: 'test',
+                  update: {
+                    sessionUpdate: 'tool_call',
+                    toolCallId: 'status',
+                    title: 'git status --short',
+                    kind: 'execute',
+                  },
+                },
+              }),
+            300,
+          )
           break
         }
         setTimeout(() => {

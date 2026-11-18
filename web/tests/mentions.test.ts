@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vite-plus/test'
 
-import { mentionAt, removeMention, replyPrefill, resolveMentions } from '../src/lib/mentions'
+import { mentionAt, removeMention, replyRecipients, resolveMentions } from '../src/lib/mentions'
 import type { Conversation, Participant } from '../src/lib/conversations'
 
 const agents: Participant[] = [
@@ -33,14 +33,14 @@ describe('mentionAt', () => {
   })
 })
 
-describe('replyPrefill', () => {
+describe('replyRecipients', () => {
   const human: Participant = { id: 'h', kind: 'human', name: 'Person' }
   const thread = (messages: { author: Participant; to?: string[] }[]) =>
     ({ messages }) as Conversation
 
   it('uses the newest human message, not the latest agent reply, and skips agents that left', () => {
     expect(
-      replyPrefill(
+      replyRecipients(
         thread([
           { author: human, to: ['c'] },
           { author: human, to: ['b', 'gone', 'a'] },
@@ -48,12 +48,14 @@ describe('replyPrefill', () => {
         ]),
         agents,
       ),
-    ).toBe('@Agent A @Agent ')
+    ).toEqual(['b', 'a'])
   })
 
   it('does not inherit recipients from an older human message', () => {
-    expect(replyPrefill(thread([{ author: human, to: ['a'] }, { author: human }]), agents)).toBe('')
-    expect(replyPrefill(thread([]), agents)).toBe('')
+    expect(
+      replyRecipients(thread([{ author: human, to: ['a'] }, { author: human }]), agents),
+    ).toEqual([])
+    expect(replyRecipients(thread([]), agents)).toEqual([])
   })
 })
 

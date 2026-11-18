@@ -6,7 +6,7 @@ import { ExampleAnnotation } from '@/components/ExampleAnnotation'
 import { annotationCardBase } from '@/lib/annotation'
 import { cn } from '@/lib/cn'
 import type { Conversation, ConversationsModel, Run } from '../../lib/conversations'
-import { replyPrefill } from '../../lib/mentions'
+import { replyRecipients, resolveMentions } from '../../lib/mentions'
 import { MessageMarkdown } from './MessageMarkdown'
 
 export function ConversationThread({
@@ -74,6 +74,21 @@ export function ConversationThread({
             ),
           after: (
             <div className="flex flex-col gap-2 text-xs">
+              {message.author.kind === 'human' &&
+                (message.to ?? []).some(
+                  (id) => !resolveMentions(message.body, model.agents).includes(id),
+                ) && (
+                  <p className="m-0 text-muted-foreground">
+                    To:{' '}
+                    {(message.to ?? [])
+                      .map((id) =>
+                        id === 'all'
+                          ? 'all'
+                          : (model.agents.find((agent) => agent.id === id)?.name ?? id),
+                      )
+                      .join(', ')}
+                  </p>
+                )}
               {model.waiting(conversation, message).map((agent) => (
                 <p key={agent.id} role="status" className="m-0 text-muted-foreground">
                   {agent.name}: Waiting
@@ -117,9 +132,18 @@ export function ConversationThread({
                 ),
               after: (
                 <div className="flex flex-col gap-1 text-xs">
-                  <p role="status" className="m-0 text-muted-foreground">
-                    {live?.permission?.title ?? live?.activity ?? 'Writing a reply'}
-                  </p>
+                  {live?.permission == null && live?.detail ? (
+                    <details role="status" className="text-muted-foreground">
+                      <summary className="cursor-pointer">{live.activity}…</summary>
+                      <code className="mt-1 block font-mono break-all whitespace-pre-wrap">
+                        {live.detail}
+                      </code>
+                    </details>
+                  ) : (
+                    <p role="status" className="m-0 text-muted-foreground">
+                      {live?.permission?.title ?? `${live?.activity ?? 'Writing a reply'}…`}
+                    </p>
+                  )}
                   <div className="flex flex-wrap gap-2">
                     {live?.permission?.options.map((option) => (
                       <Button
@@ -167,7 +191,7 @@ export function ConversationThread({
         placeholder="Reply…"
         agents={model.agents}
         unsavedCount={model.unsavedCount}
-        initialText={replyPrefill(conversation, model.agents)}
+        initialTo={replyRecipients(conversation, model.agents)}
         onSubmit={(body, to) => model.reply(conversation, body, to)}
       />
     </ExampleAnnotation>

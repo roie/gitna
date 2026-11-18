@@ -161,7 +161,8 @@ test('conversations on a file persist, take replies from an agent, and survive a
   const thread = page.getByRole('article').filter({ hasText: 'Why line five?' })
   await thread.getByRole('textbox', { name: 'Reply…' }).fill('@e2e-agent Second message')
   await thread.getByRole('textbox', { name: 'Reply…' }).press('Control+Enter')
-  await expect(thread.getByRole('textbox', { name: 'Reply…' })).toHaveValue('@e2e-agent ')
+  await expect(thread.getByRole('textbox', { name: 'Reply…' })).toHaveValue('')
+  await expect(thread.getByRole('button', { name: 'Remove e2e-agent' })).toBeVisible()
   await expect(thread.getByText('@e2e-agent Second message')).toBeVisible()
 
   // The agent reads its inbox and answers in the same conversation, live.
@@ -358,7 +359,7 @@ test('a draft shows its caret and moves to another line from the gutter', async 
   expect((await stored(page, app)).map(({ anchor }) => anchor.startLine)).toEqual([15])
 })
 
-test('a draft closes from its corner button, asking only when it has text', async ({
+test('a draft closes from its discard button, asking only when it has text', async ({
   page,
   app,
 }) => {
@@ -848,7 +849,7 @@ test('mentions address agents, with keyboard choices and editable reply prefill'
 
   const thread = page.getByRole('article').filter({ hasText: 'Please review' })
   const reply = thread.getByRole('textbox', { name: 'Reply…' })
-  await expect(reply).toHaveValue('@Reviewer ')
+  await expect(reply).toHaveValue('')
   await reply.fill('@B')
   await reply.press('Escape')
   await expect(choices).toHaveCount(0)
@@ -863,20 +864,22 @@ test('mentions address agents, with keyboard choices and editable reply prefill'
   expect(pending(second)).toEqual(['@Reviewer Please review', '@Reviewer And the tests'])
   expect(pending(first)).toEqual([])
 
-  // Recipients show as chips that edit the mentions in the reply.
+  // Recipients show as chips, kept out of the text; removing a chip removes its mention.
   const recipients = thread.getByRole('group', { name: 'Recipients' })
-  await expect(reply).toHaveValue('@Reviewer ')
+  await expect(reply).toHaveValue('')
+  await reply.fill('@Reviewer ')
   await recipients.getByRole('button', { name: 'Remove Reviewer' }).click()
   await expect(reply).toHaveValue('')
-  await expect(recipients).toContainText('No agents')
+  await expect(recipients.getByRole('button', { name: /^Remove/ })).toHaveCount(0)
+  await expect(recipients).toHaveText('Add recipient')
   await recipients.getByRole('button', { name: 'Add recipient' }).click()
   await page.getByRole('menuitem', { name: '@Builder' }).click()
-  await expect(reply).toHaveValue('@Builder ')
+  await expect(reply).toHaveValue('')
   await expect(recipients.getByRole('button', { name: 'Remove Builder' })).toBeVisible()
-  await reply.press('End')
   await reply.pressSequentially('Over to you')
   await reply.press('Control+Enter')
-  await expect.poll(() => pending(first)).toEqual(['@Builder Over to you'])
+  await expect.poll(() => pending(first)).toEqual(['Over to you'])
+  await expect(thread.getByText('To: Builder', { exact: true })).toBeVisible()
 })
 
 test('an unsent draft survives refreshes, follows its code, and never moves onto other code', async ({
@@ -1204,7 +1207,8 @@ test('native mentions run only the named agents, sequentially, and preserve CLI 
   const first = await nativeThread(page, '@Agent A Explain this')
   await expect(first.getByText('Reply from reply', { exact: true })).toBeVisible()
   expect((await stored(page, app))[1].runs).toHaveLength(1)
-  await expect(first.getByRole('textbox', { name: 'Reply…' })).toHaveValue('@Agent A ')
+  await expect(first.getByRole('textbox', { name: 'Reply…' })).toHaveValue('')
+  await expect(first.getByRole('button', { name: 'Remove Agent A' })).toBeVisible()
   await first.getByRole('textbox', { name: 'Reply…' }).fill('@Agent A Follow up')
   await first.getByRole('textbox', { name: 'Reply…' }).press('Control+Enter')
   await expect(first.getByText('Reply from reply', { exact: true })).toHaveCount(2)
@@ -1357,10 +1361,12 @@ test('a connected agent runs with the model chosen for it', async ({ page, app }
     await expect(dialog).toHaveCount(0)
   }
   await rename('Modeler', 'Reviewer')
-  await expect(thread.getByText('Reviewer', { exact: true })).toBeVisible()
+  await expect(thread.locator('strong', { hasText: /^Reviewer$/ }).first()).toBeVisible()
   const fallback = basename(process.execPath).replace(/\.exe$/i, '')
   await rename('Reviewer', '')
-  await expect(thread.getByText(fallback, { exact: true })).toBeVisible()
+  await expect(
+    thread.locator('strong', { hasText: new RegExp(`^${fallback}$`) }).first(),
+  ).toBeVisible()
 })
 
 test('a retried run replaces the one it retried', async ({ page, app }) => {
@@ -1390,7 +1396,12 @@ test('a running agent shows its own reply bubble with the text so far', async ({
   const thread = await nativeThread(page, '@Streamer Go ahead')
   await expect(thread.locator('strong', { hasText: /^Streamer$/ })).toBeVisible()
   await expect(thread.locator('strong', { hasText: /^it$/ })).toBeVisible()
-  await expect(thread.getByRole('status')).toHaveText('Writing a reply')
+  const status = thread.getByRole('status')
+  await expect(status.locator('summary')).toHaveText('Running a command…')
+  await expect(thread.locator('strong', { hasText: /^it$/ })).toBeVisible()
+  await expect(status.locator('code')).toBeHidden()
+  await status.locator('summary').click()
+  await expect(status.locator('code')).toHaveText('git status --short')
   await thread.getByRole('button', { name: 'Cancel', exact: true }).click()
   await expect(thread.locator('strong', { hasText: /^it$/ })).toHaveCount(0)
   await expect(thread.getByRole('status')).toContainText('Streamer: Cancelled')

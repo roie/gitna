@@ -52,20 +52,20 @@ export const ExampleAnnotation = memo(function ExampleAnnotation({
       onMouseDown={isolate}
     >
       <Button
-        variant="default"
+        variant="ghost"
         size="icon-sm"
         aria-label="Resolve conversation"
         onClick={onResolve}
-        className={cn(annotationCornerButton, 'right-0 translate-x-[-85%]')}
+        className={cn(annotationCornerButton, 'right-9')}
       >
         <IconCheck size={12} />
       </Button>
       <Button
-        variant="default"
+        variant="ghost"
         size="icon-sm"
         aria-label="Delete conversation"
         onClick={onDelete}
-        className={cn(annotationCornerButton, 'right-0 translate-x-[35%]')}
+        className={cn(annotationCornerButton, 'right-2')}
       >
         <IconX size={12} />
       </Button>

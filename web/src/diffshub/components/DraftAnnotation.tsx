@@ -7,7 +7,7 @@ import { useEffect, useId, useRef, useState, type ReactNode } from 'react';
 
 import { Button } from '@/components/Button';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/DropdownMenu';
-import { annotationCardBase, annotationCornerButton } from '@/lib/annotation';
+import { annotationCardBase } from '@/lib/annotation';
 import { cn } from '@/lib/cn';
 import type { DraftCommentMetadata } from '@/lib/types';
 import type { Participant } from '../../lib/conversations';
@@ -28,11 +28,13 @@ interface CommentComposerProps {
   autoFocus?: boolean;
   className?: string;
   initialText?: string;
+  initialTo?: readonly string[];
   placeholder?: string;
   unsavedCount: number;
   agents: readonly Participant[];
   onCancel?: () => void;
   onChange?: (message: string) => void;
+  onRecipientsChange?: (to: string[]) => void;
   onSubmit: (message: string, to: string[]) => void | Promise<void>;
 }
 
@@ -44,14 +46,17 @@ export function CommentComposer({
   autoFocus = false,
   className,
   initialText = '',
+  initialTo = [],
   placeholder = 'Add a comment…',
   agents,
   unsavedCount,
   onCancel,
   onChange,
+  onRecipientsChange,
   onSubmit,
 }: CommentComposerProps) {
   const [message, setMessage] = useState(initialText);
+  const [chosen, setChosen] = useState<readonly string[]>(initialTo);
   const [caret, setCaret] = useState<number | null>(null);
   const [selected, setSelected] = useState(0);
   const [dismissed, setDismissed] = useState(false);
@@ -64,17 +69,24 @@ export function CommentComposer({
   const choices = mention == null ? [] : [{ id: 'all', name: 'all' }, ...agents]
     .filter(({ name }) => name.toLowerCase().startsWith(mention.query.toLowerCase()));
   const active = Math.min(selected, choices.length - 1);
-  const to = resolveMentions(message, agents);
+  const mentioned = resolveMentions(message, agents);
+  const to = chosen.includes('all') || mentioned.includes('all') ? ['all'] : [...new Set([...chosen, ...mentioned])];
   const toNames = to.map((id) => id === 'all' ? 'all' : agents.find((agent) => agent.id === id)!.name);
   const addable = to.includes('all') ? [] : [{ id: 'all', name: 'all' }, ...agents].filter(({ id }) => !to.includes(id));
 
-  function edit(text: string) {
-    setMessage(text);
-    onChange?.(text);
-    requestAnimationFrame(() => {
-      textareaRef.current?.focus({ preventScroll: true });
-      textareaRef.current?.setSelectionRange(text.length, text.length);
-    });
+  function setRecipients(next: readonly string[]) {
+    setChosen(next);
+    onRecipientsChange?.([...next]);
+    requestAnimationFrame(() => textareaRef.current?.focus({ preventScroll: true }));
+  }
+
+  function remove(id: string) {
+    const text = removeMention(message, id, agents);
+    if (text !== message) {
+      setMessage(text);
+      onChange?.(text);
+    }
+    setRecipients(chosen.filter((candidate) => candidate !== id));
   }
 
   function choose(name: string) {
@@ -100,6 +112,7 @@ export function CommentComposer({
     try {
       await onSubmit(trimmedMessage, to);
       setMessage(initialText);
+      setChosen(to);
       setCaret(null);
     } catch (failure) {
       setError(failure instanceof Error ? failure.message : String(failure));
@@ -142,18 +155,6 @@ export function CommentComposer({
         void handleSave();
       }}
     >
-      {onCancel != null && (
-        <Button
-          type="button"
-          variant="default"
-          size="icon-sm"
-          aria-label="Discard comment"
-          onClick={tryCancel}
-          className={cn(annotationCornerButton, 'right-0 translate-x-[35%] max-md:hidden')}
-        >
-          <IconX size={12} />
-        </Button>
-      )}
       <div className="flex w-full gap-2.5">
         {avatar}
         <div className="flex w-full flex-col">
@@ -210,7 +211,7 @@ export function CommentComposer({
               void handleSave();
             }}
             placeholder={placeholder}
-            rows={2}
+            rows={1}
             className="field-sizing-content w-full resize-none [caret-color:auto] rounded-sm bg-transparent py-1.5 text-[14px] text-inherit placeholder:text-[var(--diffshub-popover-muted-fg,var(--color-muted-foreground))] focus:outline-none"
           />
           {choices.length > 0 && (
@@ -235,15 +236,14 @@ export function CommentComposer({
           )}
           {agents.length > 0 && (
             <div role="group" aria-label="Recipients" className="flex flex-wrap items-center gap-1 py-1 text-xs text-muted-foreground">
-              <span>To:</span>
-              {to.length === 0 && <span>No agents</span>}
+              {to.length > 0 && <span>To:</span>}
               {to.map((id, index) => (
                 <span key={id} className="inline-flex items-center gap-0.5 rounded-full bg-muted py-0.5 pr-0.5 pl-2 text-foreground">
                   {toNames[index]}
                   <button
                     type="button"
                     aria-label={`Remove ${toNames[index]}`}
-                    onClick={() => edit(removeMention(message, id, agents))}
+                    onClick={() => remove(id)}
                     className="rounded-full p-0.5 text-muted-foreground hover:bg-accent hover:text-foreground"
                   >
                     <IconX size={10} />
@@ -253,13 +253,20 @@ export function CommentComposer({
               {addable.length > 0 && (
                 <DropdownMenu>
                   <DropdownMenuTrigger asChild>
-                    <Button type="button" variant="ghost" size="icon-sm" aria-label="Add recipient" className="size-5 text-muted-foreground">
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      aria-label="Add recipient"
+                      className="h-5 gap-1 px-1 text-xs font-normal text-muted-foreground hover:text-foreground"
+                    >
                       <IconPlus size={12} />
+                      {to.length === 0 && 'Add recipient'}
                     </Button>
                   </DropdownMenuTrigger>
                   <DropdownMenuContent align="start">
                     {addable.map(({ id, name }) => (
-                      <DropdownMenuItem key={id} onSelect={() => edit(`@${name} ${message}`)}>
+                      <DropdownMenuItem key={id} onSelect={() => setRecipients(id === 'all' ? ['all'] : [...chosen, id])}>
                         @{name}
                       </DropdownMenuItem>
                     ))}
@@ -285,6 +292,18 @@ export function CommentComposer({
             className="text-muted-foreground hover:text-foreground gap-1 font-normal hover:no-underline md:hidden"
           >
             Cancel
+          </Button>
+        )}
+        {onCancel != null && (
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon-md"
+            aria-label="Discard comment"
+            onClick={tryCancel}
+            className="hidden rounded-full text-muted-foreground hover:text-foreground md:flex"
+          >
+            <IconX size={14} />
           </Button>
         )}
         <Button
@@ -351,11 +370,15 @@ export function DraftAnnotation({
       autoFocus
       avatar={<AuthorInitial name={author} />}
       initialText={metadata.message}
+      initialTo={metadata.to}
       agents={agents}
       unsavedCount={unsavedCount}
       onCancel={() => onCancel(itemId, metadata.key)}
       onChange={(message) => {
         metadata.message = message;
+      }}
+      onRecipientsChange={(to) => {
+        metadata.to = to;
       }}
       onSubmit={(message, to) => onSave(itemId, metadata.key, message, to)}
     />
