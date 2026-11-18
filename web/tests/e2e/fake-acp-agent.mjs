@@ -102,6 +102,10 @@ createInterface({ input: process.stdin })
           })
           break
         }
+        if (mode === 'stream') {
+          text('Thinking about **it**')
+          break
+        }
         setTimeout(() => {
           if (promptID == null) return
           if (mode === 'edit') {

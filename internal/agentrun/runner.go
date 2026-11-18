@@ -26,6 +26,7 @@ type Live struct {
 	ConversationID string             `json:"conversationId"`
 	ParticipantID  string             `json:"participantId"`
 	Activity       string             `json:"activity"`
+	Text           string             `json:"text,omitempty"`
 	Permission     *PermissionRequest `json:"permission,omitempty"`
 }
 
@@ -493,6 +494,14 @@ func (m *Manager) begin(w *repoWorker, s *conversations.Store, j job) (<-chan ru
 					m.arm(w, a, 30*time.Minute, "No activity for 30 minutes")
 				}
 				notify(w)
+			},
+			Text: func(text string) {
+				m.mu.Lock()
+				defer m.mu.Unlock()
+				if w.active == a {
+					a.live.Text = text
+					notify(w)
+				}
 			},
 			Permission: func(requestCtx context.Context, p PermissionRequest) (string, bool) {
 				m.mu.Lock()

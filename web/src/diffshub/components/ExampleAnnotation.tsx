@@ -16,6 +16,8 @@ export interface ExampleAnnotationMessage {
   agent: boolean;
   message: ReactNode;
   after?: ReactNode;
+  // live marks an agent reply that is still being written; it has no actions.
+  live?: boolean;
 }
 
 interface ExampleAnnotationProps {
@@ -91,7 +93,7 @@ export const ExampleAnnotation = memo(function ExampleAnnotation({
           <div className="flex min-w-0 flex-col">
             <div className="mt-1 flex items-center gap-1">
               <strong className="block text-[14px]">{message.author}</strong>
-              {messages.length > 1 && (
+              {messages.length > 1 && !message.live && (
                 <span className="contents" onClick={isolate} onKeyDown={isolate}>
                   <DropdownMenu>
                     <DropdownMenuTrigger asChild>

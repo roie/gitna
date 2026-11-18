@@ -25,6 +25,8 @@ export function ConversationThread({
   const expanded = model.isExpanded(conversation)
   const unread = model.unread(conversation)
   const first = conversation.messages[0]
+  const agentName = (run: Run) =>
+    model.agents.find((agent) => agent.id === run.participantId)?.name ?? 'Agent'
   const stale =
     conversation.location?.status === 'outdated' || conversation.location?.status === 'missing'
 
@@ -59,76 +61,93 @@ export function ConversationThread({
 
   return (
     <ExampleAnnotation
-      messages={conversation.messages.map((message) => ({
-        id: message.id,
-        author: model.displayName(message.author),
-        agent: message.author.kind === 'agent',
-        message:
-          message.author.kind === 'agent' ? <MessageMarkdown body={message.body} /> : message.body,
-        after: (
-          <div className="flex flex-col gap-2 text-xs">
-            {model.waiting(conversation, message).map((agent) => (
-              <p key={agent.id} role="status" className="m-0 text-muted-foreground">
-                {agent.name}: Waiting
-              </p>
-            ))}
-            {latestRuns(conversation.runs ?? [], message.id)
-              .filter((run) => run.state !== 'completed')
-              .map((run) => {
-                const live = model.live.get(run.id)
-                const name =
-                  model.agents.find((agent) => agent.id === run.participantId)?.name ?? 'Agent'
-                return (
+      messages={[
+        ...conversation.messages.map((message) => ({
+          id: message.id,
+          author: model.displayName(message.author),
+          agent: message.author.kind === 'agent',
+          message:
+            message.author.kind === 'agent' ? (
+              <MessageMarkdown body={message.body} />
+            ) : (
+              message.body
+            ),
+          after: (
+            <div className="flex flex-col gap-2 text-xs">
+              {model.waiting(conversation, message).map((agent) => (
+                <p key={agent.id} role="status" className="m-0 text-muted-foreground">
+                  {agent.name}: Waiting
+                </p>
+              ))}
+              {latestRuns(conversation.runs ?? [], message.id)
+                .filter((run) => run.state !== 'completed' && run.state !== 'running')
+                .map((run) => (
                   <div key={run.id} className="flex flex-col gap-1">
                     <p role="status" className="m-0 text-muted-foreground">
-                      {name}:{' '}
-                      {run.state === 'running'
-                        ? (live?.permission?.title ?? live?.activity ?? 'Writing reply')
-                        : run.state[0]!.toUpperCase() + run.state.slice(1)}
+                      {agentName(run)}: {run.state[0]!.toUpperCase() + run.state.slice(1)}
                       {run.detail == null || run.detail === '' ? '' : `: ${run.detail}`}
                     </p>
                     <div className="flex flex-wrap gap-2">
-                      {run.state === 'running' ? (
-                        <>
-                          {live?.permission?.options.map((option) => (
-                            <Button
-                              key={option.id}
-                              type="button"
-                              variant="outline"
-                              size="sm"
-                              onClick={() =>
-                                void model.answerPermission(run.id, live.permission!.id, option.id)
-                              }
-                            >
-                              {option.name}
-                            </Button>
-                          ))}
-                          <Button
-                            type="button"
-                            variant="outline"
-                            size="sm"
-                            onClick={() => void model.cancelRun(run.id)}
-                          >
-                            Cancel
-                          </Button>
-                        </>
-                      ) : (
-                        <Button
-                          type="button"
-                          variant="outline"
-                          size="sm"
-                          onClick={() => void model.retry(conversation, message, run.participantId)}
-                        >
-                          Retry
-                        </Button>
-                      )}
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        onClick={() => void model.retry(conversation, message, run.participantId)}
+                      >
+                        Retry
+                      </Button>
                     </div>
                   </div>
-                )
-              })}
-          </div>
-        ),
-      }))}
+                ))}
+            </div>
+          ),
+        })),
+        ...(conversation.runs ?? [])
+          .filter((run) => run.state === 'running')
+          .map((run) => {
+            const live = model.live.get(run.id)
+            return {
+              id: `run-${run.id}`,
+              author: agentName(run),
+              agent: true,
+              live: true,
+              message:
+                live?.text == null || live.text === '' ? null : (
+                  <MessageMarkdown body={live.text} />
+                ),
+              after: (
+                <div className="flex flex-col gap-1 text-xs">
+                  <p role="status" className="m-0 text-muted-foreground">
+                    {live?.permission?.title ?? live?.activity ?? 'Writing a reply'}
+                  </p>
+                  <div className="flex flex-wrap gap-2">
+                    {live?.permission?.options.map((option) => (
+                      <Button
+                        key={option.id}
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        onClick={() =>
+                          void model.answerPermission(run.id, live.permission!.id, option.id)
+                        }
+                      >
+                        {option.name}
+                      </Button>
+                    ))}
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      onClick={() => void model.cancelRun(run.id)}
+                    >
+                      Cancel
+                    </Button>
+                  </div>
+                </div>
+              ),
+            }
+          }),
+      ]}
       onSelect={() => model.setExpanded(conversation.id, false)}
       onResolve={() => void model.setStatus(conversation, 'resolved')}
       onDelete={() => void model.setDeleted(conversation, true)}

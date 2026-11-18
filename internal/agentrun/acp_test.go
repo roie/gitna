@@ -234,13 +234,20 @@ func TestRunReplyIsTheFinalMessage(t *testing.T) {
 	for _, mode := range []string{"narrate", "narrate-tail"} {
 		t.Run(mode, func(t *testing.T) {
 			updates := 0
-			reply, err := Run(t.Context(), fakeDefinition(t, mode), t.TempDir(), "Question", Hooks{Activity: func(string) { updates++ }})
+			var texts []string
+			reply, err := Run(t.Context(), fakeDefinition(t, mode), t.TempDir(), "Question", Hooks{
+				Activity: func(string) { updates++ },
+				Text:     func(text string) { texts = append(texts, text) },
+			})
 			want := "Final answer."
 			if mode == "narrate-tail" {
 				want = "Before. Between."
 			}
 			if err != nil || reply != want || updates < 5 {
 				t.Fatalf("reply=%q updates=%d err=%v", reply, updates, err)
+			}
+			if len(texts) < 3 || texts[0] != "Before." || texts[len(texts)-1] != want {
+				t.Fatalf("streamed %q, want it to start with the first chunk and end with the reply", texts)
 			}
 		})
 	}

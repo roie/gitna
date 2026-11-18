@@ -1382,3 +1382,17 @@ test('a retried run replaces the one it retried', async ({ page, app }) => {
   await expect(stuck.getByRole('status')).toHaveCount(1)
   await expect(stuck.getByRole('button', { name: 'Retry', exact: true })).toHaveCount(1)
 })
+
+test('a running agent shows its own reply bubble with the text so far', async ({ page, app }) => {
+  await page.goto(app.url)
+  await openFile(page, 'two-hunk.txt')
+  await addNative(page, 'Streamer', 'stream')
+  const thread = await nativeThread(page, '@Streamer Go ahead')
+  await expect(thread.locator('strong', { hasText: /^Streamer$/ })).toBeVisible()
+  await expect(thread.locator('strong', { hasText: /^it$/ })).toBeVisible()
+  await expect(thread.getByRole('status')).toHaveText('Writing a reply')
+  await thread.getByRole('button', { name: 'Cancel', exact: true }).click()
+  await expect(thread.locator('strong', { hasText: /^it$/ })).toHaveCount(0)
+  await expect(thread.getByRole('status')).toContainText('Streamer: Cancelled')
+  await expect(thread.getByRole('button', { name: 'Retry', exact: true })).toBeVisible()
+})
