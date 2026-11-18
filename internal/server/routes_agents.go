@@ -3,6 +3,7 @@ package server
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net/http"
 	"slices"
 	"strconv"
@@ -22,6 +23,73 @@ func (c *Conversations) ensureAgents() {
 			return s.Locate(ctx, list, c.Sources, "")
 		}})
 	}
+}
+
+// rememberedPrefix marks a saved agent definition that is connected in this
+// repository but has not been joined to its log yet.
+const rememberedPrefix = "def:"
+
+// remembered returns the saved definitions with no participant in store, as
+// the participants they will become. Listing them writes nothing.
+func (c *Conversations) remembered(store *conversations.Store) ([]conversations.Participant, error) {
+	if c.Settings == nil {
+		return nil, nil
+	}
+	natives, err := store.Natives()
+	if err != nil {
+		return nil, err
+	}
+	var out []conversations.Participant
+	for _, d := range c.Settings.Get().Agents {
+		if _, ok := natives[d.ID]; !ok {
+			out = append(out, conversations.Participant{ID: rememberedPrefix + d.ID, Kind: conversations.KindAgent, Name: d.Name, Agent: d.ID})
+		}
+	}
+	return out, nil
+}
+
+// joinRemembered joins the remembered agents a person's message addresses,
+// by "def:" id or by "all", and returns to with their participant ids.
+func (c *Conversations) joinRemembered(store *conversations.Store, to []string) ([]string, error) {
+	all := slices.Contains(to, conversations.RecipientAll)
+	if !all && !slices.ContainsFunc(to, func(id string) bool { return strings.HasPrefix(id, rememberedPrefix) }) {
+		return to, nil
+	}
+	remembered, err := c.remembered(store)
+	if err != nil {
+		return nil, err
+	}
+	out := slices.Clone(to)
+	joined := map[string]string{}
+	join := func(p conversations.Participant) (string, error) {
+		if id, ok := joined[p.Agent]; ok {
+			return id, nil
+		}
+		participant, err := store.JoinNative(p.Name, p.Agent)
+		joined[p.Agent] = participant.ID
+		return participant.ID, err
+	}
+	for i, id := range out {
+		definition, ok := strings.CutPrefix(id, rememberedPrefix)
+		if !ok {
+			continue
+		}
+		j := slices.IndexFunc(remembered, func(p conversations.Participant) bool { return p.Agent == definition })
+		if j < 0 {
+			return nil, fmt.Errorf("%w: unknown recipient %q", conversations.ErrInvalid, id)
+		}
+		if out[i], err = join(remembered[j]); err != nil {
+			return nil, err
+		}
+	}
+	if all {
+		for _, p := range remembered {
+			if _, err := join(p); err != nil {
+				return nil, err
+			}
+		}
+	}
+	return out, nil
 }
 
 func (c *Conversations) browserControl(w http.ResponseWriter, r *http.Request, rest string) bool {
@@ -55,8 +123,15 @@ func (c *Conversations) browserControl(w http.ResponseWriter, r *http.Request, r
 	case leave:
 		var s *conversations.Store
 		s, err = c.Open()
+		id := parts[1]
+		if definition, ok := strings.CutPrefix(id, rememberedPrefix); err == nil && ok {
+			var ids []string
+			if ids, err = c.joinRemembered(s, []string{rememberedPrefix + definition}); err == nil {
+				id = ids[0]
+			}
+		}
 		if err == nil {
-			err = s.Leave(parts[1])
+			err = s.Leave(id)
 		}
 	case retry:
 		var body struct {
@@ -122,6 +197,17 @@ func (c *Conversations) addAgent(w http.ResponseWriter, r *http.Request) {
 			writeConversationError(w, conversations.ErrNotFound)
 			return
 		}
+		p, err := c.reconnect(def)
+		if err != nil {
+			writeAgentError(w, err)
+			return
+		}
+		c.ensureAgents()
+		writeJSON(w, 200, struct {
+			Definition  agentrun.Definition       `json:"definition"`
+			Participant conversations.Participant `json:"participant"`
+		}{def, p})
+		return
 	} else {
 		def, err = agentrun.Resolve(body.Name, body.Command)
 		if err != nil {
@@ -140,11 +226,9 @@ func (c *Conversations) addAgent(w http.ResponseWriter, r *http.Request) {
 		}
 		return
 	}
-	if body.Definition == "" {
-		if err = c.Settings.Update(func(s *agentrun.Settings) error { s.Agents = append(s.Agents, def); return nil }); err != nil {
-			writeAgentError(w, err)
-			return
-		}
+	if err = c.Settings.Update(func(s *agentrun.Settings) error { s.Agents = append(s.Agents, def); return nil }); err != nil {
+		writeAgentError(w, err)
+		return
 	}
 	store, err := c.Open()
 	if err != nil {
@@ -161,6 +245,27 @@ func (c *Conversations) addAgent(w http.ResponseWriter, r *http.Request) {
 		Definition  agentrun.Definition       `json:"definition"`
 		Participant conversations.Participant `json:"participant"`
 	}{def, p})
+}
+
+// reconnect connects a saved definition in this repository without running
+// it: a participant that left rejoins, and one never joined stays remembered.
+func (c *Conversations) reconnect(def agentrun.Definition) (conversations.Participant, error) {
+	store, err := c.Open()
+	if err != nil {
+		return conversations.Participant{}, err
+	}
+	natives, err := store.Natives()
+	if err != nil {
+		return conversations.Participant{}, err
+	}
+	native, ok := natives[def.ID]
+	switch {
+	case ok && native.Left:
+		return store.Rejoin(native.ID)
+	case ok:
+		return native.Participant, nil
+	}
+	return conversations.Participant{ID: rememberedPrefix + def.ID, Kind: conversations.KindAgent, Name: def.Name, Agent: def.ID}, nil
 }
 
 func (c *Conversations) settings(w http.ResponseWriter) {

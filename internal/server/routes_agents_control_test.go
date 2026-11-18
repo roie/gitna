@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
@@ -350,4 +351,102 @@ func TestRunRoutesFromOtherProcess(t *testing.T) {
 	if r.Code != 409 || !strings.Contains(r.Body.String(), `"other-process"`) {
 		t.Fatalf("other process: %d %s", r.Code, r.Body)
 	}
+}
+
+func TestRememberedAgents(t *testing.T) {
+	f := managedFixture(t)
+	exe, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	saved := map[string]agentrun.Definition{}
+	for _, name := range []string{"Disconnected", "Named", "Everyone"} {
+		def, err := agentrun.Resolve(name, `"`+exe+`" reply`)
+		if err != nil {
+			t.Fatal(err)
+		}
+		saved[name] = def
+		if err := f.backend.Settings.Update(func(s *agentrun.Settings) error { s.Agents = append(s.Agents, def); return nil }); err != nil {
+			t.Fatal(err)
+		}
+	}
+	store, _ := f.backend.Open()
+	list := func() map[string]string {
+		t.Helper()
+		r := f.browserDo(t, "GET", "/conversations", "")
+		if r.Code != 200 {
+			t.Fatalf("list: %d %s", r.Code, r.Body)
+		}
+		out := map[string]string{}
+		for _, p := range decodeBody[conversationList](t, r).Agents {
+			out[p.Name] = p.ID
+		}
+		return out
+	}
+	agents := list()
+	for name, def := range saved {
+		if agents[name] != "def:"+def.ID {
+			t.Fatalf("remembered %s = %q in %v", name, agents[name], agents)
+		}
+	}
+	if natives, _ := store.Natives(); len(natives) != 0 {
+		t.Fatalf("listing joined %+v", natives)
+	}
+	for _, p := range decodeBody[conversationList](t, f.agentDo(t, "GET", "/conversations", "", nil)).Agents {
+		if strings.HasPrefix(p.ID, "def:") {
+			t.Fatalf("agent sees remembered %+v", p)
+		}
+	}
+
+	if r := f.browserDo(t, "POST", "/conversations/participants/def:"+saved["Disconnected"].ID+"/leave", `{}`); r.Code != 200 {
+		t.Fatalf("disconnect: %d %s", r.Code, r.Body)
+	}
+	if _, ok := list()["Disconnected"]; ok {
+		t.Fatal("disconnected agent still listed")
+	}
+	body, _ := json.Marshal(map[string]string{"definition": saved["Disconnected"].ID})
+	if r := f.browserDo(t, "POST", "/conversations/agents", string(body)); r.Code != 200 {
+		t.Fatalf("reconnect: %d %s", r.Code, r.Body)
+	}
+	if id := list()["Disconnected"]; id == "" || strings.HasPrefix(id, "def:") {
+		t.Fatalf("reconnected as %q", id)
+	}
+
+	c := createFor(t, f, conversations.Participant{ID: "def:" + saved["Named"].ID})
+	named := list()["Named"]
+	if strings.HasPrefix(named, "def:") || !slices.Equal(c.Messages[0].To, []string{named}) {
+		t.Fatalf("named joined as %q, message to %v", named, c.Messages[0].To)
+	}
+	awaitRun(t, f, c.ID, "completed")
+	if _, ok := list()["Everyone"]; !ok || !strings.HasPrefix(list()["Everyone"], "def:") {
+		t.Fatal("unaddressed agent was joined")
+	}
+
+	reply, _ := json.Marshal(map[string]any{"body": "All of you", "to": []string{"all"}})
+	if r := f.browserDo(t, "POST", "/conversations/"+c.ID+"/messages", string(reply)); r.Code != 200 {
+		t.Fatalf("reply all: %d %s", r.Code, r.Body)
+	}
+	if id := list()["Everyone"]; strings.HasPrefix(id, "def:") {
+		t.Fatal("@all did not join the remembered agent")
+	}
+	if r := f.browserDo(t, "POST", "/conversations/"+c.ID+"/messages", `{"body":"x","to":["def:missing"]}`); r.Code != 400 {
+		t.Fatalf("unknown remembered: %d %s", r.Code, r.Body)
+	}
+}
+
+func TestRememberedAgentRunsOnTheFirstMessage(t *testing.T) {
+	f := managedFixture(t)
+	exe, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	def, err := agentrun.Resolve("Helper", `"`+exe+`" reply`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := f.backend.Settings.Update(func(s *agentrun.Settings) error { s.Agents = append(s.Agents, def); return nil }); err != nil {
+		t.Fatal(err)
+	}
+	c := createFor(t, f, conversations.Participant{ID: "def:" + def.ID})
+	awaitRun(t, f, c.ID, "completed")
 }

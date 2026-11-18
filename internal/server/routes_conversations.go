@@ -130,6 +130,11 @@ func (c *Conversations) serve(w http.ResponseWriter, r *http.Request, rest strin
 			return
 		}
 		agents, err := store.Agents()
+		if err == nil && actor.Kind == conversations.KindHuman {
+			var remembered []conversations.Participant
+			remembered, err = c.remembered(store)
+			agents = append(agents, remembered...)
+		}
 		if err != nil {
 			writeConversationError(w, err)
 			return
@@ -144,7 +149,12 @@ func (c *Conversations) serve(w http.ResponseWriter, r *http.Request, rest strin
 			writeConversationError(w, err)
 			return
 		}
-		conversation, err := store.Create(actor, request.ID, request.Anchor, request.Body, request.To)
+		to, err := c.addressed(store, actor, request.To)
+		if err != nil {
+			writeConversationError(w, err)
+			return
+		}
+		conversation, err := store.Create(actor, request.ID, request.Anchor, request.Body, to)
 		if err != nil {
 			writeConversationError(w, err)
 			return
@@ -198,7 +208,12 @@ func (c *Conversations) serve(w http.ResponseWriter, r *http.Request, rest strin
 		if !decodeConversationRequest(w, r, &request) {
 			return
 		}
-		message, err := store.Reply(actor, id, request.ID, request.Body, request.To)
+		to, err := c.addressed(store, actor, request.To)
+		if err != nil {
+			writeConversationError(w, err)
+			return
+		}
+		message, err := store.Reply(actor, id, request.ID, request.Body, to)
 		if err != nil {
 			writeConversationError(w, err)
 			return
@@ -261,6 +276,19 @@ func (c *Conversations) serve(w http.ResponseWriter, r *http.Request, rest strin
 	default:
 		writeJSON(w, http.StatusNotFound, map[string]string{"error": "not found"})
 	}
+}
+
+// addressed joins the remembered agents a person addresses. Agents cannot
+// address native agents, so their recipients pass through unchanged.
+func (c *Conversations) addressed(store *conversations.Store, actor conversations.Participant, to []string) ([]string, error) {
+	if actor.Kind != conversations.KindHuman {
+		return to, nil
+	}
+	joined, err := c.joinRemembered(store, to)
+	if err == nil {
+		c.ensureAgents()
+	}
+	return joined, err
 }
 
 // filesChanged wakes pending waits: a file that returned can make messages

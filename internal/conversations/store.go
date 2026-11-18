@@ -842,6 +842,34 @@ func (s *Store) Agents() ([]Participant, error) {
 	return s.agents(), nil
 }
 
+// Native is the participant that represents an agent definition in this
+// store, and whether it has left.
+type Native struct {
+	Participant
+	Left bool
+}
+
+// Natives returns, per agent definition, the native participant that
+// represents it here. A joined participant wins over one that left.
+func (s *Store) Natives() (map[string]Native, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if _, err := s.catchUp(); err != nil {
+		return nil, err
+	}
+	natives := make(map[string]Native)
+	for _, id := range s.joined {
+		p := s.participants[id]
+		if p.Agent == "" {
+			continue
+		}
+		if current, ok := natives[p.Agent]; !ok || current.Left {
+			natives[p.Agent] = Native{Participant: p, Left: s.left[id]}
+		}
+	}
+	return natives, nil
+}
+
 // Participant returns the agent participant Join issued as id. It routes
 // messages and acknowledgments; it does not prove who is calling.
 func (s *Store) Participant(id string) (Participant, error) {
