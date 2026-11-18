@@ -251,7 +251,10 @@ export function createConversationsApi(
     addAgent: (request) => post('api/v1/conversations/agents', request),
     async deleteDefinition(id) {
       await expectOK(
-        await fetch(`api/v1/conversations/agents/${encodeURIComponent(id)}`, { method: 'DELETE' }),
+        await fetch(`api/v1/conversations/agents/${encodeURIComponent(id)}`, {
+          method: 'DELETE',
+          headers: { 'Content-Type': 'application/json' },
+        }),
       )
     },
     leave: (id) => post(`api/v1/conversations/participants/${encodeURIComponent(id)}/leave`, {}),

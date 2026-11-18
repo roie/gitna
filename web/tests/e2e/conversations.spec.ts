@@ -1100,6 +1100,12 @@ test('agents connect after one confirmation, stay remembered in other repositori
     await openFile(page, 'two-hunk.txt')
     await page.getByRole('button', { name: 'Agents', exact: true }).click()
     await expect(page.getByRole('menuitem', { name: /^goose/ })).toContainText('Connected')
+    await page.getByRole('menuitem', { name: /^goose/ }).click()
+    await page.getByRole('menuitem', { name: 'Forget goose' }).click()
+    await expect(page.getByRole('menuitem', { name: /^goose/ })).not.toContainText('Connected')
+    await expect(page.getByRole('menuitem', { name: 'Forget goose' })).toHaveCount(0)
+    await expect(page.getByRole('alert')).toHaveCount(0)
+    await page.keyboard.press('Escape')
   } finally {
     await stopGitna(first.child)
   }
