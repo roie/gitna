@@ -14,7 +14,7 @@ export interface ExampleAnnotationMessage {
   id: string;
   author: string;
   agent: boolean;
-  message: string;
+  message: ReactNode;
   after?: ReactNode;
 }
 
@@ -111,9 +111,11 @@ export const ExampleAnnotation = memo(function ExampleAnnotation({
                 </span>
               )}
             </div>
-            <p className="m-0 text-[14px] break-words whitespace-pre-wrap">
-              {message.message}
-            </p>
+            {typeof message.message === 'string' ? (
+              <p className="m-0 text-[14px] break-words whitespace-pre-wrap">{message.message}</p>
+            ) : (
+              <div className="text-[14px]">{message.message}</div>
+            )}
             {message.after != null && <div onClick={isolate} onKeyDown={isolate}>{message.after}</div>}
           </div>
         </div>

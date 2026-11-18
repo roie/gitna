@@ -174,8 +174,10 @@ test('conversations on a file persist, take replies from an agent, and survive a
     '@e2e-agent Second message',
   ])
   const id = pending.pending[0].conversation.id
-  agent(app, 'reply', id, '--id', 'm-agent-answer', '--body', 'Agent answer\nwith two lines')
+  agent(app, 'reply', id, '--id', 'm-agent-answer', '--body', 'Agent **answer**\n\n- with a list')
   await expect(thread.getByText('Agent answer')).toBeVisible()
+  await expect(thread.locator('strong', { hasText: 'answer' })).toBeVisible()
+  await expect(thread.getByRole('listitem')).toHaveText('with a list')
   await expect(thread.getByText('e2e-agent', { exact: true })).toBeVisible()
   // No donor demo identity is ever shown.
   await expect(page.locator('img[src*="diffshub-avatars"]')).toHaveCount(0)

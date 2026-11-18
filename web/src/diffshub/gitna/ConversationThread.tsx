@@ -7,6 +7,7 @@ import { annotationCardBase } from '@/lib/annotation'
 import { cn } from '@/lib/cn'
 import type { Conversation, ConversationsModel, Run } from '../../lib/conversations'
 import { replyPrefill } from '../../lib/mentions'
+import { MessageMarkdown } from './MessageMarkdown'
 
 export function ConversationThread({
   conversation: initial,
@@ -62,7 +63,8 @@ export function ConversationThread({
         id: message.id,
         author: model.displayName(message.author),
         agent: message.author.kind === 'agent',
-        message: message.body,
+        message:
+          message.author.kind === 'agent' ? <MessageMarkdown body={message.body} /> : message.body,
         after: (
           <div className="flex flex-col gap-2 text-xs">
             {model.waiting(conversation, message).map((agent) => (

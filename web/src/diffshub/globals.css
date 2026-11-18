@@ -500,3 +500,9 @@
 .markdown-preview :where(table) { width: 100%; border-collapse: collapse; }
 .markdown-preview :where(th, td) { border: 1px solid var(--border); padding: 0.45rem 0.65rem; text-align: left; }
 .markdown-preview :where(img) { display: inline; max-width: 100%; height: auto; }
+.markdown-message { line-height: 1.5; }
+.markdown-message :where(h1, h2, h3, h4) { margin: 0.75rem 0 0.4rem; font-size: 1em; }
+.markdown-message :where(p, ul, ol, blockquote, pre, table) { margin: 0.5rem 0; }
+.markdown-message :where(pre) { padding: 0.5rem 0.75rem; }
+.markdown-message > :first-child { margin-top: 0; }
+.markdown-message > :last-child { margin-bottom: 0; }
