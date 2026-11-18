@@ -50,6 +50,7 @@ import { Button } from './Button';
 import { ButtonGroup, ButtonGroupItem } from './ButtonGroup';
 import {
   DropdownMenu,
+  DropdownMenuBackItem,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuTrigger,
@@ -1082,22 +1083,12 @@ function ThemeList({
   }, [view]);
   return (
     <>
-      <DropdownMenuItem
-        className="flex cursor-pointer items-center gap-2"
-        onSelect={(event) => {
-          event.preventDefault();
-          onBack();
-        }}
-      >
-        <IconChevronSm
-          aria-hidden
-          className="text-muted-foreground rotate-90"
-        />
+      <DropdownMenuBackItem onBack={onBack}>
         <HeaderIcon />
         <span className="flex-1 truncate">
           {isLight ? 'Light theme' : 'Dark theme'}
         </span>
-      </DropdownMenuItem>
+      </DropdownMenuBackItem>
       <div
         ref={scrollContainerRef}
         className="gitna-scrollbar mt-1 max-h-[320px] overflow-y-auto overscroll-contain"

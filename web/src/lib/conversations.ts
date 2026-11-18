@@ -6,6 +6,7 @@ export interface AgentDefinition {
   executable: string
   args: string[]
   model?: string
+  models?: { default: string; options: { id: string; name: string }[] }
 }
 
 export interface FoundAgent {

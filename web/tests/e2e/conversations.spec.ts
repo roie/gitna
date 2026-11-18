@@ -1312,9 +1312,17 @@ test('a connected agent runs with the model chosen for it', async ({ page, app }
     'Agent default (Small)',
   )
   await page.getByRole('menuitemradio', { name: 'Large' }).click()
+  await expect(trigger).toContainText('Large')
+  await page.keyboard.press('Escape')
+
+  // The offered models are saved, so names show without starting the agent.
+  await page.reload()
+  await openFile(page, 'two-hunk.txt')
   await page.getByRole('button', { name: 'Agents', exact: true }).click()
   await page.getByRole('menuitem', { name: /^Modeler/ }).click()
   await expect(trigger).toContainText('Large')
+  await trigger.click()
+  await expect(page.getByRole('menuitemradio', { checked: true })).toHaveText('Large')
   await page.keyboard.press('Escape')
   const thread = await nativeThread(page, '@Modeler Which model?')
   await expect(thread.getByText('Reply from large', { exact: true })).toBeVisible()

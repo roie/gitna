@@ -195,6 +195,29 @@ const DropdownMenuItem = React.forwardRef<
 );
 DropdownMenuItem.displayName = DropdownMenuPrimitive.Item.displayName;
 
+// The first row of a panel that replaces the menu's content; selecting it
+// returns to the previous panel.
+const DropdownMenuBackItem = React.forwardRef<
+  React.ElementRef<typeof DropdownMenuPrimitive.Item>,
+  Omit<React.ComponentPropsWithoutRef<typeof DropdownMenuPrimitive.Item>, 'onSelect'> & {
+    onBack: () => void;
+  }
+>(({ className, children, onBack, ...props }, ref) => (
+  <DropdownMenuItem
+    ref={ref}
+    className={cn('flex cursor-pointer items-center gap-2', className)}
+    onSelect={(event) => {
+      event.preventDefault();
+      onBack();
+    }}
+    {...props}
+  >
+    <IconChevronSm aria-hidden className="text-muted-foreground rotate-90" />
+    {children}
+  </DropdownMenuItem>
+));
+DropdownMenuBackItem.displayName = 'DropdownMenuBackItem';
+
 const DropdownMenuCheckboxItem = React.forwardRef<
   React.ElementRef<typeof DropdownMenuPrimitive.CheckboxItem>,
   React.ComponentPropsWithoutRef<typeof DropdownMenuPrimitive.CheckboxItem> & {
@@ -305,6 +328,7 @@ DropdownMenuShortcut.displayName = 'DropdownMenuShortcut';
 
 export {
   DropdownMenu,
+  DropdownMenuBackItem,
   DropdownMenuCheckboxItem,
   DropdownMenuContent,
   DropdownMenuGroup,

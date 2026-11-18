@@ -18,6 +18,9 @@ type Definition struct {
 	Args       []string `json:"args"`
 	// Model is the agent's model option value; empty uses the agent's default.
 	Model string `json:"model,omitempty"`
+	// Models is what the agent offered when last asked, so the choice can be
+	// shown without starting it.
+	Models *Models `json:"models,omitempty"`
 }
 
 type Settings struct {

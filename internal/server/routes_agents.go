@@ -344,6 +344,16 @@ func (c *Conversations) agentModel(w http.ResponseWriter, r *http.Request, id st
 			writeJSON(w, 422, map[string]string{"error": err.Error()})
 			return
 		}
+		err = c.Settings.Update(func(s *agentrun.Settings) error {
+			if i := slices.IndexFunc(s.Agents, func(d agentrun.Definition) bool { return d.ID == id }); i >= 0 {
+				s.Agents[i].Models = &models
+			}
+			return nil
+		})
+		if err != nil {
+			writeAgentError(w, err)
+			return
+		}
 		writeJSON(w, 200, struct {
 			agentrun.Models
 			Model string `json:"model"`

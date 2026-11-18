@@ -1,6 +1,7 @@
-import * as DropdownMenuPrimitive from '@radix-ui/react-dropdown-menu'
 import {
   IconBox,
+  IconCheck,
+  IconChevronSm,
   IconDownload,
   IconEllipsis,
   IconPlus,
@@ -15,7 +16,6 @@ import {
   AgentAuthRequired,
   type AddAgent,
   type AgentDefinition,
-  type AgentModels,
   type AgentSetup,
   type AuthMethod,
   type ConversationsModel,
@@ -27,14 +27,10 @@ import {
 import { Button } from '../components/Button'
 import {
   DropdownMenu,
+  DropdownMenuBackItem,
   DropdownMenuContent,
   DropdownMenuItem,
-  DropdownMenuRadioGroup,
-  DropdownMenuRadioItem,
   DropdownMenuSeparator,
-  DropdownMenuSub,
-  DropdownMenuSubContent,
-  DropdownMenuSubTrigger,
   DropdownMenuTrigger,
 } from '../components/DropdownMenu'
 import { Input } from '../components/Input'
@@ -79,38 +75,69 @@ function AgentIcon({ row }: { row: Row }) {
 
 function ModelChoices({
   definition,
-  models,
+  listing,
+  onBack,
   onChoose,
 }: {
   definition: AgentDefinition
-  models: { list?: AgentModels; error?: string } | null
+  listing: { error?: string } | null
+  onBack: () => void
   onChoose: (model: string) => void
 }) {
   const note = 'm-0 px-3 py-1.5 text-xs'
-  if (models?.error != null)
-    return (
-      <p role="alert" className={`${note} text-destructive`}>
-        {models.error}
-      </p>
-    )
-  const list = models?.list
-  if (list == null)
-    return (
-      <p role="status" className={`${note} text-muted-foreground`}>
-        Starting {definition.name} to list its models…
-      </p>
-    )
+  const list = definition.models
+  const current = definition.model ?? ''
+  const choices =
+    list == null
+      ? []
+      : [
+          {
+            id: '',
+            name: `Agent default (${list.options.find((m) => m.id === list.default)?.name ?? list.default})`,
+          },
+          ...list.options,
+        ]
   return (
-    <DropdownMenuRadioGroup value={list.model} onValueChange={onChoose}>
-      <DropdownMenuRadioItem value="">
-        Agent default ({list.options.find((m) => m.id === list.default)?.name ?? list.default})
-      </DropdownMenuRadioItem>
-      {list.options.map((m) => (
-        <DropdownMenuRadioItem key={m.id} value={m.id}>
-          {m.name}
-        </DropdownMenuRadioItem>
-      ))}
-    </DropdownMenuRadioGroup>
+    <>
+      <DropdownMenuBackItem onBack={onBack}>
+        <IconBox aria-hidden="true" className="size-4" />
+        <span className="flex-1 truncate">Model for {definition.name}</span>
+      </DropdownMenuBackItem>
+      {listing?.error != null && (
+        <p role="alert" className={`${note} max-w-72 text-destructive`}>
+          {listing.error}
+        </p>
+      )}
+      {list == null ? (
+        listing?.error == null && (
+          <p role="status" className={`${note} text-muted-foreground`}>
+            Starting {definition.name} to list its models…
+          </p>
+        )
+      ) : (
+        <div className="gitna-scrollbar mt-1 max-h-[320px] overflow-y-auto overscroll-contain">
+          {choices.map((m) => (
+            <DropdownMenuItem
+              key={m.id}
+              role="menuitemradio"
+              aria-checked={current === m.id}
+              selected={current === m.id}
+              onSelect={(event) => {
+                event.preventDefault()
+                onChoose(m.id)
+              }}
+            >
+              <span className="flex-1 truncate">{m.name}</span>
+              {current === m.id ? (
+                <IconCheck className="ml-auto" />
+              ) : (
+                <div className="ml-2 h-4 w-4" />
+              )}
+            </DropdownMenuItem>
+          ))}
+        </div>
+      )}
+    </>
   )
 }
 
@@ -146,12 +173,9 @@ export function AgentsMenu({ model }: { model: ConversationsModel }) {
   )
   const [downloadFor, setDownloadFor] = useState<AgentSetup | null>(null)
   const [removing, setRemoving] = useState<{ row: Row; adapter: InstalledAdapter } | null>(null)
+  const [panel, setPanel] = useState<{ kind: 'model' | 'more'; row: Row } | null>(null)
   const [forgetting, setForgetting] = useState<Row | null>(null)
-  const [models, setModels] = useState<{
-    definition: string
-    list?: AgentModels
-    error?: string
-  } | null>(null)
+  const [listing, setListing] = useState<{ definition: string; error?: string } | null>(null)
   const [name, setName] = useState('')
   const [command, setCommand] = useState('')
   const [busy, setBusy] = useState(false)
@@ -271,12 +295,12 @@ export function AgentsMenu({ model }: { model: ConversationsModel }) {
   const adapterOf = (row: Row) =>
     adapters.find((a) => inside(a.folder, row.definition?.executable ?? ''))
   const loadModels = async (definition: AgentDefinition) => {
-    if (models?.definition === definition.id && models.list != null) return
-    setModels({ definition: definition.id })
+    setListing({ definition: definition.id })
     try {
-      setModels({ definition: definition.id, list: await model.api.agentModels(definition.id) })
+      await model.api.agentModels(definition.id)
+      await refresh()
     } catch (error) {
-      setModels({
+      setListing({
         definition: definition.id,
         error:
           error instanceof AgentAuthRequired
@@ -288,10 +312,9 @@ export function AgentsMenu({ model }: { model: ConversationsModel }) {
     }
   }
   const modelName = (definition: AgentDefinition) => {
-    const list = models?.definition === definition.id ? models.list : undefined
-    const current = list?.model ?? definition.model ?? ''
-    if (current === '') return 'Default'
-    return list?.options.find((m) => m.id === current)?.name ?? current
+    const current = definition.model || definition.models?.default
+    if (current == null || current === '') return 'Default'
+    return definition.models?.options.find((m) => m.id === current)?.name ?? current
   }
   const sharing =
     removing == null
@@ -316,6 +339,7 @@ export function AgentsMenu({ model }: { model: ConversationsModel }) {
         onOpenChange={(open) => {
           setMenu(open)
           setExpanded(null)
+          setPanel(null)
           if (open) void attempt(refresh)
         }}
       >
@@ -325,145 +349,154 @@ export function AgentsMenu({ model }: { model: ConversationsModel }) {
           </Button>
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end" className="min-w-56 max-w-[calc(100vw-2rem)]">
-          {rows.length === 0 && <p className={`m-0 px-2 py-1.5 ${hint}`}>No agents found</p>}
-          {rows.map((row) => (
-            <Fragment key={row.key}>
+          {panel?.kind === 'more' ? (
+            <>
+              <DropdownMenuBackItem onBack={() => setPanel(null)}>
+                <AgentIcon row={panel.row} />
+                <span className="flex-1 truncate">{panel.row.name}</span>
+              </DropdownMenuBackItem>
+              {panel.row.definition != null && (
+                <DropdownMenuItem
+                  aria-label={`Forget ${panel.row.name}`}
+                  className="gap-2"
+                  onSelect={() => {
+                    setForgetting(panel.row)
+                    openDialog('forget')
+                  }}
+                >
+                  <IconX aria-hidden="true" className="size-4" />
+                  Forget agent
+                </DropdownMenuItem>
+              )}
+              {adapterOf(panel.row) != null && (
+                <DropdownMenuItem
+                  aria-label={`Remove ${panel.row.name} adapter`}
+                  className="gap-2"
+                  onSelect={() => {
+                    setRemoving({ row: panel.row, adapter: adapterOf(panel.row)! })
+                    openDialog('remove')
+                  }}
+                >
+                  <IconTrash aria-hidden="true" className="size-4" />
+                  Remove adapter
+                </DropdownMenuItem>
+              )}
+            </>
+          ) : panel?.kind === 'model' && panel.row.definition != null ? (
+            <ModelChoices
+              definition={
+                definitions.find((d) => d.id === panel.row.definition!.id) ?? panel.row.definition
+              }
+              listing={listing?.definition === panel.row.definition.id ? listing : null}
+              onBack={() => setPanel(null)}
+              onChoose={(value) => {
+                const definition = panel.row.definition!
+                setPanel(null)
+                void attempt(async () => {
+                  await model.api.setAgentModel(definition.id, value)
+                  await refresh()
+                })
+              }}
+            />
+          ) : (
+            <>
+              {rows.length === 0 && <p className={`m-0 px-2 py-1.5 ${hint}`}>No agents found</p>}
+              {rows.map((row) => (
+                <Fragment key={row.key}>
+                  <DropdownMenuItem
+                    disabled={busy}
+                    aria-expanded={row.participant != null ? expanded === row.key : undefined}
+                    className="justify-between gap-4"
+                    onSelect={(event) => {
+                      if (row.found == null && row.setup == null) event.preventDefault()
+                      select(row)
+                    }}
+                  >
+                    <span className="flex min-w-0 items-center gap-2">
+                      <AgentIcon row={row} />
+                      <span className="truncate">{row.name}</span>
+                      {row.participant != null && row.participant.agent == null && (
+                        <span className={hint}> · CLI</span>
+                      )}
+                    </span>
+                    <span className={hint}>{status(row)}</span>
+                  </DropdownMenuItem>
+                  {expanded === row.key && row.participant != null && (
+                    <>
+                      <div className="flex items-center gap-1">
+                        <DropdownMenuItem
+                          aria-label={`Disconnect ${row.name}`}
+                          disabled={busy}
+                          className="flex-1 gap-2 pl-6"
+                          onSelect={(event) => {
+                            event.preventDefault()
+                            const participant = row.participant!.id
+                            void attempt(async () => {
+                              await model.leave(participant)
+                              setExpanded(null)
+                            })
+                          }}
+                        >
+                          <IconUnlink aria-hidden="true" className="size-4" />
+                          Disconnect
+                        </DropdownMenuItem>
+                        {(row.definition != null || adapterOf(row) != null) && (
+                          <DropdownMenuItem
+                            aria-label={`More actions for ${row.name}`}
+                            disabled={busy}
+                            className="p-1.5 text-muted-foreground"
+                            onSelect={(event) => {
+                              event.preventDefault()
+                              setPanel({ kind: 'more', row })
+                            }}
+                          >
+                            <IconEllipsis aria-hidden="true" className="size-4" />
+                          </DropdownMenuItem>
+                        )}
+                      </div>
+                      {row.definition != null && (
+                        <DropdownMenuItem
+                          aria-label={`Model for ${row.name}`}
+                          disabled={busy}
+                          className="gap-2 pl-6"
+                          onSelect={(event) => {
+                            event.preventDefault()
+                            setPanel({ kind: 'model', row })
+                            void loadModels(row.definition!)
+                          }}
+                        >
+                          <IconBox aria-hidden="true" className="size-4" />
+                          Model
+                          <span className={`ml-auto max-w-40 truncate ${hint}`}>
+                            {modelName(row.definition)}
+                          </span>
+                          <IconChevronSm aria-hidden className="text-muted-foreground -rotate-90" />
+                        </DropdownMenuItem>
+                      )}
+                    </>
+                  )}
+                </Fragment>
+              ))}
+              <DropdownMenuSeparator />
+              {setup.length > 0 && (
+                <DropdownMenuItem className="gap-2" onSelect={() => openDialog('setup')}>
+                  <IconDownload aria-hidden="true" className="size-4" />
+                  More agents…
+                </DropdownMenuItem>
+              )}
               <DropdownMenuItem
-                disabled={busy}
-                aria-expanded={row.participant != null ? expanded === row.key : undefined}
-                className="justify-between gap-4"
-                onSelect={(event) => {
-                  if (row.found == null && row.setup == null) event.preventDefault()
-                  select(row)
+                className="gap-2"
+                onSelect={() => {
+                  setName('')
+                  setCommand('')
+                  openDialog('custom')
                 }}
               >
-                <span className="flex min-w-0 items-center gap-2">
-                  <AgentIcon row={row} />
-                  <span className="truncate">{row.name}</span>
-                  {row.participant != null && row.participant.agent == null && (
-                    <span className={hint}> · CLI</span>
-                  )}
-                </span>
-                <span className={hint}>{status(row)}</span>
+                <IconPlus aria-hidden="true" className="size-4" />
+                Add custom agent…
               </DropdownMenuItem>
-              {expanded === row.key && row.participant != null && (
-                <>
-                  <div className="flex items-center gap-1">
-                    <DropdownMenuItem
-                      aria-label={`Disconnect ${row.name}`}
-                      disabled={busy}
-                      className="flex-1 gap-2 pl-6"
-                      onSelect={(event) => {
-                        event.preventDefault()
-                        const participant = row.participant!.id
-                        void attempt(async () => {
-                          await model.leave(participant)
-                          setExpanded(null)
-                        })
-                      }}
-                    >
-                      <IconUnlink aria-hidden="true" className="size-4" />
-                      Disconnect
-                    </DropdownMenuItem>
-                    {(row.definition != null || adapterOf(row) != null) && (
-                      <DropdownMenuSub>
-                        <DropdownMenuPrimitive.SubTrigger
-                          aria-label={`More actions for ${row.name}`}
-                          disabled={busy}
-                          className="rounded-md p-1.5 text-muted-foreground outline-none select-none focus:bg-accent data-[state=open]:bg-accent"
-                        >
-                          <IconEllipsis aria-hidden="true" className="size-4" />
-                        </DropdownMenuPrimitive.SubTrigger>
-                        <DropdownMenuSubContent>
-                          {row.definition != null && (
-                            <DropdownMenuItem
-                              aria-label={`Forget ${row.name}`}
-                              className="gap-2"
-                              onSelect={() => {
-                                setForgetting(row)
-                                openDialog('forget')
-                              }}
-                            >
-                              <IconX aria-hidden="true" className="size-4" />
-                              Forget agent
-                            </DropdownMenuItem>
-                          )}
-                          {adapterOf(row) != null && (
-                            <DropdownMenuItem
-                              aria-label={`Remove ${row.name} adapter`}
-                              className="gap-2"
-                              onSelect={() => {
-                                setRemoving({ row, adapter: adapterOf(row)! })
-                                openDialog('remove')
-                              }}
-                            >
-                              <IconTrash aria-hidden="true" className="size-4" />
-                              Remove adapter
-                            </DropdownMenuItem>
-                          )}
-                        </DropdownMenuSubContent>
-                      </DropdownMenuSub>
-                    )}
-                  </div>
-                  {row.definition != null && (
-                    <DropdownMenuSub
-                      onOpenChange={(open) => {
-                        if (open) void loadModels(row.definition!)
-                      }}
-                    >
-                      <DropdownMenuSubTrigger
-                        aria-label={`Model for ${row.name}`}
-                        disabled={busy}
-                        className="gap-2 rounded-md px-3 pl-6"
-                      >
-                        <IconBox aria-hidden="true" className="size-4" />
-                        Model
-                        <span className={`ml-auto max-w-40 truncate ${hint}`}>
-                          {modelName(row.definition)}
-                        </span>
-                      </DropdownMenuSubTrigger>
-                      <DropdownMenuSubContent className="max-w-80">
-                        <ModelChoices
-                          definition={row.definition}
-                          models={models?.definition === row.definition.id ? models : null}
-                          onChoose={(value) =>
-                            void attempt(async () => {
-                              const definition = row.definition!
-                              await model.api.setAgentModel(definition.id, value)
-                              setModels((current) =>
-                                current?.definition === definition.id && current.list != null
-                                  ? { ...current, list: { ...current.list, model: value } }
-                                  : current,
-                              )
-                              await refresh()
-                            })
-                          }
-                        />
-                      </DropdownMenuSubContent>
-                    </DropdownMenuSub>
-                  )}
-                </>
-              )}
-            </Fragment>
-          ))}
-          <DropdownMenuSeparator />
-          {setup.length > 0 && (
-            <DropdownMenuItem className="gap-2" onSelect={() => openDialog('setup')}>
-              <IconDownload aria-hidden="true" className="size-4" />
-              More agents…
-            </DropdownMenuItem>
+            </>
           )}
-          <DropdownMenuItem
-            className="gap-2"
-            onSelect={() => {
-              setName('')
-              setCommand('')
-              openDialog('custom')
-            }}
-          >
-            <IconPlus aria-hidden="true" className="size-4" />
-            Add custom agent…
-          </DropdownMenuItem>
           {dialog == null && error != null && (
             <p role="alert" className="max-w-72 p-2 text-xs text-red-600">
               {error}
