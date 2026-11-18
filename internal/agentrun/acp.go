@@ -40,7 +40,9 @@ type PermissionRequest struct {
 }
 
 type Hooks struct {
-	Activity func(string)
+	// Activity receives what the agent is doing, such as "Running a command",
+	// and the tool's own title. Both are empty while it writes.
+	Activity func(label, detail string)
 	// Text receives everything the agent has written so far. It only grows;
 	// the finished reply, which drops text written before its last tool call,
 	// replaces it.
@@ -53,31 +55,44 @@ type runClient struct {
 	mu    sync.Mutex
 	all   strings.Builder
 	tail  strings.Builder
+	kind  acp.ToolKind
+	title string
 }
 
 func (c *runClient) SessionUpdate(_ context.Context, p acp.SessionNotification) error {
 	u := p.Update
-	activity := ""
 	c.mu.Lock()
-	if u.AgentMessageChunk != nil && u.AgentMessageChunk.Content.Text != nil {
-		text := u.AgentMessageChunk.Content.Text.Text
-		c.all.WriteString(text)
-		c.tail.WriteString(text)
+	if u.AgentMessageChunk != nil {
+		c.kind, c.title = "", ""
+		if u.AgentMessageChunk.Content.Text != nil {
+			text := u.AgentMessageChunk.Content.Text.Text
+			c.all.WriteString(text)
+			c.tail.WriteString(text)
+		}
 	}
 	if u.ToolCall != nil {
 		c.tail.Reset()
-		activity = u.ToolCall.Title
+		c.kind, c.title = u.ToolCall.Kind, u.ToolCall.Title
+		if c.kind == "" {
+			c.kind = acp.ToolKindOther
+		}
 	}
-	if u.ToolCallUpdate != nil && u.ToolCallUpdate.Title != nil {
-		activity = *u.ToolCallUpdate.Title
+	if u := u.ToolCallUpdate; u != nil {
+		if u.Kind != nil {
+			c.kind = *u.Kind
+		}
+		if u.Title != nil {
+			c.title = *u.Title
+		}
 	}
+	label, detail := toolLabel(c.kind), c.title
 	text := strings.TrimSpace(c.all.String())
 	c.mu.Unlock()
 	if c.hooks.Text != nil && u.AgentMessageChunk != nil {
 		c.hooks.Text(text)
 	}
 	if c.hooks.Activity != nil {
-		c.hooks.Activity(activity)
+		c.hooks.Activity(label, detail)
 	}
 	return nil
 }
@@ -308,4 +323,25 @@ func ListModels(ctx context.Context, def Definition, root string) (Models, error
 		return Models{}, ErrNoModels
 	}
 	return Models{Default: string(option.CurrentValue), Options: models}, nil
+}
+
+func toolLabel(kind acp.ToolKind) string {
+	switch kind {
+	case "":
+		return ""
+	case acp.ToolKindRead:
+		return "Reading"
+	case acp.ToolKindEdit, acp.ToolKindDelete, acp.ToolKindMove:
+		return "Editing files"
+	case acp.ToolKindSearch:
+		return "Searching"
+	case acp.ToolKindExecute:
+		return "Running a command"
+	case acp.ToolKindThink:
+		return "Thinking"
+	case acp.ToolKindFetch:
+		return "Fetching"
+	default:
+		return "Using a tool"
+	}
 }

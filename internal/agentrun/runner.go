@@ -26,6 +26,7 @@ type Live struct {
 	ConversationID string             `json:"conversationId"`
 	ParticipantID  string             `json:"participantId"`
 	Activity       string             `json:"activity"`
+	Detail         string             `json:"detail,omitempty"`
 	Text           string             `json:"text,omitempty"`
 	Permission     *PermissionRequest `json:"permission,omitempty"`
 }
@@ -480,16 +481,16 @@ func (m *Manager) begin(w *repoWorker, s *conversations.Store, j job) (<-chan ru
 			return
 		}
 		reply, err := Run(ctx, def, w.repo.Root, BuildPrompt(j.pending.Conversation, j.pending.Message, j.agent, w.repo.Root), Hooks{
-			Activity: func(title string) {
+			Activity: func(label, detail string) {
 				m.mu.Lock()
 				defer m.mu.Unlock()
 				if w.active != a {
 					return
 				}
-				if title == "" {
-					title = "Writing a reply"
+				if label == "" {
+					label = "Writing a reply"
 				}
-				a.live.Activity = title
+				a.live.Activity, a.live.Detail = label, detail
 				if a.live.Permission == nil {
 					m.arm(w, a, 30*time.Minute, "No activity for 30 minutes")
 				}

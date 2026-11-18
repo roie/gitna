@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"runtime"
+	"slices"
 	"strconv"
 	"strings"
 	"syscall"
@@ -111,7 +112,7 @@ func (f *fakeAgent) Prompt(ctx context.Context, _ acp.PromptRequest) (acp.Prompt
 		return acp.PromptResponse{StopReason: "refusal"}, nil
 	case "narrate", "narrate-tail":
 		send(acp.UpdateAgentMessageText("Before. "))
-		send(acp.SessionUpdate{ToolCall: &acp.SessionUpdateToolCall{SessionUpdate: "tool_call", ToolCallId: "one", Title: "Read"}})
+		send(acp.SessionUpdate{ToolCall: &acp.SessionUpdateToolCall{SessionUpdate: "tool_call", ToolCallId: "one", Title: "git status", Kind: acp.ToolKindExecute}})
 		send(acp.UpdateAgentMessageText("Between. "))
 		send(acp.UpdateAgentThoughtText("Secret thoughts."))
 		send(acp.SessionUpdate{ToolCall: &acp.SessionUpdateToolCall{SessionUpdate: "tool_call", ToolCallId: "two", Title: "Write"}})
@@ -233,18 +234,18 @@ func TestRunIgnoresUnknownNotifications(t *testing.T) {
 func TestRunReplyIsTheFinalMessage(t *testing.T) {
 	for _, mode := range []string{"narrate", "narrate-tail"} {
 		t.Run(mode, func(t *testing.T) {
-			updates := 0
+			var activity []string
 			var texts []string
 			reply, err := Run(t.Context(), fakeDefinition(t, mode), t.TempDir(), "Question", Hooks{
-				Activity: func(string) { updates++ },
+				Activity: func(label, detail string) { activity = append(activity, label+": "+detail) },
 				Text:     func(text string) { texts = append(texts, text) },
 			})
 			want := "Final answer."
 			if mode == "narrate-tail" {
 				want = "Before. Between."
 			}
-			if err != nil || reply != want || updates < 5 {
-				t.Fatalf("reply=%q updates=%d err=%v", reply, updates, err)
+			if err != nil || reply != want || !slices.Contains(activity, "Running a command: git status") || !slices.Contains(activity, "Using a tool: Write") || activity[2] != ": " {
+				t.Fatalf("reply=%q activity=%q err=%v", reply, activity, err)
 			}
 			if len(texts) < 2 || texts[0] != "Before." || !strings.HasSuffix(texts[len(texts)-1], want) {
 				t.Fatalf("streamed %q, want it to start with the first chunk and end with the reply", texts)
