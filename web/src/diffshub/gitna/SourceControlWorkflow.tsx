@@ -2587,7 +2587,8 @@ function TreeSection({
       )}
     >
       {pane ? (
-        <PaneSectionHeader
+        <Header
+          level="pane"
           className={headerClassName}
           actions={
             <>
@@ -2608,11 +2609,11 @@ function TreeSection({
             `${typeof count === 'number' ? count : source.pathCount} files in ${dataSection === 'repository' ? 'Repository' : title}`
           }
           dataSection={dataSection}
-          headerRef={headerRef}
+          ref={headerRef}
           icon={icon}
           open={open}
           title={title}
-          titleAccessory={titleAccessory}
+          accessory={titleAccessory}
           onOpenChange={onOpenChange}
         />
       ) : (
