@@ -358,7 +358,7 @@ export function FindInFilesPanel({
                 type="checkbox"
                 checked={!includeIgnored}
                 onChange={(event) => setIncludeIgnored(!event.target.checked)}
-                className="accent-[var(--diffshub-primary-fg)]"
+                className="accent-[var(--ring)]"
               />
               Use ignore files
             </label>

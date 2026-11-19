@@ -418,7 +418,7 @@ function PaneResizeHandle({
       aria-valuenow={Math.round(size)}
       tabIndex={disabled ? -1 : 0}
       className={cn(
-        'relative z-20 hidden h-0 overflow-visible border-0 outline-none before:absolute before:inset-x-0 before:-top-0.5 before:h-1 before:cursor-[ns-resize] before:bg-transparent before:transition-colors before:duration-100 hover:before:bg-[var(--diffshub-primary-fg)] focus-visible:before:bg-[var(--diffshub-primary-fg)] active:before:bg-[var(--diffshub-primary-fg)] md:block',
+        'relative z-20 hidden h-0 overflow-visible border-0 outline-none before:absolute before:inset-x-0 before:-top-0.5 before:h-1 before:cursor-[ns-resize] before:bg-transparent before:transition-colors before:duration-100 hover:before:bg-[var(--ring)] focus-visible:before:bg-[var(--ring)] active:before:bg-[var(--ring)] md:block',
         disabled && 'pointer-events-none',
       )}
       onPointerDown={(event) => !disabled && onStart(index, event)}
@@ -1025,7 +1025,7 @@ function GitnaSourceControlInner({
                   <textarea
                     ref={composer}
                     aria-label="Commit message"
-                    className="min-h-16 w-full resize-y rounded-md border border-border bg-background px-2.5 py-2 text-sm text-foreground outline-none placeholder:text-muted-foreground focus:border-[var(--diffshub-primary-fg)]"
+                    className="min-h-16 w-full resize-y rounded-md border border-border bg-background px-2.5 py-2 text-sm text-foreground outline-none placeholder:text-muted-foreground focus:border-[var(--ring)]"
                     disabled={repository.busy}
                     placeholder="Commit message"
                     spellCheck
@@ -1760,7 +1760,7 @@ function SourceControlHeaderActions({
             </span>
             <select
               aria-label="Publish remote"
-              className="cursor-pointer rounded border border-border bg-background px-1 py-1 outline-none focus:border-[var(--diffshub-primary-fg)] disabled:cursor-not-allowed disabled:opacity-60"
+              className="cursor-pointer rounded border border-border bg-background px-1 py-1 outline-none focus:border-[var(--ring)] disabled:cursor-not-allowed disabled:opacity-60"
               disabled={remotes.length === 0}
               value={publishRemote}
               onChange={(event) => setPublishRemote(event.currentTarget.value)}
@@ -1819,7 +1819,7 @@ function WorkflowSectionHeader({
       ref={headerRef}
       type="button"
       className={cn(
-        'section-header flex h-8 w-full min-w-0 cursor-pointer items-center gap-1.5 px-3 text-left text-xs focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-[var(--diffshub-primary-fg)]',
+        'section-header flex h-8 w-full min-w-0 cursor-pointer items-center gap-1.5 px-3 text-left text-xs focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-[var(--ring)]',
         className,
       )}
       data-section={dataSection}
@@ -2966,13 +2966,7 @@ interface GraphSectionProps {
 const GRAPH_LANE_SPACING = 12
 const GRAPH_LANE_INSET = 8
 const GRAPH_ROW_HEIGHT = 28
-const GRAPH_LANE_COLORS = [
-  'var(--diffshub-primary-fg, #3b82f6)',
-  '#f59e0b',
-  '#a855f7',
-  '#10b981',
-  '#f43f5e',
-]
+const GRAPH_LANE_COLORS = ['var(--ring, #3b82f6)', '#f59e0b', '#a855f7', '#10b981', '#f43f5e']
 
 function graphColumnX(column: number): number {
   return GRAPH_LANE_INSET + column * GRAPH_LANE_SPACING
@@ -3561,7 +3555,7 @@ const GraphCommitRow = memo(function GraphCommitRow({
             <button
               type="button"
               className={cn(
-                'flex h-7 min-w-0 flex-1 cursor-pointer items-center gap-1 rounded px-1 text-left hover:bg-muted focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-[var(--diffshub-primary-fg)]',
+                'flex h-7 min-w-0 flex-1 cursor-pointer items-center gap-1 rounded px-1 text-left hover:bg-muted focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-[var(--ring)]',
                 open && 'bg-muted',
               )}
               id={`gitna-graph-disclosure-${row.commit.oid}`}
@@ -4259,7 +4253,7 @@ function SelectField({
       <span>{label}</span>
       <select
         aria-label={label === 'Branch or reference' ? label : `Compare ${label.toLowerCase()}`}
-        className="h-9 cursor-pointer rounded-md border border-border bg-background px-2 text-sm outline-none focus:border-[var(--diffshub-primary-fg)]"
+        className="h-9 cursor-pointer rounded-md border border-border bg-background px-2 text-sm outline-none focus:border-[var(--ring)]"
         value={value}
         onChange={(event) => onChange(event.currentTarget.value)}
       >

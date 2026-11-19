@@ -29,7 +29,6 @@ import type { ColorMode } from '@pierre/theming';
 import type { Folder } from '../../lib/types';
 import Link from '../vite/next';
 import {
-  type CSSProperties,
   type Dispatch,
   memo,
   type ReactNode,
@@ -45,7 +44,6 @@ import {
 import { GitnaLogo } from '../gitna/GitnaLogo';
 import { CHROME_ICON_BUTTON_CLASS } from './chromeButtonStyles';
 import { DiffUrlForm } from './DiffUrlForm';
-import { useChromeThemeProps } from './useChromeThemeProps';
 import { Button } from './Button';
 import { ButtonGroup, ButtonGroupItem } from './ButtonGroup';
 import {
@@ -60,8 +58,6 @@ import { Switch } from './Switch';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from './Tooltip';
 import { docsThemeCatalog } from './themeCatalog';
 import { cn } from '../lib/cn';
-import { diffshubChromeMapping } from '../lib/theme/diffshubChromeMapping';
-import { getDropdownThemeStyle } from '../lib/theme/dropdownChromeStyle';
 
 type LightThemeName = string;
 type DarkThemeName = string;
@@ -485,28 +481,12 @@ export const DiffsHubHeader = memo(function DiffsHubHeader({
   // Only show the external-link button when the input still reflects the
   // committed URL — otherwise we'd be pointing at a draft the user is editing.
   const showExternalLink = !localRepository && currentUrl === initialUrl;
-  // Mirror the sidebar's themed chrome so the header bar lives on the same
-  // Shiki surface (background, text, icons, borders) instead of the global
-  // light/dark palette. Falls back to the diffshub-sidebar-bg CSS variable
-  // on first render while the theme is still resolving.
-  const { style: headerChromeStyle } = useChromeThemeProps(
-    diffshubChromeMapping
-  );
-  const themeChromeStyle =
-    Object.keys(headerChromeStyle).length > 0 ? headerChromeStyle : undefined;
-  const dropdownThemeStyle = useMemo(
-    () => getDropdownThemeStyle(themeChromeStyle),
-    [themeChromeStyle]
-  );
   return (
     <div
       className={cn(
         'z-10 contain-layout flex flex-wrap md:flex-nowrap items-center gap-2.5 pt-3 pb-2 px-4 md:px-3 md:py-1.5 border-b border-[var(--color-border-opaque)]',
-        themeChromeStyle == null &&
-          'bg-background md:bg-[var(--diffshub-sidebar-bg)]',
         className
       )}
-      style={themeChromeStyle}
     >
       {localRepository && onOpenHome != null ? (
         <button
@@ -672,7 +652,6 @@ export const DiffsHubHeader = memo(function DiffsHubHeader({
               setColorMode={setColorMode}
               setDarkThemeName={setDarkThemeName}
               setLightThemeName={setLightThemeName}
-              themeDropdownStyle={dropdownThemeStyle}
             />
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
@@ -686,11 +665,7 @@ export const DiffsHubHeader = memo(function DiffsHubHeader({
                   <IconGearFill className="size-4 md:size-3" />
                 </Button>
               </DropdownMenuTrigger>
-              <DropdownMenuContent
-                align="end"
-                className="w-72 p-2"
-                style={dropdownThemeStyle}
-              >
+              <DropdownMenuContent align="end" className="w-72 p-2">
                 {!localRepository && (
                   <>
                     <GitHubTokenControl
@@ -881,7 +856,6 @@ interface ThemeDropdownProps {
   setColorMode: (mode: ColorMode) => void;
   setDarkThemeName: (name: DarkThemeName) => void;
   setLightThemeName: (name: LightThemeName) => void;
-  themeDropdownStyle?: CSSProperties;
 }
 
 // Theme picker shown next to the gear icon. Avoids horizontal sub-menus
@@ -898,7 +872,6 @@ function ThemeDropdown({
   setColorMode,
   setDarkThemeName,
   setLightThemeName,
-  themeDropdownStyle,
 }: ThemeDropdownProps) {
   const TriggerIcon = colorModeIcon(colorMode);
   const [view, setView] = useState<'main' | 'light' | 'dark'>('main');
@@ -929,11 +902,7 @@ function ThemeDropdown({
           <TriggerIcon className="size-4 md:size-3" />
         </Button>
       </DropdownMenuTrigger>
-      <DropdownMenuContent
-        align="end"
-        className="w-72 p-2"
-        style={themeDropdownStyle}
-      >
+      <DropdownMenuContent align="end" className="w-72 p-2">
         {view === 'main' ? (
           <>
             <DropdownMenuItem

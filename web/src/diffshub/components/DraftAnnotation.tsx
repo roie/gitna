@@ -227,7 +227,7 @@ export function CommentComposer({
             }}
             placeholder={placeholder}
             rows={1}
-            className="field-sizing-content w-full resize-none [caret-color:auto] rounded-sm bg-transparent py-1.5 text-[14px] text-inherit placeholder:text-[var(--diffshub-popover-muted-fg,var(--color-muted-foreground))] focus:outline-none"
+            className="field-sizing-content w-full resize-none [caret-color:auto] rounded-sm bg-transparent py-1.5 text-[14px] text-inherit placeholder:text-muted-foreground focus:outline-none"
           />
           {choices.length > 0 && (
             <ul id={listboxID} role="listbox" aria-label="Mention an agent" className="m-0 flex list-none flex-col rounded-sm border border-border bg-background p-1">

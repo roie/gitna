@@ -1,14 +1,9 @@
 'use client';
 
-// Gitna-only Graph primitive: Radix supplies tooltip interaction semantics,
-// while DiffsHub's existing portal-theme mapping supplies presentation.
 import * as TooltipPrimitive from '@radix-ui/react-tooltip';
 import * as React from 'react';
 
-import { useChromeThemeProps } from './useChromeThemeProps';
 import { cn } from '@/lib/cn';
-import { diffshubChromeMapping } from '@/lib/theme/diffshubChromeMapping';
-import { getDropdownThemeStyle } from '@/lib/theme/dropdownChromeStyle';
 
 const TooltipProvider = TooltipPrimitive.Provider;
 const Tooltip = TooltipPrimitive.Root;
@@ -18,10 +13,6 @@ const TooltipContent = React.forwardRef<
   React.ElementRef<typeof TooltipPrimitive.Content>,
   React.ComponentPropsWithoutRef<typeof TooltipPrimitive.Content>
 >(({ className, sideOffset = 8, ...props }, ref) => {
-  const { style: chromeStyle } = useChromeThemeProps(diffshubChromeMapping);
-  const themeChromeStyle =
-    Object.keys(chromeStyle).length > 0 ? chromeStyle : undefined;
-
   return (
     <TooltipPrimitive.Portal>
       <TooltipPrimitive.Content
@@ -33,7 +24,6 @@ const TooltipContent = React.forwardRef<
           'data-[state=delayed-open]:animate-in data-[state=delayed-open]:fade-in-0 data-[state=delayed-open]:zoom-in-95',
           className
         )}
-        style={getDropdownThemeStyle(themeChromeStyle)}
         {...props}
       />
     </TooltipPrimitive.Portal>

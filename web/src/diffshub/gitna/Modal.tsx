@@ -140,7 +140,7 @@ export function Confirm({
             event.preventDefault()
             restoreFocus()
           }}
-          className="fixed left-1/2 top-1/2 z-50 w-[min(440px,calc(100vw-2rem))] -translate-x-1/2 -translate-y-1/2 rounded-lg border border-border bg-background p-5 text-foreground shadow-lg outline-none"
+          className="fixed left-1/2 top-1/2 z-50 w-[min(440px,calc(100vw-2rem))] -translate-x-1/2 -translate-y-1/2 rounded-lg border border-border bg-background p-5 text-foreground outline-none"
         >
           <AlertDialog.Title className="text-base font-semibold leading-none">
             {title}

@@ -12,6 +12,7 @@ import {
   useState,
 } from 'react';
 
+import { applyRootThemeTokens } from '../gitna/theme';
 import { themeController } from './themeController';
 
 interface ThemeProviderProps {
@@ -133,6 +134,17 @@ export function ThemeProvider({
       value,
     });
   }, [attribute, enableColorScheme, state.resolvedColorScheme, value]);
+
+  useEffect(() => {
+    let lastTheme = themeController.getState().resolvedTheme;
+    const applyTokens = () => {
+      const resolved = themeController.getState().resolvedTheme;
+      if (resolved != null) lastTheme = resolved;
+      if (lastTheme != null) applyRootThemeTokens(lastTheme);
+    };
+    applyTokens();
+    return themeController.subscribe(applyTokens);
+  }, []);
 
   const setColorMode = useCallback((next: ColorMode) => {
     themeController.setColorMode(next);

@@ -4,10 +4,7 @@
 import { IconCiWarningFill, IconRefresh } from '@pierre/icons';
 import { useLoadingIndicator } from '../lib/loading';
 
-import { useChromeThemeProps } from './useChromeThemeProps';
 import { Button } from '@/components/Button';
-import { cn } from '@/lib/cn';
-import { diffshubChromeMapping } from '@/lib/theme/diffshubChromeMapping';
 import type { ViewerLoadState } from '@/lib/types';
 
 interface DiffsHubStatusPanelProps {
@@ -31,14 +28,6 @@ export function DiffsHubStatusPanel({
   suppressError = false,
   state,
 }: DiffsHubStatusPanelProps) {
-  // Mirror the rest of the diffshub chrome so the loading screen sits on the
-  // active Shiki theme's surface instead of the global light/dark palette.
-  // Mounted before the viewer is available, so we lean on the same provider
-  // useChromeThemeProps the header/sidebar use — the controller source keeps the
-  // last-resolved theme, so this stays on-palette without flashing the default.
-  const { style: chromeStyle } = useChromeThemeProps(diffshubChromeMapping);
-  const themeChromeStyle =
-    Object.keys(chromeStyle).length > 0 ? chromeStyle : undefined;
   const isError = state === 'error';
   const loadingVisible = useLoadingIndicator(!isError, operation);
   if (isError && suppressError) return null;
@@ -76,11 +65,8 @@ export function DiffsHubStatusPanel({
 
   return (
     <div
-      className={cn(
-        'col-span-full flex min-h-0 items-center justify-center p-6',
-        themeChromeStyle == null && 'bg-background'
-      )}
-      style={{ ...themeChromeStyle, visibility: !isError && !loadingVisible ? 'hidden' : undefined }}
+      className="col-span-full flex min-h-0 items-center justify-center p-6"
+      style={{ visibility: !isError && !loadingVisible ? 'hidden' : undefined }}
     >
       <section
         hidden={!isError && !loadingVisible}

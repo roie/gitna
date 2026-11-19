@@ -5,7 +5,6 @@
 // VS Code Source Control workflow. The donor tab row, comments, diff stats and
 // worker monitor are removed; the themed responsive drawer remains intact.
 import {
-  type CSSProperties,
   memo,
   type ReactNode,
   type RefObject,
@@ -14,10 +13,8 @@ import {
 } from 'react'
 
 import { CHROME_ICON_BUTTON_CLASS } from './chromeButtonStyles'
-import { useChromeThemeProps } from './useChromeThemeProps'
 import { Button } from '@/components/Button'
 import { cn } from '@/lib/cn'
-import { diffshubChromeMapping } from '@/lib/theme/diffshubChromeMapping'
 import { IconXSquircle } from '@pierre/icons'
 
 const MOBILE_MEDIA_QUERY = '(max-width: 767px)'
@@ -42,9 +39,6 @@ export const DiffsHubSidebar = memo(function DiffsHubSidebar({
   const [mobileViewport, setMobileViewport] = useState(
     () => window.matchMedia(MOBILE_MEDIA_QUERY).matches,
   )
-  const { style: sidebarChromeStyle } = useChromeThemeProps(diffshubChromeMapping)
-  const sidebarStyle = Object.keys(sidebarChromeStyle).length > 0 ? sidebarChromeStyle : undefined
-
   useEffect(() => {
     const media = window.matchMedia(MOBILE_MEDIA_QUERY)
     const update = (event: MediaQueryListEvent) => setMobileViewport(event.matches)
@@ -92,7 +86,6 @@ export const DiffsHubSidebar = memo(function DiffsHubSidebar({
         className={className}
         mobileHidden={mobileViewport && !mobileOverlayOpen}
         mobileOverlayOpen={mobileOverlayOpen}
-        themeStyle={sidebarStyle}
         ariaLabel={ariaLabel}
       >
         <div className="flex h-10 shrink-0 items-center justify-end px-4 md:hidden">
@@ -117,7 +110,6 @@ interface SidebarWrapperProps {
   className?: string
   mobileHidden: boolean
   mobileOverlayOpen: boolean
-  themeStyle?: CSSProperties
   ariaLabel: string
 }
 
@@ -126,7 +118,6 @@ function SidebarWrapper({
   className,
   mobileHidden,
   mobileOverlayOpen,
-  themeStyle,
   ariaLabel,
 }: SidebarWrapperProps) {
   return (
@@ -136,13 +127,11 @@ function SidebarWrapper({
       inert={mobileHidden || undefined}
       className={cn(
         className,
-        'contain-strict z-30 flex h-full min-h-0 flex-col border-r border-[var(--color-border-opaque)] transition-transform duration-300 ease-[cubic-bezier(0.32,0.72,0,1)] will-change-transform motion-reduce:transition-none md:z-auto md:translate-y-0 md:will-change-auto',
-        themeStyle == null && 'bg-[var(--diffshub-sidebar-bg)]',
+        'contain-strict z-30 flex h-full min-h-0 flex-col border-r border-[var(--color-border-opaque)] bg-[var(--diffshub-sidebar-bg)] transition-transform duration-300 ease-[cubic-bezier(0.32,0.72,0,1)] will-change-transform motion-reduce:transition-none md:z-auto md:translate-y-0 md:will-change-auto',
         mobileOverlayOpen
           ? 'pointer-events-auto translate-y-0 overflow-hidden rounded-t-xl md:h-full md:overflow-visible md:rounded-none'
           : 'pointer-events-none translate-y-[calc(100%+1.5rem)] overflow-hidden rounded-xl md:pointer-events-auto md:h-full md:overflow-visible md:rounded-none',
       )}
-      style={themeStyle}
     >
       {children}
     </aside>

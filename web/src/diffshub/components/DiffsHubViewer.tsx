@@ -49,14 +49,11 @@ import {
 } from './DropdownMenu';
 import { DraftAnnotation } from './DraftAnnotation';
 import { ThemedCodeView } from './ThemedCodeView';
-import { useChromeThemeProps } from './useChromeThemeProps';
 import { ImageAnnotation } from '../gitna/ImageAnnotation';
-import { buildAnnotationThemeStyle } from '@/lib/annotationThemeStyle';
 import { cn } from '@/lib/cn';
 import { CODE_VIEW_CUSTOM_CSS, CODE_VIEW_LAYOUT } from '@/lib/constants';
 import { shownCode } from '@/lib/draftLocation';
 import { isDraftMetadata } from '@/lib/isDraftMetadata';
-import { diffshubChromeMapping } from '@/lib/theme/diffshubChromeMapping';
 import type { CommentMetadata, DraftCommentMetadata } from '@/lib/types';
 import type { MutateRequest } from '../../lib/api';
 import { splitHunkPatches } from '../../lib/hunk-patches';
@@ -238,15 +235,6 @@ export const DiffsHubViewer = memo(function DiffsHubViewer({
   useEffect(() => () => onDraftChange?.(false), [onDraftChange]);
   const [selectedLines, setSelectedLines] =
     useState<CodeViewLineSelection | null>(null);
-  const { style: chromeStyle } = useChromeThemeProps(diffshubChromeMapping);
-  // Preserve the previous `undefined`-means-not-resolved contract that
-  // buildAnnotationThemeStyle and the className fallbacks depend on.
-  const themeChromeStyle =
-    Object.keys(chromeStyle).length > 0 ? chromeStyle : undefined;
-  const annotationThemeStyle = useMemo(
-    () => buildAnnotationThemeStyle(themeChromeStyle),
-    [themeChromeStyle]
-  );
   const handleSetSelection = useStableCallback(
     (selection: CodeViewLineSelection | null) => {
       setSelectedLines(selection);
@@ -658,7 +646,6 @@ export const DiffsHubViewer = memo(function DiffsHubViewer({
       onItemEditChange={gitnaEditorActions == null ? undefined : handleItemEditChange}
       onItemEditComplete={() => 'accept'}
       onScroll={(scrollTop) => onScroll?.(scrollTop)}
-      style={annotationThemeStyle}
       selectedLines={commenting ? selectedLines : null}
       onSelectedLinesChange={handleSetSelection}
       renderAnnotation={renderCommentAnnotation}

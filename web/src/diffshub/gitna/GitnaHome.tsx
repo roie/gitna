@@ -13,7 +13,6 @@ import {
 import type { Folder, FolderCatalog } from '../../lib/types'
 import { Button } from '../components/Button'
 import { Input } from '../components/Input'
-import { ThemedSurface } from '../components/ThemedSurface'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '../components/Tooltip'
 import { GitnaLogo } from './GitnaLogo'
 import { useLoadingIndicator } from '../lib/loading'
@@ -288,8 +287,7 @@ export function GitnaHome({
   }
 
   return (
-    <ThemedSurface
-      as="main"
+    <main
       aria-labelledby="gitna-home-title"
       className="gitna-scrollbar relative col-span-full row-span-full min-h-0 overflow-y-auto overscroll-contain [grid-column:1/-1] [grid-row:1/-1]"
     >
@@ -511,6 +509,6 @@ export function GitnaHome({
           </section>
         )}
       </div>
-    </ThemedSurface>
+    </main>
   )
 }

@@ -2723,7 +2723,7 @@ function GitnaReviewUIInner({
                       <LoadingIndicator operation={target.key}>
                         <div
                           role="status"
-                          className="pointer-events-none absolute z-20 max-w-full rounded border border-border bg-background px-3 py-2 text-xs text-muted-foreground shadow-sm"
+                          className="pointer-events-none absolute z-20 max-w-full rounded border border-border bg-background px-3 py-2 text-xs text-muted-foreground"
                           style={{ insetBlockEnd: '0.75rem', insetInlineEnd: '0.75rem' }}
                         >
                           {target.filePath == null ? 'Fetching diff…' : 'Opening file…'}

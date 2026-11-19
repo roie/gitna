@@ -1,14 +1,24 @@
+const root = document.documentElement
+
+try {
+  const cached = JSON.parse(localStorage.getItem('diffshub-theme-tokens') ?? 'null')
+  if (cached != null && typeof cached === 'object') {
+    for (const [name, cssValue] of Object.entries(cached)) {
+      if (typeof cssValue !== 'string') continue
+      if (name === 'color-scheme') root.style.colorScheme = cssValue
+      else root.style.setProperty(name, cssValue)
+    }
+  }
+} catch {}
+
 try {
   const saved = localStorage.getItem('theme')
   const dark =
     saved === 'dark' || (saved !== 'light' && matchMedia('(prefers-color-scheme: dark)').matches)
-  document.documentElement.classList.toggle('dark', dark)
-  document.documentElement.classList.toggle('light', !dark)
+  root.classList.toggle('dark', dark)
+  root.classList.toggle('light', !dark)
 } catch {
-  document.documentElement.classList.toggle(
-    'dark',
-    matchMedia('(prefers-color-scheme: dark)').matches,
-  )
+  root.classList.toggle('dark', matchMedia('(prefers-color-scheme: dark)').matches)
 }
 
 const startupHeadingObserver = new MutationObserver(() => {

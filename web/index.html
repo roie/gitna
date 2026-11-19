@@ -23,28 +23,19 @@
     <script src="./theme-bootstrap.js"></script>
     <style>
       html {
-        background: #fff;
-        color: #0a0a0a;
-      }
-      html.dark {
-        background: #0a0a0a;
-        color: #fafafa;
-        color-scheme: dark;
+        background: var(--background, #fff);
+        color: var(--foreground, #0a0a0a);
       }
       [data-startup-loading] {
         position: fixed;
         inset: 0;
         display: grid;
         place-items: center;
-        background: #fff;
-        color: #0a0a0a;
+        background: var(--background, #fff);
+        color: var(--foreground, #0a0a0a);
         font-family: Geist, system-ui, sans-serif;
         text-align: center;
         padding: 24px;
-      }
-      .dark [data-startup-loading] {
-        background: #0a0a0a;
-        color: #fafafa;
       }
       @keyframes show-loading {
         from { visibility: hidden; }
@@ -100,14 +91,10 @@
         margin: 20px auto 0;
         width: 18px;
         height: 18px;
-        border: 2px solid #ddd;
+        border: 2px solid color-mix(in srgb, currentColor 25%, transparent);
         border-top-color: currentColor;
         border-radius: 50%;
         animation: startup-spin 1s linear infinite;
-      }
-      .dark .startup-spinner {
-        border-color: #333;
-        border-top-color: currentColor;
       }
       @keyframes startup-spin {
         to {
@@ -117,12 +104,6 @@
       @media (prefers-reduced-motion: reduce) {
         .startup-spinner {
           animation: none;
-        }
-      }
-      @media (prefers-color-scheme: dark) {
-        html:not(.light) {
-          background: #0a0a0a;
-          color: #fafafa;
         }
       }
       #startup-retry {
