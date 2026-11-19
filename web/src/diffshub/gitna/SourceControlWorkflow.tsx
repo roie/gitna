@@ -1798,71 +1798,6 @@ function SourceControlHeaderActions({
   )
 }
 
-interface PaneSectionHeaderProps {
-  actions?: ReactNode
-  className?: string
-  count?: ReactNode
-  countTitle?: string
-  dataSection: string
-  headerRef?: React.Ref<HTMLButtonElement>
-  icon: ComponentType<{ className?: string }>
-  onOpenChange: (open: boolean) => void
-  open: boolean
-  title: string
-  titleAccessory?: ReactNode
-}
-
-function PaneSectionHeader({
-  actions,
-  className,
-  count,
-  countTitle,
-  dataSection,
-  headerRef,
-  icon: Icon,
-  onOpenChange,
-  open,
-  title,
-  titleAccessory,
-}: PaneSectionHeaderProps) {
-  return (
-    <div
-      className={cn(
-        'group/pane-header text-muted-foreground border-border flex min-w-0 shrink-0 flex-wrap items-center gap-2 border-t px-4 py-2 text-sm md:mx-3 md:px-2',
-        className,
-      )}
-    >
-      <button
-        ref={headerRef}
-        type="button"
-        className="section-header text-muted-foreground hover:text-foreground flex min-w-[min(100%,6rem)] flex-1 cursor-pointer items-center gap-2 text-left text-sm focus:outline-none"
-        data-section={dataSection}
-        aria-expanded={open}
-        onClick={() => onOpenChange(!open)}
-      >
-        <Icon className="size-3 shrink-0 opacity-50" />
-        <span className="section-title min-w-0 flex-1 truncate" title={title}>
-          {title}
-        </span>
-        {count != null && (
-          <span
-            className="section-count shrink-0 tabular-nums text-muted-foreground/75 text-xs"
-            title={countTitle}
-          >
-            {count}
-          </span>
-        )}
-      </button>
-      {titleAccessory}
-      {actions != null && (
-        <div className="ml-auto flex max-w-full shrink-0 flex-wrap items-center gap-1">
-          {actions}
-        </div>
-      )}
-    </div>
-  )
-}
-
 function setRepositoryFoldersExpanded(
   model: FileTree | null,
   paths: readonly string[],
@@ -2161,7 +2096,8 @@ function ConversationsSection({
       data-pane="conversations"
       className="section flex min-h-0 flex-col overflow-hidden max-md:max-h-[50vh]"
     >
-      <PaneSectionHeader
+      <Header
+        level="pane"
         actions={
           <>
             <AgentsMenu model={model} />
@@ -2174,7 +2110,7 @@ function ConversationsSection({
         icon={IconComment}
         open={open}
         title="Conversations"
-        titleAccessory={
+        accessory={
           list.some((conversation) => model.unread(conversation)) && (
             <span
               role="img"
