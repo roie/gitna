@@ -17,6 +17,7 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '../com
 import { GitnaLogo } from './GitnaLogo'
 import { useLoadingIndicator } from '../lib/loading'
 import { formatOpenedAt } from './homeTime'
+import { Row } from './ui/Row'
 
 interface GitnaHomeProps {
   catalog: FolderCatalog | null
@@ -148,14 +149,13 @@ function FolderRow({
   const opened = formatOpenedAt(folder.lastOpened)
   const rowDisabled = disabled || action != null
   return (
-    <div className="group flex min-w-0 items-center gap-1 rounded-md px-1 py-1 transition-colors hover:bg-muted/50 focus-within:bg-muted/50">
-      <button
-        type="button"
-        data-recent-folder
-        className="flex min-w-0 flex-1 cursor-pointer items-center gap-3 py-2 text-left outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset disabled:cursor-wait disabled:opacity-50"
-        disabled={rowDisabled}
-        onClick={onOpen}
-      >
+    <Row
+      size="lg"
+      data-recent-folder
+      className="gap-1 px-1 py-1 [&>button]:gap-3 [&>button]:py-2 [&>button:disabled]:cursor-wait [&>button:disabled]:opacity-50"
+      disabled={rowDisabled}
+      onClick={onOpen}
+      icon={
         <span className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-muted text-foreground">
           {folder.repository ? (
             <IconBrandGit className="size-4" />
@@ -163,13 +163,11 @@ function FolderRow({
             <IconFolder className="size-4" />
           )}
         </span>
-        <span className="min-w-0 flex-1">
-          <span className="block truncate font-medium text-foreground">{folder.name}</span>
-          <span className="mt-1 block truncate text-sm text-muted-foreground" title={folder.path}>
-            {folder.path}
-          </span>
-        </span>
-        {opened != null && (
+      }
+      label={<span className="font-medium text-foreground">{folder.name}</span>}
+      detail={<span title={folder.path}>{folder.path}</span>}
+      status={
+        opened != null && (
           <time
             aria-label={`Last opened ${opened.exact}`}
             className="hidden shrink-0 text-right text-[11px] text-muted-foreground md:block"
@@ -178,47 +176,49 @@ function FolderRow({
           >
             {opened.relative}
           </time>
-        )}
-      </button>
-      <TooltipProvider delayDuration={500}>
-        <span className="flex shrink-0 items-center gap-0.5 opacity-100 transition-opacity sm:opacity-0 sm:group-hover:opacity-100 sm:group-focus-within:opacity-100">
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <Button
-                type="button"
-                variant="ghost"
-                size="icon-md"
-                aria-label={`Open ${folder.name} in new tab`}
-                className="size-9 sm:size-8"
-                disabled={rowDisabled || openFolderDisabledReason != null}
-                title={openFolderDisabledReason ?? undefined}
-                onClick={onOpenInNewTab}
-              >
-                <IconArrowUpRight className="size-4" />
-              </Button>
-            </TooltipTrigger>
-            <TooltipContent>Open in New Tab</TooltipContent>
-          </Tooltip>
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <Button
-                type="button"
-                variant="ghost"
-                size="icon-md"
-                aria-label={`Remove ${folder.name} from recent folders`}
-                className="size-9 hover:text-destructive sm:size-8"
-                disabled={rowDisabled || backendDisabledReason != null}
-                title={backendDisabledReason ?? undefined}
-                onClick={onRemove}
-              >
-                <IconTrash className="size-4" />
-              </Button>
-            </TooltipTrigger>
-            <TooltipContent>Remove from Recent</TooltipContent>
-          </Tooltip>
-        </span>
-      </TooltipProvider>
-    </div>
+        )
+      }
+      actions={
+        <TooltipProvider delayDuration={500}>
+          <span className="flex shrink-0 items-center gap-0.5 opacity-100 transition-opacity sm:opacity-0 sm:group-hover/row:opacity-100 sm:group-focus-within/row:opacity-100">
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon-md"
+                  aria-label={`Open ${folder.name} in new tab`}
+                  className="size-9 sm:size-8"
+                  disabled={rowDisabled || openFolderDisabledReason != null}
+                  title={openFolderDisabledReason ?? undefined}
+                  onClick={onOpenInNewTab}
+                >
+                  <IconArrowUpRight className="size-4" />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>Open in New Tab</TooltipContent>
+            </Tooltip>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon-md"
+                  aria-label={`Remove ${folder.name} from recent folders`}
+                  className="size-9 hover:text-destructive sm:size-8"
+                  disabled={rowDisabled || backendDisabledReason != null}
+                  title={backendDisabledReason ?? undefined}
+                  onClick={onRemove}
+                >
+                  <IconTrash className="size-4" />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>Remove from Recent</TooltipContent>
+            </Tooltip>
+          </span>
+        </TooltipProvider>
+      }
+    />
   )
 }
 
