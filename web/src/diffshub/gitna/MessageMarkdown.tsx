@@ -1,20 +1,29 @@
 import { useMemo } from 'react'
-import { toJsxRuntime } from 'hast-util-to-jsx-runtime'
-import { Fragment, jsx, jsxs } from 'react/jsx-runtime'
-import { parseMarkdown } from './markdownParser'
+import { Markdown } from '@pierre/words/react'
+import { useMarkdownTheme } from './markdownTheme'
 
-export function MessageMarkdown({ body }: { body: string }) {
-  const rendered = useMemo(
-    () =>
-      toJsxRuntime(parseMarkdown(body), {
-        Fragment,
-        jsx,
-        jsxs,
-        components: {
-          a: (props) => <a {...props} target="_blank" rel="noreferrer noopener" />,
-        },
-      }),
-    [body],
+const components = {
+  a: (html: string) => html.replace('<a ', '<a target="_blank" rel="noreferrer noopener" '),
+}
+
+export function MessageMarkdown({ body, live = false }: { body: string; live?: boolean }) {
+  const highlighter = useMarkdownTheme()
+  const plugins = useMemo(
+    () => (highlighter?.plugin == null ? {} : { code: highlighter.plugin }),
+    [highlighter],
   )
-  return <div className="markdown-preview markdown-message">{rendered}</div>
+  return (
+    <Markdown
+      key={highlighter?.name}
+      className="markdown-message"
+      mode={live ? 'streaming' : 'static'}
+      isAnimating={live}
+      components={components}
+      plugins={plugins}
+      lineNumbers={false}
+      controls={false}
+    >
+      {body}
+    </Markdown>
+  )
 }

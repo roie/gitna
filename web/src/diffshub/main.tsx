@@ -13,6 +13,7 @@ const StandalonePDF = lazy(() =>
   import('./gitna/PDFPreview').then(({ PDFPreview }) => ({ default: PDFPreview })),
 )
 import './vite/fonts.css'
+import '@pierre/words/styles.css'
 import './globals.css'
 
 function App({ GitnaReviewUI }: { GitnaReviewUI: ReviewUI | null }) {

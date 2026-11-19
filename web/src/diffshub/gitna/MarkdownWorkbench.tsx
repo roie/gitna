@@ -1,10 +1,7 @@
-import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ComponentProps } from 'react'
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type MouseEvent } from 'react'
 import { useStableCallback } from '@pierre/diffs/react'
-import type { Components } from 'react-markdown'
-import { toJsxRuntime } from 'hast-util-to-jsx-runtime'
-import { Fragment, jsx, jsxs } from 'react/jsx-runtime'
-import type { MarkdownTree } from './markdownParser'
-import { MarkdownWorkerClient } from './markdownWorkerClient'
+import { useMarkdownTheme } from './markdownTheme'
+import { renderMarkdownPreview, resolveRepositoryPath } from './markdownPreview'
 import { useLoadingIndicator } from '../lib/loading'
 
 export type MarkdownViewMode = 'editor' | 'preview' | 'split'
@@ -21,70 +18,6 @@ interface MarkdownWorkbenchProps {
 
 const MAX_MARKDOWN_BYTES = 512 * 1024
 
-function isSafeLink(value: string): boolean {
-  if (value.startsWith('#') || value.startsWith('//')) return !value.startsWith('//')
-  try {
-    const protocol = new URL(value).protocol
-    return protocol === 'http:' || protocol === 'https:' || protocol === 'mailto:'
-  } catch {
-    return !/^[a-z][a-z\d+.-]*:/i.test(value)
-  }
-}
-
-function resolveRepositoryPath(source: string, documentPath: string): string | null {
-  if (
-    source === '' ||
-    source.startsWith('#') ||
-    source.startsWith('//') ||
-    /^[a-z][a-z\d+.-]*:/i.test(source)
-  ) {
-    return null
-  }
-  const pathname = source.split(/[?#]/, 1)[0]!
-  const base = pathname.startsWith('/') ? [] : documentPath.split('/').slice(0, -1)
-  const resolved = [...base]
-  for (const part of pathname.split('/')) {
-    if (part === '' || part === '.') continue
-    if (part === '..') {
-      if (resolved.length === 0) return null
-      resolved.pop()
-    } else {
-      resolved.push(part)
-    }
-  }
-  if (resolved.length === 0 || resolved.some((part) => part === '.git')) return null
-  return resolved.join('/')
-}
-
-function resolveLocalResource(source: string, documentPath: string): string | null {
-  const path = resolveRepositoryPath(source, documentPath)
-  return path == null ? null : `api/v1/content?path=${encodeURIComponent(path)}`
-}
-
-function isRemoteImage(source: string): boolean {
-  try {
-    return new URL(source).protocol === 'https:'
-  } catch {
-    return false
-  }
-}
-
-function resolveImage(source: string, documentPath: string): string | null {
-  return resolveLocalResource(source, documentPath) ?? (isRemoteImage(source) ? source : null)
-}
-
-function srcSetSources(srcSet: string): string[][] {
-  return srcSet.split(',').map((candidate) => candidate.trim().split(/\s+/))
-}
-
-function resolveSrcSet(srcSet: string, documentPath: string): string | null {
-  const candidates = srcSetSources(srcSet).flatMap(([source = '', ...descriptors]) => {
-    const resolved = resolveImage(source, documentPath)
-    return resolved == null ? [] : [[resolved, ...descriptors].join(' ')]
-  })
-  return candidates.length === 0 ? null : candidates.join(', ')
-}
-
 export function MarkdownWorkbench({
   path,
   value,
@@ -100,83 +33,53 @@ export function MarkdownWorkbench({
     () => new TextEncoder().encode(value ?? '').byteLength > MAX_MARKDOWN_BYTES,
     [value],
   )
-  const markdown = tooLarge ? '' : debouncedValue
-  const parsed = useParsedMarkdown(markdown, active && value != null && !tooLarge && error == null)
-  // Hidden previews and the debounce window can retain an older parsed revision.
-  const rendering = parsed.loading || parsed.value !== value
+  const theme = useMarkdownTheme()
+  const [container, setContainer] = useState<HTMLDivElement | null>(null)
+  const [rendered, setRendered] = useState<{ value: string | null; error: string | null }>({
+    value: null,
+    error: null,
+  })
+  const enabled = active && value != null && !tooLarge && error == null
+  useLayoutEffect(() => {
+    if (!enabled || container == null || theme == null) return
+    try {
+      patchChildren(container, renderMarkdownPreview(debouncedValue, path, theme))
+      setRendered({ value: debouncedValue, error: null })
+    } catch (renderError) {
+      container.replaceChildren()
+      setRendered({
+        value: debouncedValue,
+        error: renderError instanceof Error ? renderError.message : String(renderError),
+      })
+    }
+  }, [enabled, container, debouncedValue, path, theme])
+  const rendering = rendered.value !== value
   const loadingVisible = useLoadingIndicator(
-    active && error == null && !tooLarge && rendering && parsed.error == null,
+    active && error == null && !tooLarge && rendering && rendered.error == null,
     value,
   )
-  const markdownComponents = useMemo<Components>(
-    () => ({
-      h1: ({ node, ...props }) => <h1 {...props} data-source-line={node?.position?.start.line} />,
-      h2: ({ node, ...props }) => <h2 {...props} data-source-line={node?.position?.start.line} />,
-      h3: ({ node, ...props }) => <h3 {...props} data-source-line={node?.position?.start.line} />,
-      h4: ({ node, ...props }) => <h4 {...props} data-source-line={node?.position?.start.line} />,
-      h5: ({ node, ...props }) => <h5 {...props} data-source-line={node?.position?.start.line} />,
-      h6: ({ node, ...props }) => <h6 {...props} data-source-line={node?.position?.start.line} />,
-      p: ({ node, ...props }) => <p {...props} data-source-line={node?.position?.start.line} />,
-      li: ({ node, ...props }) => <li {...props} data-source-line={node?.position?.start.line} />,
-      pre: ({ node, ...props }) => <pre {...props} data-source-line={node?.position?.start.line} />,
-      blockquote: ({ node, ...props }) => (
-        <blockquote {...props} data-source-line={node?.position?.start.line} />
-      ),
-      table: ({ node, ...props }) => (
-        <table {...props} data-source-line={node?.position?.start.line} />
-      ),
-      a: ({ href, children, ...props }: ComponentProps<'a'>) => (
-        <a
-          {...props}
-          href={href && isSafeLink(href) ? href : undefined}
-          onClick={(event) => {
-            if (href == null || !isSafeLink(href)) {
-              event.preventDefault()
-              return
-            }
-            const localPath = resolveRepositoryPath(href, path)
-            if (localPath != null) {
-              event.preventDefault()
-              openPath(localPath)
-            }
-          }}
-          rel={/^https?:/i.test(href ?? '') ? 'noreferrer noopener' : undefined}
-          target={/^https?:/i.test(href ?? '') ? '_blank' : undefined}
-        >
-          {children}
-        </a>
-      ),
-      img: ({ node: _node, src, srcSet: _srcSet, alt, ...props }) => {
-        const imageSrc = typeof src === 'string' ? resolveImage(src, path) : null
-        return imageSrc == null ? (
-          <span className="rounded border px-2 py-1 text-xs text-muted-foreground">
-            Blocked image resource: {alt ?? 'unnamed'}
-          </span>
-        ) : (
-          <img {...props} alt={alt ?? ''} loading="lazy" src={imageSrc} />
-        )
-      },
-      source: ({ node: _node, src: _src, srcSet, ...props }) => {
-        const imageSrcSet = srcSet == null ? null : resolveSrcSet(srcSet, path)
-        return imageSrcSet == null ? null : <source {...props} srcSet={imageSrcSet} />
-      },
-    }),
-    [path, openPath],
-  )
 
-  const rendered = useMemo(
-    () =>
-      parsed.tree == null
-        ? null
-        : toJsxRuntime(parsed.tree, {
-            Fragment,
-            jsx,
-            jsxs,
-            components: markdownComponents,
-            passNode: true,
-          }),
-    [parsed.tree, markdownComponents],
-  )
+  const onClick = (event: MouseEvent<HTMLElement>) => {
+    const target = event.target as Element
+    const copy = target.closest('[data-code-action="copy"]')
+    if (copy != null) {
+      const code = copy.closest('[data-markdown="code-block"]')?.querySelector('code')?.textContent
+      if (code != null) {
+        void navigator.clipboard.writeText(code).then(() => {
+          copy.textContent = 'Copied'
+          window.setTimeout(() => (copy.textContent = 'Copy'), 2000)
+        })
+      }
+      return
+    }
+    const href = target.closest('a')?.getAttribute('href')
+    if (href == null) return
+    const localPath = resolveRepositoryPath(href, path)
+    if (localPath != null) {
+      event.preventDefault()
+      openPath(localPath)
+    }
+  }
 
   return (
     <section
@@ -203,14 +106,14 @@ export function MarkdownWorkbench({
             aria-label="Rendered Markdown"
             aria-busy={rendering}
             onScroll={(event) => onScroll?.(event.currentTarget)}
+            onClick={onClick}
             className="markdown-preview cv-scrollbar min-h-0 flex-1 overflow-auto overscroll-contain px-4 py-5 text-sm sm:px-6"
           >
             <div className="mx-auto w-full max-w-3xl">
-              {parsed.error != null ? (
-                <div role="alert">Unable to render this Markdown file: {parsed.error}</div>
-              ) : (
-                rendered
+              {rendered.error != null && (
+                <div role="alert">Unable to render this Markdown file: {rendered.error}</div>
               )}
+              <div ref={setContainer} data-markdown="root" />
               {loadingVisible && (
                 <div
                   className="absolute inset-bs-0 inset-e-0 bg-background p-2 text-muted-foreground"
@@ -234,47 +137,14 @@ export function MarkdownWorkbench({
   )
 }
 
-function useParsedMarkdown(value: string, enabled: boolean) {
-  const client = useRef<MarkdownWorkerClient | null>(null)
-  const [state, setState] = useState<{
-    value: string | null
-    tree: MarkdownTree | null
-    error: string | null
-  }>({ value: null, tree: null, error: null })
-
-  useEffect(
-    () => () => {
-      client.current?.dispose()
-      client.current = null
-    },
-    [enabled],
-  )
-
-  useEffect(() => {
-    if (!enabled || state.value === value) return
-    let current = true
-    const fail = (error: unknown) => {
-      if (!current) return
-      setState({ value, tree: null, error: error instanceof Error ? error.message : String(error) })
-      client.current?.dispose()
-      client.current = null
-    }
-    try {
-      client.current ??= new MarkdownWorkerClient(
-        new Worker(new URL('./markdown.worker.ts', import.meta.url), { type: 'module' }),
-      )
-      void client.current.parse(value).then((tree) => {
-        if (current) setState({ value, tree, error: null })
-      }, fail)
-    } catch (error) {
-      fail(error)
-    }
-    return () => {
-      current = false
-    }
-  }, [value, enabled, state.value])
-
-  return { ...state, loading: state.value !== value }
+function patchChildren(container: Element, next: DocumentFragment) {
+  const nodes = [...next.childNodes]
+  nodes.forEach((node, index) => {
+    const current = container.childNodes[index]
+    if (current == null) container.append(node)
+    else if (!current.isEqualNode(node)) current.replaceWith(node)
+  })
+  while (container.childNodes.length > nodes.length) container.lastChild?.remove()
 }
 
 function useDebouncedValue(value: string | null, active: boolean): string {

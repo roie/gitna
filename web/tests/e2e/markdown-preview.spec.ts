@@ -564,22 +564,134 @@ test('Markdown preview follows the live editor and keeps its undo state across m
   await expect(page.getByRole('tab', { name: /other.txt/ })).toBeVisible()
 })
 
-test('Markdown worker failure leaves the editor usable and shows a render error', async ({
+test('Markdown preview keeps README HTML, alerts, footnotes and highlighted code safely', async ({
   page,
   app,
 }) => {
-  writeFileSync(join(app.repo, 'worker.md'), '# WorkerFailureTitle\n')
-  await page.route('**/assets/markdown.worker-*.js', (route) => route.abort())
+  writeFileSync(
+    join(app.repo, 'readme.md'),
+    [
+      '<p align="center"><picture>',
+      '<source media="(min-width: 1px)" srcset="dark.png">',
+      '<img src="light.png" alt="Logo" width="112" height="112" onerror="window.markdownUnsafe = 1" style="position:fixed" class="fixed inset-0">',
+      '</picture></p>',
+      '',
+      '<script>window.markdownUnsafe = 2</script><iframe src="https://example.com"></iframe>',
+      '',
+      '<a href="javascript:alert(3)" onclick="window.markdownUnsafe = 4">bad</a> <b>bold</b>',
+      '',
+      '<form action="/api"><input name="location"></form>',
+      '<details><summary>More</summary><kbd>Ctrl</kbd></details>',
+      '',
+      '> [!WARNING]',
+      '> Early <b>build</b>.',
+      '',
+      '> plain',
+      '',
+      '<p><svg onload="window.markdownUnsafe = 5"><path d="M0 0"/></svg></p>',
+      '',
+      '<h2 id="setup">Setup</h2>',
+      '',
+      '[Go](#setup) Footnote[^a]',
+      '',
+      '[^a]: Body',
+      '',
+      '```ts',
+      'const answer: number = 42',
+      '```',
+      '',
+      '<p id="themed"><picture><source media="(prefers-color-scheme: dark)" srcset="night.png"><source media="(prefers-color-scheme: light)" srcset="day.png"><img src="day.png" alt="Themed logo"></picture></p>',
+      '',
+      '![Dark only](night.png#gh-dark-mode-only) ![Light only](day.png#gh-light-mode-only)',
+      '',
+    ].join('\n'),
+  )
   await page.goto(app.url)
-  await page.getByRole('button', { name: 'Open command palette' }).click()
-  await page.locator('[aria-label="Search files and commands"]').fill('worker.md')
-  await expect(page.getByRole('option')).toHaveCount(1)
-  await page.getByRole('option').click()
+  await openFile(page, 'readme.md')
   await page.getByRole('button', { name: 'Open Markdown preview to the side' }).click()
-  await expect(page.getByRole('alert')).toContainText('Markdown parser worker failed')
-  const editor = page.getByRole('textbox', { name: 'worker.md', exact: true })
-  await editor.focus()
-  await page.keyboard.press('Control+End')
-  await page.keyboard.insertText('Editor still works')
-  await expect(editor).toContainText('Editor still works')
+  const preview = page.getByRole('region', { name: 'Markdown preview' })
+  const root = preview.locator('[data-markdown="root"]')
+  await expect(preview.getByRole('heading', { name: 'Setup' })).toBeVisible()
+
+  const image = root.locator('p[align="center"] picture img')
+  await expect(image).toHaveAttribute('width', '112')
+  await expect(image).not.toHaveAttribute('class')
+  await expect(root.locator('p[align="center"] picture source')).toHaveAttribute(
+    'srcset',
+    'api/v1/content?path=dark.png',
+  )
+  await expect(root.locator('details summary')).toHaveText('More')
+  await expect(root.locator('details kbd')).toHaveText('Ctrl')
+  await expect(root.locator('b', { hasText: 'bold' })).toBeVisible()
+  await expect(root.locator('a', { hasText: 'bad' })).not.toHaveAttribute('href')
+  const input = root.locator('input[name="user-content-location"]')
+  await expect(input).toHaveAttribute('type', 'checkbox')
+  await expect(input).toBeDisabled()
+  await expect(root.getByText('<script>window.markdownUnsafe = 2</script>')).toBeVisible()
+  await expect(
+    root.locator(
+      'script, iframe, form, [onerror], [onclick], [onload], [href^="javascript:"], :not(code *)[style]',
+    ),
+  ).toHaveCount(0)
+
+  const alert = root.locator('.markdown-alert.markdown-alert-warning')
+  await expect(alert.locator('.markdown-alert-title')).toHaveText('Warning')
+  await expect(alert.locator('.markdown-alert-title svg.octicon-alert')).toHaveAttribute(
+    'aria-hidden',
+    'true',
+  )
+  await expect(alert.locator('p').nth(1)).toHaveText('Early build.')
+  await expect(root.locator('blockquote')).toHaveText('plain')
+  await expect(root.locator('svg')).toHaveCount(1)
+
+  await expect(root.getByRole('heading', { name: 'Setup' })).toHaveAttribute(
+    'id',
+    'user-content-setup',
+  )
+  await expect(root.getByRole('link', { name: 'Go' })).toHaveAttribute(
+    'href',
+    '#user-content-setup',
+  )
+  const reference = root.locator('[data-footnote-ref]')
+  await expect(reference).toHaveAttribute('id', /^user-content-fnref-/)
+  const target = await reference.getAttribute('href')
+  expect(target).toMatch(/^#user-content-fn-/)
+  await expect(root.locator(target!)).toContainText('Body')
+
+  await page.context().grantPermissions(['clipboard-read', 'clipboard-write'])
+  await root.getByRole('button', { name: 'Copy code' }).click()
+  await expect(root.getByRole('button', { name: 'Copy code' })).toHaveText('Copied')
+  await expect
+    .poll(() => page.evaluate(() => navigator.clipboard.readText()))
+    .toBe('const answer: number = 42\n')
+  await expect(root.getByRole('button', { name: 'Copy code' })).toHaveText('Copy')
+  const token = root.locator('[data-language="ts"] code span[style]', { hasText: 'const' })
+  const color = () => token.evaluate((element) => getComputedStyle(element).color)
+  await expect
+    .poll(color)
+    .not.toBe(await root.evaluate((element) => getComputedStyle(element).color))
+  const before = await color()
+  const dark = await page.evaluate(() => document.documentElement.classList.contains('dark'))
+  const themed = async (scheme: 'dark' | 'light') => {
+    const file = scheme === 'dark' ? 'night.png' : 'day.png'
+    await expect(root.locator('#user-content-themed source')).toHaveCount(1)
+    await expect(root.locator('#user-content-themed source')).not.toHaveAttribute('media')
+    await expect(root.locator('#user-content-themed source')).toHaveAttribute(
+      'srcset',
+      `api/v1/content?path=${file}`,
+    )
+    await expect(root.getByRole('img', { name: 'Dark only' })).toHaveCount(
+      scheme === 'dark' ? 1 : 0,
+    )
+    await expect(root.getByRole('img', { name: 'Light only' })).toHaveCount(
+      scheme === 'light' ? 1 : 0,
+    )
+  }
+  await themed(dark ? 'dark' : 'light')
+  await page.getByRole('button', { name: 'Theme settings' }).click()
+  await page.getByRole('button', { name: dark ? 'Light' : 'Dark', exact: true }).click()
+  await page.keyboard.press('Escape')
+  await expect.poll(color).not.toBe(before)
+  await themed(dark ? 'light' : 'dark')
+  expect(await page.evaluate(() => 'markdownUnsafe' in window)).toBe(false)
 })

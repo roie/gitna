@@ -137,7 +137,7 @@ export function ConversationThread({
               text: live?.text ?? '',
               message:
                 live?.text == null || live.text === '' ? null : (
-                  <MessageMarkdown body={live.text} />
+                  <MessageMarkdown body={live.text} live />
                 ),
               after: (
                 <div className="flex flex-col gap-1 text-xs">

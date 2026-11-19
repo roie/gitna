@@ -145,7 +145,7 @@ describe('native run presentation', () => {
     expect(render(model, thread)).toContain('Read a file')
     expect(render(model, thread)).toContain('role="status"')
     f.emitLive({ ...live, text: 'Partial **answer**' })
-    expect(render(model, thread)).toContain('<strong>answer</strong>')
+    expect(render(model, thread)).toMatch(/<strong[^>]*>answer<\/strong>/)
     thread.runs[0] = { ...run, state: 'completed' }
     f.list.mockResolvedValueOnce({
       participant: human,

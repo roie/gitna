@@ -1,6 +1,5 @@
 import { readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
-import { createRequire } from 'node:module'
 import { fileURLToPath } from 'node:url'
 import { gzipSync } from 'node:zlib'
 import react from '@vitejs/plugin-react'
@@ -57,18 +56,6 @@ export default defineConfig({
   },
   worker: {
     format: 'es',
-    plugins: () => [
-      {
-        name: 'markdown-worker-entities',
-        enforce: 'pre',
-        resolveId(id, importer) {
-          // The browser decoder needs document; workers must use the package's table decoder.
-          if (id === 'decode-named-character-reference' && importer != null) {
-            return createRequire(importer).resolve(id)
-          }
-        },
-      },
-    ],
   },
   test: {
     exclude: [...configDefaults.exclude, 'tests/e2e/**'],
