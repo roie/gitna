@@ -14,6 +14,7 @@ import type { ApiClient } from '../../lib/api'
 import type { GraphPage } from '../../lib/types'
 
 import { cn } from '../lib/cn'
+import { Row } from './ui/Row'
 import { useLoadingIndicator } from '../lib/loading'
 import { splitPaletteFileMatchIndices, paletteTextMatches } from './commandPalette'
 
@@ -590,10 +591,10 @@ export function GitnaCommandPalette({
         className="list-scrollbar h-[min(560px,calc(84dvh-58px))] overflow-y-auto overscroll-contain p-1.5"
       >
         {results.map((result, index) => (
-          <button
+          <Row
+            size="lg"
             key={result.id}
             id={`${listboxId}-option-${index}`}
-            type="button"
             role="option"
             aria-selected={index === activeIndex}
             aria-disabled={
@@ -615,10 +616,10 @@ export function GitnaCommandPalette({
             }
             data-palette-index={index}
             tabIndex={-1}
+            selected={index === activeIndex}
             className={cn(
-              'flex min-h-10 w-full cursor-pointer items-center gap-3 rounded-md px-3 py-1.5 text-left outline-none hover:bg-muted focus-visible:ring-2 focus-visible:ring-ring',
-              index === activeIndex && 'bg-muted',
-              result.kind === 'file' && result.stale && 'cursor-default',
+              'gap-3 px-3 py-1.5 [&>button]:gap-3',
+              result.kind === 'file' && result.stale && '[&>button]:cursor-default',
             )}
             onClick={() => execute(result)}
             onMouseDown={(event) => {
@@ -629,47 +630,52 @@ export function GitnaCommandPalette({
             onPointerMove={() => {
               if (result.kind !== 'file' || !result.stale) setActiveIndex(index)
             }}
-          >
-            {result.kind === 'file' ? (
-              <FileTypeIcon path={result.path} palette />
-            ) : (
-              <span
-                aria-hidden="true"
-                data-palette-command-icon={result.command.id}
-                className="flex size-4 shrink-0 items-center justify-center text-muted-foreground [&>svg]:size-4"
-              >
-                {result.command.icon}
-              </span>
-            )}
-            {result.kind === 'file' ? (
-              <PaletteFileLabel result={result} folderLabel={folderLabel} />
-            ) : (
-              <span className="min-w-0 flex-1">
-                <span className="block truncate text-sm font-medium">{result.command.label}</span>
-                {result.command.description != null && (
-                  <span className="mt-0.5 block truncate text-xs text-muted-foreground">
-                    {result.command.description}
-                  </span>
-                )}
-                {result.command.detail != null && (
-                  <span
-                    title={result.command.detail}
-                    className="mbs-0.5 block truncate text-xs text-muted-foreground"
-                  >
-                    {result.command.detail}
-                  </span>
-                )}
-                {result.command.disabledReason != null && (
-                  <span
-                    id={`${listboxId}-reason-${index}`}
-                    className="mt-0.5 block overflow-wrap-anywhere text-xs text-muted-foreground"
-                  >
-                    {result.command.disabledReason}
-                  </span>
-                )}
-              </span>
-            )}
-          </button>
+            icon={
+              result.kind === 'file' ? (
+                <FileTypeIcon path={result.path} palette />
+              ) : (
+                <span
+                  aria-hidden="true"
+                  data-palette-command-icon={result.command.id}
+                  className="flex size-4 shrink-0 items-center justify-center text-muted-foreground [&>svg]:size-4"
+                >
+                  {result.command.icon}
+                </span>
+              )
+            }
+            label={
+              result.kind === 'file' ? (
+                <PaletteFileLabel result={result} folderLabel={folderLabel} />
+              ) : (
+                <span className="font-medium">{result.command.label}</span>
+              )
+            }
+            detail={
+              result.kind === 'command' &&
+              (result.command.description != null ||
+                result.command.detail != null ||
+                result.command.disabledReason != null) ? (
+                <>
+                  {result.command.description != null && (
+                    <span className="block truncate">{result.command.description}</span>
+                  )}
+                  {result.command.detail != null && (
+                    <span title={result.command.detail} className="mbs-0.5 block truncate">
+                      {result.command.detail}
+                    </span>
+                  )}
+                  {result.command.disabledReason != null && (
+                    <span
+                      id={`${listboxId}-reason-${index}`}
+                      className="mt-0.5 block overflow-wrap-anywhere whitespace-normal"
+                    >
+                      {result.command.disabledReason}
+                    </span>
+                  )}
+                </>
+              ) : undefined
+            }
+          />
         ))}
 
         {commitMode && commitError != null && (
