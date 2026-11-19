@@ -4,6 +4,8 @@ import { IconChevronSm } from '@pierre/icons'
 import type { ContentSearchFile, ContentSearchMatch } from '../../lib/types'
 import { cn } from '../lib/cn'
 import { FileTypeIcon } from './FileTypeIcon'
+import { Pane } from './ui/Pane'
+import { Row } from './ui/Row'
 
 type SearchRow =
   | { key: string; file: ContentSearchFile; match?: undefined }
@@ -81,9 +83,9 @@ export function SearchResults({
     }
   })
   return (
-    <div
+    <Pane
       ref={scrollRef}
-      className="list-scrollbar min-h-0 flex-1 overflow-y-auto overscroll-contain pb-2"
+      className="min-h-0 flex-1 pb-2"
       aria-label="Search results"
       onKeyDown={(event) => {
         const button = (event.target as HTMLElement).closest<HTMLButtonElement>(
@@ -113,83 +115,89 @@ export function SearchResults({
           const collapsed = collapsedFiles.has(file.path)
           const separator = file.path.lastIndexOf('/')
           return (
-            <button
+            <div
               key={row.key}
-              type="button"
-              data-search-row={row.key}
-              ref={(button) => {
-                if (button) buttons.current.set(row.key, button)
-                else buttons.current.delete(row.key)
-              }}
-              onFocus={() => setFocusedKey(row.key)}
               style={{
                 position: 'absolute',
                 top: 0,
                 left: 0,
+                width: '100%',
                 height: item.size,
                 transform: `translateY(${item.start}px)`,
               }}
-              aria-expanded={match == null ? !collapsed : undefined}
-              aria-label={match == null ? undefined : `Open ${file.path}:${match.line}`}
-              aria-current={selectedMatch === row.key ? 'true' : undefined}
-              onClick={() =>
-                match == null
-                  ? onToggle(file.path, !collapsed)
-                  : onOpen(row.key, file.path, match.line, match.column)
-              }
-              onKeyDown={(event) => {
-                if (match == null && (event.key === 'ArrowLeft' || event.key === 'ArrowRight')) {
-                  event.preventDefault()
-                  onToggle(file.path, event.key === 'ArrowLeft')
-                }
-              }}
-              className={cn(
-                'flex w-full cursor-pointer items-center text-left hover:bg-accent focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-ring',
-                match == null ? 'gap-1.5 px-3' : 'gap-2 overflow-hidden pl-10 pr-3',
-                selectedMatch === row.key && 'bg-accent text-accent-foreground',
-              )}
-              title={
-                match == null
-                  ? file.path
-                  : `${file.path}:${match.line}:${match.column + 1} — ${match.excerpt}`
-              }
             >
-              {match == null ? (
-                <>
-                  <IconChevronSm
-                    aria-hidden="true"
-                    className={cn(
-                      'size-3 shrink-0 text-muted-foreground',
-                      collapsed && '-rotate-90',
-                    )}
-                  />
-                  <FileTypeIcon path={file.path} />
-                  <span className="truncate">{file.path.slice(separator + 1)}</span>
-                  <span className="min-w-0 flex-1 truncate text-muted-foreground">
-                    {file.path.slice(0, Math.max(0, separator))}
-                  </span>
-                  <span className="shrink-0 text-muted-foreground tabular-nums">
-                    {file.matches.length}
-                  </span>
-                </>
-              ) : (
-                <>
-                  <span className="w-5 shrink-0 text-right text-muted-foreground tabular-nums">
-                    {match.line}
-                  </span>
-                  <span className="min-w-0 truncate whitespace-pre font-mono text-xs">
-                    {match.excerpt.slice(0, match.matchStart)}
-                    <mark className="bg-[var(--gitna-search-match-bg)] text-[var(--gitna-search-match-fg)]">
-                      {match.excerpt.slice(match.matchStart, match.matchEnd) || '\u200b'}
-                    </mark>
-                    {match.excerpt.slice(match.matchEnd)}
-                  </span>
-                </>
-              )}
-            </button>
+              <Row
+                data-search-row={row.key}
+                ref={(button) => {
+                  if (button) buttons.current.set(row.key, button)
+                  else buttons.current.delete(row.key)
+                }}
+                onFocus={() => setFocusedKey(row.key)}
+                aria-expanded={match == null ? !collapsed : undefined}
+                aria-label={match == null ? undefined : `Open ${file.path}:${match.line}`}
+                aria-current={selectedMatch === row.key ? 'true' : undefined}
+                onClick={() =>
+                  match == null
+                    ? onToggle(file.path, !collapsed)
+                    : onOpen(row.key, file.path, match.line, match.column)
+                }
+                onKeyDown={(event) => {
+                  if (match == null && (event.key === 'ArrowLeft' || event.key === 'ArrowRight')) {
+                    event.preventDefault()
+                    onToggle(file.path, event.key === 'ArrowLeft')
+                  }
+                }}
+                className={cn('h-full', match != null && 'pl-10')}
+                selected={selectedMatch === row.key}
+                title={
+                  match == null
+                    ? file.path
+                    : `${file.path}:${match.line}:${match.column + 1} — ${match.excerpt}`
+                }
+                icon={
+                  match == null ? (
+                    <>
+                      <IconChevronSm
+                        aria-hidden="true"
+                        className={cn(
+                          'size-3 shrink-0 text-muted-foreground',
+                          collapsed && '-rotate-90',
+                        )}
+                      />
+                      <FileTypeIcon path={file.path} />
+                    </>
+                  ) : (
+                    <span className="w-5 shrink-0 text-right text-muted-foreground tabular-nums">
+                      {match.line}
+                    </span>
+                  )
+                }
+                label={
+                  match == null ? (
+                    file.path.slice(separator + 1)
+                  ) : (
+                    <span className="whitespace-pre font-mono text-xs">
+                      {match.excerpt.slice(0, match.matchStart)}
+                      <mark className="bg-[var(--gitna-search-match-bg)] text-[var(--gitna-search-match-fg)]">
+                        {match.excerpt.slice(match.matchStart, match.matchEnd) || '\u200b'}
+                      </mark>
+                      {match.excerpt.slice(match.matchEnd)}
+                    </span>
+                  )
+                }
+                detail={match == null ? file.path.slice(0, Math.max(0, separator)) : undefined}
+                status={
+                  match == null ? (
+                    <span className="shrink-0 text-muted-foreground tabular-nums">
+                      {file.matches.length}
+                    </span>
+                  ) : undefined
+                }
+              />
+            </div>
           )
         })}
       </div>
-    </div>
+    </Pane>
   )
 }

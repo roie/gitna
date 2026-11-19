@@ -14,8 +14,8 @@ import { ApiError, type ApiClient } from '../../lib/api'
 import type { ContentSearchFile } from '../../lib/types'
 import { Button } from '../components/Button'
 import { Input } from '../components/Input'
-import { StatusRow } from '../components/StatusRow'
 import { cn } from '../lib/cn'
+import { Header } from './ui/Header'
 import { useLoadingIndicator } from '../lib/loading'
 import { FileTypeIconSprite } from './FileTypeIcon'
 import { SearchResults } from './SearchResults'
@@ -199,53 +199,57 @@ export function FindInFilesPanel({
       aria-label="Find in Files"
     >
       <FileTypeIconSprite />
-      <StatusRow icon={IconSearch} className="shrink-0 text-sm">
-        <h2 className="section-title min-w-0 flex-1 truncate">Search</h2>
-        <div role="group" aria-label="Search actions" className="ml-auto flex items-center gap-0.5">
-          {query && (
-            <>
+      <Header
+        level="pane"
+        icon={IconSearch}
+        title="Search"
+        actions={
+          <div role="group" aria-label="Search actions" className="flex items-center gap-0.5">
+            {query && (
+              <>
+                <SearchButton
+                  aria-label="Refresh search"
+                  title="Refresh search"
+                  disabled={loading}
+                  onClick={() => setSearchTick((tick) => tick + 1)}
+                >
+                  <IconRefresh aria-hidden="true" className="size-3.5" />
+                </SearchButton>
+                <SearchButton
+                  aria-label="Clear search"
+                  title="Clear search"
+                  onClick={() => {
+                    setQuery('')
+                    inputRef.current?.focus()
+                  }}
+                >
+                  <IconX aria-hidden="true" className="size-3.5" />
+                </SearchButton>
+              </>
+            )}
+            {files.length > 0 && (
               <SearchButton
-                aria-label="Refresh search"
-                title="Refresh search"
-                disabled={loading}
-                onClick={() => setSearchTick((tick) => tick + 1)}
+                aria-label={allCollapsed ? 'Expand all results' : 'Collapse all results'}
+                title={allCollapsed ? 'Expand all results' : 'Collapse all results'}
+                onClick={() =>
+                  setCollapsedFiles(
+                    allCollapsed ? new Set() : new Set(files.map((file) => file.path)),
+                  )
+                }
               >
-                <IconRefresh aria-hidden="true" className="size-3.5" />
+                <IconCollapsedRow aria-hidden="true" className="size-3.5" />
               </SearchButton>
-              <SearchButton
-                aria-label="Clear search"
-                title="Clear search"
-                onClick={() => {
-                  setQuery('')
-                  inputRef.current?.focus()
-                }}
-              >
-                <IconX aria-hidden="true" className="size-3.5" />
-              </SearchButton>
-            </>
-          )}
-          {files.length > 0 && (
+            )}
             <SearchButton
-              aria-label={allCollapsed ? 'Expand all results' : 'Collapse all results'}
-              title={allCollapsed ? 'Expand all results' : 'Collapse all results'}
-              onClick={() =>
-                setCollapsedFiles(
-                  allCollapsed ? new Set() : new Set(files.map((file) => file.path)),
-                )
-              }
+              aria-label="Show Source Control"
+              title="Show Source Control"
+              onClick={onBack}
             >
-              <IconCollapsedRow aria-hidden="true" className="size-3.5" />
+              <IconSidebar aria-hidden="true" className="size-3.5" />
             </SearchButton>
-          )}
-          <SearchButton
-            aria-label="Show Source Control"
-            title="Show Source Control"
-            onClick={onBack}
-          >
-            <IconSidebar aria-hidden="true" className="size-3.5" />
-          </SearchButton>
-        </div>
-      </StatusRow>
+          </div>
+        }
+      />
       <div className="shrink-0 px-3 pb-2">
         <div className="relative">
           <Input
