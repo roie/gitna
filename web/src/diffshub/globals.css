@@ -241,22 +241,17 @@
       color-mix(in lab, var(--background) 80%, white)
     )
   );
-  --list-scrollbar-thumb-bg: color-mix(
-    in srgb,
-    var(--list-scrollbar-thumb-color) 55%,
-    transparent
-  );
+  --list-scrollbar-thumb-bg: transparent;
   scrollbar-gutter: stable;
 }
 
-.list-scrollbar:hover,
-.list-scrollbar:focus-within {
+.list-scrollbar:hover {
   --list-scrollbar-thumb-bg: var(--list-scrollbar-thumb-color);
 }
 
 .list-scrollbar::-webkit-scrollbar {
-  width: 10px;
-  height: 10px;
+  width: 6px;
+  height: 6px;
 }
 
 .list-scrollbar::-webkit-scrollbar-track {
@@ -266,8 +261,8 @@
 .list-scrollbar::-webkit-scrollbar-thumb {
   background-color: var(--list-scrollbar-thumb-bg);
   background-clip: content-box;
-  border: 3px solid transparent;
-  border-radius: 5px;
+  border: 1px solid transparent;
+  border-radius: 3px;
 }
 
 @supports (-moz-appearance: none) {
