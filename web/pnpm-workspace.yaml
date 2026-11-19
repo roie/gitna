@@ -2,13 +2,12 @@ allowBuilds:
   '@tailwindcss/oxide': true
 minimumReleaseAgeExclude:
   - '@vitejs/plugin-react@6.1.0'
-  - '@pierre/diffs@1.6.4'
+  - '@pierre/diffs@1.7.0-beta.4'
+  - '@pierre/highlights@0.5.1'
+  - '@pierre/patches@0.0.1'
+  - '@pierre/words@0.2.2'
 overrides:
-  '@pierre/trees>@pierre/theming': 1.0.2
   vite@*: 'catalog:'
-patchedDependencies:
-  '@pierre/diffs@1.6.4': patches/@pierre__diffs@1.6.4.patch
-  '@pierre/trees@1.0.0-beta.6': patches/@pierre__trees@1.0.0-beta.6.patch
 catalog:
   vite: npm:@voidzero-dev/vite-plus-core@1.1.0
   vite-plus: 1.1.0
@@ -17,3 +16,6 @@ peerDependencyRules:
     - vite
   allowedVersions:
     vite: '*'
+patchedDependencies:
+  '@pierre/diffs@1.7.0-beta.4': patches/@pierre__diffs@1.7.0-beta.4.patch
+  '@pierre/trees@1.0.0': patches/@pierre__trees@1.0.0.patch

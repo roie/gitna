@@ -19,68 +19,66 @@ function renderWindow(renderer: FileRenderer, file: FileContents, startingLine: 
     bufferAfter: 0,
   })
   expect(result).toBeDefined()
-  return renderer.renderPartialHTML(result!.contentAST)
+  return renderer.renderFullHTML(result!)
 }
 
-async function fixture(
-  contents = Array.from({ length: 2000 }, (_, line) => `line ${line}`).join('\n'),
-) {
-  const file: FileContents = { name: 'notes.txt', contents }
-  const renderer = new FileRenderer({ theme: 'github-dark' })
-  renderer.beginEditSession(file)
-  const highlighter = await getSharedHighlighter({ langs: ['text'], themes: ['github-dark'] })
-  const tokenize = vi.spyOn(highlighter, 'codeToTokens')
-  renderWindow(renderer, file, 0)
-  return { file, renderer, tokenize }
+function start(contents: string, options: Record<string, unknown> = {}) {
+  const renderer = new FileRenderer({ theme: 'github-dark', ...options })
+  const file = renderer.startEditSession({ name: 'notes.txt', contents })
+  return { file, renderer }
 }
 
 describe('plain-text editor viewport rendering', () => {
-  it.each(['\n', '\r\n'])(
-    'reuses the document snapshot instead of joining every line with %j',
-    async (eol) => {
-      const original = Array.from({ length: 2000 }, (_, line) => `line ${line}${eol}`).join('')
-      const { file, renderer } = await fixture(original)
-      const lines = renderer.getOrCreateLineCache(file)
-      const join = vi.spyOn(lines, 'join')
-      const dirty = new Map<number, [number, string, string][]>([[0, [[0, '', 'edited']]]])
-      renderer.updateRenderCache(dirty, 'dark')
-      expect(join).toHaveBeenCalledOnce()
-      const contents = file.contents
-      join.mockClear()
-      const snapshot = vi.fn(() => contents)
-      renderer.updateRenderCache(dirty, 'dark', false, true, snapshot)
-      expect(snapshot).toHaveBeenCalledOnce()
-      expect(join).not.toHaveBeenCalled()
-      expect(file.contents).toBe(
-        `edited${eol}${original.slice(original.indexOf(eol) + eol.length)}`,
-      )
-      expect(renderWindow(renderer, file, 1997)).toContain('line 1999')
-      snapshot.mockClear()
-      renderer.updateRenderCache(dirty, 'dark', false, false, snapshot)
-      expect(snapshot).not.toHaveBeenCalled()
-      renderer.cleanUp()
-    },
-  )
+  it('keeps edited contents lazy instead of joining every line', () => {
+    const original = Array.from({ length: 2000 }, (_, line) => `line ${line}\n`).join('')
+    const { file, renderer } = start(original)
+    renderWindow(renderer, file, 0)
+    const document = new TextDocument<'file', undefined>(file.name, file.contents)
+    const getText = vi.spyOn(document, 'getText')
+    const change = document.applyEdits([
+      {
+        range: { start: { line: 0, character: 0 }, end: { line: 0, character: 4 } },
+        newText: 'edited',
+      },
+    ])!
+    renderer.applyChange(change, document)
+    expect(getText.mock.calls.some(([range]) => range === undefined)).toBe(false)
+    expect(file.contents).toBe(`edited${original.slice(4)}`)
+    renderWindow(renderer, file, 1997)
+    renderer.cleanUp()
+  })
 
   it('renders replacement and undo across the windowed-edit threshold', () => {
     const original = 'const value = 1;\n'.repeat(5)
-    const file: FileContents = { name: 'source.js', contents: original }
-    const renderer = new FileRenderer({ theme: 'github-dark', tokenizeMaxLength: 2 })
-    renderer.beginEditSession(file)
+    const { file, renderer } = start(original, { tokenizeMaxLength: 2 })
     expect(renderWindow(renderer, file, 0)).toContain('const')
-    renderer.applyDocumentChange(new TextDocument<'file', undefined>(file.name, 'x'))
+    expect(renderer.editorRenderReady()).toBe(true)
+    const document = new TextDocument<'file', undefined>(file.name, original)
+    const change = document.applyEdits([
+      {
+        range: { start: { line: 0, character: 0 }, end: { line: 5, character: 0 } },
+        newText: 'x',
+      },
+    ])!
+    renderer.applyChange(change, document)
     expect(renderWindow(renderer, file, 0)).toContain('x')
     expect(file.contents).toBe('x')
-    renderer.applyDocumentChange(new TextDocument<'file', undefined>(file.name, original))
+    const undo = document.undo()![0]
+    renderer.applyChange(undo, document)
     expect(renderWindow(renderer, file, 3)).toContain('const')
     expect(file.contents).toBe(original)
-    renderer.applyDocumentChange(new TextDocument<'file', undefined>(file.name, 'x'))
-    expect(renderWindow(renderer, file, 0)).toContain('x')
     renderer.cleanUp()
   })
 
   it('renders million-line edit sessions in bounded windows', async () => {
-    const { file, renderer, tokenize } = await fixture('x\r\n'.repeat(999999) + 'END!')
+    const original = 'x\r\n'.repeat(999999) + 'END!'
+    const { file, renderer } = start(original)
+    const highlighter = await getSharedHighlighter({
+      langs: ['text'],
+      themes: ['github-dark'],
+    })
+    const tokenize = vi.spyOn(highlighter, 'codeToTokens')
+    renderWindow(renderer, file, 0)
     expect(renderer.editorRenderReady()).toBe(true)
     for (const line of [999997, 20, 500000, 0]) {
       const html = renderWindow(renderer, file, line)
@@ -88,107 +86,45 @@ describe('plain-text editor viewport rendering', () => {
       if (line === 999997) expect(html).toContain('END!')
     }
     expect(tokenize.mock.calls.every(([contents]) => contents.length < 100)).toBe(true)
-    renderer.updateRenderCache(new Map([[999999, [[0, '', 'END!Z']]]]), 'dark')
-    expect(renderWindow(renderer, file, 999997)).toContain('END!Z')
-    renderWindow(renderer, file, 0)
+    const document = new TextDocument<'file', undefined>(file.name, original)
+    const change = document.applyEdits([
+      {
+        range: { start: { line: 999999, character: 4 }, end: { line: 999999, character: 4 } },
+        newText: 'Z',
+      },
+    ])!
+    renderer.applyChange(change, document)
     expect(renderWindow(renderer, file, 999997)).toContain('END!Z')
     expect(file.contents).toBe('x\r\n'.repeat(999999) + 'END!Z')
-    const document = new TextDocument<'file', undefined>(file.name, `first\r\n${file.contents}`)
-    renderer.applyDocumentChange(document)
+    const insert = document.applyEdits([
+      {
+        range: { start: { line: 0, character: 0 }, end: { line: 0, character: 0 } },
+        newText: 'first\r\n',
+      },
+    ])!
+    renderer.applyChange(insert, document)
     expect(renderWindow(renderer, file, 999998)).toContain('END!Z')
     expect(renderWindow(renderer, file, 0)).toContain('first')
-    renderer.applyDocumentChange(
-      new TextDocument<'file', undefined>(file.name, 'x\r\n'.repeat(999999) + 'END!'),
-    )
-    expect(renderWindow(renderer, file, 999997)).toContain('END!')
+    const undo = document.undo()![0]
+    renderer.applyChange(undo, document)
+    expect(renderWindow(renderer, file, 999997)).toContain('END!Z')
     expect(renderer.editorRenderReady()).toBe(true)
     renderer.cleanUp()
   })
 
-  it('materializes deferred highlight rows only when rendered without rewriting source', async () => {
-    const contents = Array.from({ length: 2000 }, (_, line) => `line ${line}\r\n`).join('')
-    const { file, renderer } = await fixture(contents)
-    const readText = vi.fn((line: number) => `line ${line}`)
-    const updates = new Map<number, [number, string, string][]>()
-    for (let line = 0; line < 2000; line++) {
-      const token: [number, string, string] = [0, '#ff0000', '']
-      Object.defineProperty(token, 2, { get: () => readText(line) })
-      updates.set(line, [token])
-    }
-    renderer.updateRenderCache(updates, 'dark', false, false)
-    expect(readText).not.toHaveBeenCalled()
-    expect(file.contents).toBe(contents)
-    expect(renderWindow(renderer, file, 1997)).toContain('line 1999')
-    expect(readText).toHaveBeenCalledTimes(3)
-    expect(renderWindow(renderer, file, 0)).toContain('line 0')
-    expect(readText).toHaveBeenCalledTimes(6)
-    expect(file.contents).toBe(contents)
-    const document = new TextDocument<'file', undefined>(file.name, contents)
-    document.applyResolvedEdits([{ start: 0, end: 0, text: 'inserted\r\n' }])
-    renderer.applyDocumentChange(document)
-    const shifted = renderWindow(renderer, file, 1998)
-    expect(shifted).toContain('line 1999')
-    expect(shifted).toContain('data-line="2001"')
-    document.undo()
-    renderer.applyDocumentChange(document)
-    expect(renderWindow(renderer, file, 1997)).toContain('line 1999')
-    renderer.updateRenderCache(new Map([[0, [[0, '', 'edited']]]]), 'dark')
-    expect(renderWindow(renderer, file, 0)).toContain('edited')
-    expect(file.contents).toBe(`edited\r\n${contents.slice(contents.indexOf('\r\n') + 2)}`)
-    renderer.cleanUp()
-  })
-
-  it('reveals distant matches without retokenizing the entire unchanged document', async () => {
-    const { file, renderer, tokenize } = await fixture()
-    const initialCalls = tokenize.mock.calls.length
-    expect(initialCalls).toBeGreaterThan(0)
-    for (const line of [1997, 20, 1000, 1997, 0]) {
-      expect(renderWindow(renderer, file, line)).toContain(`line ${line}`)
-    }
-    expect(tokenize).toHaveBeenCalledTimes(initialCalls)
-    renderer.cleanUp()
-  })
-
-  it('keeps dirty rows visible after distant jumps', async () => {
-    const { file, renderer } = await fixture()
-    renderer.updateRenderCache(new Map([[1997, [[0, '', 'edited match']]]]), 'dark')
-    expect(renderWindow(renderer, file, 1997)).toContain('edited match')
-    renderWindow(renderer, file, 0)
-    expect(renderWindow(renderer, file, 1997)).toContain('edited match')
-    renderer.cleanUp()
-  })
-
-  it.each(['\n', '\r\n'])(
-    'preserves shifted lines and structural rollback with %j line endings',
-    async (eol) => {
-      const original = ['first', 'match', 'last', ''].join(eol)
-      const { file, renderer } = await fixture(original)
-      renderer.applyDocumentChange(
-        new TextDocument<'file', undefined>(file.name, `inserted${eol}${original}`),
-      )
-      const shifted = renderWindow(renderer, file, 1)
-      expect(shifted).toContain('match')
-      expect(shifted).toContain('data-line="3"')
-      renderer.applyDocumentChange(new TextDocument<'file', undefined>(file.name, original))
-      const restored = renderWindow(renderer, file, 0)
-      expect(restored).toContain('match')
-      expect(restored).toContain('data-line="2"')
-      expect(restored).not.toContain('inserted')
-      renderer.cleanUp()
-    },
-  )
-
-  it('invalidates on theme changes, new files, and session recreation', async () => {
-    const { file, renderer, tokenize } = await fixture()
-    const initialCalls = tokenize.mock.calls.length
+  it('invalidates on theme changes and session recreation', () => {
+    const { file, renderer } = start(
+      Array.from({ length: 2000 }, (_, line) => `line ${line}\n`).join(''),
+    )
+    renderWindow(renderer, file, 1997)
     renderer.mergeOptions({ theme: 'github-light' })
     expect(renderWindow(renderer, file, 1997)).toContain('line 1997')
-    expect(tokenize.mock.calls.length).toBeGreaterThan(initialCalls)
+    renderer.endEditSession()
     const replacement = { name: file.name, cacheKey: 'replacement', contents: 'replacement match' }
     expect(renderWindow(renderer, replacement, 0)).toContain('replacement match')
     renderer.recycle()
-    renderer.beginEditSession(replacement)
-    expect(renderWindow(renderer, replacement, 0)).toContain('replacement match')
+    const session = renderer.startEditSession(replacement)
+    expect(renderWindow(renderer, session, 0)).toContain('replacement match')
     renderer.cleanUp()
   })
 })

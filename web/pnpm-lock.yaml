@@ -14,20 +14,19 @@ catalogs:
       version: 1.1.0
 
 overrides:
-  '@pierre/trees>@pierre/theming': 1.0.2
   vite@*: npm:@voidzero-dev/vite-plus-core@1.1.0
 
 patchedDependencies:
-  '@pierre/diffs@1.6.4': cc14c0423e3876ffc93acc655a678688d39ac9d41e12babd72863399912c0073
-  '@pierre/trees@1.0.0-beta.6': 981eb4adb4b9961b361fdf6352609bc5e616b24534e85cff6f31b177ee55292d
+  '@pierre/diffs@1.7.0-beta.4': 8aeeaedc364e823ae6e5403c9df99813ab4d4908ca8cc1d19db9690cdb1dc7ad
+  '@pierre/trees@1.0.0': 4f09373fd52c2c1489c691bb782475518e1305a12d733b6564f77d6f0170ae8a
 
 importers:
 
   .:
     dependencies:
       '@pierre/diffs':
-        specifier: 1.6.4
-        version: 1.6.4(patch_hash=cc14c0423e3876ffc93acc655a678688d39ac9d41e12babd72863399912c0073)(@shikijs/themes@4.4.3)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
+        specifier: 1.7.0-beta.4
+        version: 1.7.0-beta.4(patch_hash=8aeeaedc364e823ae6e5403c9df99813ab4d4908ca8cc1d19db9690cdb1dc7ad)(@shikijs/themes@4.4.3)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
       '@pierre/icons':
         specifier: 0.9.0
         version: 0.9.0(react@19.3.0)
@@ -38,8 +37,8 @@ importers:
         specifier: ^1.0.2
         version: 1.0.2(@pierre/theme@2.0.0)(@shikijs/themes@4.4.3)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)(shiki@4.4.3)
       '@pierre/trees':
-        specifier: 1.0.0-beta.6
-        version: 1.0.0-beta.6(patch_hash=981eb4adb4b9961b361fdf6352609bc5e616b24534e85cff6f31b177ee55292d)(@pierre/theme@2.0.0)(@shikijs/themes@4.4.3)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)(shiki@4.4.3)
+        specifier: 1.0.0
+        version: 1.0.0(patch_hash=4f09373fd52c2c1489c691bb782475518e1305a12d733b6564f77d6f0170ae8a)(@pierre/theme@2.0.0)(@shikijs/themes@4.4.3)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)(shiki@4.4.3)
       '@radix-ui/react-alert-dialog':
         specifier: ^1.1.24
         version: 1.1.24(@types/react-dom@19.3.0(@types/react@19.3.0))(@types/react@19.3.0)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
@@ -478,8 +477,8 @@ packages:
     resolution: {integrity: sha512-S0uyoxakDINJ4DPgqxGlEEvrdSMeQb7Z2lKVjxoY2gwsbZbfg2Xr8Klfeo5ZeraHmmdBCELFUHkSe6KEmBpMvg==}
     engines: {node: ^12.22.0 || ^14.17.0 || >=16.0.0}
 
-  '@pierre/diffs@1.6.4':
-    resolution: {integrity: sha512-RsKoruCOp50qaDM3a7BQan5K77xMkGWT1NF01fiYP1PfT3v4CvIjwytNk5WjZG0BesBkMOP2UbrBIDigB1k0ug==}
+  '@pierre/diffs@1.7.0-beta.4':
+    resolution: {integrity: sha512-QtsUN1eO1hfAie0SUBRZ8xfjzybetaOzq3xFPw7UYl/XLkx9KxQ1uRDXHat4B44S2SW8HBt63yWKCSzQ6OQmEQ==}
     peerDependencies:
       react: ^18.3.1 || ^19.0.0
       react-dom: ^18.3.1 || ^19.0.0
@@ -489,13 +488,16 @@ packages:
       react-dom:
         optional: true
 
-  '@pierre/highlights@0.4.0':
-    resolution: {integrity: sha512-2a38H7ep3KweGi1fGQpJk+Krod2OMpDIXagKPlqBd1Y9P460T7zQmc66Wm2JAH1SpIG93wCyyhZVrkc5dnAJVQ==}
+  '@pierre/highlights@0.5.1':
+    resolution: {integrity: sha512-c2WF6sgwgKdxXU6FpWDLWUYHRca/cJy+3QJkWAqYqEAFxqlPf8eSH0ehHcFFjKBmT+9KBl9H7q6z7HMRU7+m6g==}
 
   '@pierre/icons@0.9.0':
     resolution: {integrity: sha512-lsvXfhb0ynOaQ+eFM54h8n3jS39Glh6Mng8VNFnxdwJTh0Mo8OGmU27mA3u8Ayha7bZNsAqhNw3jaflnPQEH/Q==}
     peerDependencies:
       react: ^18.0.0 || ^19.0.0
+
+  '@pierre/patches@0.0.1':
+    resolution: {integrity: sha512-NycJQVQNuqmBdr7u1LsUcmkiIz1fRm9xhWZyRbm21oJYd0MVVCa45t9Lsuj5IKrTMBonxOuh4LMv+R3BpL4bmQ==}
 
   '@pierre/theme@2.0.0':
     resolution: {integrity: sha512-yNDd9GYLQl1mEUJR8AneJ5e4ohLIHQd/wZLWr4fagt78vS2RwwZNW530vVgHqXFAyFVcFlRmGUD5ramXH46OXw==}
@@ -521,11 +523,16 @@ packages:
       shiki:
         optional: true
 
-  '@pierre/trees@1.0.0-beta.6':
-    resolution: {integrity: sha512-zxeuSFM9TveM7b5XofweJALCtm/tGYV9HZzdbf7Uf+kBxIlUyz24/EHaGRjB0dsmmfDQl2ETz7AWwJ15lhSnpw==}
+  '@pierre/trees@1.0.0':
+    resolution: {integrity: sha512-skHNPs4LK1nScFrSvMwN4LnZyHfFf1M7I9ivWePecFqWSYYJYdgKUFCaxPBL0MPY/Z8c3q0yhl8bkkzdDfotug==}
     peerDependencies:
       react: ^18.3.1 || ^19.0.0
       react-dom: ^18.3.1 || ^19.0.0
+    peerDependenciesMeta:
+      react:
+        optional: true
+      react-dom:
+        optional: true
 
   '@playwright/test@1.64.0':
     resolution: {integrity: sha512-oTN9FNYuN6bqQMwiho6jJKLCG2/QOYCixGXuCjRmzOq23eODeukuY2XiAVoVpAECbuezMt1MHQjAiQxK8F+Y+g==}
@@ -2644,9 +2651,10 @@ snapshots:
 
   '@oxlint/plugins@1.79.0': {}
 
-  '@pierre/diffs@1.6.4(patch_hash=cc14c0423e3876ffc93acc655a678688d39ac9d41e12babd72863399912c0073)(@shikijs/themes@4.4.3)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)':
+  '@pierre/diffs@1.7.0-beta.4(patch_hash=8aeeaedc364e823ae6e5403c9df99813ab4d4908ca8cc1d19db9690cdb1dc7ad)(@shikijs/themes@4.4.3)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)':
     dependencies:
-      '@pierre/highlights': 0.4.0
+      '@pierre/highlights': 0.5.1
+      '@pierre/patches': 0.0.1
       '@pierre/theme': 2.0.0
       '@pierre/theming': 1.0.2(@pierre/theme@2.0.0)(@shikijs/themes@4.4.3)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)(shiki@4.4.3)
       diff: 9.0.0
@@ -2659,11 +2667,13 @@ snapshots:
     transitivePeerDependencies:
       - '@shikijs/themes'
 
-  '@pierre/highlights@0.4.0': {}
+  '@pierre/highlights@0.5.1': {}
 
   '@pierre/icons@0.9.0(react@19.3.0)':
     dependencies:
       react: 19.3.0
+
+  '@pierre/patches@0.0.1': {}
 
   '@pierre/theme@2.0.0': {}
 
@@ -2675,11 +2685,12 @@ snapshots:
       react-dom: 19.3.0(react@19.3.0)
       shiki: 4.4.3
 
-  '@pierre/trees@1.0.0-beta.6(patch_hash=981eb4adb4b9961b361fdf6352609bc5e616b24534e85cff6f31b177ee55292d)(@pierre/theme@2.0.0)(@shikijs/themes@4.4.3)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)(shiki@4.4.3)':
+  '@pierre/trees@1.0.0(patch_hash=4f09373fd52c2c1489c691bb782475518e1305a12d733b6564f77d6f0170ae8a)(@pierre/theme@2.0.0)(@shikijs/themes@4.4.3)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)(shiki@4.4.3)':
     dependencies:
       '@pierre/theming': 1.0.2(@pierre/theme@2.0.0)(@shikijs/themes@4.4.3)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)(shiki@4.4.3)
       preact: 11.0.0-beta.0
       preact-render-to-string: 6.6.5(preact@11.0.0-beta.0)
+    optionalDependencies:
       react: 19.3.0
       react-dom: 19.3.0(react@19.3.0)
     transitivePeerDependencies:

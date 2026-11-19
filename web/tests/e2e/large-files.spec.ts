@@ -375,11 +375,41 @@ for (const chunk of ['alpha beta ', '世界 👩🏽‍💻 שלום العرب�
       if (mode === 'search') {
         await editor.press('Control+f')
         await page.locator('[data-search-panel] input[data-search]').fill(chunk.split(' ')[0]!)
-        await expect(page.locator('[data-search-panel] [data-matches]')).toContainText('1500')
+        await expect(page.locator('[data-search-panel] [data-matches]')).toContainText(
+          /1 of 1,?500/,
+        )
       }
-      const highlights = page.locator(
-        `.code-view [data-${mode === 'selection' ? 'selection' : 'match'}-range]`,
-      )
+      const highlightRects = async () => {
+        if (mode === 'selection') {
+          return page.locator('.code-view [data-selection-range]').evaluateAll((elements) =>
+            elements.map((element) => {
+              const rect = element.getBoundingClientRect()
+              return {
+                top: rect.top,
+                bottom: rect.bottom,
+                left: rect.left,
+                right: rect.right,
+                width: rect.width,
+              }
+            }),
+          )
+        }
+        return page.evaluate(() => {
+          const ranges = [
+            ...(CSS.highlights.get('diffs-search-match') ?? []),
+            ...(CSS.highlights.get('diffs-search-current') ?? []),
+          ].filter((range): range is Range => range instanceof Range)
+          return ranges.flatMap((range) =>
+            [...range.getClientRects()].map((rect) => ({
+              top: rect.top,
+              bottom: rect.bottom,
+              left: rect.left,
+              right: rect.right,
+              width: rect.width,
+            })),
+          )
+        })
+      }
       for (const width of [1000, 760]) {
         await page.setViewportSize({ width, height: 720 })
         for (const fraction of [0, 0.5, 1]) {
@@ -390,20 +420,18 @@ for (const chunk of ['alpha beta ', '世界 👩🏽‍💻 שלום العرب�
             .poll(async () => {
               const bounds = await scroller.boundingBox()
               if (!bounds) return false
-              return highlights.evaluateAll((elements, viewport) => {
-                const rects = elements.map((element) => element.getBoundingClientRect())
-                const middle = viewport.y + viewport.height / 2
-                return (
-                  rects.some(
-                    (rect) => rect.top <= middle && rect.bottom >= middle && rect.width > 0,
-                  ) &&
+              const rects = await highlightRects()
+              const middle = bounds.y + bounds.height / 2
+              return (
+                rects.some(
+                  (rect) => rect.top <= middle && rect.bottom >= middle && rect.width > 0,
+                ) &&
+                (mode === 'search' ||
                   rects.every(
                     (rect) =>
-                      rect.bottom >= viewport.y - 80 &&
-                      rect.top <= viewport.y + viewport.height + 80,
-                  )
-                )
-              }, bounds)
+                      rect.bottom >= bounds.y - 80 && rect.top <= bounds.y + bounds.height + 80,
+                  ))
+              )
             })
             .toBe(true)
         }

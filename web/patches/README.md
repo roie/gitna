@@ -3,21 +3,27 @@
 Only the active patches listed in `web/pnpm-workspace.yaml` belong here.
 Previous patch versions remain available in Git history.
 
-## Diffs 1.6.4
+## Diffs 1.7.0-beta.4
 
-`@pierre__diffs@1.6.4.patch` carries Gitna's raster preview slots, editor theme
-updates, invalid-regex feedback, and bounded large-file rendering. It also
-refreshes plain-text edits without full-document background tokenization.
-While no gutter or line selection is in progress, the gutter **+** follows the
-hovered line instead of staying on an existing selection, and pressing it on a
-line outside that selection starts there, so a comment draft can be moved to
-another line.
+`@pierre__diffs@1.7.0-beta.4.patch` carries Gitna's preview body slot,
+invalid-regex feedback, bounded large-file editing, and plain-text edit
+refresh. The patch also makes the gutter **+** follow the hovered line while no
+gutter or line selection is in progress, and start a comment draft on the
+pressed line, so a draft can move to another line.
 
-## Trees 1.0.0-beta.6
+The preview body slot lets Gitna render its PDF and media previews inside
+Pierre's code view. Invalid search patterns mark the find input, describe the
+error, and announce "Invalid regex" through the status element. Large edit
+sessions keep file contents and lines lazy, render only the requested window,
+and do no whole-document work per keystroke. Plain-text edits rewrite only the rows whose HTML changed and
+update the visible lines without full-document
+background tokenization.
 
-`@pierre/trees@1.0.0-beta.6` is Apache-2.0 software from Pierre Computer
-Company. Gitna applies `@pierre__trees@1.0.0-beta.6.patch` to the package
-published from the pinned Pierre donor commit
+## Trees 1.0.0
+
+`@pierre/trees@1.0.0` is Apache-2.0 software from Pierre Computer Company.
+Gitna applies `@pierre__trees@1.0.0.patch` to the package published from the
+pinned Pierre donor commit
 `59ec35ffac97abccef4c69f8d58d3747cbfbc6cb`.
 
 Gitna's modification adds the generic `FileTreeOptions.renderRowActions`
@@ -26,7 +32,8 @@ row renderer, including hover/focus styling; Pierre continues to own Tree DOM,
 selection, focus, search, sticky rows, and virtualization. Gitna only supplies
 typed action descriptions and callbacks.
 
-The patch also makes built-in middle truncation split text only at Unicode
+The patch also loads folder children on demand, renders tree rows as `<div>`
+elements, and makes built-in middle truncation split text only at Unicode
 grapheme boundaries with `Intl.Segmenter`. It preserves emoji sequences and
 combining marks instead of dividing them between separate DOM elements.
 

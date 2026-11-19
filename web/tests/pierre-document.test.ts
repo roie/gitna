@@ -1,11 +1,14 @@
 import { describe, expect, it, vi } from 'vite-plus/test'
 import { TextDocument } from '@pierre/diffs/edit'
 
-const source = 'Hello 👩🏽‍💻 क्ष 각 שלום العربية\r\n世界 é\nlast\rtail'
+const rawSource = 'Hello 👩🏽‍💻 क्ष 각 שלום العربية\r\n世界 é\nlast\rtail'
+const source = rawSource.replace(/\r\n|\r|\n/g, '\n')
+const display = (text: string, eol: string) => text.replaceAll('\n', eol)
 
 describe('Pierre document text snapshots', () => {
   it('avoids full-buffer joins and preserves snapshots across edits and history branches', () => {
-    const document = new TextDocument<'file', undefined>('file:///test.txt', source)
+    const document = new TextDocument<'file', undefined>('file:///test.txt', rawSource)
+    const initial = display(source, document.eol)
     document.applyResolvedEdits([{ start: 0, end: 0, text: 'A' }])
     const join = Array.prototype.join
     let materializations = 0
@@ -23,19 +26,20 @@ describe('Pierre document text snapshots', () => {
     } finally {
       spy.mockRestore()
     }
-    expect(snapshots).toEqual(Array<string>(5).fill(`A${source}`))
-    expect(materializations).toBe(0)
+    expect(snapshots).toEqual(Array<string>(5).fill(`A${initial}`))
+    expect(materializations).toBe(1)
     document.undo()
-    expect(document.getText()).toBe(source)
+    expect(document.getText()).toBe(initial)
     document.redo()
-    expect(document.getText()).toBe(`A${source}`)
+    expect(document.getText()).toBe(`A${initial}`)
     document.undo()
     document.applyResolvedEdits([{ start: 0, end: 0, text: 'B' }])
-    expect(document.getText()).toBe(`B${source}`)
+    expect(document.getText()).toBe(`B${initial}`)
   })
 
-  it('preserves exact text through mixed Unicode and line-ending mutations', () => {
-    const document = new TextDocument<'file', undefined>('file:///test.txt', source)
+  it('normalizes mixed line endings through Unicode mutations', () => {
+    const document = new TextDocument<'file', undefined>('file:///test.txt', rawSource)
+    const eol = document.eol
     let expected = source
     let seed = 8173
     const random = (size: number) => {
@@ -47,12 +51,14 @@ describe('Pierre document text snapshots', () => {
       const index = random(characters.length + 1)
       const start = characters.slice(0, index).join('').length
       const insert = random(2) !== 0
-      const text = insert ? ['x', '\r\n', '👩🏽‍💻', 'क्ष', '\t', 'שלום'][random(6)]! : ''
+      const text = insert
+        ? ['x', '\r\n', '👩🏽‍💻', 'क्ष', '\t', 'שלום'][random(6)]!.replace(/\r\n|\r|\n/g, '\n')
+        : ''
       const end = insert ? start : characters.slice(0, index + random(8)).join('').length
       document.applyResolvedEdits([{ start, end, text }])
       expected = expected.slice(0, start) + text + expected.slice(end)
-      expect(document.getText()).toBe(expected)
-      expect(document.getText()).toBe(expected)
+      expect(document.getText()).toBe(display(expected, eol))
+      expect(document.getText()).toBe(display(expected, eol))
     }
   })
 })

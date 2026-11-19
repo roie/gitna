@@ -27,7 +27,7 @@ it.each([
   }
   function visibleTail(change: Parameters<typeof tokenizer.tokenize>[0]) {
     return tokenizer
-      .tokenize(change, range, true)
+      .tokenize(change, range)
       .get(count)
       ?.map((token) => token[2])
       .join('')

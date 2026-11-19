@@ -1,7 +1,31 @@
+import { spawnSync } from 'node:child_process'
 import { readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import type { Page } from '@playwright/test'
 import { test, expect } from './fixtures.js'
+
+test('a committed file with mixed line endings opens without an unsaved marker', async ({
+  page,
+  app,
+}) => {
+  writeFileSync(join(app.repo, 'main.txt'), 'a\r\nb\nc')
+  for (const args of [
+    ['add', '--', 'main.txt'],
+    ['commit', '-qm', 'mixed line endings'],
+  ]) {
+    const result = spawnSync('git', args, { cwd: app.repo, encoding: 'utf8' })
+    expect(result.status, result.stderr).toBe(0)
+  }
+  await page.goto(app.url)
+  await page.locator('[data-section="repository"]').click()
+  await page
+    .locator('#gitna-repository-tree__tree')
+    .getByRole('treeitem', { name: 'main.txt', exact: true })
+    .click()
+  await expect(page.getByRole('textbox', { name: 'main.txt', exact: true })).toBeVisible()
+  await expect(page.getByRole('tab', { name: 'main.txt', exact: true })).toBeVisible()
+  await expect(page.getByRole('tab', { name: /main\.txt Unsaved changes/ })).toHaveCount(0)
+})
 
 test('an external disk change keeps the dirty buffer and refuses a stale save', async ({
   page,
