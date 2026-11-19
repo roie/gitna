@@ -23,7 +23,9 @@ import { useThemeController } from '@pierre/theming/react'
 import {
   Suspense,
   lazy,
+  type ComponentProps,
   type CSSProperties,
+  type KeyboardEventHandler,
   type ReactNode,
   type Ref,
   useCallback,
@@ -83,6 +85,7 @@ import { DraftRecoveryModal } from './DraftRecoveryModal'
 import type { MarkdownViewMode as FilePreviewMode } from './MarkdownWorkbench'
 import { SVGPreview } from './SVGPreview'
 import { NativeMediaPreview, nativeMediaKind } from './NativeMediaPreview'
+import { Row } from './ui/Row'
 import {
   scrollPreviewToSourceLine,
   sourceLineAtEditorTop,
@@ -3299,84 +3302,40 @@ function RepositoryFileTabs({
         }}
       >
         {reviewTabs.map(({ kind, label }) => (
-          <div
+          <Tab
             key={kind}
             data-review-tab={kind}
-            className={cn(
-              'group/tab flex h-7 max-w-72 shrink-0 items-center rounded-md text-xs',
-              repository.activeReview === kind
-                ? 'bg-muted text-foreground'
-                : 'text-muted-foreground hover:bg-muted/60 hover:text-foreground',
-            )}
-            onAuxClick={(event) => {
-              if (event.button !== 1) return
-              event.preventDefault()
-              closeReviewTab(kind)
-            }}
-            onMouseDown={(event) => {
-              if (event.button === 1) event.preventDefault()
-            }}
-          >
-            <button
-              type="button"
-              role="tab"
-              aria-selected={repository.activeReview === kind}
-              className="flex min-w-0 flex-1 cursor-pointer items-center gap-1.5 py-1 ps-2.5 text-start active:bg-muted focus-visible:outline-2 focus-visible:outline-offset-2"
-              title={label}
-              onClick={() => repository.activateReviewTab(kind)}
-            >
-              <IconDiffSplit className="size-4 shrink-0" />
-              <span className="truncate">{label}</span>
-            </button>
-            <button
-              type="button"
-              className="me-1 flex size-5 shrink-0 cursor-pointer items-center justify-center rounded text-muted-foreground opacity-0 hover:bg-background/70 hover:text-foreground active:bg-muted focus-visible:outline-2 focus-visible:outline-offset-2 group-focus-within/tab:opacity-100 group-hover/tab:opacity-100 [@media(hover:none)]:opacity-100"
-              aria-label={
-                kind === 'compare'
-                  ? `Close ref comparison ${label}`
-                  : `Close commit review ${label}`
-              }
-              title={kind === 'compare' ? 'Close ref comparison' : 'Close commit review'}
-              onClick={() => closeReviewTab(kind)}
-            >
-              <IconX className="size-3" />
-            </button>
-          </div>
+            className="max-w-72"
+            active={repository.activeReview === kind}
+            closeLabel={
+              kind === 'compare' ? `Close ref comparison ${label}` : `Close commit review ${label}`
+            }
+            closeTitle={kind === 'compare' ? 'Close ref comparison' : 'Close commit review'}
+            icon={<IconDiffSplit className="size-4 shrink-0" />}
+            label={label}
+            title={label}
+            onClose={() => closeReviewTab(kind)}
+            onSelect={() => repository.activateReviewTab(kind)}
+          />
         ))}
         {comparison != null && (
-          <div
+          <Tab
             data-comparison-tab="true"
-            className={cn(
-              'group/tab flex h-7 max-w-72 shrink-0 items-center rounded-md text-xs',
-              repository.repositoryFileComparisonActive
-                ? 'bg-muted text-foreground'
-                : 'text-muted-foreground hover:bg-muted/60 hover:text-foreground',
-            )}
-          >
-            <button
-              type="button"
-              role="tab"
-              aria-selected={repository.repositoryFileComparisonActive}
-              className="flex min-w-0 flex-1 cursor-pointer items-center gap-1.5 py-1 pl-2.5 text-left"
-              title={`${comparison.leftPath} ↔ ${comparison.rightPath}`}
-              onClick={() => repository.activateRepositoryFileComparison()}
-            >
-              <IconDiffSplit className="size-4 shrink-0" />
-              <span className="truncate">
+            className="max-w-72"
+            active={repository.repositoryFileComparisonActive}
+            closeLabel={`Close comparison of ${comparison.leftPath} and ${comparison.rightPath}`}
+            closeTitle="Close comparison"
+            icon={<IconDiffSplit className="size-4 shrink-0" />}
+            label={
+              <>
                 {comparison.leftPath.split('/').at(-1) ?? comparison.leftPath} ↔{' '}
                 {comparison.rightPath.split('/').at(-1) ?? comparison.rightPath}
-              </span>
-            </button>
-            <button
-              type="button"
-              className="mr-1 flex size-5 shrink-0 cursor-pointer items-center justify-center rounded text-muted-foreground opacity-0 hover:bg-background/70 hover:text-foreground group-focus-within/tab:opacity-100 group-hover/tab:opacity-100"
-              aria-label={`Close comparison of ${comparison.leftPath} and ${comparison.rightPath}`}
-              title="Close comparison"
-              onClick={() => repository.closeRepositoryFileComparison()}
-            >
-              <IconX className="size-3" />
-            </button>
-          </div>
+              </>
+            }
+            title={`${comparison.leftPath} ↔ ${comparison.rightPath}`}
+            onClose={() => repository.closeRepositoryFileComparison()}
+            onSelect={() => repository.activateRepositoryFileComparison()}
+          />
         )}
         {openPaths.map((path, index) => {
           const active =
@@ -3391,48 +3350,14 @@ function RepositoryFileTabs({
           const iconViewBox =
             icon.viewBox ?? `0 0 ${String(icon.width ?? 16)} ${String(icon.height ?? 16)}`
           return (
-            <div
+            <Tab
               key={path}
               data-tab-index={index}
-              className={cn(
-                'group/tab flex h-7 max-w-64 shrink-0 items-center rounded-md text-xs',
-                active
-                  ? 'bg-muted text-foreground'
-                  : 'text-muted-foreground hover:bg-muted/60 hover:text-foreground',
-              )}
-              onAuxClick={(event) => {
-                if (event.button !== 1) return
-                event.preventDefault()
-                onClose([path])
-              }}
-              onContextMenu={(event) => {
-                event.preventDefault()
-                const tab = event.currentTarget.querySelector<HTMLButtonElement>('[role="tab"]')
-                if (tab != null) openContextMenu(path, index, tab, tab.getBoundingClientRect())
-              }}
-              onMouseDown={(event) => {
-                if (event.button === 1) event.preventDefault()
-              }}
-            >
-              <button
-                type="button"
-                role="tab"
-                aria-selected={active}
-                className="flex min-w-0 flex-1 cursor-pointer items-center gap-1.5 py-1 pl-2.5 text-left"
-                title={path}
-                onClick={() => repository.selectRepositoryFile(path)}
-                onKeyDown={(event) => {
-                  if (event.key !== 'ContextMenu' && !(event.shiftKey && event.key === 'F10'))
-                    return
-                  event.preventDefault()
-                  openContextMenu(
-                    path,
-                    index,
-                    event.currentTarget,
-                    event.currentTarget.getBoundingClientRect(),
-                  )
-                }}
-              >
+              className="max-w-64"
+              active={active}
+              closeLabel={`Close ${path}`}
+              closeTitle={`Close ${path}`}
+              icon={
                 <svg
                   aria-hidden="true"
                   data-icon-name={icon.name}
@@ -3451,24 +3376,35 @@ function RepositoryFileTabs({
                 >
                   <use href={iconHref} />
                 </svg>
-                <span className="truncate">{name}</span>
-                {dirtyPaths.has(path) && (
+              }
+              label={name}
+              status={
+                dirtyPaths.has(path) && (
                   <span
                     aria-label="Unsaved changes"
                     className="size-1.5 shrink-0 rounded-full bg-current"
                   />
-                )}
-              </button>
-              <button
-                type="button"
-                className="mr-1 flex size-5 shrink-0 cursor-pointer items-center justify-center rounded text-muted-foreground opacity-0 hover:bg-background/70 hover:text-foreground group-focus-within/tab:opacity-100 group-hover/tab:opacity-100"
-                aria-label={`Close ${path}`}
-                title={`Close ${path}`}
-                onClick={() => onClose([path])}
-              >
-                <IconX className="size-3" />
-              </button>
-            </div>
+                )
+              }
+              title={path}
+              onClose={() => onClose([path])}
+              onContextMenu={(event) => {
+                event.preventDefault()
+                const tab = event.currentTarget.querySelector<HTMLButtonElement>('[role="tab"]')
+                if (tab != null) openContextMenu(path, index, tab, tab.getBoundingClientRect())
+              }}
+              onSelect={() => repository.selectRepositoryFile(path)}
+              onTabKeyDown={(event) => {
+                if (event.key !== 'ContextMenu' && !(event.shiftKey && event.key === 'F10')) return
+                event.preventDefault()
+                openContextMenu(
+                  path,
+                  index,
+                  event.currentTarget,
+                  event.currentTarget.getBoundingClientRect(),
+                )
+              }}
+            />
           )
         })}
       </div>
@@ -3654,6 +3590,73 @@ function ReviewGrid({
       )}
     >
       {children}
+    </div>
+  )
+}
+
+interface TabProps extends Omit<ComponentProps<'div'>, 'onSelect' | 'title'> {
+  active: boolean
+  closeLabel: string
+  closeTitle: string
+  icon: ReactNode
+  label: ReactNode
+  status?: ReactNode
+  title: string
+  onClose: () => void
+  onSelect: () => void
+  onTabKeyDown?: KeyboardEventHandler<HTMLButtonElement>
+}
+
+function Tab({
+  active,
+  className,
+  closeLabel,
+  closeTitle,
+  icon,
+  label,
+  status,
+  title,
+  onClose,
+  onSelect,
+  onTabKeyDown,
+  ...props
+}: TabProps) {
+  return (
+    <div
+      className={cn('shrink-0', className)}
+      onAuxClick={(event) => {
+        if (event.button !== 1) return
+        event.preventDefault()
+        onClose()
+      }}
+      onMouseDown={(event) => {
+        if (event.button === 1) event.preventDefault()
+      }}
+      {...props}
+    >
+      <Row
+        role="tab"
+        aria-selected={active}
+        selected={active}
+        className={cn('pe-1', !active && 'text-muted-foreground hover:text-foreground')}
+        icon={icon}
+        label={label}
+        status={status}
+        title={title}
+        onClick={onSelect}
+        onKeyDown={onTabKeyDown}
+        actions={
+          <button
+            type="button"
+            className="flex size-5 shrink-0 cursor-pointer items-center justify-center rounded text-muted-foreground opacity-0 hover:bg-background/70 hover:text-foreground focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-ring group-focus-within/row:opacity-100 group-hover/row:opacity-100 [@media(hover:none)]:opacity-100"
+            aria-label={closeLabel}
+            title={closeTitle}
+            onClick={onClose}
+          >
+            <IconX className="size-3" />
+          </button>
+        }
+      />
     </div>
   )
 }
