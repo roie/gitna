@@ -49,6 +49,7 @@ import gemini from './agent-logos/gemini.svg?raw'
 import goose from './agent-logos/goose.svg?raw'
 import opencode from './agent-logos/opencode.svg?raw'
 import qwen from './agent-logos/qwen.svg?raw'
+import { Pane } from './ui/Pane'
 
 const PROGRAM_LOGOS: Record<string, string> = {
   'claude-agent-acp': claude,
@@ -121,7 +122,7 @@ function ModelChoices({
           </p>
         )
       ) : (
-        <div className="list-scrollbar mt-1 max-h-[320px] overflow-y-auto overscroll-contain">
+        <Pane className="mt-1 max-h-[320px]">
           {choices.map((m) => (
             <DropdownMenuItem
               key={m.id}
@@ -141,7 +142,7 @@ function ModelChoices({
               )}
             </DropdownMenuItem>
           ))}
-        </div>
+        </Pane>
       )}
     </>
   )
