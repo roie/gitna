@@ -73,7 +73,7 @@ export function ImageAnnotation({
       >
         <button
           type="button"
-          className="flex max-h-full max-w-full cursor-zoom-in items-center justify-center bg-transparent p-0 outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background"
+          className="flex max-h-full max-w-full cursor-zoom-in items-center justify-center bg-transparent p-0 outline-none focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
           aria-label={`Open ${metadata.alt} in image viewer`}
           onClick={() => setOpen(true)}
         >

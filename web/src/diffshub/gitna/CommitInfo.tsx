@@ -53,7 +53,7 @@ export function CommitInfo({
           {refs.map((ref) => (
             <span
               key={`${ref.kind}:${ref.name}`}
-              className="rounded-full border border-border px-1.5 py-0.5 text-[10px]"
+              className="rounded-full border border-border px-1.5 py-0.5 text-[11px]"
             >
               {ref.name}
             </span>
@@ -83,7 +83,7 @@ export function CommitInfo({
         )}
         <button
           type="button"
-          className="ml-auto cursor-pointer rounded-sm px-1 font-mono text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+          className="ml-auto cursor-pointer rounded-sm px-1 font-mono text-muted-foreground transition-colors hover:bg-accent hover:text-foreground focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-ring"
           aria-label={
             commitOidCopied ? `Copied commit ID ${shortOid}` : `Copy commit ID ${shortOid}`
           }

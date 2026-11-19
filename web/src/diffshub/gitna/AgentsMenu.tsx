@@ -532,7 +532,7 @@ export function AgentsMenu({ model }: { model: ConversationsModel }) {
             </>
           )}
           {dialog == null && error != null && (
-            <p role="alert" className="max-w-72 p-2 text-xs text-red-600">
+            <p role="alert" className="max-w-72 p-2 text-xs text-destructive">
               {error}
             </p>
           )}

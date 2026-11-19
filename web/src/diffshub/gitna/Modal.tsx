@@ -94,7 +94,7 @@ export function Modal({ children, onClose, disabledReason, error, role, title }:
           </p>
         )}
         {error != null && (
-          <p className="mb-3 text-xs text-red-600 dark:text-red-400" role="alert">
+          <p className="mb-3 text-xs text-destructive" role="alert">
             {error}
           </p>
         )}

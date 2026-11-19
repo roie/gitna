@@ -554,7 +554,7 @@ export function GitnaCommandPalette({
             aria-pressed={allBranches}
             title={allBranches ? 'Exclude Other Branches' : 'Include All Branches'}
             className={cn(
-              'flex size-7 shrink-0 cursor-pointer items-center justify-center rounded text-muted-foreground outline-hidden hover:bg-muted hover:text-foreground active:bg-muted focus-visible:ring-2 focus-visible:ring-ring',
+              'flex size-7 shrink-0 cursor-pointer items-center justify-center rounded text-muted-foreground outline-none hover:bg-accent hover:text-foreground active:bg-accent focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-ring',
               allBranches && 'bg-muted text-foreground',
             )}
             onClick={() => setAllBranches((current) => !current)}
@@ -569,7 +569,7 @@ export function GitnaCommandPalette({
             aria-pressed={includeIgnored}
             title={includeIgnored ? 'Exclude Ignored Files' : 'Include Ignored Files'}
             className={cn(
-              'flex size-7 shrink-0 cursor-pointer items-center justify-center rounded text-muted-foreground outline-none hover:bg-muted hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring',
+              'flex size-7 shrink-0 cursor-pointer items-center justify-center rounded text-muted-foreground outline-none hover:bg-accent hover:text-foreground focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-ring',
               includeIgnored && 'bg-muted text-foreground',
             )}
             onClick={() => {

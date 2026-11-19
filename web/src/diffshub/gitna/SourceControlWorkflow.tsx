@@ -1133,7 +1133,7 @@ function GitnaSourceControlInner({
                 </LoadingIndicator>
               )}
               {connectionHealthy && repository.repositoryFilesError != null && (
-                <p className="px-8 py-2 text-xs text-red-500" role="alert">
+                <p className="px-8 py-2 text-xs text-destructive" role="alert">
                   {repository.repositoryFilesError}
                 </p>
               )}
@@ -1281,7 +1281,7 @@ function GitnaSourceControlInner({
       )}
       {connectionHealthy && (localError ?? repository.mutationError) != null && (
         <p
-          className="mx-3 mb-3 rounded-md bg-red-500/10 px-2.5 py-2 text-xs text-red-600 dark:text-red-400"
+          className="mx-3 mb-3 rounded-md bg-destructive/10 px-2.5 py-2 text-xs text-destructive"
           role="alert"
         >
           {localError ?? repository.mutationError}
@@ -1510,7 +1510,7 @@ function SourceControlHeaderActions({
             </Button>
           </form>
           <DropdownMenuSeparator />
-          <p className="px-2 py-1 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+          <p className="px-2 py-1 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
             Local branches
           </p>
           <TooltipProvider delayDuration={400} skipDelayDuration={150}>
@@ -1519,7 +1519,7 @@ function SourceControlHeaderActions({
                 <DropdownMenuItem key={branch.name} disabled>
                   <span className="w-4" />
                   <span className="min-w-0 flex-1 wrap-anywhere font-medium">{branch.name}</span>
-                  <span className="text-[10px] text-muted-foreground">
+                  <span className="text-[11px] text-muted-foreground">
                     Current
                     {branch.upstream != null && (
                       <>
@@ -1562,7 +1562,7 @@ function SourceControlHeaderActions({
                         <span className="w-4" />
                         <span className="min-w-0 flex-1 truncate">{branch.name}</span>
                         {branch.upstream != null && (
-                          <span className="text-[10px] text-muted-foreground">
+                          <span className="text-[11px] text-muted-foreground">
                             {branch.ahead > 0 ? `↑${branch.ahead}` : ''}
                             {branch.behind > 0 ? ` ↓${branch.behind}` : ''}
                           </span>
@@ -1589,7 +1589,7 @@ function SourceControlHeaderActions({
                       Switch to branch
                     </DropdownMenuItem>
                     <DropdownMenuItem
-                      className="text-red-600 dark:text-red-400"
+                      className="text-destructive"
                       onSelect={() => void deleteBranch(branch.name)}
                     >
                       Delete branch…
@@ -1601,7 +1601,7 @@ function SourceControlHeaderActions({
             {remoteBranches.length > 0 && (
               <>
                 <DropdownMenuSeparator />
-                <p className="px-2 py-1 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+                <p className="px-2 py-1 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
                   Remote branches
                 </p>
                 <p className="px-2 py-1 text-[11px] text-muted-foreground">
@@ -1621,7 +1621,7 @@ function SourceControlHeaderActions({
                         >
                           <span className="w-4" />
                           <span className="min-w-0 flex-1 wrap-anywhere">{branch.name}</span>
-                          <span className="min-w-0 flex-1 wrap-anywhere text-[10px] text-muted-foreground">
+                          <span className="min-w-0 flex-1 wrap-anywhere text-[11px] text-muted-foreground">
                             Checkout as {localName}
                           </span>
                         </DropdownMenuItem>
@@ -3256,7 +3256,7 @@ function GraphSection({
             )}
             {repository.connectionState === 'connected' && repository.graphError != null && (
               <div className="space-y-1 px-2 py-2">
-                <p role="alert" className="text-xs text-red-500">
+                <p role="alert" className="text-xs text-destructive">
                   {repository.graphError}
                 </p>
                 {repository.graphHasMore && (
@@ -3613,7 +3613,7 @@ const GraphCommitRow = memo(function GraphCommitRow({
           )}
           {repository.connectionState === 'connected' &&
             repository.filesError[row.commit.oid] != null && (
-              <p role="alert" className="px-3 py-2 text-xs text-red-500">
+              <p role="alert" className="px-3 py-2 text-xs text-destructive">
                 {repository.filesError[row.commit.oid]}
               </p>
             )}
@@ -3657,7 +3657,7 @@ function ConflictPanel({ onError }: { onError: (error: string | null) => void })
     <section className="conflict-bar mb-2 rounded-lg border border-amber-500/40 bg-amber-500/5 p-2">
       <div className="mb-2 flex items-center gap-2">
         <strong className="min-w-0 flex-1 text-xs">{labels[operation]}</strong>
-        <span className="text-[10px] text-muted-foreground">{unresolved} unresolved</span>
+        <span className="text-[11px] text-muted-foreground">{unresolved} unresolved</span>
       </div>
       {repository.conflicts.map((conflict: ConflictEntry) => (
         <div key={conflict.path} className="mb-1 flex items-center gap-1 text-xs">
