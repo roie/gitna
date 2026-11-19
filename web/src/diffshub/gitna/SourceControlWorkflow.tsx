@@ -85,6 +85,7 @@ import { CommitInfo } from './CommitInfo'
 import { useRepository } from './repository'
 import { Header } from './ui/Header'
 import { Pane } from './ui/Pane'
+import { Row } from './ui/Row'
 
 interface PendingConfirm {
   confirmLabel: string
@@ -3174,7 +3175,8 @@ function GraphSection({
 
   return (
     <section data-pane="graph" className="section min-h-0 overflow-hidden md:flex md:flex-col">
-      <PaneSectionHeader
+      <Header
+        level="pane"
         actions={
           <>
             <Button
@@ -3252,7 +3254,7 @@ function GraphSection({
             : `${graphCount} commits in Graph`
         }
         dataSection="graph"
-        headerRef={headerRef}
+        ref={headerRef}
         icon={IconBranch}
         open={open}
         title="Graph"
@@ -3260,10 +3262,10 @@ function GraphSection({
       />
       {open && (
         <TooltipProvider delayDuration={500} skipDelayDuration={150}>
-          <div
+          <Pane
             ref={graphBodyRef}
             data-pane-body="graph"
-            className="graph-list list-scrollbar min-h-0 px-2 pb-4 overscroll-contain md:flex-1 md:overflow-y-auto max-md:overflow-visible"
+            className="graph-list min-h-0 px-2 pb-4 md:flex-1 max-md:overflow-visible"
             onKeyDownCapture={(event) => {
               if (['ArrowDown', 'PageDown', 'End'].includes(event.key)) armContinuation()
             }}
@@ -3333,7 +3335,7 @@ function GraphSection({
                 )}
               </div>
             )}
-          </div>
+          </Pane>
         </TooltipProvider>
       )}
     </section>
@@ -3499,139 +3501,145 @@ const GraphCommitRow = memo(function GraphCommitRow({
         }
       }}
     >
-      <div className="group flex h-7 items-center gap-1 text-xs">
-        <Tooltip
-          onOpenChange={(tooltipOpen) => {
-            onPinChange(row.commit.oid, 'tooltip', tooltipOpen)
-            if (tooltipOpen) void repository.loadCommitDetails(row.commit.oid)
-          }}
-        >
-          <TooltipTrigger asChild>
-            <button
-              type="button"
-              className={cn(
-                'flex h-7 min-w-0 flex-1 cursor-pointer items-center gap-1 rounded px-1 text-left hover:bg-muted focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-[var(--ring)]',
-                open && 'bg-muted',
-              )}
-              id={`gitna-graph-disclosure-${row.commit.oid}`}
-              data-graph-disclosure
-              aria-controls={`gitna-graph-files-${row.commit.oid}`}
-              aria-expanded={open}
-              tabIndex={disclosureTabIndex}
-              onClick={() => void repository.toggleCommit(row.commit.oid)}
-              onFocus={() => onDisclosureFocus(index)}
-            >
-              <GraphLaneGutter laneCount={laneCount} open={open} row={row} />
-              <span className="min-w-0 flex-1 truncate font-medium">
+      <Tooltip
+        onOpenChange={(tooltipOpen) => {
+          onPinChange(row.commit.oid, 'tooltip', tooltipOpen)
+          if (tooltipOpen) void repository.loadCommitDetails(row.commit.oid)
+        }}
+      >
+        <TooltipTrigger asChild>
+          <Row
+            className="gap-1 px-1 [&>button]:gap-1"
+            selected={open}
+            id={`gitna-graph-disclosure-${row.commit.oid}`}
+            data-graph-disclosure
+            aria-controls={`gitna-graph-files-${row.commit.oid}`}
+            aria-expanded={open}
+            tabIndex={disclosureTabIndex}
+            onClick={() => void repository.toggleCommit(row.commit.oid)}
+            onFocus={() => onDisclosureFocus(index)}
+            icon={<GraphLaneGutter laneCount={laneCount} open={open} row={row} />}
+            label={
+              <span className="font-medium">
                 {row.commit.subject.trim() || `No commit message (${row.commit.oid.slice(0, 7)})`}
               </span>
-              {visibleRefs.map((ref) => (
-                <span
-                  key={`${ref.kind}:${ref.name}`}
-                  className={cn(
-                    'max-w-24 shrink-0 truncate rounded-full border border-blue-500/60 px-1.5 py-0.5 text-[10px] leading-none',
-                    ref.kind === 'head' ? 'bg-blue-500 text-white' : 'bg-blue-500/10 text-blue-500',
-                  )}
-                >
-                  {ref.name}
-                </span>
-              ))}
-              {refs.length > visibleRefs.length && (
-                <span className="shrink-0 text-[10px] text-muted-foreground">
-                  +{refs.length - visibleRefs.length}
-                </span>
-              )}
-            </button>
-          </TooltipTrigger>
-          <TooltipContent side="right" align="start">
-            <CommitInfo
-              commit={row.commit}
-              stats={stats}
-              error={repository.filesError[row.commit.oid]}
-            />
-          </TooltipContent>
-        </Tooltip>
-        <DropdownMenu
-          onOpenChange={(menuOpen) => {
-            if (menuOpen) onDisclosureFocus(index)
-            onPinChange(row.commit.oid, 'menu', menuOpen)
-          }}
-        >
-          <DropdownMenuTrigger asChild>
-            <Button
-              variant="ghost"
-              size="icon-only"
-              className="opacity-0 group-focus-within:opacity-100 group-hover:opacity-100"
-              aria-label={`Actions for ${row.commit.subject.trim() || row.commit.oid.slice(0, 7)}`}
-              title={`Actions for ${row.commit.subject.trim() || row.commit.oid.slice(0, 7)}`}
-            >
-              <IconEllipsis className="size-3" />
-            </Button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="end">
-            <DropdownMenuItem
-              disabled={disabledReason != null}
-              onSelect={() =>
-                void repository.operation({ op: 'cherry-pick', ref: row.commit.oid }).catch(() => {
-                  // The store has already published the mutation error.
-                })
-              }
-            >
-              Cherry-pick
-            </DropdownMenuItem>
-            <DropdownMenuItem
-              disabled={disabledReason != null}
-              onSelect={() =>
-                void repository.operation({ op: 'revert', ref: row.commit.oid }).catch(() => {
-                  // The store has already published the mutation error.
-                })
-              }
-            >
-              Revert
-            </DropdownMenuItem>
-            <DropdownMenuSeparator />
-            <DropdownMenuItem
-              disabled={disabledReason != null}
-              onSelect={() =>
-                void repository
-                  .operation({ op: 'reset', ref: row.commit.oid, mode: 'soft' })
-                  .catch(() => {
-                    // The store has already published the mutation error.
-                  })
-              }
-            >
-              Reset soft
-            </DropdownMenuItem>
-            <DropdownMenuItem
-              disabled={disabledReason != null}
-              onSelect={() =>
-                void repository
-                  .operation({ op: 'reset', ref: row.commit.oid, mode: 'mixed' })
-                  .catch(() => {
-                    // The store has already published the mutation error.
-                  })
-              }
-            >
-              Reset mixed
-            </DropdownMenuItem>
-            <DropdownMenuItem
-              disabled={disabledReason != null}
-              onSelect={() =>
-                onConfirm({
-                  title: `Hard reset to ${shortOid}?`,
-                  message:
-                    'This discards index and working-tree changes. Gitna cannot undo this action.',
-                  confirmLabel: 'Hard reset',
-                  run: () =>
-                    repository.operation({ op: 'reset', ref: row.commit.oid, mode: 'hard' }),
-                })
-              }
-            >
-              Reset hard…
-            </DropdownMenuItem>
-          </DropdownMenuContent>
-        </DropdownMenu>
-      </div>
+            }
+            status={
+              <>
+                {visibleRefs.map((ref) => (
+                  <span
+                    key={`${ref.kind}:${ref.name}`}
+                    className={cn(
+                      'max-w-24 shrink-0 truncate rounded-full border border-blue-500/60 px-1.5 py-0.5 text-[11px] leading-none',
+                      ref.kind === 'head'
+                        ? 'bg-blue-500 text-white'
+                        : 'bg-blue-500/10 text-blue-500',
+                    )}
+                  >
+                    {ref.name}
+                  </span>
+                ))}
+                {refs.length > visibleRefs.length && (
+                  <span className="shrink-0 text-[11px] text-muted-foreground">
+                    +{refs.length - visibleRefs.length}
+                  </span>
+                )}
+              </>
+            }
+            actions={
+              <DropdownMenu
+                onOpenChange={(menuOpen) => {
+                  if (menuOpen) onDisclosureFocus(index)
+                  onPinChange(row.commit.oid, 'menu', menuOpen)
+                }}
+              >
+                <DropdownMenuTrigger asChild>
+                  <Button
+                    variant="ghost"
+                    size="icon-only"
+                    className="opacity-0 group-focus-within/row:opacity-100 group-hover/row:opacity-100"
+                    aria-label={`Actions for ${row.commit.subject.trim() || row.commit.oid.slice(0, 7)}`}
+                    title={`Actions for ${row.commit.subject.trim() || row.commit.oid.slice(0, 7)}`}
+                  >
+                    <IconEllipsis className="size-3" />
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end">
+                  <DropdownMenuItem
+                    disabled={disabledReason != null}
+                    onSelect={() =>
+                      void repository
+                        .operation({ op: 'cherry-pick', ref: row.commit.oid })
+                        .catch(() => {
+                          // The store has already published the mutation error.
+                        })
+                    }
+                  >
+                    Cherry-pick
+                  </DropdownMenuItem>
+                  <DropdownMenuItem
+                    disabled={disabledReason != null}
+                    onSelect={() =>
+                      void repository.operation({ op: 'revert', ref: row.commit.oid }).catch(() => {
+                        // The store has already published the mutation error.
+                      })
+                    }
+                  >
+                    Revert
+                  </DropdownMenuItem>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem
+                    disabled={disabledReason != null}
+                    onSelect={() =>
+                      void repository
+                        .operation({ op: 'reset', ref: row.commit.oid, mode: 'soft' })
+                        .catch(() => {
+                          // The store has already published the mutation error.
+                        })
+                    }
+                  >
+                    Reset soft
+                  </DropdownMenuItem>
+                  <DropdownMenuItem
+                    disabled={disabledReason != null}
+                    onSelect={() =>
+                      void repository
+                        .operation({ op: 'reset', ref: row.commit.oid, mode: 'mixed' })
+                        .catch(() => {
+                          // The store has already published the mutation error.
+                        })
+                    }
+                  >
+                    Reset mixed
+                  </DropdownMenuItem>
+                  <DropdownMenuItem
+                    disabled={disabledReason != null}
+                    onSelect={() =>
+                      onConfirm({
+                        title: `Hard reset to ${shortOid}?`,
+                        message:
+                          'This discards index and working-tree changes. Gitna cannot undo this action.',
+                        confirmLabel: 'Hard reset',
+                        run: () =>
+                          repository.operation({ op: 'reset', ref: row.commit.oid, mode: 'hard' }),
+                      })
+                    }
+                  >
+                    Reset hard…
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
+            }
+          />
+        </TooltipTrigger>
+        <TooltipContent side="right" align="start">
+          <CommitInfo
+            commit={row.commit}
+            stats={stats}
+            error={repository.filesError[row.commit.oid]}
+          />
+        </TooltipContent>
+      </Tooltip>
       {open && (
         <div
           id={`gitna-graph-files-${row.commit.oid}`}
