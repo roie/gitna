@@ -1,4 +1,4 @@
-import { mkdirSync } from 'node:fs'
+import { mkdirSync, writeFileSync } from 'node:fs'
 import { basename, dirname, join } from 'node:path'
 import { test, expect } from './fixtures.js'
 
@@ -55,4 +55,33 @@ test('a folder named home does not open Home', async ({ page, app }) => {
   await page.getByRole('button', { name: 'Open Gitna Home' }).click()
   await expect(page).toHaveURL(homeURL)
   await expect(page.getByRole('heading', { name: 'Welcome back to Gitna' })).toBeVisible()
+})
+
+test('a file at the same path shows the new folder contents after a switch', async ({
+  page,
+  app,
+}) => {
+  const folder = join(dirname(app.repo), 'second-folder')
+  mkdirSync(folder)
+  writeFileSync(join(app.repo, 'notes.txt'), 'first folder notes\n')
+  writeFileSync(join(folder, 'notes.txt'), 'second folder notes\n')
+  await page.goto(app.url)
+
+  async function openNotes() {
+    await page.getByRole('button', { name: 'Open command palette' }).click()
+    await page.getByLabel('Search files and commands').fill('notes.txt')
+    await page.getByRole('option').filter({ hasText: 'notes.txt' }).first().click()
+    const editor = page.getByRole('textbox', { name: 'notes.txt', exact: true })
+    await expect(editor).toBeVisible()
+    return editor
+  }
+
+  await expect(await openNotes()).toContainText('first folder notes')
+  const folderPath = page.getByRole('combobox', { name: 'Folder path' })
+  await folderPath.fill(folder)
+  await folderPath.press('Enter')
+  await expect(page).toHaveTitle('second-folder - Gitna')
+  const editor = await openNotes()
+  await expect(editor).toContainText('second folder notes')
+  await expect(editor).not.toContainText('first folder notes')
 })

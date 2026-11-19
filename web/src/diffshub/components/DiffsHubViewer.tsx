@@ -185,6 +185,7 @@ interface DiffsHubViewerProps {
   onEditorReady?: () => void;
   searchMatches?: readonly ContentSearchMatch[];
   activeSearchMatch?: ActiveSearchMatch;
+  editStateNamespace?: string;
   gitnaActions?: GitnaViewerActions;
   gitnaComparisonActions?: GitnaComparisonActions;
   gitnaEditorActions?: GitnaEditorActions;
@@ -210,6 +211,7 @@ export const DiffsHubViewer = memo(function DiffsHubViewer({
   onEditorReady,
   searchMatches,
   activeSearchMatch,
+  editStateNamespace = '',
   gitnaActions,
   gitnaComparisonActions,
   gitnaEditorActions,
@@ -225,7 +227,7 @@ export const DiffsHubViewer = memo(function DiffsHubViewer({
   const handleEditorReady = useStableCallback(() => onEditorReady?.());
   // CodeView treats a new key resolver as changed options and rerenders the
   // editable DOM. Keep it stable when connection/header state changes.
-  const getEditStateKey = useStableCallback((item: CodeViewItem<CommentMetadata>) => `worktree:${item.id}`);
+  const getEditStateKey = useStableCallback((item: CodeViewItem<CommentMetadata>) => `${editStateNamespace}worktree:${item.id}`);
   const editorOptions = useMemo(
     () => ({ onAttach: handleEditorReady }) satisfies EditorOptions<'file' | 'file-diff', CommentMetadata, undefined>,
     [handleEditorReady]

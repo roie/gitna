@@ -1048,7 +1048,7 @@ function GitnaReviewUIInner({
         if (draft == null) {
           const previous = worktreeFilesRef.current.get(path)
           if (previous != null && previous.hash !== loaded.hash) {
-            EditStateManager.clear('file', `worktree:${path}`)
+            EditStateManager.clear('file', `${reviewCacheNamespace}worktree:${path}`)
           }
           setWorktreeFiles((current) => new Map(current).set(path, loaded))
         }
@@ -2748,6 +2748,7 @@ function GitnaReviewUIInner({
                         themeType={colorMode}
                         viewerRef={viewerRef}
                         initialItems={reviewData.items}
+                        editStateNamespace={reviewCacheNamespace}
                         gitnaActions={gitnaActions}
                         gitnaComparisonActions={gitnaComparisonActions}
                         gitnaEditorActions={gitnaEditorActions}
