@@ -47,6 +47,29 @@ describe('root theme tokens', () => {
     })
   }
 
+  it('takes status, warning and highlight colors from the theme when it defines them', () => {
+    const theme: ThemeLike = {
+      bg: '#101010',
+      fg: '#f0f0f0',
+      type: 'dark',
+      colors: {
+        'gitDecoration.untrackedResourceForeground': '#00ff00',
+        'gitDecoration.renamedResourceForeground': '#0000ff',
+        'editorWarning.foreground': '#ffaa00',
+        'list.highlightForeground': '#ff00ff',
+        focusBorder: '#123456',
+      },
+    }
+    const result = tokens(theme)
+    expect(result['--gitna-git-untracked']).toBe('#00ff00')
+    expect(result['--gitna-git-renamed']).toBe('#0000ff')
+    expect(result['--gitna-warning']).toBe('#ffaa00')
+    expect(result['--gitna-list-highlight']).toBe('#ff00ff')
+    expect(result['--gitna-highlight']).toBe('#123456')
+    expect(result['--gitna-lane-1']).toBe(result['--gitna-highlight'])
+    expect(result['--gitna-alert-note']).toBe('#4493f8')
+  })
+
   it('falls back to the neutral palette for a theme without colors', () => {
     expect(tokens({})).toEqual(tokens({ bg: '#ffffff', fg: '#0a0a0a', type: 'light' }))
     expect(tokens({})['--background']).toBe('#ffffff')

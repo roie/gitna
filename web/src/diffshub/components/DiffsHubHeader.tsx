@@ -252,7 +252,7 @@ function LocalFolderForm({
         aria-label="Folder path"
         aria-invalid={error != null}
         autoComplete="off"
-        className="focus:text-primary block field-sizing-content h-9 min-w-[24ch] w-full rounded-md text-sm focus-visible:outline-none aria-invalid:text-red-500 md:w-auto"
+        className="focus:text-primary block field-sizing-content h-9 min-w-[24ch] w-full rounded-md text-sm focus-visible:outline-none aria-invalid:text-destructive md:w-auto"
         disabled={pending}
         spellCheck={false}
         title={error ?? initialPath}
@@ -422,7 +422,7 @@ function LocalFolderForm({
             })}
           </TooltipProvider>
           {actionError != null && (
-            <li className="px-3 py-2 text-xs text-red-500" role="alert">
+            <li className="px-3 py-2 text-xs text-destructive" role="alert">
               {actionError}
             </li>
           )}

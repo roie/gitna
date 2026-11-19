@@ -25,6 +25,8 @@
   --color-accent: var(--accent);
   --color-accent-foreground: var(--accent-foreground);
   --color-destructive: var(--destructive);
+  --color-warning: var(--gitna-warning);
+  --color-highlight: var(--gitna-highlight);
   --color-border: var(--border);
   --color-border-opaque: var(--border-opaque);
   --color-input: var(--input);
@@ -361,16 +363,11 @@
 .markdown-preview .markdown-alert > :last-child { margin-bottom: 0; }
 .markdown-preview :where(.markdown-alert-title) { display: flex; align-items: center; gap: 0.5rem; color: var(--alert); font-weight: 600; }
 .markdown-preview .markdown-alert-title svg { margin: 0; fill: currentColor; }
-.markdown-preview :where(.markdown-alert-note) { --alert: #0969da; }
-.markdown-preview :where(.markdown-alert-tip) { --alert: #1a7f37; }
-.markdown-preview :where(.markdown-alert-important) { --alert: #8250df; }
-.markdown-preview :where(.markdown-alert-warning) { --alert: #9a6700; }
-.markdown-preview :where(.markdown-alert-caution) { --alert: #d1242f; }
-.dark .markdown-preview :where(.markdown-alert-note) { --alert: #4493f8; }
-.dark .markdown-preview :where(.markdown-alert-tip) { --alert: #3fb950; }
-.dark .markdown-preview :where(.markdown-alert-important) { --alert: #ab7df8; }
-.dark .markdown-preview :where(.markdown-alert-warning) { --alert: #d29922; }
-.dark .markdown-preview :where(.markdown-alert-caution) { --alert: #f85149; }
+.markdown-preview :where(.markdown-alert-note) { --alert: var(--gitna-alert-note); }
+.markdown-preview :where(.markdown-alert-tip) { --alert: var(--gitna-alert-tip); }
+.markdown-preview :where(.markdown-alert-important) { --alert: var(--gitna-alert-important); }
+.markdown-preview :where(.markdown-alert-warning) { --alert: var(--gitna-alert-warning); }
+.markdown-preview :where(.markdown-alert-caution) { --alert: var(--gitna-alert-caution); }
 .markdown-message { line-height: 1.5; }
 .markdown-message :is(h1, h2, h3, h4, h5, h6) { margin-block: 0.75rem 0.4rem; font-size: 1em; }
 .markdown-message :is(p, ul, ol, blockquote, table, [data-markdown='code-block']) { margin-block: 0.5rem; }

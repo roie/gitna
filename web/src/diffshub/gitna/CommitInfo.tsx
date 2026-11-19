@@ -70,10 +70,12 @@ export function CommitInfo({
             <span className="text-muted-foreground">
               {stats.files} {stats.files === 1 ? 'file' : 'files'}
             </span>
-            <span className="font-medium text-emerald-600 dark:text-emerald-400">
+            <span className="font-medium text-[var(--diffshub-comment-add-fg)]">
               +{stats.additions}
             </span>
-            <span className="font-medium text-red-600 dark:text-red-400">−{stats.deletions}</span>
+            <span className="font-medium text-[var(--diffshub-comment-del-fg)]">
+              −{stats.deletions}
+            </span>
             {stats.binaryFiles > 0 && (
               <span className="text-muted-foreground">
                 {stats.binaryFiles} {stats.binaryFiles === 1 ? 'binary' : 'binaries'}

@@ -1746,7 +1746,9 @@ test('command palette searches complete paths and runs workbench commands', asyn
     'text-decoration-line',
     'none',
   )
-  await expect(spacedFile.locator('[data-palette-match]').first()).toHaveClass(/text-blue-600/)
+  await expect(spacedFile.locator('[data-palette-match]').first()).toHaveClass(
+    /gitna-list-highlight/,
+  )
   // A matching result may arrive before the progressive index has finished.
   await expect(palette.getByRole('listbox', { name: 'Files' })).toHaveAttribute(
     'aria-busy',

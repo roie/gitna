@@ -40,7 +40,7 @@ function HighlightedText({
   }
   return runs.map((run) =>
     run.highlighted ? (
-      <span key={run.start} data-palette-match className="text-blue-600 dark:text-blue-400">
+      <span key={run.start} data-palette-match className="text-[var(--gitna-list-highlight)]">
         {run.text}
       </span>
     ) : (

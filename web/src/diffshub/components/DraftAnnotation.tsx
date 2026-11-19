@@ -351,8 +351,8 @@ export function AuthorInitial({
       className={cn(
         'flex size-8 shrink-0 items-center justify-center self-start rounded-full text-[13px] font-semibold uppercase',
         agent
-          ? 'bg-violet-500/20 text-violet-700 dark:text-violet-300'
-          : 'bg-blue-500/20 text-blue-700 dark:text-blue-300',
+          ? 'bg-[var(--gitna-agent)]/20 text-[var(--gitna-agent)]'
+          : 'bg-highlight/20 text-highlight',
         className
       )}
     >

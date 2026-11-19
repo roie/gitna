@@ -14,7 +14,7 @@ export interface Toast {
 }
 
 const severityClass = {
-  error: 'border-red-400/50 bg-red-600 text-white',
+  error: 'border-destructive/50 bg-destructive text-background',
   info: 'border-border bg-background text-foreground',
   warning: 'border-border bg-background text-foreground',
 } as const

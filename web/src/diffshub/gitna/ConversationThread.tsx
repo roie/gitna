@@ -59,7 +59,7 @@ export function ConversationThread({
           <span
             role="img"
             aria-label="Unread"
-            className="size-2 shrink-0 rounded-full bg-blue-500"
+            className="size-2 shrink-0 rounded-full bg-highlight"
           />
         )}
       </button>

@@ -193,31 +193,31 @@ const REPOSITORY_FILTERS: readonly {
     status: 'added',
     label: 'Added',
     short: 'A',
-    color: 'light-dark(#16a994, #00cab1)',
+    color: 'var(--gitna-git-added)',
   },
   {
     status: 'modified',
     label: 'Modified',
     short: 'M',
-    color: 'light-dark(#1ca1c7, #08c0ef)',
+    color: 'var(--gitna-git-modified)',
   },
   {
     status: 'untracked',
     label: 'Untracked',
     short: 'U',
-    color: 'light-dark(#16a994, #00cab1)',
+    color: 'var(--gitna-git-untracked)',
   },
   {
     status: 'renamed',
     label: 'Renamed',
     short: 'R',
-    color: 'light-dark(#d5a910, #ffd452)',
+    color: 'var(--gitna-git-renamed)',
   },
   {
     status: 'deleted',
     label: 'Deleted',
     short: 'D',
-    color: 'light-dark(#ff2e3f, #ff6762)',
+    color: 'var(--gitna-git-deleted)',
   },
 ]
 
@@ -1265,7 +1265,7 @@ function GitnaSourceControlInner({
 
       {repository.uncertainMutation != null && (
         <div
-          className="mx-3 mb-3 rounded-md bg-amber-500/10 px-2.5 py-2 text-xs text-amber-700 dark:text-amber-300"
+          className="mx-3 mb-3 rounded-md bg-warning/15 px-2.5 py-2 text-xs text-foreground"
           role="alert"
         >
           <p>{repository.uncertainMutation}</p>
@@ -2115,7 +2115,7 @@ function ConversationsSection({
             <span
               role="img"
               aria-label="Unread"
-              className="size-2 shrink-0 rounded-full bg-blue-500 dark:bg-blue-400"
+              className="size-2 shrink-0 rounded-full bg-highlight"
             />
           )
         }
@@ -2168,7 +2168,7 @@ function ConversationFilter({
           {value === 'resolved' && (
             <span
               aria-hidden="true"
-              className="absolute -right-0.5 -top-0.5 size-2 rounded-full border-[1px] border-[var(--diffshub-sidebar-bg)] bg-blue-500 dark:bg-blue-400"
+              className="absolute -right-0.5 -top-0.5 size-2 rounded-full border-[1px] border-[var(--diffshub-sidebar-bg)] bg-highlight"
             />
           )}
         </Button>
@@ -2275,7 +2275,7 @@ function RepositoryHeaderActions({
               {filtered && (
                 <span
                   aria-hidden="true"
-                  className="absolute -right-0.5 -top-0.5 size-2 rounded-full border-[1px] border-[var(--diffshub-sidebar-bg)] bg-blue-500 dark:bg-blue-400"
+                  className="absolute -right-0.5 -top-0.5 size-2 rounded-full border-[1px] border-[var(--diffshub-sidebar-bg)] bg-highlight"
                 />
               )}
             </Button>
@@ -2859,7 +2859,7 @@ interface GraphSectionProps {
 const GRAPH_LANE_SPACING = 12
 const GRAPH_LANE_INSET = 8
 const GRAPH_ROW_HEIGHT = 28
-const GRAPH_LANE_COLORS = ['var(--ring, #3b82f6)', '#f59e0b', '#a855f7', '#10b981', '#f43f5e']
+const GRAPH_LANE_COLORS = [1, 2, 3, 4, 5].map((lane) => `var(--gitna-lane-${lane})`)
 
 function graphColumnX(column: number): number {
   return GRAPH_LANE_INSET + column * GRAPH_LANE_SPACING
@@ -3467,10 +3467,10 @@ const GraphCommitRow = memo(function GraphCommitRow({
                   <span
                     key={`${ref.kind}:${ref.name}`}
                     className={cn(
-                      'max-w-24 shrink-0 truncate rounded-full border border-blue-500/60 px-1.5 py-0.5 text-[11px] leading-none',
+                      'max-w-24 shrink-0 truncate rounded-full border border-highlight/60 px-1.5 py-0.5 text-[11px] leading-none',
                       ref.kind === 'head'
-                        ? 'bg-blue-500 text-white'
-                        : 'bg-blue-500/10 text-blue-500',
+                        ? 'bg-highlight text-background'
+                        : 'bg-highlight/10 text-highlight',
                     )}
                   >
                     {ref.name}
@@ -3655,7 +3655,7 @@ function ConflictPanel({ onError }: { onError: (error: string | null) => void })
   }
   const unresolved = repository.conflicts.length
   return (
-    <section className="conflict-bar mb-2 rounded-lg border border-amber-500/40 bg-amber-500/5 p-2">
+    <section className="conflict-bar mb-2 rounded-lg border border-warning/40 bg-warning/5 p-2">
       <div className="mb-2 flex items-center gap-2">
         <strong className="min-w-0 flex-1 text-xs">{labels[operation]}</strong>
         <span className="text-[11px] text-muted-foreground">{unresolved} unresolved</span>

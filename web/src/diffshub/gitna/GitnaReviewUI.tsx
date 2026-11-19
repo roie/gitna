@@ -226,13 +226,11 @@ function renderFolderLoadingDocument(newTab: Window, path: string, colorMode: Co
   favicon.rel = 'icon'
   favicon.type = 'image/png'
   favicon.href = assetUrl(dark ? 'favicon-dark.png' : 'favicon-light.png')
+  const root = getComputedStyle(window.document.documentElement)
+  const token = (name: string, fallback: string) => root.getPropertyValue(name).trim() || fallback
   const style = document.createElement('style')
   style.textContent = `
-    :root { color-scheme: light; --bg: #ffffff; --fg: #171717; --muted: #737373; --ring: #d4d4d4; }
-    :root[data-color-mode="dark"] { color-scheme: dark; --bg: #0f0f0f; --fg: #f5f5f5; --muted: #a3a3a3; --ring: #404040; }
-    @media (prefers-color-scheme: dark) {
-      :root[data-color-mode="system"] { color-scheme: dark; --bg: #0f0f0f; --fg: #f5f5f5; --muted: #a3a3a3; --ring: #404040; }
-    }
+    :root { color-scheme: ${dark ? 'dark' : 'light'}; --bg: ${token('--background', 'Canvas')}; --fg: ${token('--foreground', 'CanvasText')}; --muted: ${token('--muted-foreground', 'GrayText')}; --ring: ${token('--border', 'GrayText')}; }
     * { box-sizing: border-box; }
     body { margin: 0; min-height: 100vh; display: grid; place-items: center; background: var(--bg); color: var(--fg); font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
     @keyframes show-loading { from { visibility: hidden; } to { visibility: visible; } }
