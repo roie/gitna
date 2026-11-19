@@ -233,38 +233,38 @@
 
 /* Gitna-owned scrollers use one compact treatment. Pierre FileTree and CodeView
    retain their package-owned scroll roots and scrollbar styling. */
-.gitna-scrollbar {
-  --gitna-scrollbar-thumb-color: var(
+.list-scrollbar {
+  --list-scrollbar-thumb-color: var(
     --diffshub-scrollbar-thumb-bg,
     light-dark(
       color-mix(in lab, var(--background) 85%, black),
       color-mix(in lab, var(--background) 80%, white)
     )
   );
-  --gitna-scrollbar-thumb-bg: color-mix(
+  --list-scrollbar-thumb-bg: color-mix(
     in srgb,
-    var(--gitna-scrollbar-thumb-color) 55%,
+    var(--list-scrollbar-thumb-color) 55%,
     transparent
   );
   scrollbar-gutter: stable;
 }
 
-.gitna-scrollbar:hover,
-.gitna-scrollbar:focus-within {
-  --gitna-scrollbar-thumb-bg: var(--gitna-scrollbar-thumb-color);
+.list-scrollbar:hover,
+.list-scrollbar:focus-within {
+  --list-scrollbar-thumb-bg: var(--list-scrollbar-thumb-color);
 }
 
-.gitna-scrollbar::-webkit-scrollbar {
+.list-scrollbar::-webkit-scrollbar {
   width: 10px;
   height: 10px;
 }
 
-.gitna-scrollbar::-webkit-scrollbar-track {
+.list-scrollbar::-webkit-scrollbar-track {
   background: transparent;
 }
 
-.gitna-scrollbar::-webkit-scrollbar-thumb {
-  background-color: var(--gitna-scrollbar-thumb-bg);
+.list-scrollbar::-webkit-scrollbar-thumb {
+  background-color: var(--list-scrollbar-thumb-bg);
   background-clip: content-box;
   border: 3px solid transparent;
   border-radius: 5px;
@@ -275,8 +275,8 @@
     scrollbar-color: var(--cv-scrollbar-thumb-bg)
       var(--diffshub-scrollbar-track-bg, transparent);
   }
-  .gitna-scrollbar {
-    scrollbar-color: var(--gitna-scrollbar-thumb-bg) transparent;
+  .list-scrollbar {
+    scrollbar-color: var(--list-scrollbar-thumb-bg) transparent;
     scrollbar-width: thin;
   }
 }

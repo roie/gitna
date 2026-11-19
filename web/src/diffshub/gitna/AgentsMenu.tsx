@@ -121,7 +121,7 @@ function ModelChoices({
           </p>
         )
       ) : (
-        <div className="gitna-scrollbar mt-1 max-h-[320px] overflow-y-auto overscroll-contain">
+        <div className="list-scrollbar mt-1 max-h-[320px] overflow-y-auto overscroll-contain">
           {choices.map((m) => (
             <DropdownMenuItem
               key={m.id}

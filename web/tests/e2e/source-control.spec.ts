@@ -251,7 +251,7 @@ test('real binary renders repository source-control state', async ({ page, app }
   await expect(page.getByText('base fixture', { exact: true })).toBeVisible()
   const sourcePaneBody = page.locator('[data-pane-body="source-control"]')
   const sourcePaneHeader = page.locator('[data-section="workflow"]')
-  await expect(sourcePaneBody).toHaveClass(/gitna-scrollbar/)
+  await expect(sourcePaneBody).toHaveClass(/list-scrollbar/)
   await expect(sourcePaneBody).toHaveCSS('overflow-y', 'auto')
   expect(
     await sourcePaneBody.evaluate(
@@ -1723,7 +1723,7 @@ test('command palette searches complete paths and runs workbench commands', asyn
   const paletteResults = palette.getByRole('listbox', { name: 'Files' })
   await expect(palette).toBeVisible()
   await expect(palette).toHaveCSS('box-shadow', 'none')
-  await expect(paletteResults).toHaveClass(/gitna-scrollbar/)
+  await expect(paletteResults).toHaveClass(/list-scrollbar/)
   await expect(search).toBeFocused()
   await search.fill('file name')
   const spacedFile = palette.getByRole('option', { name: /file name\.ts/ })
@@ -3296,7 +3296,7 @@ test('Gitna Home searches recent folders and protects dirty drafts', async ({ pa
   const recentList = recentFolder.locator('xpath=ancestor::ul')
   await expect(recentList).toHaveCSS('overflow-y', 'visible')
   await expect(recentList).toHaveCSS('max-height', 'none')
-  await expect(recentList).not.toHaveClass(/gitna-scrollbar/)
+  await expect(recentList).not.toHaveClass(/list-scrollbar/)
   const lastOpened = recentFolder.locator('time')
   await expect(lastOpened).toContainText(/Just now|minute(?:s)? ago/)
   await expect(lastOpened).toHaveAttribute('title', /^Last opened /)

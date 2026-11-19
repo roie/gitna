@@ -87,7 +87,7 @@ export function Modal({ children, onClose, disabledReason, error, role, title }:
           <IconX className="size-4" />
         </Button>
       </div>
-      <div className="gitna-scrollbar max-h-[calc(100dvh-8rem)] overflow-y-auto overscroll-contain p-4">
+      <div className="list-scrollbar max-h-[calc(100dvh-8rem)] overflow-y-auto overscroll-contain p-4">
         {disabledReason != null && (
           <p className="mb-3 overflow-wrap-anywhere text-xs text-muted-foreground" role="note">
             {disabledReason}

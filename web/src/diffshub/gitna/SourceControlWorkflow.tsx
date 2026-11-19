@@ -1,6 +1,5 @@
 import {
   IconBranch,
-  IconChevronSm,
   IconComment,
   IconEllipsis,
   IconFileTree,
@@ -84,6 +83,8 @@ import { Confirm, Modal } from './Modal'
 import { RepositoryEntryModal } from './RepositoryEntryModal'
 import { CommitInfo } from './CommitInfo'
 import { useRepository } from './repository'
+import { Header } from './ui/Header'
+import { Pane } from './ui/Pane'
 
 interface PendingConfirm {
   confirmLabel: string
@@ -969,9 +970,9 @@ function GitnaSourceControlInner({
       className="source-control flex h-full min-h-0 flex-col"
       aria-label={snapshot.repository ? 'Source Control workflow' : 'File Explorer'}
     >
-      <div
+      <Pane
         ref={containerRef}
-        className="pane-stack gitna-scrollbar grid min-h-0 flex-1 overflow-hidden max-md:block max-md:overflow-y-auto"
+        className="pane-stack grid min-h-0 flex-1 overflow-hidden max-md:block max-md:overflow-y-auto"
         style={{
           gridTemplateRows: [
             ...(snapshot.repository ? [workflowRow, '0'] : []),
@@ -991,7 +992,8 @@ function GitnaSourceControlInner({
             data-pane="source-control"
             className="section min-h-0 overflow-hidden md:flex md:flex-col"
           >
-            <PaneSectionHeader
+            <Header
+              level="pane"
               className="border-t-0"
               actions={
                 <SourceControlHeaderActions
@@ -1010,10 +1012,10 @@ function GitnaSourceControlInner({
               onOpenChange={setWorkflowOpen}
             />
             {workflowOpen && (
-              <div
+              <Pane
                 ref={workflowContent}
                 data-pane-body="source-control"
-                className="gitna-scrollbar min-h-0 overscroll-contain md:flex md:flex-1 md:flex-col md:overflow-x-hidden md:overflow-y-auto max-md:overflow-visible"
+                className="min-h-0 md:flex md:flex-1 md:flex-col md:overflow-x-hidden max-md:overflow-visible"
               >
                 <form
                   className="commit-composer shrink-0 px-3 py-2"
@@ -1097,7 +1099,7 @@ function GitnaSourceControlInner({
                     onOpenChange={setChangesOpen}
                   />
                 )}
-              </div>
+              </Pane>
             )}
           </section>
         )}
@@ -1197,7 +1199,7 @@ function GitnaSourceControlInner({
               onViewChange={setRepositoryView}
             />
           )}
-          icon={<IconFileTree className="size-3" />}
+          icon={IconFileTree}
           lazyDirectories={
             repositoryView === 'tree' ? repository.ordinaryUnloadedDirectories : undefined
           }
@@ -1258,7 +1260,7 @@ function GitnaSourceControlInner({
             onOpenChange={setConversationsOpen}
           />
         )}
-      </div>
+      </Pane>
 
       {repository.uncertainMutation != null && (
         <div
@@ -1792,44 +1794,6 @@ function SourceControlHeaderActions({
         </Modal>
       )}
     </>
-  )
-}
-
-interface WorkflowSectionHeaderProps {
-  className?: string
-  dataSection: string
-  headerRef?: React.Ref<HTMLButtonElement>
-  icon: ReactNode
-  onOpenChange: (open: boolean) => void
-  open: boolean
-  title: string
-}
-
-function WorkflowSectionHeader({
-  className,
-  dataSection,
-  headerRef,
-  icon,
-  onOpenChange,
-  open,
-  title,
-}: WorkflowSectionHeaderProps) {
-  return (
-    <button
-      ref={headerRef}
-      type="button"
-      className={cn(
-        'section-header flex h-8 w-full min-w-0 cursor-pointer items-center gap-1.5 px-3 text-left text-xs focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-[var(--ring)]',
-        className,
-      )}
-      data-section={dataSection}
-      aria-expanded={open}
-      onClick={() => onOpenChange(!open)}
-    >
-      <IconChevronSm className={cn('size-3 transition-transform', !open && '-rotate-90')} />
-      {icon}
-      <span className="section-title min-w-0 flex-1 truncate font-medium">{title}</span>
-    </button>
   )
 }
 
@@ -2546,7 +2510,7 @@ interface TreeSectionProps {
   headerActions?: ReactNode
   headerClassName?: string
   headerRef?: React.Ref<HTMLButtonElement>
-  icon: ReactNode
+  icon: ComponentType<{ className?: string }>
   modelId: string
   lazyDirectories?: ReadonlySet<string>
   knownEmptyDirectories?: ReadonlySet<string>
@@ -2558,7 +2522,6 @@ interface TreeSectionProps {
   onSelectPaths?: (paths: readonly string[]) => void
   open: boolean
   pane?: boolean
-  paneIcon?: ComponentType<{ className?: string }>
   renderContextMenu?: (
     item: ContextMenuItem,
     context: ContextMenuOpenContext,
@@ -2596,7 +2559,6 @@ function TreeSection({
   onSelectPaths,
   open,
   pane = false,
-  paneIcon,
   renderContextMenu,
   renderHeaderActions,
   renderRowActions,
@@ -2647,32 +2609,24 @@ function TreeSection({
           }
           dataSection={dataSection}
           headerRef={headerRef}
-          icon={paneIcon ?? IconFileTree}
+          icon={icon}
           open={open}
           title={title}
           titleAccessory={titleAccessory}
           onOpenChange={onOpenChange}
         />
       ) : (
-        <div className="group/tree-header flex h-8 shrink-0 items-center hover:bg-muted focus-within:bg-muted">
-          <WorkflowSectionHeader
-            className="min-w-0 flex-1"
-            dataSection={dataSection}
-            headerRef={headerRef}
-            icon={icon}
-            open={open}
-            title={title}
-            onOpenChange={onOpenChange}
-          />
-          {headerActions != null && (
-            <div className="flex shrink-0 items-center opacity-0 group-focus-within/tree-header:opacity-100 group-hover/tree-header:opacity-100 max-md:opacity-100">
-              {headerActions}
-            </div>
-          )}
-          <span className="section-count min-w-7 shrink-0 pr-3 text-right text-xs tabular-nums text-muted-foreground">
-            {source.pathCount}
-          </span>
-        </div>
+        <Header
+          level="section"
+          actions={headerActions}
+          count={source.pathCount}
+          dataSection={dataSection}
+          ref={headerRef}
+          icon={icon}
+          open={open}
+          title={title}
+          onOpenChange={onOpenChange}
+        />
       )}
       {open && (
         <div className="contents">
@@ -2940,7 +2894,7 @@ function ChangeSection({
       emptyMessage={changes.length === 0 ? 'No changes' : 'No matching files'}
       headerActions={headerActions}
       headerRef={headerRef}
-      icon={<IconSymbolDiffstatFill className="size-3" />}
+      icon={IconSymbolDiffstatFill}
       modelId={modelId}
       open={open}
       renderContextMenu={renderContextMenu}
@@ -3308,7 +3262,7 @@ function GraphSection({
           <div
             ref={graphBodyRef}
             data-pane-body="graph"
-            className="graph-list gitna-scrollbar min-h-0 px-2 pb-4 overscroll-contain md:flex-1 md:overflow-y-auto max-md:overflow-visible"
+            className="graph-list list-scrollbar min-h-0 px-2 pb-4 overscroll-contain md:flex-1 md:overflow-y-auto max-md:overflow-visible"
             onKeyDownCapture={(event) => {
               if (['ArrowDown', 'PageDown', 'End'].includes(event.key)) armContinuation()
             }}

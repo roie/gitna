@@ -289,7 +289,7 @@ export function GitnaHome({
   return (
     <main
       aria-labelledby="gitna-home-title"
-      className="gitna-scrollbar relative col-span-full row-span-full min-h-0 overflow-y-auto overscroll-contain [grid-column:1/-1] [grid-row:1/-1]"
+      className="list-scrollbar relative col-span-full row-span-full min-h-0 overflow-y-auto overscroll-contain [grid-column:1/-1] [grid-row:1/-1]"
     >
       <Button
         type="button"

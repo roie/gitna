@@ -83,7 +83,7 @@ export function SearchResults({
   return (
     <div
       ref={scrollRef}
-      className="gitna-scrollbar min-h-0 flex-1 overflow-y-auto overscroll-contain pb-2"
+      className="list-scrollbar min-h-0 flex-1 overflow-y-auto overscroll-contain pb-2"
       aria-label="Search results"
       onKeyDown={(event) => {
         const button = (event.target as HTMLElement).closest<HTMLButtonElement>(
