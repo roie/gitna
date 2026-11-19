@@ -971,9 +971,9 @@ function GitnaSourceControlInner({
       className="source-control flex h-full min-h-0 flex-col"
       aria-label={snapshot.repository ? 'Source Control workflow' : 'File Explorer'}
     >
-      <Pane
+      <div
         ref={containerRef}
-        className="pane-stack grid min-h-0 flex-1 overflow-hidden max-md:block max-md:overflow-y-auto"
+        className="pane-stack grid min-h-0 flex-1 overflow-hidden overscroll-contain max-md:block max-md:overflow-y-auto"
         style={{
           gridTemplateRows: [
             ...(snapshot.repository ? [workflowRow, '0'] : []),
@@ -1261,7 +1261,7 @@ function GitnaSourceControlInner({
             onOpenChange={setConversationsOpen}
           />
         )}
-      </Pane>
+      </div>
 
       {repository.uncertainMutation != null && (
         <div
