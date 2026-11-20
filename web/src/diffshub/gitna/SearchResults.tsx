@@ -3,7 +3,7 @@ import { defaultRangeExtractor, useVirtualizer } from '@tanstack/react-virtual'
 import { IconChevronSm } from '@pierre/icons'
 import type { ContentSearchFile, ContentSearchMatch } from '../../lib/types'
 import { cn } from '../lib/cn'
-import { FileTypeIcon } from './FileTypeIcon'
+import { FileIcon } from './FileIcon'
 import { Pane } from './ui/Pane'
 import { Row } from './ui/Row'
 
@@ -164,7 +164,7 @@ export function SearchResults({
                           collapsed && '-rotate-90',
                         )}
                       />
-                      <FileTypeIcon path={file.path} />
+                      <FileIcon path={file.path} />
                     </>
                   ) : (
                     <span className="w-5 shrink-0 text-right text-muted-foreground tabular-nums">

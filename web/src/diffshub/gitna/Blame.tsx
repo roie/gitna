@@ -5,7 +5,7 @@ import type { ApiClient } from '../../lib/api'
 import type { FileBlame, LineHistory } from '../../lib/types'
 import type { CommentMetadata } from '../lib/types'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '../components/Tooltip'
-import { CommitInfo } from './CommitInfo'
+import { CommitTooltip } from './CommitTooltip'
 import { formatLineHistoryAge, lineHistoryFromBlame } from './lineHistory'
 import { useRepository } from './repository'
 
@@ -257,7 +257,7 @@ export function Blame({
             >
               {error ??
                 (committed ? (
-                  <CommitInfo
+                  <CommitTooltip
                     commit={
                       graphCommit ?? {
                         oid: history.oid!,

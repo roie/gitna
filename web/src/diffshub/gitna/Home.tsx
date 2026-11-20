@@ -19,7 +19,7 @@ import { useLoadingIndicator } from '../lib/loading'
 import { formatOpenedAt } from './homeTime'
 import { Row } from './ui/Row'
 
-interface GitnaHomeProps {
+interface HomeProps {
   catalog: FolderCatalog | null
   error: string | null
   loading: boolean
@@ -222,7 +222,7 @@ function FolderRow({
   )
 }
 
-export function GitnaHome({
+export function Home({
   catalog,
   error,
   loading,
@@ -237,7 +237,7 @@ export function GitnaHome({
   backendDisabledReason,
   connectionStatus,
   openFolderDisabledReason,
-}: GitnaHomeProps) {
+}: HomeProps) {
   const [query, setQuery] = useState('')
   const [recentAction, setRecentAction] = useState<{
     path: string

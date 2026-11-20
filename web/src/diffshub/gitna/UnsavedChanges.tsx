@@ -1,7 +1,7 @@
 import { Modal } from './Modal'
 import { Button } from '../components/Button'
 
-interface DirtyTabCloseModalProps {
+interface UnsavedChangesProps {
   dirtyPaths: readonly string[]
   saveDisabledReason?: string | null
   onCancel: () => void
@@ -9,13 +9,13 @@ interface DirtyTabCloseModalProps {
   onSave: () => void
 }
 
-export function DirtyTabCloseModal({
+export function UnsavedChanges({
   dirtyPaths,
   saveDisabledReason,
   onCancel,
   onDiscard,
   onSave,
-}: DirtyTabCloseModalProps) {
+}: UnsavedChangesProps) {
   const count = dirtyPaths.length
   const isUntitled = count === 1 && dirtyPaths[0].startsWith('untitled:')
   const title = isUntitled

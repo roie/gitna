@@ -6,7 +6,7 @@ import { Modal } from './Modal'
 import { useLoadingIndicator } from '../lib/loading'
 import { useRepository } from './repository'
 
-interface RepositoryEntryModalProps {
+interface EntryDialogProps {
   initialPath: string
   kind: 'file' | 'folder' | 'rename'
   onClose: () => void
@@ -15,14 +15,14 @@ interface RepositoryEntryModalProps {
   source?: string
 }
 
-export function RepositoryEntryModal({
+export function EntryDialog({
   initialPath,
   kind,
   onClose,
   onCreatedFolder,
   onError,
   source,
-}: RepositoryEntryModalProps) {
+}: EntryDialogProps) {
   const repository = useRepository()
   const [path, setPath] = useState(initialPath)
   const [submitting, setSubmitting] = useState(false)

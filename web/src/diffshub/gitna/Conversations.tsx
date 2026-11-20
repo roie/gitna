@@ -1,6 +1,6 @@
 import { IconComment, IconFilter } from '@pierre/icons'
 import { useCallback, useMemo, useState, useSyncExternalStore } from 'react'
-import { AgentsMenu } from './AgentsMenu'
+import { Agents } from './Agents'
 import type { Conversation, ConversationsModel, Participant } from '../../lib/conversations'
 import { Button } from '../components/Button'
 import { CHROME_ICON_BUTTON_CLASS } from '../components/chromeButtonStyles'
@@ -49,7 +49,7 @@ function conversationSections(
   return [...byPath.values()]
 }
 
-export function ConversationsSection({
+export function Conversations({
   conversations: { model, onOpen },
   open,
   onOpenChange,
@@ -82,7 +82,7 @@ export function ConversationsSection({
         level="pane"
         actions={
           <>
-            <AgentsMenu model={model} />
+            <Agents model={model} />
             <ConversationFilter value={filter} onChange={setFilter} />
           </>
         }

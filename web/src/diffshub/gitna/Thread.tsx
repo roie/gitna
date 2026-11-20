@@ -9,7 +9,7 @@ import type { Conversation, ConversationsModel, Run } from '../../lib/conversati
 import { replyRecipients, resolveMentions } from '../../lib/mentions'
 import { MessageMarkdown } from './MessageMarkdown'
 
-export function ConversationThread({
+export function Thread({
   conversation: initial,
   model,
 }: {

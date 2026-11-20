@@ -5,13 +5,7 @@ export function folderDisplayName(path: string): string {
   return path.split(/[\\/]/).filter(Boolean).at(-1) ?? path
 }
 
-export function FolderLoadingScreen({
-  path,
-  startup = false,
-}: {
-  path: string
-  startup?: boolean
-}) {
+export function LoadingScreen({ path, startup = false }: { path: string; startup?: boolean }) {
   const visible = useLoadingIndicator(true, path, startup ? 0 : undefined)
   const name = folderDisplayName(path)
   return (

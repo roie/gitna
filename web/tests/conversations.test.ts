@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vite-plus/test'
 import { createElement } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
-import { ConversationThread } from '../src/diffshub/gitna/ConversationThread'
+import { Thread } from '../src/diffshub/gitna/Thread'
 import { CommentComposer } from '../src/diffshub/components/DraftAnnotation'
 
 import {
@@ -132,7 +132,7 @@ describe('native run presentation', () => {
   }
   const live = { runId: 3, participantId: agent.id, conversationId: 'c', activity: 'Read a file' }
   const render = (model: ConversationsModel, thread: Conversation) =>
-    renderToStaticMarkup(createElement(ConversationThread, { model, conversation: thread }))
+    renderToStaticMarkup(createElement(Thread, { model, conversation: thread }))
 
   it('shows activity and removes live state when the reply completes the run', async () => {
     const thread = conversation('c', 'a', [[1, human]])

@@ -70,21 +70,21 @@ import type { LoadedDiffsHubData } from '../lib/diffsHubDataAccumulator'
 import { cn } from '../lib/cn'
 import { savePreference } from '../../lib/preferences'
 import { relocateDraft } from '../lib/draftLocation'
-import type { GitnaPaletteCommand } from './GitnaCommandPalette'
+import type { GitnaPaletteCommand } from './CommandPalette'
 import { GlobalToastHost } from './ConnectionStatus'
-import { FolderLoadingScreen, folderDisplayName } from './FolderLoadingScreen'
+import { LoadingScreen, folderDisplayName } from './LoadingScreen'
 import { LoadingIndicator, LOADING_INDICATOR_DELAY_MS } from '../lib/loading'
-import { GitnaHome } from './GitnaHome'
+import { Home } from './Home'
 import { Blame } from './Blame'
 import { ChangeGutter } from './ChangeGutter'
-import { GitnaSourceControl } from './SourceControl'
+import { SourceControl } from './SourceControl'
 import { Confirm } from './Modal'
-import { UntitledSaveAsModal } from './UntitledSaveAsModal'
-import { DirtyTabCloseModal } from './DirtyTabCloseModal'
-import { DraftRecoveryModal } from './DraftRecoveryModal'
-import type { MarkdownViewMode as FilePreviewMode } from './MarkdownWorkbench'
+import { SaveAs } from './SaveAs'
+import { UnsavedChanges } from './UnsavedChanges'
+import { DraftRecovery } from './DraftRecovery'
+import type { MarkdownViewMode as FilePreviewMode } from './MarkdownPreview'
 import { SVGPreview } from './SVGPreview'
-import { NativeMediaPreview, nativeMediaKind } from './NativeMediaPreview'
+import { MediaPreview, nativeMediaKind } from './MediaPreview'
 import { Row } from './ui/Row'
 import {
   scrollPreviewToSourceLine,
@@ -107,16 +107,16 @@ import {
   type RepositoryFileComparison,
 } from './repository'
 
-const GitnaCommandPalette = lazy(() =>
-  import('./GitnaCommandPalette').then(({ GitnaCommandPalette }) => ({
-    default: GitnaCommandPalette,
+const CommandPalette = lazy(() =>
+  import('./CommandPalette').then(({ CommandPalette }) => ({
+    default: CommandPalette,
   })),
 )
-const FindInFilesPanel = lazy(() =>
-  import('./FindInFilesPanel').then(({ FindInFilesPanel }) => ({ default: FindInFilesPanel })),
+const FindInFiles = lazy(() =>
+  import('./FindInFiles').then(({ FindInFiles }) => ({ default: FindInFiles })),
 )
-const MarkdownWorkbench = lazy(() =>
-  import('./MarkdownWorkbench').then(({ MarkdownWorkbench }) => ({ default: MarkdownWorkbench })),
+const MarkdownPreview = lazy(() =>
+  import('./MarkdownPreview').then(({ MarkdownPreview }) => ({ default: MarkdownPreview })),
 )
 
 interface ReviewTarget {
@@ -471,7 +471,7 @@ function useReviewTarget(): ReviewTarget | null {
   return { key: scope, request: { scope } }
 }
 
-type GitnaReviewUIProps = {
+type WorkbenchProps = {
   homeOpen?: boolean
   onHomeNavigate?: (open: boolean) => void
   folderURL?: string
@@ -481,15 +481,15 @@ type GitnaReviewUIProps = {
   onNavigationGuardChange?: (guard: (() => boolean) | null) => void
 }
 
-export function GitnaReviewUI(props: GitnaReviewUIProps) {
+export function Workbench(props: WorkbenchProps) {
   return (
     <ThemeSourceProvider controller={themeController}>
-      <GitnaReviewUIInner {...props} />
+      <WorkbenchInner {...props} />
     </ThemeSourceProvider>
   )
 }
 
-function GitnaReviewUIInner({
+function WorkbenchInner({
   homeOpen: routedHomeOpen,
   onHomeNavigate,
   folderURL = window.location.href,
@@ -497,7 +497,7 @@ function GitnaReviewUIInner({
   focusOnReady = false,
   onFolderNavigate,
   onNavigationGuardChange,
-}: GitnaReviewUIProps) {
+}: WorkbenchProps) {
   const repository = useRepository()
   const target = useReviewTarget()
   const nativePath =
@@ -2601,7 +2601,7 @@ function GitnaReviewUIInner({
             />
           )}
           {homeOpen && (
-            <GitnaHome
+            <Home
               catalog={repository.folders}
               error={repository.foldersError}
               loading={repository.foldersLoading}
@@ -2641,7 +2641,7 @@ function GitnaReviewUIInner({
                       </LoadingIndicator>
                     }
                   >
-                    <FindInFilesPanel
+                    <FindInFiles
                       key={repository.snapshot?.root}
                       active={sidebarMode === 'search'}
                       focusRequest={searchFocusRequest}
@@ -2664,7 +2664,7 @@ function GitnaReviewUIInner({
                     />
                   </Suspense>
                 )}
-                <GitnaSourceControl
+                <SourceControl
                   active={sidebarMode === 'source'}
                   onFindInFiles={openFindInFiles}
                   conversations={showConversations ? conversationsPane : undefined}
@@ -2676,7 +2676,7 @@ function GitnaReviewUIInner({
               </DiffsHubSidebar>
             )}
             <div className="flex min-h-0 flex-col [grid-area:viewer]">
-              <RepositoryFileTabs
+              <TabBar
                 dirtyPaths={dirtyPaths}
                 onClose={closeRepositoryFiles}
                 onError={setReviewActionError}
@@ -2691,7 +2691,7 @@ function GitnaReviewUIInner({
                     aria-hidden={reviewData != null || undefined}
                     inert={reviewData != null}
                   >
-                    <NativeMediaPreview
+                    <MediaPreview
                       key={`${repository.snapshot?.root}:${nativePath}`}
                       path={nativePath}
                       onReady={handleNativeReady}
@@ -2872,7 +2872,7 @@ function GitnaReviewUIInner({
                                   active={previewMode !== 'editor'}
                                 />
                               ) : (
-                                <MarkdownWorkbench
+                                <MarkdownPreview
                                   key={markdownPath}
                                   scrollRef={handlePreviewMount}
                                   onScroll={handlePreviewScroll}
@@ -3005,7 +3005,7 @@ function GitnaReviewUIInner({
         />
         {(paletteMounted || commandPaletteOpen) && (
           <Suspense fallback={null}>
-            <GitnaCommandPalette
+            <CommandPalette
               commands={paletteCommands}
               searchCommits={
                 repository.snapshot?.repository ? repository.api.searchCommits : undefined
@@ -3062,7 +3062,7 @@ function GitnaReviewUIInner({
           />
         )}
         {draftRecoveryOpen && recoverableDrafts.length > 0 && (
-          <DraftRecoveryModal
+          <DraftRecovery
             drafts={recoverableDrafts}
             onClose={() => setDraftRecoveryOpen(false)}
             onRestore={(draft) => {
@@ -3092,7 +3092,7 @@ function GitnaReviewUIInner({
           />
         )}
         {pendingTabClose != null && (
-          <DirtyTabCloseModal
+          <UnsavedChanges
             dirtyPaths={pendingTabClose.dirtyPaths}
             saveDisabledReason={savingPath == null ? backendDisabledReason : 'Saving changes…'}
             onCancel={() => setPendingTabClose(null)}
@@ -3101,7 +3101,7 @@ function GitnaReviewUIInner({
           />
         )}
         {pendingUntitledSaveAs != null && (
-          <UntitledSaveAsModal
+          <SaveAs
             documentPath={pendingUntitledSaveAs}
             initialPath={`${repository.untitledDocument(pendingUntitledSaveAs)?.label ?? 'untitled'}.txt`}
             onClose={() => setPendingUntitledSaveAs(null)}
@@ -3171,7 +3171,7 @@ function GitnaReviewUIInner({
         )}
       </div>
       {loadingPath != null && (
-        <FolderLoadingScreen
+        <LoadingScreen
           path={loadingPath}
           startup={folderSwitchTransition == null && startupLoading}
         />
@@ -3207,7 +3207,7 @@ function RepositoryTabIconSprite() {
   return <div ref={hostRef} aria-hidden="true" className="absolute size-0 overflow-hidden" />
 }
 
-function RepositoryFileTabs({
+function TabBar({
   dirtyPaths,
   onClose,
   onError,

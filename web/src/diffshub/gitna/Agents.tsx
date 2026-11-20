@@ -80,7 +80,7 @@ function AgentIcon({ row }: { row: Row }) {
   )
 }
 
-function ModelChoices({
+function ModelPicker({
   definition,
   listing,
   onBack,
@@ -172,7 +172,7 @@ interface Row {
   setup?: AgentSetup
 }
 
-export function AgentsMenu({ model }: { model: ConversationsModel }) {
+export function Agents({ model }: { model: ConversationsModel }) {
   useSyncExternalStore(
     (listener) => model.subscribe(listener),
     () => model.version,
@@ -374,7 +374,7 @@ export function AgentsMenu({ model }: { model: ConversationsModel }) {
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end" className="min-w-56 max-w-[calc(100vw-2rem)]">
           {panel != null && panel.row.definition != null ? (
-            <ModelChoices
+            <ModelPicker
               definition={
                 definitions.find((d) => d.id === panel.row.definition!.id) ?? panel.row.definition
               }

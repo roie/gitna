@@ -17,10 +17,10 @@ import { Input } from '../components/Input'
 import { cn } from '../lib/cn'
 import { Header } from './ui/Header'
 import { useLoadingIndicator } from '../lib/loading'
-import { FileTypeIconSprite } from './FileTypeIcon'
+import { FileIconSprite } from './FileIcon'
 import { SearchResults } from './SearchResults'
 
-interface FindInFilesPanelProps {
+interface FindInFilesProps {
   api: ApiClient
   folderLabel: string
   active: boolean
@@ -47,14 +47,14 @@ function SearchButton({ children, className, ...props }: ComponentProps<typeof B
   )
 }
 
-export function FindInFilesPanel({
+export function FindInFiles({
   api,
   active,
   focusRequest,
   onOpen,
   onBack,
   onResultsChange,
-}: FindInFilesPanelProps) {
+}: FindInFilesProps) {
   const [query, setQuery] = useState('')
   const [caseSensitive, setCaseSensitive] = useState(false)
   const [useRegex, setUseRegex] = useState(false)
@@ -198,7 +198,7 @@ export function FindInFilesPanel({
       className={cn('h-full min-h-0 flex-col', active ? 'flex' : 'hidden')}
       aria-label="Find in Files"
     >
-      <FileTypeIconSprite />
+      <FileIconSprite />
       <Header
         level="pane"
         icon={IconSearch}

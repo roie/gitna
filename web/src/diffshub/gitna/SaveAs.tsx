@@ -7,7 +7,7 @@ import { Modal } from './Modal'
 import { useLoadingIndicator } from '../lib/loading'
 import { useRepository } from './repository'
 
-interface UntitledSaveAsModalProps {
+interface SaveAsProps {
   documentPath: string
   initialPath: string
   onClose: () => void
@@ -15,13 +15,7 @@ interface UntitledSaveAsModalProps {
   onSaved: (path: string, file: WorktreeFile) => void
 }
 
-export function UntitledSaveAsModal({
-  documentPath,
-  initialPath,
-  onClose,
-  onError,
-  onSaved,
-}: UntitledSaveAsModalProps) {
+export function SaveAs({ documentPath, initialPath, onClose, onError, onSaved }: SaveAsProps) {
   const repository = useRepository()
   const [path, setPath] = useState(initialPath)
   const [submitting, setSubmitting] = useState(false)

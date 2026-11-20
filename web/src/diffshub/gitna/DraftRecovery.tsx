@@ -2,19 +2,14 @@ import type { DraftRecord } from '../../lib/api'
 import { Button } from '../components/Button'
 import { Modal } from './Modal'
 
-interface DraftRecoveryModalProps {
+interface DraftRecoveryProps {
   drafts: readonly DraftRecord[]
   onClose: () => void
   onDiscard: (draft: DraftRecord) => void
   onRestore: (draft: DraftRecord) => void
 }
 
-export function DraftRecoveryModal({
-  drafts,
-  onClose,
-  onDiscard,
-  onRestore,
-}: DraftRecoveryModalProps) {
+export function DraftRecovery({ drafts, onClose, onDiscard, onRestore }: DraftRecoveryProps) {
   return (
     <Modal title="Recover unsaved documents" onClose={onClose}>
       <p className="text-sm text-muted-foreground">

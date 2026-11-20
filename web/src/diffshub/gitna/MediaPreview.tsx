@@ -9,7 +9,7 @@ export function nativeMediaKind(path: string): 'audio' | 'video' | 'pdf' | null 
   return null
 }
 
-export function NativeMediaPreview({ path, onReady }: { path: string; onReady?: () => void }) {
+export function MediaPreview({ path, onReady }: { path: string; onReady?: () => void }) {
   const kind = nativeMediaKind(path)
   const source = `api/v1/media?path=${encodeURIComponent(path)}`
   const mediaRef = useRef<HTMLMediaElement | null>(null)

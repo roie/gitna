@@ -21,7 +21,7 @@ function relativeCommitTime(value: string): string {
   return formatter.format(elapsedSeconds, 'second')
 }
 
-export function CommitInfo({
+export function CommitTooltip({
   commit,
   stats,
   error,

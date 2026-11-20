@@ -1,12 +1,12 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type MouseEvent } from 'react'
 import { useStableCallback } from '@pierre/diffs/react'
 import { useMarkdownTheme } from './markdownTheme'
-import { renderMarkdownPreview, resolveRepositoryPath } from './markdownPreview'
+import { renderMarkdownPreview, resolveRepositoryPath } from './renderMarkdown'
 import { useLoadingIndicator } from '../lib/loading'
 
 export type MarkdownViewMode = 'editor' | 'preview' | 'split'
 
-interface MarkdownWorkbenchProps {
+interface MarkdownPreviewProps {
   path: string
   value: string | null
   active?: boolean
@@ -18,7 +18,7 @@ interface MarkdownWorkbenchProps {
 
 const MAX_MARKDOWN_BYTES = 512 * 1024
 
-export function MarkdownWorkbench({
+export function MarkdownPreview({
   path,
   value,
   active = true,
@@ -26,7 +26,7 @@ export function MarkdownWorkbench({
   onOpenPath,
   onScroll,
   scrollRef,
-}: MarkdownWorkbenchProps) {
+}: MarkdownPreviewProps) {
   const openPath = useStableCallback(onOpenPath)
   const debouncedValue = useDebouncedValue(value, active)
   const tooLarge = useMemo(

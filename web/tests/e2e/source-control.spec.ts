@@ -1296,7 +1296,7 @@ test('startup keeps themed feedback visible while the workbench loads', async ({
   const pending = new Promise<void>((resolve) => {
     release = resolve
   })
-  await page.route('**/assets/GitnaReviewUI-*.js', async (route) => {
+  await page.route('**/assets/Workbench-*.js', async (route) => {
     await pending
     await route.continue()
   })
@@ -1373,14 +1373,14 @@ test('worker fallback preserves the selected theme in diffs and editable files',
 })
 
 test('workbench load failure offers recovery instead of an empty screen', async ({ page, app }) => {
-  await page.route('**/assets/GitnaReviewUI-*.js', (route) => route.abort())
+  await page.route('**/assets/Workbench-*.js', (route) => route.abort())
   await page.goto(app.url)
   const loading = page.locator('[data-startup-loading]')
   await expect(loading).toBeVisible()
   await expect(loading).toHaveAttribute('aria-busy', 'false')
   await expect(loading.getByRole('alert')).toHaveText('Could not load Gitna. Reload to try again.')
   await expect(loading.getByRole('link', { name: 'Reload Gitna' })).toBeVisible()
-  await page.unroute('**/assets/GitnaReviewUI-*.js')
+  await page.unroute('**/assets/Workbench-*.js')
   await loading.getByRole('link', { name: 'Reload Gitna' }).click()
   await expect(page.getByRole('region', { name: 'Review', exact: true })).toBeVisible()
 })

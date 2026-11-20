@@ -18,7 +18,7 @@ import { Row } from './ui/Row'
 import { useLoadingIndicator } from '../lib/loading'
 import { splitPaletteFileMatchIndices, paletteTextMatches } from './commandPalette'
 
-import { FileTypeIcon, FileTypeIconSprite } from './FileTypeIcon'
+import { FileIcon, FileIconSprite } from './FileIcon'
 
 function HighlightedText({
   text,
@@ -110,7 +110,7 @@ export interface GitnaPaletteFileResult {
   path: string
 }
 
-interface GitnaCommandPaletteProps {
+interface CommandPaletteProps {
   searchCommits?: ApiClient['searchCommits']
   repositoryKey?: string
   onOpenCommit?: (oid: string, subject: string, currentBranch: boolean) => void | Promise<void>
@@ -188,7 +188,7 @@ function PaletteFileLabel({
   )
 }
 
-export function GitnaCommandPalette({
+export function CommandPalette({
   commands,
   searchCommits,
   repositoryKey,
@@ -208,7 +208,7 @@ export function GitnaCommandPalette({
   onOpenFile,
   open,
   initialQuery = '',
-}: GitnaCommandPaletteProps) {
+}: CommandPaletteProps) {
   const dialogRef = useRef<HTMLDialogElement>(null)
   const inputRef = useRef<HTMLInputElement>(null)
   const listRef = useRef<HTMLDivElement>(null)
@@ -484,7 +484,7 @@ export function GitnaCommandPalette({
         if (event.target === dialogRef.current) onClose()
       }}
     >
-      <FileTypeIconSprite />
+      <FileIconSprite />
       <div className="flex items-center gap-3 border-b border-border px-4 py-3">
         <IconSearch aria-hidden="true" className="size-4 shrink-0 text-muted-foreground" />
         <input
@@ -632,7 +632,7 @@ export function GitnaCommandPalette({
             }}
             icon={
               result.kind === 'file' ? (
-                <FileTypeIcon path={result.path} palette />
+                <FileIcon path={result.path} palette />
               ) : (
                 <span
                   aria-hidden="true"

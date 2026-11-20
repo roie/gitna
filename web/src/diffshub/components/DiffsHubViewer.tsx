@@ -59,7 +59,7 @@ import type { MutateRequest } from '../../lib/api';
 import { splitHunkPatches } from '../../lib/hunk-patches';
 import type { ChangeKind, ChangeScope, FileDiff, ContentSearchMatch } from '../../lib/types';
 import { installSearchHighlights, type ActiveSearchMatch } from '../gitna/searchHighlights';
-import { ConversationThread } from '../gitna/ConversationThread';
+import { Thread } from '../gitna/Thread';
 import {
   captureLines,
   type ConversationAnchor,
@@ -467,7 +467,7 @@ export const DiffsHubViewer = memo(function DiffsHubViewer({
       }
       const conversation = gitnaConversations.model.find(metadata.conversationId);
       return conversation == null ? null : (
-        <ConversationThread conversation={conversation} model={gitnaConversations.model} />
+        <Thread conversation={conversation} model={gitnaConversations.model} />
       );
     }
   );

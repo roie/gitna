@@ -4,7 +4,7 @@ import { useEffect, useRef } from 'react'
 const resolver = createFileTreeIconResolver('complete')
 const spriteSheet = getBuiltInSpriteSheet('complete')
 
-export function FileTypeIconSprite() {
+export function FileIconSprite() {
   const hostRef = useRef<HTMLDivElement>(null)
   useEffect(() => {
     const host = hostRef.current
@@ -30,7 +30,7 @@ export function FileTypeIconSprite() {
   return <div ref={hostRef} aria-hidden="true" className="absolute size-0 overflow-hidden" />
 }
 
-export function FileTypeIcon({ path, palette = false }: { path: string; palette?: boolean }) {
+export function FileIcon({ path, palette = false }: { path: string; palette?: boolean }) {
   const icon = resolver.resolveIcon('file-tree-icon-file', path)
   return (
     <svg

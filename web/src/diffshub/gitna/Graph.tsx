@@ -30,7 +30,7 @@ import {
   nextGraphFocusIndex,
   shouldLoadMoreGraph,
 } from './graphVirtualization'
-import { CommitInfo } from './CommitInfo'
+import { CommitTooltip } from './CommitTooltip'
 import { useRepository } from './repository'
 import { Header } from './ui/Header'
 import { Pane } from './ui/Pane'
@@ -42,7 +42,7 @@ import {
   createTreeSource,
 } from './panes'
 
-interface GraphSectionProps {
+interface GraphProps {
   onSearchCommits?: () => void
   headerRef: React.RefObject<HTMLButtonElement | null>
   scrollRootRef: React.RefObject<HTMLDivElement | null>
@@ -77,14 +77,14 @@ interface GraphScrollAnchor {
   oid: string
 }
 
-export function GraphSection({
+export function Graph({
   onSearchCommits,
   headerRef,
   scrollRootRef,
   onConfirm,
   onOpenChange,
   open,
-}: GraphSectionProps) {
+}: GraphProps) {
   const repository = useRepository()
   const [view, setView] = useState<RepositoryViewMode>('tree')
   const [mobile, setMobile] = useState(() => window.matchMedia('(max-width: 767px)').matches)
@@ -427,7 +427,7 @@ export function GraphSection({
                     data-graph-oid={row.commit.oid}
                     data-index={item.index}
                   >
-                    <GraphCommitRow
+                    <CommitRow
                       disclosureTabIndex={item.index === activeIndex ? 0 : -1}
                       index={item.index}
                       laneCount={laneCount}
@@ -474,15 +474,7 @@ export function GraphSection({
   )
 }
 
-function GraphLaneGutter({
-  laneCount,
-  open,
-  row,
-}: {
-  laneCount: number
-  open: boolean
-  row: GraphRow
-}) {
+function Lanes({ laneCount, open, row }: { laneCount: number; open: boolean; row: GraphRow }) {
   const width = graphColumnX(laneCount - 1) + GRAPH_LANE_INSET
   const nodeX = graphColumnX(row.column)
   const middle = GRAPH_ROW_HEIGHT / 2
@@ -564,7 +556,7 @@ function GraphLaneGutter({
   )
 }
 
-const GraphCommitRow = memo(function GraphCommitRow({
+const CommitRow = memo(function CommitRow({
   treeExpansionCache,
   disclosureTabIndex,
   index,
@@ -650,7 +642,7 @@ const GraphCommitRow = memo(function GraphCommitRow({
             tabIndex={disclosureTabIndex}
             onClick={() => void repository.toggleCommit(row.commit.oid)}
             onFocus={() => onDisclosureFocus(index)}
-            icon={<GraphLaneGutter laneCount={laneCount} open={open} row={row} />}
+            icon={<Lanes laneCount={laneCount} open={open} row={row} />}
             label={
               <span className="font-medium">
                 {row.commit.subject.trim() || `No commit message (${row.commit.oid.slice(0, 7)})`}
@@ -765,7 +757,7 @@ const GraphCommitRow = memo(function GraphCommitRow({
           />
         </TooltipTrigger>
         <TooltipContent side="right" align="start">
-          <CommitInfo
+          <CommitTooltip
             commit={row.commit}
             stats={stats}
             error={repository.filesError[row.commit.oid]}

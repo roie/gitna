@@ -8,7 +8,7 @@ import { RepositoryProvider } from './gitna/repository'
 import { isHomePath } from './gitna/navigation'
 
 const pdfPath = new URLSearchParams(window.location.search).get('pdf')
-type ReviewUI = typeof import('./gitna/GitnaReviewUI').GitnaReviewUI
+type ReviewUI = typeof import('./gitna/Workbench').Workbench
 const StandalonePDF = lazy(() =>
   import('./gitna/PDFPreview').then(({ PDFPreview }) => ({ default: PDFPreview })),
 )
@@ -16,7 +16,7 @@ import './vite/fonts.css'
 import '@pierre/words/styles.css'
 import './globals.css'
 
-function App({ GitnaReviewUI }: { GitnaReviewUI: ReviewUI | null }) {
+function App({ Workbench }: { Workbench: ReviewUI | null }) {
   const [searchRequest, setSearchRequest] = useState(0)
   const [folderURL, setFolderURL] = useState(
     window.history.state?.gitnaFolderURL ?? window.location.href,
@@ -148,14 +148,14 @@ function App({ GitnaReviewUI }: { GitnaReviewUI: ReviewUI | null }) {
       </ThemeProvider>
     )
   }
-  if (GitnaReviewUI == null) throw new Error('Missing Gitna workbench')
+  if (Workbench == null) throw new Error('Missing Gitna workbench')
   return (
     <>
       <ScrollbarGutterVariables />
       <WorkerPoolContext>
         <ThemeProvider attribute="class">
           <RepositoryProvider key={folderURL} baseURL={folderURL}>
-            <GitnaReviewUI
+            <Workbench
               homeOpen={homeOpen}
               onHomeNavigate={navigateHome}
               folderURL={folderURL}
@@ -177,9 +177,8 @@ const root = document.getElementById('diffshub-root')
 if (root == null) throw new Error('Missing DiffsHub React root')
 root.className = 'flex h-dvh min-h-0 flex-col'
 async function mountApp(root: HTMLElement): Promise<void> {
-  const GitnaReviewUI =
-    pdfPath == null ? (await import('./gitna/GitnaReviewUI')).GitnaReviewUI : null
-  createRoot(root).render(<App GitnaReviewUI={GitnaReviewUI} />)
+  const Workbench = pdfPath == null ? (await import('./gitna/Workbench')).Workbench : null
+  createRoot(root).render(<App Workbench={Workbench} />)
 }
 
 void mountApp(root).catch((error: unknown) => {
