@@ -1,9 +1,16 @@
-import { type ReactNode, useEffect, useRef, useState } from 'react'
+import { type ReactNode, useRef, useState } from 'react'
 
-import * as AlertDialog from '@radix-ui/react-alert-dialog'
 import { IconX } from '@pierre/icons'
 
 import { Button } from '../components/Button'
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '../components/ui/dialog'
 
 function captureReturnFocus(): () => void {
   let active = document.activeElement
@@ -15,7 +22,8 @@ function captureReturnFocus(): () => void {
     triggerId == null ? active : root?.getElementById(triggerId)
   ) as HTMLElement | null
   const label = target?.getAttribute('aria-label')
-  const ownerSelector = 'dialog, [data-pane], [role="region"][aria-label="Review"]'
+  const ownerSelector =
+    'dialog, [role="dialog"], [role="alertdialog"], [data-pane], [role="region"][aria-label="Review"]'
   const owner =
     target?.closest(ownerSelector) ??
     (root instanceof ShadowRoot ? root.host.closest(ownerSelector) : null)
@@ -50,57 +58,54 @@ interface ModalProps {
 }
 
 export function Modal({ children, onClose, disabledReason, error, role, title }: ModalProps) {
-  const dialogRef = useRef<HTMLDialogElement>(null)
   const [restoreFocus] = useState(captureReturnFocus)
-  const closeRef = useRef(onClose)
-  closeRef.current = onClose
-
-  useEffect(() => {
-    const dialog = dialogRef.current
-    if (dialog == null) return
-    dialog.showModal()
-    const onCancel = (event: Event) => {
-      event.preventDefault()
-      closeRef.current()
-    }
-    dialog.addEventListener('cancel', onCancel)
-    return () => {
-      dialog.removeEventListener('cancel', onCancel)
-      dialog.close()
-      restoreFocus()
-    }
-  }, [restoreFocus])
-
   return (
-    <dialog
-      ref={dialogRef}
-      aria-label={title}
-      role={role}
-      className="m-auto max-h-[min(720px,calc(100dvh-2rem))] w-[min(560px,calc(100vw-2rem))] overflow-hidden rounded-xl border border-border bg-background p-0 text-foreground backdrop:bg-black/45"
-      onClick={(event) => {
-        if (event.target === dialogRef.current) onClose()
+    <Dialog
+      open
+      onOpenChange={(open) => {
+        if (!open) onClose()
       }}
     >
-      <div className="flex items-center border-b border-border px-4 py-3">
-        <h2 className="min-w-0 flex-1 truncate text-sm font-semibold">{title}</h2>
-        <Button variant="ghost" size="icon-only" aria-label="Close dialog" onClick={onClose}>
-          <IconX className="size-4" />
-        </Button>
-      </div>
-      <div className="list-scrollbar max-h-[calc(100dvh-8rem)] overflow-y-auto overscroll-contain p-4">
-        {disabledReason != null && (
-          <p className="mb-3 overflow-wrap-anywhere text-xs text-muted-foreground" role="note">
-            {disabledReason}
-          </p>
-        )}
-        {error != null && (
-          <p className="mb-3 text-xs text-destructive" role="alert">
-            {error}
-          </p>
-        )}
-        {children}
-      </div>
-    </dialog>
+      <DialogContent
+        {...(role == null ? {} : { role })}
+        aria-describedby={undefined}
+        showCloseButton={false}
+        onOpenAutoFocus={(event) => {
+          const input = (event.currentTarget as HTMLElement).querySelector<HTMLInputElement>(
+            'input[data-autofocus]',
+          )
+          if (input == null) return
+          event.preventDefault()
+          input.focus()
+          input.setSelectionRange(input.value.length, input.value.length)
+        }}
+        onCloseAutoFocus={(event) => {
+          event.preventDefault()
+          restoreFocus()
+        }}
+        className="flex max-h-[min(720px,calc(100dvh-2rem))] flex-col gap-0 overflow-hidden p-0 sm:max-w-[560px]"
+      >
+        <div className="flex items-center border-b border-border px-4 py-3">
+          <DialogTitle className="min-w-0 flex-1 truncate text-sm">{title}</DialogTitle>
+          <Button variant="ghost" size="icon-only" aria-label="Close dialog" onClick={onClose}>
+            <IconX className="size-4" />
+          </Button>
+        </div>
+        <div className="list-scrollbar min-h-0 overflow-y-auto overscroll-contain p-4">
+          {disabledReason != null && (
+            <p className="mb-3 overflow-wrap-anywhere text-xs text-muted-foreground" role="note">
+              {disabledReason}
+            </p>
+          )}
+          {error != null && (
+            <p className="mb-3 text-xs text-destructive" role="alert">
+              {error}
+            </p>
+          )}
+          {children}
+        </div>
+      </DialogContent>
+    </Dialog>
   )
 }
 
@@ -122,68 +127,60 @@ export function Confirm({
   title,
 }: ConfirmProps) {
   const [restoreFocus] = useState(captureReturnFocus)
-  const portalContainer =
-    typeof document === 'undefined'
-      ? undefined
-      : (document.querySelector('dialog[open]') ?? undefined)
+  const cancelRef = useRef<HTMLButtonElement>(null)
   return (
-    <AlertDialog.Root
+    <Dialog
       open
       onOpenChange={(open) => {
         if (!open) onCancel()
       }}
     >
-      <AlertDialog.Portal container={portalContainer}>
-        <AlertDialog.Overlay className="fixed inset-0 z-50 bg-black/50" />
-        <AlertDialog.Content
-          onCloseAutoFocus={(event) => {
-            event.preventDefault()
-            restoreFocus()
-          }}
-          className="fixed left-1/2 top-1/2 z-50 w-[min(440px,calc(100vw-2rem))] -translate-x-1/2 -translate-y-1/2 rounded-lg border border-border bg-background p-5 text-foreground outline-none"
-        >
-          <AlertDialog.Title className="text-base font-semibold leading-none">
-            {title}
-          </AlertDialog.Title>
-          <AlertDialog.Description className="mt-3 text-sm leading-6 text-muted-foreground">
-            {message}
-          </AlertDialog.Description>
+      <DialogContent
+        role="alertdialog"
+        showCloseButton={false}
+        onInteractOutside={(event) => event.preventDefault()}
+        onOpenAutoFocus={(event) => {
+          event.preventDefault()
+          cancelRef.current?.focus()
+        }}
+        onCloseAutoFocus={(event) => {
+          event.preventDefault()
+          restoreFocus()
+        }}
+      >
+        <DialogHeader>
+          <DialogTitle>{title}</DialogTitle>
+          <DialogDescription>{message}</DialogDescription>
           {disabledReason != null && (
             <p
               id="gitna-confirm-disabled-reason"
-              className="mt-3 overflow-wrap-anywhere text-xs text-muted-foreground"
+              className="overflow-wrap-anywhere text-xs text-muted-foreground"
               role="note"
             >
               {disabledReason}
             </p>
           )}
-          <div className="mt-6 flex justify-end gap-2">
-            <AlertDialog.Cancel asChild>
-              <Button variant="outline" size="sm">
-                Cancel
-              </Button>
-            </AlertDialog.Cancel>
-            <AlertDialog.Action asChild>
-              <Button
-                variant="destructive"
-                size="sm"
-                disabled={disabledReason != null}
-                aria-describedby={
-                  disabledReason == null ? undefined : 'gitna-confirm-disabled-reason'
-                }
-                onClick={async () => {
-                  await onConfirm()
-                  requestAnimationFrame(() => {
-                    if (document.activeElement === document.body) restoreFocus()
-                  })
-                }}
-              >
-                {confirmLabel}
-              </Button>
-            </AlertDialog.Action>
-          </div>
-        </AlertDialog.Content>
-      </AlertDialog.Portal>
-    </AlertDialog.Root>
+        </DialogHeader>
+        <DialogFooter>
+          <Button ref={cancelRef} variant="outline" size="sm" onClick={onCancel}>
+            Cancel
+          </Button>
+          <Button
+            variant="destructive"
+            size="sm"
+            disabled={disabledReason != null}
+            aria-describedby={disabledReason == null ? undefined : 'gitna-confirm-disabled-reason'}
+            onClick={async () => {
+              await onConfirm()
+              requestAnimationFrame(() => {
+                if (document.activeElement === document.body) restoreFocus()
+              })
+            }}
+          >
+            {confirmLabel}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   )
 }

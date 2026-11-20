@@ -653,7 +653,7 @@ export function Agents({ model }: { model: ConversationsModel }) {
               <label htmlFor={`${id}-rename`}>Name</label>
               <Input
                 id={`${id}-rename`}
-                autoFocus
+                data-autofocus
                 maxLength={128}
                 value={name}
                 aria-describedby={`${id}-rename-hint`}
@@ -795,7 +795,7 @@ export function Agents({ model }: { model: ConversationsModel }) {
                   id={`${id}-command`}
                   name="command"
                   required
-                  autoFocus
+                  data-autofocus
                   value={command}
                   placeholder="my-agent --acp"
                   aria-describedby={`${id}-command-hint`}

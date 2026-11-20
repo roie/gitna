@@ -1,4 +1,4 @@
-import { type SyntheticEvent, useEffect, useRef, useState } from 'react'
+import { type SyntheticEvent, useState } from 'react'
 
 import type { WorktreeFile } from '../../lib/types'
 import { Button } from '../components/Button'
@@ -20,12 +20,6 @@ export function SaveAs({ documentPath, initialPath, onClose, onError, onSaved }:
   const [path, setPath] = useState(initialPath)
   const [submitting, setSubmitting] = useState(false)
   const submittingVisible = useLoadingIndicator(submitting)
-  const inputRef = useRef<HTMLInputElement>(null)
-
-  useEffect(() => {
-    inputRef.current?.focus()
-    inputRef.current?.setSelectionRange(path.length, path.length)
-  }, [path.length])
 
   const submit = async (event: SyntheticEvent<HTMLFormElement>) => {
     event.preventDefault()
@@ -54,7 +48,7 @@ export function SaveAs({ documentPath, initialPath, onClose, onError, onSaved }:
           Repository-relative path
         </label>
         <Input
-          ref={inputRef}
+          data-autofocus
           id="gitna-save-as-path"
           className="mt-2"
           autoComplete="off"

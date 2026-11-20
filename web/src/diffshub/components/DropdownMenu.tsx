@@ -149,7 +149,7 @@ const DropdownMenuContent = React.forwardRef<
           {...props}
           onCloseAutoFocus={(event) => {
             props.onCloseAutoFocus?.(event);
-            if (document.querySelector('dialog[open], [role="alertdialog"]') != null) {
+            if (document.querySelector('dialog[open], [role="dialog"], [role="alertdialog"]') != null) {
               event.preventDefault();
             }
           }}

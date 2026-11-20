@@ -963,13 +963,12 @@ test('raster images replace the code body', async ({ page, app }) => {
     name: 'Image viewer: Image preview for preview.png',
   })
   await expect(imageViewer).toBeVisible()
-  await expect(imageViewer).toHaveText('')
   const lightboxImage = imageViewer.getByRole('img', {
     name: 'Image preview for preview.png',
   })
   await expect(lightboxImage).toBeVisible()
   await expect(lightboxImage).not.toHaveClass(/shadow/)
-  await expect(imageViewer).toHaveClass(/bg-black\/85/)
+  await expect(imageViewer).toHaveClass(/bg-black\/70/)
   await page.keyboard.press('Escape')
   await expect(imageViewer).not.toBeVisible()
 
@@ -2493,7 +2492,7 @@ test('global New File creates an in-memory untitled tab', async ({ page, app }) 
   const secondSearch = secondPalette.getByRole('combobox', { name: 'Search files and commands' })
   await secondSearch.fill('>new file')
   await secondSearch.press('Enter')
-  const secondTab = page.getByRole('tab', { name: 'Untitled-2' })
+  const secondTab = page.getByRole('tab', { name: 'Untitled-2', includeHidden: true })
   await expect(secondTab).toBeVisible()
   const secondEditor = page
     .locator('.code-view')

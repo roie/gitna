@@ -98,15 +98,20 @@ for (const bulk of [false, true]) {
     await expect(page.getByText('Save conflict for test', { exact: true }).first()).toBeVisible()
     await expect(confirmation).toBeVisible()
     await expect(
-      page.getByRole('tab', { name: new RegExp(`${failedPath} Unsaved changes`) }),
+      page.getByRole('tab', {
+        name: new RegExp(`${failedPath} Unsaved changes`),
+        includeHidden: true,
+      }),
     ).toBeVisible()
     expect(readFileSync(join(app.repo, failedPath), 'utf8')).toBe(original)
-    await expect(page.getByRole('textbox', { name: failedPath, exact: true })).toContainText(
-      'draft to keep',
-    )
+    await expect(
+      page.getByRole('textbox', { name: failedPath, exact: true, includeHidden: true }),
+    ).toContainText('draft to keep')
     if (bulk) {
       expect(readFileSync(join(app.repo, 'main.txt'), 'utf8')).toContain('draft to keep')
-      await expect(page.getByRole('tab', { name: 'main.txt', exact: true })).toBeVisible()
+      await expect(
+        page.getByRole('tab', { name: 'main.txt', exact: true, includeHidden: true }),
+      ).toBeVisible()
     }
 
     rejectSave = false
@@ -185,7 +190,9 @@ for (const mode of ['append', 'undo', 'undo-failure']) {
       expect(readFileSync(join(app.repo, 'main.txt'), 'utf8')).toContain('draft to keep')
       await page.getByRole('button', { name: 'Close main.txt', exact: true }).click()
       await confirmation.getByRole('button', { name: 'Save changes', exact: true }).click()
-      await expect(page.getByRole('button', { name: 'Close main.txt', exact: true })).toHaveCount(0)
+      await expect(
+        page.getByRole('button', { name: 'Close main.txt', exact: true, includeHidden: true }),
+      ).toHaveCount(0)
       expect(readFileSync(join(app.repo, 'main.txt'), 'utf8')).not.toContain('draft to keep')
     } else {
       await expect(editor).toContainText('draft to keep while saving')

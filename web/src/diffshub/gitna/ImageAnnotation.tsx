@@ -1,34 +1,27 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useState } from 'react'
 
 import { IconX } from '@pierre/icons'
 
 import { Button } from '../components/Button'
+import { Dialog, DialogContent, DialogTitle } from '../components/ui/dialog'
 import { cn } from '../lib/cn'
 import type { ImageAnnotationMetadata } from '../lib/types'
 
 function Lightbox({ alt, onClose, src }: { alt: string; onClose: () => void; src: string }) {
-  const dialogRef = useRef<HTMLDialogElement>(null)
-
-  useEffect(() => {
-    const dialog = dialogRef.current
-    if (dialog == null) return
-    dialog.showModal()
-    const handleCancel = (event: Event) => {
-      event.preventDefault()
-      onClose()
-    }
-    dialog.addEventListener('cancel', handleCancel)
-    return () => dialog.removeEventListener('cancel', handleCancel)
-  }, [onClose])
-
   return (
-    <dialog
-      ref={dialogRef}
-      aria-label={`Image viewer: ${alt}`}
-      className="m-0 h-dvh max-h-none w-dvw max-w-none overflow-hidden border-0 bg-black/85 p-0 backdrop:bg-transparent"
-      onClick={onClose}
+    <Dialog
+      open
+      onOpenChange={(open) => {
+        if (!open) onClose()
+      }}
     >
-      <div className="relative flex h-full w-full items-center justify-center p-6">
+      <DialogContent
+        aria-describedby={undefined}
+        showCloseButton={false}
+        className="top-0 left-0 flex h-dvh w-dvw max-w-none translate-0 items-center justify-center rounded-none border-0 bg-black/70 p-6 sm:max-w-none"
+        onClick={onClose}
+      >
+        <DialogTitle className="sr-only">{`Image viewer: ${alt}`}</DialogTitle>
         <Button
           variant="ghost"
           size="icon-only"
@@ -47,8 +40,8 @@ function Lightbox({ alt, onClose, src }: { alt: string; onClose: () => void; src
           className="block max-h-full max-w-full object-contain"
           onClick={(event) => event.stopPropagation()}
         />
-      </div>
-    </dialog>
+      </DialogContent>
+    </Dialog>
   )
 }
 

@@ -35,14 +35,7 @@ export function EntryDialog({
       mounted.current = false
     }
   }, [])
-  const inputRef = useRef<HTMLInputElement>(null)
   const title = kind === 'rename' ? 'Rename entry' : kind === 'folder' ? 'New folder' : 'New file'
-
-  useEffect(() => {
-    const input = inputRef.current
-    input?.focus()
-    input?.setSelectionRange(input.value.length, input.value.length)
-  }, [])
 
   const submit = async (event: SyntheticEvent<HTMLFormElement>) => {
     event.preventDefault()
@@ -84,7 +77,7 @@ export function EntryDialog({
           Repository-relative path
         </label>
         <Input
-          ref={inputRef}
+          data-autofocus
           id="gitna-repository-entry-path"
           className="mt-2"
           autoComplete="off"
