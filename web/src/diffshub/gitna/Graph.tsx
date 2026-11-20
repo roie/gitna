@@ -597,6 +597,7 @@ const CommitRow = memo(function CommitRow({
         : createRepositoryListSource(
             (files ?? []).map((file) => file.path),
             files ?? [],
+            new Set(),
           ),
     [files, view],
   )

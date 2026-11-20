@@ -94,10 +94,16 @@ const REPOSITORY_FILTERS: readonly {
 export function createRepositoryTreeSource(
   paths: readonly string[],
   changes: readonly TreeFile[],
+  ignored: ReadonlySet<string>,
 ): DiffsHubFileTreeSource {
   const identity = new Map(paths.filter((path) => !path.endsWith('/')).map((path) => [path, path]))
   return {
-    gitStatus: changes.map((change) => ({ path: change.path, status: gitStatus(change.kind) })),
+    gitStatus: [
+      ...changes.map((change) => ({ path: change.path, status: gitStatus(change.kind) })),
+      ...paths
+        .filter((path) => ignored.has(path))
+        .map((path) => ({ path, status: 'ignored' as const })),
+    ],
     pathCount: paths.length,
     paths,
     pathToItemId: identity,

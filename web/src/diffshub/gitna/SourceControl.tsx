@@ -402,9 +402,17 @@ function SourceControlInner({
   const repositorySource = useMemo(
     () =>
       repositoryView === 'tree'
-        ? createRepositoryTreeSource(filteredRepositoryPaths, repositoryChanges)
-        : createRepositoryListSource(filteredRepositoryPaths, repositoryChanges),
-    [filteredRepositoryPaths, repositoryChanges, repositoryView],
+        ? createRepositoryTreeSource(
+            filteredRepositoryPaths,
+            repositoryChanges,
+            repository.repositoryIgnoredPaths,
+          )
+        : createRepositoryListSource(
+            filteredRepositoryPaths,
+            repositoryChanges,
+            repository.repositoryIgnoredPaths,
+          ),
+    [filteredRepositoryPaths, repositoryChanges, repository.repositoryIgnoredPaths, repositoryView],
   )
   const workflowCompact = changedPathCount === 0 && repository.conflicts.length === 0
   const hasLargeOpenChangeSection =

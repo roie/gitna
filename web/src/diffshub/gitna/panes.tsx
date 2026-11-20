@@ -55,8 +55,12 @@ export function gitStatus(kind: ChangeKind): GitStatus {
 export function createRepositoryListSource(
   paths: readonly string[],
   changes: readonly TreeFile[],
+  ignored: ReadonlySet<string>,
 ): DiffsHubFileTreeSource {
-  const statusesByPath = new Map(changes.map((change) => [change.path, gitStatus(change.kind)]))
+  const statusesByPath = new Map<string, GitStatus>([
+    ...[...ignored].map((path) => [path, 'ignored'] as const),
+    ...changes.map((change) => [change.path, gitStatus(change.kind)] as const),
+  ])
   const displayPaths: string[] = []
   const pathToItemId = new Map<string, string>()
   const itemIdToPath = new Map<string, string>()
