@@ -17,7 +17,12 @@ import { CHROME_ICON_BUTTON_CLASS } from '../components/chromeButtonStyles'
 import { DiffsHubFileTree } from '../components/DiffsHubFileTree'
 import { DropdownMenuTrigger } from '../components/DropdownMenu'
 import { cn } from '../lib/cn'
-import { CODE_VIEW_FILE_TREE_SEARCH_OPEN_HEIGHT } from '../lib/constants'
+import {
+  CODE_VIEW_FILE_TREE_SEARCH_OPEN_HEIGHT,
+  LAZY_REPOSITORY_FILE_TREE_OPTIONS,
+  BASE_FILE_TREE_OPTIONS,
+} from '../lib/constants'
+import { Tree } from './Tree'
 import type { DiffsHubFileTreeSource } from '../lib/types'
 import { Header } from './ui/Header'
 
@@ -229,6 +234,7 @@ export function TreeSection({
 }: TreeSectionProps) {
   const [model, setModel] = useState<FileTree | null>(null)
   const [searchOpen, setSearchOpen] = useState(false)
+  const TreeComponent = pane ? Tree : DiffsHubFileTree
   const naturalHeight = useNaturalTreeHeight(model, !pane)
   const searchHeight = searchOpen ? CODE_VIEW_FILE_TREE_SEARCH_OPEN_HEIGHT : 0
   const height = (naturalHeight > 0 ? naturalHeight : treeViewportHeight(source)) + searchHeight
@@ -313,7 +319,13 @@ export function TreeSection({
                       : { height }
                 }
               >
-                <DiffsHubFileTree
+                <TreeComponent
+                  options={{
+                    ...(lazyDirectories == null
+                      ? BASE_FILE_TREE_OPTIONS
+                      : LAZY_REPOSITORY_FILE_TREE_OPTIONS),
+                    id: modelId,
+                  }}
                   key={lazyDirectories == null ? 'complete' : 'lazy'}
                   className={cn(
                     pane ? 'h-full overflow-hidden' : fill ? 'md:h-full' : 'overflow-visible',

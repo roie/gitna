@@ -13,7 +13,7 @@ import {
   resetLazyDirectory,
   resolveFileTreeContextSelection,
   settleKnownEmptyDirectory,
-} from '../src/diffshub/components/DiffsHubFileTree'
+} from '../src/diffshub/gitna/Tree'
 
 describe('FileTree multi-selection context menus', () => {
   it('preserves a right-click inside the selection and replaces it outside', () => {
