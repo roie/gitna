@@ -633,7 +633,7 @@ const CommitRow = memo(function CommitRow({
       >
         <TooltipTrigger asChild>
           <Row
-            className="gap-1 px-1 [&>button]:gap-1"
+            className="relative gap-1 px-1 [&>button]:gap-1"
             selected={open}
             id={`gitna-graph-disclosure-${row.commit.oid}`}
             data-graph-disclosure
@@ -671,88 +671,96 @@ const CommitRow = memo(function CommitRow({
               </>
             }
             actions={
-              <DropdownMenu
-                onOpenChange={(menuOpen) => {
-                  if (menuOpen) onDisclosureFocus(index)
-                  onPinChange(row.commit.oid, 'menu', menuOpen)
-                }}
-              >
-                <DropdownMenuTrigger asChild>
-                  <Button
-                    variant="ghost"
-                    size="icon-only"
-                    className="opacity-0 group-focus-within/row:opacity-100 group-hover/row:opacity-100"
-                    aria-label={`Actions for ${row.commit.subject.trim() || row.commit.oid.slice(0, 7)}`}
-                    title={`Actions for ${row.commit.subject.trim() || row.commit.oid.slice(0, 7)}`}
-                  >
-                    <IconEllipsis className="size-3" />
-                  </Button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent align="end">
-                  <DropdownMenuItem
-                    disabled={disabledReason != null}
-                    onSelect={() =>
-                      void repository
-                        .operation({ op: 'cherry-pick', ref: row.commit.oid })
-                        .catch(() => {
-                          // The store has already published the mutation error.
+              <span className="pointer-events-none absolute inset-y-0 right-0 flex items-center rounded-e-md bg-linear-to-l from-accent from-60% to-transparent ps-4 pe-1 opacity-0 group-hover/row:opacity-100 has-focus-visible:opacity-100 has-data-[state=open]:opacity-100 [@media(hover:none)]:static [@media(hover:none)]:bg-none [@media(hover:none)]:p-0 [@media(hover:none)]:opacity-100">
+                <DropdownMenu
+                  onOpenChange={(menuOpen) => {
+                    if (menuOpen) onDisclosureFocus(index)
+                    onPinChange(row.commit.oid, 'menu', menuOpen)
+                  }}
+                >
+                  <DropdownMenuTrigger asChild>
+                    <Button
+                      variant="ghost"
+                      size="icon-only"
+                      className="pointer-events-auto"
+                      aria-label={`Actions for ${row.commit.subject.trim() || row.commit.oid.slice(0, 7)}`}
+                      title={`Actions for ${row.commit.subject.trim() || row.commit.oid.slice(0, 7)}`}
+                    >
+                      <IconEllipsis className="size-3" />
+                    </Button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="end">
+                    <DropdownMenuItem
+                      disabled={disabledReason != null}
+                      onSelect={() =>
+                        void repository
+                          .operation({ op: 'cherry-pick', ref: row.commit.oid })
+                          .catch(() => {
+                            // The store has already published the mutation error.
+                          })
+                      }
+                    >
+                      Cherry-pick
+                    </DropdownMenuItem>
+                    <DropdownMenuItem
+                      disabled={disabledReason != null}
+                      onSelect={() =>
+                        void repository
+                          .operation({ op: 'revert', ref: row.commit.oid })
+                          .catch(() => {
+                            // The store has already published the mutation error.
+                          })
+                      }
+                    >
+                      Revert
+                    </DropdownMenuItem>
+                    <DropdownMenuSeparator />
+                    <DropdownMenuItem
+                      disabled={disabledReason != null}
+                      onSelect={() =>
+                        void repository
+                          .operation({ op: 'reset', ref: row.commit.oid, mode: 'soft' })
+                          .catch(() => {
+                            // The store has already published the mutation error.
+                          })
+                      }
+                    >
+                      Reset soft
+                    </DropdownMenuItem>
+                    <DropdownMenuItem
+                      disabled={disabledReason != null}
+                      onSelect={() =>
+                        void repository
+                          .operation({ op: 'reset', ref: row.commit.oid, mode: 'mixed' })
+                          .catch(() => {
+                            // The store has already published the mutation error.
+                          })
+                      }
+                    >
+                      Reset mixed
+                    </DropdownMenuItem>
+                    <DropdownMenuItem
+                      disabled={disabledReason != null}
+                      onSelect={() =>
+                        onConfirm({
+                          title: `Hard reset to ${shortOid}?`,
+                          message:
+                            'This discards index and working-tree changes. Gitna cannot undo this action.',
+                          confirmLabel: 'Hard reset',
+                          run: () =>
+                            repository.operation({
+                              op: 'reset',
+                              ref: row.commit.oid,
+                              mode: 'hard',
+                            }),
                         })
-                    }
-                  >
-                    Cherry-pick
-                  </DropdownMenuItem>
-                  <DropdownMenuItem
-                    disabled={disabledReason != null}
-                    onSelect={() =>
-                      void repository.operation({ op: 'revert', ref: row.commit.oid }).catch(() => {
-                        // The store has already published the mutation error.
-                      })
-                    }
-                  >
-                    Revert
-                  </DropdownMenuItem>
-                  <DropdownMenuSeparator />
-                  <DropdownMenuItem
-                    disabled={disabledReason != null}
-                    onSelect={() =>
-                      void repository
-                        .operation({ op: 'reset', ref: row.commit.oid, mode: 'soft' })
-                        .catch(() => {
-                          // The store has already published the mutation error.
-                        })
-                    }
-                  >
-                    Reset soft
-                  </DropdownMenuItem>
-                  <DropdownMenuItem
-                    disabled={disabledReason != null}
-                    onSelect={() =>
-                      void repository
-                        .operation({ op: 'reset', ref: row.commit.oid, mode: 'mixed' })
-                        .catch(() => {
-                          // The store has already published the mutation error.
-                        })
-                    }
-                  >
-                    Reset mixed
-                  </DropdownMenuItem>
-                  <DropdownMenuItem
-                    disabled={disabledReason != null}
-                    onSelect={() =>
-                      onConfirm({
-                        title: `Hard reset to ${shortOid}?`,
-                        message:
-                          'This discards index and working-tree changes. Gitna cannot undo this action.',
-                        confirmLabel: 'Hard reset',
-                        run: () =>
-                          repository.operation({ op: 'reset', ref: row.commit.oid, mode: 'hard' }),
-                      })
-                    }
-                  >
-                    Reset hard…
-                  </DropdownMenuItem>
-                </DropdownMenuContent>
-              </DropdownMenu>
+                      }
+                    >
+                      Reset hard…
+                    </DropdownMenuItem>
+                  </DropdownMenuContent>
+                </DropdownMenu>
+              </span>
             }
           />
         </TooltipTrigger>
