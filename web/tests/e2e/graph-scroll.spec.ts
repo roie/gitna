@@ -55,32 +55,14 @@ test('expanded commit trees keep their height and folders across virtual remount
     element.scrollTop = 160
   })
   const treeScroller = row.locator('[data-file-tree-virtualized-scroll]')
+  expect(
+    await treeScroller.evaluate((element) => element.scrollHeight - element.clientHeight),
+  ).toBeLessThanOrEqual(1)
   await folder.hover()
   start = await graph.evaluate((element) => element.scrollTop)
   await page.mouse.wheel(0, 80)
-  await expect.poll(() => treeScroller.evaluate((element) => element.scrollTop)).toBeGreaterThan(0)
-  expect(await graph.evaluate((element) => element.scrollTop)).toBe(start)
-
-  await treeScroller.evaluate((element) => {
-    element.scrollTop = element.scrollHeight
-  })
-  await page.mouse.wheel(0, 80)
   await expect.poll(() => graph.evaluate((element) => element.scrollTop)).toBeGreaterThan(start)
-
-  await graph.evaluate((element) => {
-    element.scrollTop = 160
-  })
-  await treeScroller.evaluate((element) => {
-    element.scrollTop = 0
-  })
-  const treeBounds = (await treeScroller.boundingBox())!
-  const graphBounds = (await graph.boundingBox())!
-  const top = Math.max(treeBounds.y, graphBounds.y)
-  const bottom = Math.min(treeBounds.y + treeBounds.height, graphBounds.y + graphBounds.height)
-  expect(bottom).toBeGreaterThan(top)
-  await page.mouse.move(treeBounds.x + treeBounds.width / 2, (top + bottom) / 2)
   start = await graph.evaluate((element) => element.scrollTop)
-  expect(start).toBeGreaterThan(0)
   await page.mouse.wheel(0, -80)
   await expect.poll(() => graph.evaluate((element) => element.scrollTop)).toBeLessThan(start)
 

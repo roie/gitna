@@ -183,7 +183,7 @@ interface DiffsHubFileTreeProps {
   className?: string;
   dragAndDrop?: FileTreeDragAndDropConfig;
   modelId?: string;
-  naturalHeightLimit?: string;
+  fitContent?: boolean;
   initialExpandedPaths?: readonly string[];
   onExpandedPathsChange?: (paths: readonly string[]) => void;
   lazyDirectories?: ReadonlySet<string>;
@@ -213,7 +213,7 @@ export const DiffsHubFileTree = memo(function DiffsHubFileTree({
   className,
   dragAndDrop,
   modelId = 'gh-code-view-tree',
-  naturalHeightLimit,
+  fitContent = false,
   initialExpandedPaths,
   onExpandedPathsChange,
   lazyDirectories,
@@ -420,7 +420,7 @@ export const DiffsHubFileTree = memo(function DiffsHubFileTree({
   });
 
   const naturalHeight = useFileTreeSelector(model, (tree) =>
-    naturalHeightLimit == null ? 0 : tree.getVisibleCount() * tree.getItemHeight()
+    fitContent ? tree.getVisibleCount() * tree.getItemHeight() : 0
   );
   const directoryPaths = useMemo(() => {
     if (onExpandedPathsChange == null) return [];
@@ -616,7 +616,7 @@ export const DiffsHubFileTree = memo(function DiffsHubFileTree({
     <ThemedFileTree
       className={cn(
         'h-full min-h-0 overflow-auto md:ml-3',
-        naturalHeightLimit == null ? 'overscroll-contain' : 'overscroll-auto',
+        fitContent ? 'overscroll-auto' : 'overscroll-contain',
         className
       )}
       model={model}
@@ -625,12 +625,9 @@ export const DiffsHubFileTree = memo(function DiffsHubFileTree({
       reconcileForegroundFromChrome
       renderContextMenu={renderContextMenu == null ? undefined : stableRenderContextMenu}
       style={
-        naturalHeightLimit == null
-          ? DENSITY_OVERRIDE_STYLES
-          : {
-              ...DENSITY_OVERRIDE_STYLES,
-              blockSize: `min(${naturalHeight}px, ${naturalHeightLimit})`,
-            }
+        fitContent
+          ? { ...DENSITY_OVERRIDE_STYLES, blockSize: `${naturalHeight}px` }
+          : DENSITY_OVERRIDE_STYLES
       }
     />
   );

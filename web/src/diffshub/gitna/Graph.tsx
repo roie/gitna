@@ -783,7 +783,7 @@ const CommitRow = memo(function CommitRow({
               key={view}
               className="md:ml-1"
               modelId={`gitna-graph-${row.commit.oid}`}
-              naturalHeightLimit="50vh"
+              fitContent
               initialExpandedPaths={initialExpandedPaths}
               onExpandedPathsChange={saveExpandedPaths}
               onSelectItem={(path) => {
