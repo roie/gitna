@@ -109,6 +109,9 @@ func ParseStatus(raw []byte) (StatusResult, error) {
 			appendChange(&sr, changeFromXY(xy, path, "")...)
 		case '?':
 			path := strings.TrimPrefix(string(tok), "? ")
+			if strings.HasSuffix(path, "/") {
+				continue
+			}
 			appendChange(&sr, protocol.FileChange{
 				Path:   path,
 				Kind:   protocol.KindUntracked,

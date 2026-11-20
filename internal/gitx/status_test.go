@@ -222,3 +222,19 @@ func TestStatusDetachedHead(t *testing.T) {
 		t.Fatal("head oid empty in detached state")
 	}
 }
+
+func TestStatusSkipsNestedRepository(t *testing.T) {
+	root := initTestRepo(t)
+	nested := filepath.Join(root, "nested")
+	if err := os.MkdirAll(nested, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	runGit(t, nested, "init", "-q")
+	writeFile(t, filepath.Join(nested, "inside.txt"), "nested\n")
+	writeFile(t, filepath.Join(root, "outside.txt"), "outer\n")
+
+	snap := mustStatus(t, root)
+	if len(snap.Unstaged) != 1 || snap.Unstaged[0].Path != "outside.txt" {
+		t.Fatalf("unstaged = %+v, want only outside.txt", snap.Unstaged)
+	}
+}
