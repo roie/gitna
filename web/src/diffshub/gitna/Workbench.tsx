@@ -3476,14 +3476,7 @@ function TabBar({
                 </svg>
               }
               label={name}
-              status={
-                dirtyPaths.has(path) && (
-                  <span
-                    aria-label="Unsaved changes"
-                    className="size-1.5 shrink-0 rounded-full bg-current"
-                  />
-                )
-              }
+              dirty={dirtyPaths.has(path)}
               title={path}
               onClose={() => onClose([path])}
               onContextMenu={(event) => {
@@ -3697,8 +3690,8 @@ interface TabProps extends Omit<ComponentProps<'div'>, 'onSelect' | 'title'> {
   closeLabel: string
   closeTitle: string
   icon: ReactNode
+  dirty?: boolean
   label: ReactNode
-  status?: ReactNode
   title: string
   onClose: () => void
   onSelect: () => void
@@ -3710,9 +3703,9 @@ function Tab({
   className,
   closeLabel,
   closeTitle,
+  dirty = false,
   icon,
   label,
-  status,
   title,
   onClose,
   onSelect,
@@ -3736,23 +3729,32 @@ function Tab({
         role="tab"
         aria-selected={active}
         selected={active}
-        className={cn('pe-1', !active && 'text-muted-foreground hover:text-foreground')}
+        className={cn('relative pe-3', !active && 'text-muted-foreground hover:text-foreground')}
         icon={icon}
         label={label}
-        status={status}
+        status={
+          dirty && (
+            <span
+              aria-label="Unsaved changes"
+              className="size-1.5 shrink-0 rounded-full bg-current"
+            />
+          )
+        }
         title={title}
         onClick={onSelect}
         onKeyDown={onTabKeyDown}
         actions={
-          <button
-            type="button"
-            className="flex size-5 shrink-0 cursor-pointer items-center justify-center rounded text-muted-foreground opacity-0 hover:bg-background/70 hover:text-foreground focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-ring group-focus-within/row:opacity-100 group-hover/row:opacity-100 [@media(hover:none)]:opacity-100"
-            aria-label={closeLabel}
-            title={closeTitle}
-            onClick={onClose}
-          >
-            <IconX className="size-3" />
-          </button>
+          <span className="pointer-events-none absolute inset-y-0 right-0 flex items-center rounded-e-md bg-linear-to-l from-accent from-60% to-transparent ps-4 pe-1 opacity-0 group-focus-within/row:opacity-100 group-hover/row:opacity-100 [@media(hover:none)]:static [@media(hover:none)]:bg-none [@media(hover:none)]:p-0 [@media(hover:none)]:opacity-100">
+            <button
+              type="button"
+              className="pointer-events-auto flex size-5 cursor-pointer items-center justify-center rounded text-muted-foreground hover:bg-background/70 hover:text-foreground focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-ring"
+              aria-label={closeLabel}
+              title={closeTitle}
+              onClick={onClose}
+            >
+              <IconX className="size-3" />
+            </button>
+          </span>
         }
       />
     </div>

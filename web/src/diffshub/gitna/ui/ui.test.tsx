@@ -105,7 +105,7 @@ describe('Row', () => {
       /^<div class="[^"]*\bh-7\b[^"]*\bbg-accent text-accent-foreground\b[^"]*" data-selected="true">/,
     )
     expect(markup).toMatch(
-      /<button type="button" class="[^"]*focus-visible:outline-ring[^"]*"><i data-slot="icon"><\/i><span[^>]*>main\.txt<\/span><span[^>]*>src<\/span><span class="flex-1"><\/span><b data-slot="status"><\/b><\/button><button type="button">Close<\/button><\/div>$/,
+      /<button type="button" class="[^"]*focus-visible:outline-ring[^"]*"><i data-slot="icon"><\/i><span[^>]*>main\.txt<\/span><span[^>]*>src<\/span><span class="ms-auto[^"]*"><b data-slot="status"><\/b><\/span><\/button><button type="button">Close<\/button><\/div>$/,
     )
   })
 

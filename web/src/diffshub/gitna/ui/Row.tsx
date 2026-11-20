@@ -53,10 +53,9 @@ export function Row({
             {detail != null && (
               <span className="min-w-0 truncate text-muted-foreground">{detail}</span>
             )}
-            <span className="flex-1" />
           </>
         )}
-        {status}
+        {status ? <span className="ms-auto flex shrink-0 items-center">{status}</span> : null}
       </button>
       {actions}
     </div>
