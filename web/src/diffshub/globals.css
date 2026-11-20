@@ -74,8 +74,6 @@
   --chart-5: #f97316;
   --sidebar: #fafafa;
   --sidebar-foreground: #0a0a0a;
-  --gitna-tab-active-foreground: var(--foreground);
-  --gitna-tab-inactive-foreground: var(--muted-foreground);
   --sidebar-primary: #0a0a0a;
   --sidebar-primary-foreground: #ffffff;
   --sidebar-accent: #f4f4f5;

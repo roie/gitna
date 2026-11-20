@@ -2662,7 +2662,7 @@ function WorkbenchInner({
           {!homeOpen && (
             <DiffsHubHeader
               appVersion={repository.snapshot?.appVersion ?? 'dev'}
-              className="z-40 text-sidebar-foreground [grid-area:header]"
+              className="z-40 [grid-area:header]"
               collapseMode={collapseMode}
               colorMode={colorMode}
               darkThemeName={darkThemeName}
@@ -2740,7 +2740,7 @@ function WorkbenchInner({
               <DiffsHubSidebar
                 ariaLabel={sidebarMode === 'search' ? 'Search' : 'Source Control'}
                 className={cn(
-                  'text-sidebar-foreground [grid-area:viewer] md:[grid-area:tree]',
+                  '[grid-area:viewer] md:[grid-area:tree]',
                   !sidebarVisible && 'md:hidden',
                 )}
                 mobileOverlayOpen={fileTreeOverlayOpen}
@@ -3746,12 +3746,7 @@ function Tab({
         role="tab"
         aria-selected={active}
         selected={active}
-        className={cn(
-          'relative pe-3',
-          active
-            ? 'text-[var(--gitna-tab-active-foreground)]'
-            : 'text-[var(--gitna-tab-inactive-foreground)] hover:text-[var(--gitna-tab-active-foreground)]',
-        )}
+        className={cn('relative pe-3', !active && 'text-muted-foreground hover:text-foreground')}
         icon={icon}
         label={label}
         status={
