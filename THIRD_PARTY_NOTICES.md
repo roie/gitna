@@ -28,11 +28,11 @@ receiver-independent functions under type-aware linting.
 | Header, display/theme controls and URL form | `web/src/diffshub/components/DiffsHubHeader.tsx`, `DiffUrlForm.tsx`; Gitna branding at `web/src/diffshub/gitna/GitnaLogo.tsx` | Header/form retain donor structure with capability-safe Vite links and truthful local repository identity; the donor logo is replaced by Gitna's theme-aware product mark. |
 | Sidebar, file tree, comments, stats and worker monitor | corresponding files under `web/src/diffshub/components` | Donor source retained. Gitna's sidebar removes the inapplicable Files/Comments tabs, Diff Stats and System Monitor while preserving the themed responsive drawer. The file-tree boundary adds unique IDs and external selection so Repository, Staged Changes, Changes and expanded Graph commits all use Pierre Trees; closed narrow overlays add `aria-hidden`/`inert`. |
 | Continuous CodeView and themed wrappers | `DiffsHubViewer.tsx`, `ThemedCodeView.tsx`, themed hooks/helpers | Donor viewer retained with Gitna file/hunk actions added through its header metadata slot. |
-| Worker pool and preload | `WorkerPoolContext.tsx`, `PreloadHighlighter.tsx` | Vite `?worker` replaces the Next worker URL, with ES module workers loading highlighting backends on demand. Highlights uses WASM when supported; Shiki JS is the fallback. The CSP permits WASM compilation, not JavaScript eval. |
+| Worker pool | `WorkerPoolContext.tsx` | Vite `?worker` replaces the Next worker URL, with ES module workers loading highlighting backends on demand. Highlights uses WASM when supported; Shiki JS is the fallback. The CSP permits WASM compilation, not JavaScript eval. |
 | Status panel | `DiffsHubStatusPanel.tsx` | Donor states/layout retained with local-repository loading copy. |
 | Theme system, annotations, accumulators and frontend helpers | matching paths under `web/src/diffshub` | Verbatim except the documented lint-normalized `gitPatchMetadata.ts` conditional. |
 | `app/globals.css` and app font loading | `web/src/diffshub/globals.css`, `web/src/diffshub/vite/fonts.css` | CSS is verbatim; static `@font-face` replaces `next/font` with the exact checked-in assets and variables. |
-| `ReviewUI.tsx` and `RootLayout.tsx` composition | `web/src/diffshub/main.tsx`, `web/src/diffshub/gitna/GitnaReviewUI.tsx` | Next/GitHub orchestration replaced by typed local adapters while preserving provider order and donor review composition. |
+| `ReviewUI.tsx` and `RootLayout.tsx` composition | `web/src/diffshub/main.tsx`, `web/src/diffshub/gitna/Workbench.tsx` | Next/GitHub orchestration replaced by typed local adapters while preserving provider order and donor review composition. |
 | GitHub loaders/auth, Next metadata and marketing route | none | Not distributed; these remote/site-only features have no truthful local Gitna counterpart. |
 
 ## Pierre npm packages
@@ -40,29 +40,29 @@ receiver-independent functions under type-aware linting.
 These packages are consumed as npm dependencies and bundled into Gitna's
 embedded frontend. `@pierre/diffs` and `@pierre/trees` are modified under
 Apache-2.0 through reproducible pnpm patches in `web/patches/`. The Diffs patch
-adds bounded raster-image bodies, working-file editing hooks, visible
-invalid-regex feedback in the built-in editor search, bounded large-file render
-caches, and current plain-text tokens without full-document background updates.
-The Trees patch
-adds a generic public interactive row-action renderer, semantic action buttons,
-and hover/focus styling while preserving Pierre's row rendering, focus,
-selection and virtualization ownership. The other package renderers are
-distributed unmodified.
+adds a preview body slot, visible invalid-regex feedback in the built-in editor
+search, bounded large-file editing, plain-text edit refresh, and a gutter **+**
+that follows the hovered line. The Trees patch adds a generic public
+interactive row-action renderer with semantic action buttons and hover/focus
+styling, on-demand folder loading, `<div>` row elements, and grapheme-safe
+middle truncation, while preserving Pierre's row rendering, focus, selection
+and virtualization ownership. `web/patches/README.md` describes both patches.
+The other packages are distributed unmodified.
 
 | Package | Installed version | Package license evidence | Required distribution material |
 | --- | --- | --- | --- |
-| `@pierre/diffs` | `1.6.1` + Gitna raster/editing patch | `web/node_modules/@pierre/diffs/LICENSE.md`; package metadata declares `apache-2.0` | `LICENSES/Apache-2.0.txt`, `web/patches/@pierre__diffs@1.6.1.patch`; the package contains no NOTICE file. |
-| `@pierre/icons` | `0.9.0` | `web/node_modules/@pierre/icons/LICENSE`; package metadata declares `Apache-2.0` | `LICENSES/pierre-icons-Apache-2.0.txt`; the package contains no NOTICE file. |
-| `@pierre/trees` | `1.0.0-beta.6` + Gitna row-actions patch | `web/node_modules/@pierre/trees/LICENSE.md`; package metadata declares `apache-2.0` | `LICENSES/Apache-2.0.txt`, `web/patches/@pierre__trees@1.0.0-beta.6.patch`, and the `@pierre/trees` notice below. |
-| `@pierre/theme` | `2.0.0` | `web/node_modules/@pierre/theme/LICENSE`; package metadata declares `apache-2.0` | `LICENSES/Apache-2.0.txt` and the `@pierre/theme` notice below. |
-| `@pierre/highlights` | `0.2.0` | `web/node_modules/.pnpm/@pierre+highlights@0.2.0/node_modules/@pierre/highlights/LICENSE.md`; package metadata declares `Apache-2.0` | `THIRD_PARTY_LICENSES.txt` includes its license; `LICENSES/pierre-highlights-NOTICE.md` preserves its upstream theme notices. |
+| `@pierre/diffs` | `1.7.0-beta.4` + Gitna patch | `web/node_modules/@pierre/diffs/LICENSE.md`; package metadata declares `apache-2.0` | `LICENSES/Apache-2.0.txt`, `web/patches/@pierre__diffs@1.7.0-beta.4.patch`; the package contains no NOTICE file. |
+| `@pierre/trees` | `1.0.0` + Gitna patch | `web/node_modules/@pierre/trees/LICENSE.md`; package metadata declares `apache-2.0` | `LICENSES/Apache-2.0.txt`, `web/patches/@pierre__trees@1.0.0.patch`, and the `@pierre/trees` notice below. |
+| `@pierre/highlights` | `0.5.1` | `web/node_modules/@pierre/highlights/LICENSE.md`; package metadata declares `apache-2.0` | `LICENSES/Apache-2.0.txt`; `LICENSES/pierre-highlights-NOTICE.md` preserves its upstream theme notices. |
+| `@pierre/words` | `0.2.2` | `web/node_modules/@pierre/words/LICENSE.md`; package metadata declares `apache-2.0` | `LICENSES/Apache-2.0.txt`; `LICENSES/pierre-words-NOTICE.md` preserves its data notices. |
 | `@pierre/theming` | `1.0.2` shared by Gitna, Diffs, and Trees | `web/node_modules/@pierre/theming/LICENSE.md`; package metadata declares `apache-2.0` | `LICENSES/Apache-2.0.txt`; the package contains no NOTICE file. |
-| `react-markdown` | `10.1.0` | `web/node_modules/react-markdown/license`; package metadata declares `MIT` | `LICENSES/MIT.txt`; the package contains no NOTICE file. |
-| `remark-gfm` | `4.0.1` | `web/node_modules/remark-gfm/license`; package metadata declares `MIT` | `LICENSES/MIT.txt`; the package contains no NOTICE file. |
+| `@pierre/theme` | `2.0.0` | `web/node_modules/@pierre/theme/LICENSE`; package metadata declares `apache-2.0` | `LICENSES/Apache-2.0.txt` and the `@pierre/theme` notice below. |
+| `@pierre/icons` | `0.9.0` | `web/node_modules/@pierre/icons/LICENSE`; package metadata declares `Apache-2.0` | `LICENSES/pierre-icons-Apache-2.0.txt`; the package contains no NOTICE file. |
 
 Gitna keeps the shared Apache-2.0 license text at `LICENSES/Apache-2.0.txt`.
 The generated inventory includes the license text for each installed package.
-Highlights' theme credits remain in `LICENSES/pierre-highlights-NOTICE.md`.
+Highlights' theme credits remain in `LICENSES/pierre-highlights-NOTICE.md`,
+and Words' data notices in `LICENSES/pierre-words-NOTICE.md`.
 Icons includes its own copyright attribution;
 its full license is kept at `LICENSES/pierre-icons-Apache-2.0.txt`.
 The Trees and Theme notices are

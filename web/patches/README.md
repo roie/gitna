@@ -22,9 +22,9 @@ background tokenization.
 ## Trees 1.0.0
 
 `@pierre/trees@1.0.0` is Apache-2.0 software from Pierre Computer Company.
-Gitna applies `@pierre__trees@1.0.0.patch` to the package published from the
-pinned Pierre donor commit
-`59ec35ffac97abccef4c69f8d58d3747cbfbc6cb`.
+Gitna applies `@pierre__trees@1.0.0.patch` to the package whose source is at
+Pierre tag `diffs-v1.7.0-beta.4` (commit
+`8b12bdd75d723ac5b83cb9efe11c8ddb818bf462`).
 
 Gitna's modification adds the generic `FileTreeOptions.renderRowActions`
 public API. Pierre resolves and renders semantic action buttons inside its own
