@@ -941,10 +941,11 @@ describe('GitnaRepository action guards', () => {
   })
 
   it('binds each named Graph and Stage-edited callback to its own catch', () => {
-    const source = readFileSync(
-      new URL('../src/diffshub/gitna/SourceControlWorkflow.tsx', import.meta.url),
-      'utf8',
-    )
+    const source = ['Graph.tsx', 'SourceControl.tsx', 'panes.tsx']
+      .map((file) =>
+        readFileSync(new URL(`../src/diffshub/gitna/${file}`, import.meta.url), 'utf8'),
+      )
+      .join('\n')
     const graphActions = [
       ['cherry-pick', "op: 'cherry-pick'"],
       ['revert', "op: 'revert'"],
