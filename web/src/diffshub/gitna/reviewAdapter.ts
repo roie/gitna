@@ -262,9 +262,8 @@ export function appendGitnaReviewPage(
 function isEditableDiff(item: CodeViewItem<CommentMetadata>): boolean {
   return (
     item.type === 'diff' &&
-    (item.fileDiff.isPartial
-      ? ['change', 'rename-changed', 'rename-pure'].includes(item.fileDiff.type)
-      : item.fileDiff.type !== 'deleted') &&
+    !item.fileDiff.isPartial &&
+    item.fileDiff.type !== 'deleted' &&
     !item.annotations?.some(
       ({ metadata }) => metadata.kind === 'image' || metadata.kind === 'preview',
     )

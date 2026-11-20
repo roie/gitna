@@ -157,6 +157,10 @@ export interface GitnaViewerActions {
   scope: 'staged' | 'unstaged';
 }
 
+export function worktreeDiffStateKeys(namespace: string, path: string): string[] {
+  return ['review', 'compare'].map((surface) => `${namespace}worktree-diff:${surface}:${path}`);
+}
+
 // Content loads own the integer versions. In-place updates step between them,
 // so the next load of the same item is never mistaken for one already shown.
 export function getNextItemVersion(item: CodeViewItem<CommentMetadata>): number {
@@ -193,6 +197,7 @@ interface DiffsHubViewerProps {
   gitnaConversations?: GitnaConversationActions;
   onDraftChange?: (open: boolean) => void;
   onDiffEdit?: (path: string, file: FileContents) => void;
+  dirtyPaths?: ReadonlySet<string>;
 }
 
 export const DiffsHubViewer = memo(function DiffsHubViewer({
@@ -220,6 +225,7 @@ export const DiffsHubViewer = memo(function DiffsHubViewer({
   gitnaConversations,
   onDraftChange,
   onDiffEdit,
+  dirtyPaths,
 }: DiffsHubViewerProps) {
   useEffect(() => {
     const container = scrollRef.current;
@@ -229,9 +235,12 @@ export const DiffsHubViewer = memo(function DiffsHubViewer({
   const handleEditorReady = useStableCallback(() => onEditorReady?.());
   // CodeView treats a new key resolver as changed options and rerenders the
   // editable DOM. Keep it stable when connection/header state changes.
-  const getEditStateKey = useStableCallback((item: CodeViewItem<CommentMetadata>) =>
-    item.type === 'file' ? `${editStateNamespace}worktree:${item.id}` : undefined
-  );
+  const getEditStateKey = useStableCallback((item: CodeViewItem<CommentMetadata>) => {
+    if (item.type === 'file') return `${editStateNamespace}worktree:${item.id}`;
+    if (item.edit !== true) return undefined;
+    const [review, compare] = worktreeDiffStateKeys(editStateNamespace, item.fileDiff.name);
+    return gitnaComparisonActions == null ? review : compare;
+  });
   const editorOptions = useMemo(
     () => ({ onAttach: handleEditorReady }) satisfies EditorOptions<'file' | 'file-diff', CommentMetadata, undefined>,
     [handleEditorReady]
@@ -506,6 +515,14 @@ export const DiffsHubViewer = memo(function DiffsHubViewer({
     );
   });
 
+  const renderHeaderFilenameSuffix = useCallback(
+    (item: CodeViewItem<CommentMetadata>) =>
+      item.type === 'diff' && item.edit === true && dirtyPaths?.has(item.fileDiff.name) === true ? (
+        <span aria-label="Unsaved changes" className="ms-2 inline-block size-1.5 shrink-0 rounded-full bg-current" />
+      ) : null,
+    [dirtyPaths]
+  );
+
   const renderHeaderMetadata = useCallback(
     (item: CodeViewItem<CommentMetadata>) => {
       if (item.type === 'file' && gitnaEditorActions != null) {
@@ -657,6 +674,7 @@ export const DiffsHubViewer = memo(function DiffsHubViewer({
       onSelectedLinesChange={handleSetSelection}
       renderAnnotation={renderCommentAnnotation}
       renderBody={renderBody}
+      renderHeaderFilenameSuffix={renderHeaderFilenameSuffix}
       renderHeaderMetadata={renderHeaderMetadata}
       renderHeaderPrefix={renderHeaderPrefix}
       />

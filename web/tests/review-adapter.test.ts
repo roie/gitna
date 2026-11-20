@@ -203,7 +203,7 @@ describe('paged Gitna review adapter', () => {
     })
   })
 
-  it('marks only working-tree diffs that Pierre can hydrate as editable', () => {
+  it('marks only complete working-tree diffs as editable', () => {
     const input = page('untracked.txt')
     input.patch = [
       'diff --git a/changed.txt b/changed.txt\n--- a/changed.txt\n+++ b/changed.txt\n@@ -1 +1 @@\n-a\n+b\n',
@@ -220,7 +220,7 @@ describe('paged Gitna review adapter', () => {
         ),
       )
     expect(editable(input)).toEqual({
-      'changed.txt': true,
+      'changed.txt': false,
       'added.txt': false,
       'removed.txt': false,
       'untracked.txt': true,

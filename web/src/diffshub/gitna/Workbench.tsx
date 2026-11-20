@@ -49,6 +49,7 @@ import { DiffsHubStatusPanel } from '../components/DiffsHubStatusPanel'
 import {
   DiffsHubViewer,
   getNextItemVersion,
+  worktreeDiffStateKeys,
   type GitnaComparisonActions,
   type GitnaConversationActions,
   type GitnaEditorActions,
@@ -81,7 +82,6 @@ import type { DarkThemeName, LightThemeName } from '../lib/themeNames'
 import type { LoadedDiffsHubData } from '../lib/diffsHubDataAccumulator'
 import { cn } from '../lib/cn'
 import { savePreference } from '../../lib/preferences'
-import { createReviewDiffLoader } from '../../lib/review-data'
 import { relocateDraft } from '../lib/draftLocation'
 import type { GitnaPaletteCommand } from './CommandPalette'
 import { GlobalToastHost } from './ConnectionStatus'
@@ -1731,15 +1731,6 @@ function WorkbenchInner({
           onError: setReviewActionError,
           disabledReason: backendDisabledReason,
         }
-  const loadDiffFiles = useMemo(
-    () =>
-      reviewIdentity != null &&
-      reviewIdentity.key === target?.key &&
-      reviewIdentity.identity.scope === 'unstaged'
-        ? createReviewDiffLoader(repository.api, reviewIdentity.identity)
-        : undefined,
-    [repository.api, reviewIdentity, target?.key],
-  )
 
   const gitnaOpenFileAction =
     repository.activeReview !== 'commit' || repository.commitDiff == null
@@ -1756,7 +1747,11 @@ function WorkbenchInner({
           },
         }
 
-  const dirtyPaths = useMemo(() => new Set(worktreeDrafts.keys()), [worktreeDrafts])
+  const dirtyPathsKey = [...worktreeDrafts.keys()].join('\0')
+  const dirtyPaths = useMemo(
+    () => new Set(dirtyPathsKey === '' ? [] : dirtyPathsKey.split('\0')),
+    [dirtyPathsKey],
+  )
   useEffect(() => {
     conversationsModel?.setUnsavedCount(dirtyPaths.size)
   }, [conversationsModel, dirtyPaths.size])
@@ -2007,10 +2002,9 @@ function WorkbenchInner({
     [repository],
   )
   const baselineLoadsRef = useRef(new Map<string, Promise<void>>())
-  const lastDiffEditPathRef = useRef<string | null>(null)
+  const diffDraftsRef = useRef(new Map<string, FileContents | undefined>())
   const handleDiffEdit = useCallback(
     (path: string, file: FileContents) => {
-      lastDiffEditPathRef.current = path
       EditStateManager.clear('file', `${reviewCacheNamespace}worktree:${path}`)
       if (!worktreeFilesRef.current.has(path) && !baselineLoadsRef.current.has(path)) {
         const load = repository.api
@@ -2037,11 +2031,21 @@ function WorkbenchInner({
       ) {
         next.delete(path)
       } else next.set(path, { ...file, name: path })
+      diffDraftsRef.current.set(path, next.get(path))
       worktreeDraftsRef.current = next
       setWorktreeDrafts(next)
     },
     [repository, reviewCacheNamespace],
   )
+  useEffect(() => {
+    for (const [path, draft] of diffDraftsRef.current) {
+      if (worktreeDrafts.get(path) === draft) continue
+      diffDraftsRef.current.delete(path)
+      for (const key of worktreeDiffStateKeys(reviewCacheNamespace, path)) {
+        EditStateManager.clear('file-diff', key)
+      }
+    }
+  }, [reviewCacheNamespace, worktreeDrafts])
   const saveWorktreeFileNow = useCallback(
     async (path: string): Promise<boolean> => {
       await baselineLoadsRef.current.get(path)
@@ -2231,11 +2235,24 @@ function WorkbenchInner({
   useEffect(() => {
     const onSave = (event: KeyboardEvent) => {
       if (!(event.ctrlKey || event.metaKey) || event.key.toLowerCase() !== 's') return
-      const inReview =
+      if (
         target?.filePath == null &&
         event.target instanceof Node &&
         scrollRef.current?.contains(event.target) === true
-      const path = inReview ? lastDiffEditPathRef.current : target?.filePath
+      ) {
+        const paths = (reviewDataRef.current?.items ?? []).flatMap((item) =>
+          item.type === 'diff' &&
+          item.edit === true &&
+          worktreeDraftsRef.current.has(item.fileDiff.name)
+            ? [item.fileDiff.name]
+            : [],
+        )
+        if (paths.length === 0) return
+        event.preventDefault()
+        for (const path of paths) void saveWorktreeFile(path)
+        return
+      }
+      const path = target?.filePath
       if (
         path == null ||
         (!worktreeDraftsRef.current.has(path) && !repository.isUntitledPath(path))
@@ -2246,7 +2263,7 @@ function WorkbenchInner({
     }
     window.addEventListener('keydown', onSave)
     return () => window.removeEventListener('keydown', onSave)
-  }, [dirtyPaths, repository, requestSave, target?.filePath])
+  }, [dirtyPaths, repository, requestSave, saveWorktreeFile, target?.filePath])
 
   const toggleSidebar = useCallback(() => {
     if (window.matchMedia('(max-width: 767px)').matches) {
@@ -2846,8 +2863,8 @@ function WorkbenchInner({
                         viewerRef={viewerRef}
                         initialItems={reviewData.items}
                         editStateNamespace={reviewCacheNamespace}
-                        loadDiffFiles={loadDiffFiles}
                         onDiffEdit={handleDiffEdit}
+                        dirtyPaths={dirtyPaths}
                         gitnaActions={gitnaActions}
                         gitnaComparisonActions={gitnaComparisonActions}
                         gitnaEditorActions={gitnaEditorActions}

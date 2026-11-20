@@ -1,3 +1,4 @@
+import { spawnSync } from 'node:child_process'
 import { readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import type { Page } from '@playwright/test'
@@ -93,4 +94,56 @@ test('a refresh keeps the diff being edited', async ({ page, app }) => {
   await expect(editor).toContainText('keep me')
   await page.keyboard.insertText(' still typing')
   await expect(editor).toContainText('keep me still typing')
+})
+
+test('one save in a review writes every edited diff and clears their dots', async ({
+  page,
+  app,
+}) => {
+  await page.goto(app.url)
+  const modified = await openUnstaged(page, 'modified.txt')
+  await append(page, modified, ' first')
+  const untracked = await openUnstaged(page, 'untracked.txt')
+  await append(page, untracked, ' second')
+  const unsaved = page.locator('.code-view').getByLabel('Unsaved changes')
+  await expect(unsaved).toHaveCount(2)
+  await page.keyboard.press('Control+s')
+  await expect
+    .poll(() => readFileSync(join(app.repo, 'modified.txt'), 'utf8'))
+    .toBe('unstaged change first\n')
+  await expect
+    .poll(() => readFileSync(join(app.repo, 'untracked.txt'), 'utf8'))
+    .toBe('untracked content second\n')
+  await expect(unsaved).toHaveCount(0)
+})
+
+test('undo in a diff survives leaving and reopening the review', async ({ page, app }) => {
+  await page.goto(app.url)
+  const editor = await openUnstaged(page, 'modified.txt')
+  await append(page, editor, ' undo me')
+  await page.locator('[data-section="repository"]').click()
+  await page
+    .locator('#gitna-repository-tree__tree')
+    .getByRole('treeitem', { name: 'main.txt', exact: true })
+    .click()
+  await expect(page.getByRole('textbox', { name: 'main.txt', exact: true })).toBeVisible()
+  const reopened = await openUnstaged(page, 'modified.txt')
+  await expect(reopened).toContainText('undo me')
+  await reopened.click()
+  await page.keyboard.press('Control+z')
+  await expect(reopened).not.toContainText('undo me')
+})
+
+test('an intent-to-add file can be edited in its diff', async ({ page, app }) => {
+  writeFileSync(join(app.repo, 'intent.txt'), 'intent\n')
+  const result = spawnSync('git', ['add', '-N', '--', 'intent.txt'], {
+    cwd: app.repo,
+    encoding: 'utf8',
+  })
+  expect(result.status, result.stderr).toBe(0)
+  await page.goto(app.url)
+  const editor = await openUnstaged(page, 'intent.txt')
+  await append(page, editor, ' added')
+  await page.keyboard.press('Control+s')
+  await expect.poll(() => readFileSync(join(app.repo, 'intent.txt'), 'utf8')).toBe('intent added\n')
 })
