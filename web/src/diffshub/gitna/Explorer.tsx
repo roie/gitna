@@ -111,19 +111,6 @@ export function createRepositoryTreeSource(
   }
 }
 
-export function filterRepositoryPaths(
-  paths: readonly string[],
-  changes: readonly TreeFile[],
-  selectedStatuses: ReadonlySet<GitStatus>,
-): string[] {
-  if (selectedStatuses.size === 0) return [...paths]
-  const statuses = new Map(changes.map((change) => [change.path, gitStatus(change.kind)]))
-  return paths.filter((path) => {
-    const status = statuses.get(path)
-    return status != null && selectedStatuses.has(status)
-  })
-}
-
 function setRepositoryFoldersExpanded(
   model: FileTree | null,
   paths: readonly string[],

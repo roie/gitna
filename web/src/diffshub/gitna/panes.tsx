@@ -314,6 +314,7 @@ export function TreeSection({
                 }
               >
                 <DiffsHubFileTree
+                  key={lazyDirectories == null ? 'complete' : 'lazy'}
                   className={cn(
                     pane ? 'h-full overflow-hidden' : fill ? 'md:h-full' : 'overflow-visible',
                     'md:ml-2',
@@ -332,7 +333,7 @@ export function TreeSection({
                   renderRowActions={renderRowActions}
                   selectedPath={selectedPath}
                   selectedPaths={selectedPaths}
-                  showFolderGitStatus={pane}
+                  showFolderGitStatus={pane && lazyDirectories != null}
                   source={source}
                 />
               </div>

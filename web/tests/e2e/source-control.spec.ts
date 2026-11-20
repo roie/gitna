@@ -3610,12 +3610,23 @@ test('branch picker, repository filters, list view, and graph stats use direct p
   await expect(statusFilters.Modified).not.toBeChecked()
   await expect(statusFilters.Untracked).not.toBeChecked()
   await expect(page.locator('[data-section="repository"] .section-count')).toContainText('/')
+  await page.keyboard.press('Escape')
+  const repositoryTree = page.locator('#gitna-repository-tree__tree')
   await expect(
-    page
-      .locator('#gitna-repository-tree__tree')
-      .getByRole('treeitem', { name: 'main.txt', exact: true }),
-  ).toHaveCount(0)
+    repositoryTree.getByRole('treeitem', { name: 'delete.txt', exact: true }),
+  ).toBeVisible()
+  await expect(repositoryTree.getByRole('treeitem', { name: 'main.txt', exact: true })).toHaveCount(
+    0,
+  )
 
+  await repositoryFilter.click()
+  await statusFilters.Untracked.click({ modifiers: ['Alt'] })
+  await page.keyboard.press('Escape')
+  await expect(
+    repositoryTree.getByRole('treeitem', { name: 'clean.txt', exact: true }),
+  ).toBeVisible()
+
+  await repositoryFilter.click()
   await clearFilter.click()
   await expect(repositoryFilter).toHaveAttribute('aria-pressed', 'false')
 

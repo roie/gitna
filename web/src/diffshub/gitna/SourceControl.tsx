@@ -37,6 +37,7 @@ import { Input } from '../components/Input'
 import { Switch } from '../components/Switch'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '../components/Tooltip'
 import { cn } from '../lib/cn'
+import { filterDiffsHubFileTreeSource } from '../lib/filterDiffsHubFileTreeSource'
 import { LoadingIndicator, useLoadingIndicator } from '../lib/loading'
 import type { DiffsHubFileTreeSource } from '../lib/types'
 import { Confirm, Modal } from './Modal'
@@ -61,7 +62,6 @@ import {
   repositoryDropDestination,
   isHiddenRepositoryPath,
   createRepositoryTreeSource,
-  filterRepositoryPaths,
   RepositoryContextMenu,
   RepositoryHeaderActions,
 } from './Explorer'
@@ -395,24 +395,40 @@ function SourceControlInner({
       showIgnoredFiles,
     ],
   )
-  const filteredRepositoryPaths = useMemo(
-    () => filterRepositoryPaths(visibleRepositoryPaths, repositoryChanges, activeRepositoryFilters),
-    [visibleRepositoryPaths, repositoryChanges, activeRepositoryFilters],
+  const filteredChanges = useMemo(
+    () =>
+      activeRepositoryFilters.size === 0
+        ? null
+        : filterDiffsHubFileTreeSource(
+            createTreeSource(repositoryChanges),
+            activeRepositoryFilters,
+          ),
+    [activeRepositoryFilters, repositoryChanges],
   )
+  const filteredRepositoryPaths = filteredChanges?.paths ?? visibleRepositoryPaths
+  const lazyRepositoryTree = repositoryView === 'tree' && filteredChanges == null
   const repositorySource = useMemo(
     () =>
       repositoryView === 'tree'
-        ? createRepositoryTreeSource(
-            filteredRepositoryPaths,
+        ? (filteredChanges ??
+          createRepositoryTreeSource(
+            visibleRepositoryPaths,
             repositoryChanges,
             repository.repositoryIgnoredPaths,
-          )
+          ))
         : createRepositoryListSource(
             filteredRepositoryPaths,
             repositoryChanges,
             repository.repositoryIgnoredPaths,
           ),
-    [filteredRepositoryPaths, repositoryChanges, repository.repositoryIgnoredPaths, repositoryView],
+    [
+      filteredChanges,
+      filteredRepositoryPaths,
+      visibleRepositoryPaths,
+      repositoryChanges,
+      repository.repositoryIgnoredPaths,
+      repositoryView,
+    ],
   )
   const workflowCompact = changedPathCount === 0 && repository.conflicts.length === 0
   const hasLargeOpenChangeSection =
@@ -965,18 +981,14 @@ function SourceControlInner({
             />
           )}
           icon={IconFileTree}
-          lazyDirectories={
-            repositoryView === 'tree' ? repository.ordinaryUnloadedDirectories : undefined
-          }
+          lazyDirectories={lazyRepositoryTree ? repository.ordinaryUnloadedDirectories : undefined}
           knownEmptyDirectories={
-            repositoryView === 'tree' ? repository.ordinaryKnownEmptyDirectories : undefined
+            lazyRepositoryTree ? repository.ordinaryKnownEmptyDirectories : undefined
           }
-          pagedDirectories={
-            repositoryView === 'tree' ? repository.ordinaryPagedDirectories : undefined
-          }
+          pagedDirectories={lazyRepositoryTree ? repository.ordinaryPagedDirectories : undefined}
           modelId="gitna-repository-tree"
-          onLoadDirectory={repositoryView === 'tree' ? loadOrdinaryDirectory : undefined}
-          onLoadMoreDirectory={repositoryView === 'tree' ? loadMoreOrdinaryDirectory : undefined}
+          onLoadDirectory={lazyRepositoryTree ? loadOrdinaryDirectory : undefined}
+          onLoadMoreDirectory={lazyRepositoryTree ? loadMoreOrdinaryDirectory : undefined}
           open={repositoryOpen}
           selectedPath={repository.repositoryFilePath ?? repository.selection?.change.path}
           selectedPaths={repository.repositorySelectedPaths}
