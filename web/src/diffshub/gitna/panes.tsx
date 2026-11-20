@@ -14,7 +14,6 @@ import { createPortal } from 'react-dom'
 import type { ChangeKind } from '../../lib/types'
 import { Button } from '../components/Button'
 import { CHROME_ICON_BUTTON_CLASS } from '../components/chromeButtonStyles'
-import { DiffsHubFileTree } from '../components/DiffsHubFileTree'
 import { DropdownMenuTrigger } from '../components/DropdownMenu'
 import { cn } from '../lib/cn'
 import {
@@ -234,7 +233,6 @@ export function TreeSection({
 }: TreeSectionProps) {
   const [model, setModel] = useState<FileTree | null>(null)
   const [searchOpen, setSearchOpen] = useState(false)
-  const TreeComponent = pane ? Tree : DiffsHubFileTree
   const naturalHeight = useNaturalTreeHeight(model, !pane)
   const searchHeight = searchOpen ? CODE_VIEW_FILE_TREE_SEARCH_OPEN_HEIGHT : 0
   const height = (naturalHeight > 0 ? naturalHeight : treeViewportHeight(source)) + searchHeight
@@ -319,7 +317,7 @@ export function TreeSection({
                       : { height }
                 }
               >
-                <TreeComponent
+                <Tree
                   options={{
                     ...(lazyDirectories == null
                       ? BASE_FILE_TREE_OPTIONS
@@ -335,7 +333,6 @@ export function TreeSection({
                   lazyDirectories={lazyDirectories}
                   knownEmptyDirectories={knownEmptyDirectories}
                   pagedDirectories={pagedDirectories}
-                  modelId={modelId}
                   onLoadDirectory={onLoadDirectory}
                   onLoadMoreDirectory={onLoadMoreDirectory}
                   onModelReady={setModel}
@@ -345,7 +342,6 @@ export function TreeSection({
                   renderRowActions={renderRowActions}
                   selectedPath={selectedPath}
                   selectedPaths={selectedPaths}
-                  showFolderGitStatus={pane && lazyDirectories != null}
                   source={source}
                 />
               </div>
