@@ -19,6 +19,8 @@ export function tokens(theme: ThemeLike): Record<string, string> {
   const normalized = normalizeThemeColors(theme).colors ?? {}
   const raw = theme.colors ?? {}
   const { background, fg } = chrome
+  const text =
+    colorUtils.pickReadableForeground(background, [normalized['foreground'], theme.fg]) ?? fg
   const dark = colorUtils.isDarkSurface(background, fg)
   const added = normalized['gitDecoration.addedResourceForeground'] || chrome.additionFg
   const highlight =
@@ -30,12 +32,14 @@ export function tokens(theme: ThemeLike): Record<string, string> {
     '--background': background,
     '--sidebar': background,
     '--diffshub-sidebar-bg': background,
-    '--foreground': fg,
-    '--card-foreground': fg,
-    '--popover-foreground': fg,
-    '--accent-foreground': fg,
-    '--secondary-foreground': fg,
+    '--foreground': text,
+    '--card-foreground': text,
+    '--popover-foreground': normalized['menu.foreground'] || text,
+    '--accent-foreground': text,
+    '--secondary-foreground': text,
     '--sidebar-foreground': fg,
+    '--gitna-tab-active-foreground': normalized['tab.activeForeground'] || text,
+    '--gitna-tab-inactive-foreground': normalized['tab.inactiveForeground'] || chrome.mutedFg,
     '--muted-foreground': chrome.mutedFg,
     '--card': chrome.surface,
     '--popover': chrome.surface,

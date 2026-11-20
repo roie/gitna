@@ -2740,7 +2740,7 @@ function WorkbenchInner({
               <DiffsHubSidebar
                 ariaLabel={sidebarMode === 'search' ? 'Search' : 'Source Control'}
                 className={cn(
-                  '[grid-area:viewer] md:[grid-area:tree]',
+                  'text-sidebar-foreground [grid-area:viewer] md:[grid-area:tree]',
                   !sidebarVisible && 'md:hidden',
                 )}
                 mobileOverlayOpen={fileTreeOverlayOpen}
@@ -3746,7 +3746,12 @@ function Tab({
         role="tab"
         aria-selected={active}
         selected={active}
-        className={cn('relative pe-3', !active && 'text-muted-foreground hover:text-foreground')}
+        className={cn(
+          'relative pe-3',
+          active
+            ? 'text-[var(--gitna-tab-active-foreground)]'
+            : 'text-[var(--gitna-tab-inactive-foreground)] hover:text-[var(--gitna-tab-active-foreground)]',
+        )}
         icon={icon}
         label={label}
         status={

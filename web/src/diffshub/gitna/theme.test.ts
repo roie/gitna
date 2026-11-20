@@ -70,6 +70,31 @@ describe('root theme tokens', () => {
     expect(result['--gitna-alert-note']).toBe('#4493f8')
   })
 
+  it('takes each surface text color from its own theme key', async () => {
+    const dark = tokens(pierreDark as ThemeLike)
+    expect(dark['--foreground']).toBe('#fafafa')
+    expect(dark['--popover-foreground']).toBe('#fafafa')
+    expect(dark['--sidebar-foreground']).toBe('#a3a3a3')
+    expect(dark['--gitna-tab-active-foreground']).toBe('#fafafa')
+    expect(dark['--gitna-tab-inactive-foreground']).toBe('#737373')
+
+    const result = tokens({
+      bg: '#101010',
+      fg: '#eeeeee',
+      type: 'dark',
+      colors: {
+        foreground: '#f1f1f1',
+        'menu.foreground': '#e0e0e0',
+        'sideBar.foreground': '#999999',
+      },
+    })
+    expect(result['--foreground']).toBe('#f1f1f1')
+    expect(result['--popover-foreground']).toBe('#e0e0e0')
+    expect(result['--sidebar-foreground']).toBe('#999999')
+    expect(result['--gitna-tab-active-foreground']).toBe('#f1f1f1')
+    expect(result['--gitna-tab-inactive-foreground']).toBe(result['--muted-foreground'])
+  })
+
   it('falls back to the neutral palette for a theme without colors', () => {
     expect(tokens({})).toEqual(tokens({ bg: '#ffffff', fg: '#0a0a0a', type: 'light' }))
     expect(tokens({})['--background']).toBe('#ffffff')
