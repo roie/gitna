@@ -2662,7 +2662,7 @@ function WorkbenchInner({
           {!homeOpen && (
             <DiffsHubHeader
               appVersion={repository.snapshot?.appVersion ?? 'dev'}
-              className="[grid-area:header]"
+              className="z-40 text-sidebar-foreground [grid-area:header]"
               collapseMode={collapseMode}
               colorMode={colorMode}
               darkThemeName={darkThemeName}
