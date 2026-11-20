@@ -36,31 +36,6 @@ test('initial raster selection reveals the measured image body rather than heade
   app,
 }) => {
   images(app.repo)
-  await page.addInitScript(() => {
-    let instance: unknown
-    const reveals: { id: string; afterInitialFrame: boolean }[] = []
-    Object.assign(window, { rasterReveals: reveals })
-    Object.defineProperty(window, '__INSTANCE', {
-      configurable: true,
-      get: () => instance,
-      set: (viewer: { scrollTo(target: { type: string; id?: string }): void }) => {
-        instance = viewer
-        let afterInitialFrame = false
-        requestAnimationFrame(() => {
-          afterInitialFrame = true
-        })
-        const scrollTo = viewer.scrollTo.bind(viewer)
-        viewer.scrollTo = (target) => {
-          if (target.type === 'item' && target.id != null)
-            reveals.push({
-              id: target.id,
-              afterInitialFrame,
-            })
-          scrollTo(target)
-        }
-      },
-    })
-  })
   let release!: () => void
   let requested!: () => void
   const gate = new Promise<void>((resolve) => {
@@ -87,13 +62,20 @@ test('initial raster selection reveals the measured image body rather than heade
     await reviewed
     await expect(page.locator('.code-view')).toBeAttached()
     await renderedImage(page, 'untracked-preview.png')
-    const reveal = await page.evaluate(() =>
-      (
-        window as unknown as { rasterReveals: { id: string; afterInitialFrame: boolean }[] }
-      ).rasterReveals.find((entry) => entry.id === 'untracked-preview.png'),
-    )
-    expect(reveal).toBeDefined()
-    expect(reveal!.afterInitialFrame).toBe(true)
+    const scroller = page.locator('.cv-scrollbar')
+    const header = page.getByRole('button', {
+      name: 'Stage file untracked-preview.png',
+      exact: true,
+    })
+    await expect.poll(() => scroller.evaluate((element) => element.scrollTop)).toBeGreaterThan(0)
+    await expect
+      .poll(async () =>
+        Math.abs((await header.boundingBox())!.y - (await scroller.boundingBox())!.y),
+      )
+      .toBeLessThan(24)
+    await expect(
+      page.getByRole('img', { name: 'Image preview for untracked-preview.png', exact: true }),
+    ).toBeInViewport({ ratio: 1 })
   } finally {
     release()
   }
