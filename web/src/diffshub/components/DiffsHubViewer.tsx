@@ -518,7 +518,7 @@ export const DiffsHubViewer = memo(function DiffsHubViewer({
   const renderHeaderFilenameSuffix = useCallback(
     (item: CodeViewItem<CommentMetadata>) =>
       item.type === 'diff' && item.edit === true && dirtyPaths?.has(item.fileDiff.name) === true ? (
-        <span aria-label="Unsaved changes" className="ms-2 inline-block size-1.5 shrink-0 rounded-full bg-current" />
+        <span aria-label="Unsaved changes" className="block size-1.5 rounded-full bg-current" />
       ) : null,
     [dirtyPaths]
   );
