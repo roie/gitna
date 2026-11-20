@@ -1968,8 +1968,13 @@ export class GitnaRepository {
       return false
     if (changes.some((change) => change.kind !== 'deleted')) return true
     if (changes.some((change) => change.kind === 'deleted')) return false
+    const commitFile =
+      this.commitDiff == null
+        ? undefined
+        : this.commitFiles[this.commitDiff.oid]?.find((file) => file.path === path)
+    if (commitFile != null && commitFile.kind !== 'deleted') return true
     if (this.commitDiff?.path === path && this.commitDiff.kind !== 'deleted') return true
-    return this.repositoryPaths.includes(path)
+    return false
   }
 
   selectRepositoryFile(path: string, reveal = false): void {

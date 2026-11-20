@@ -547,7 +547,7 @@ export const DiffsHubViewer = memo(function DiffsHubViewer({
       );
       if (gitnaOpenFileAction == null) return null;
       const path = item.fileDiff.name;
-      if (!gitnaOpenFileAction.canOpenFile(path)) return null;
+      if (item.fileDiff.type === 'deleted' || !gitnaOpenFileAction.canOpenFile(path)) return null;
       return (
         <FileHeaderAction
           type="button"

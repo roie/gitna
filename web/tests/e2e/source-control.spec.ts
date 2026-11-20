@@ -548,6 +548,30 @@ test('Graph virtualizes loaded history while preserving expansion, focus, portal
   expect(laneGap).toBeLessThanOrEqual(1)
 })
 
+test('every current file in a Graph commit review can be opened', async ({ page, app }) => {
+  mkdirSync(join(app.repo, 'nested'))
+  writeFileSync(join(app.repo, 'nested', 'first.txt'), 'first\n')
+  writeFileSync(join(app.repo, 'nested', 'second.txt'), 'second\n')
+  runGit(app.repo, 'add', '--', 'nested')
+  runGit(app.repo, 'commit', '-m', 'two file fixture')
+
+  await page.goto(app.url)
+  await page.locator('[data-section="graph"]').click()
+  const commit = page.getByRole('button', { name: /^two file fixture/ })
+  await expect(commit).toBeVisible({ timeout: 30_000 })
+  await commit.click()
+  await page
+    .locator('.graph-row')
+    .filter({ has: commit })
+    .getByRole('treeitem', { name: 'first.txt', exact: true })
+    .click()
+  await expect(
+    page.getByRole('button', { name: 'Open nested/first.txt in Repository' }),
+  ).toBeVisible()
+  await page.getByRole('button', { name: 'Open nested/second.txt in Repository' }).click()
+  await expect(page.getByRole('textbox', { name: 'nested/second.txt' })).toContainText('second')
+})
+
 test('Graph deletion does not open a re-added current file', async ({ page, app }) => {
   runGit(app.repo, 'reset', '--hard', 'HEAD')
   runGit(app.repo, 'clean', '-fd')

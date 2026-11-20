@@ -1741,15 +1741,12 @@ function WorkbenchInner({
     [repository.api, reviewIdentity, target?.key],
   )
 
-  const graphFile = repository.activeReview === 'commit' ? repository.commitDiff : null
-  const graphPath = graphFile?.path
   const gitnaOpenFileAction =
-    graphFile == null || graphPath == null || graphFile.kind === 'deleted'
+    repository.activeReview !== 'commit' || repository.commitDiff == null
       ? undefined
       : {
           ariaLabel: (path: string) => `Open ${path} in Repository`,
-          canOpenFile: (path: string) =>
-            path === graphPath && !path.endsWith('/') && repository.canOpenRepositoryFile(path),
+          canOpenFile: (path: string) => repository.canOpenRepositoryFile(path),
           onOpenFile: (path: string) => {
             void repository
               .openRepositoryFile(path, true)
