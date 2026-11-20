@@ -1,0 +1,96 @@
+import { readFileSync, writeFileSync } from 'node:fs'
+import { join } from 'node:path'
+import type { Page } from '@playwright/test'
+import { expect, test } from './fixtures.js'
+
+async function openUnstaged(page: Page, path: string) {
+  await page
+    .locator('#gitna-unstaged-tree__tree')
+    .getByRole('treeitem', { name: path, exact: true })
+    .click()
+  const editor = page.locator('.code-view').getByRole('textbox', { name: path, exact: true })
+  await expect(editor).toBeVisible()
+  return editor
+}
+
+async function append(page: Page, editor: ReturnType<Page['locator']>, text: string) {
+  await editor.click()
+  await page.keyboard.press('Control+End')
+  await page.keyboard.insertText(text)
+}
+
+test('edits the working tree side of an unstaged diff and saves it', async ({ page, app }) => {
+  await page.goto(app.url)
+  const editor = await openUnstaged(page, 'modified.txt')
+  await append(page, editor, ' edited in diff')
+  await page.keyboard.press('Control+s')
+  await expect
+    .poll(() => readFileSync(join(app.repo, 'modified.txt'), 'utf8'))
+    .toBe('unstaged change edited in diff\n')
+  await expect(editor).toContainText('edited in diff')
+})
+
+test('a diff draft and the editor tab share one unsaved state', async ({ page, app }) => {
+  await page.goto(app.url)
+  const editor = await openUnstaged(page, 'modified.txt')
+  await append(page, editor, ' from diff')
+  await page.locator('[data-section="repository"]').click()
+  await page
+    .locator('#gitna-repository-tree__tree')
+    .getByRole('treeitem', { name: 'modified.txt', exact: true })
+    .click()
+  await expect(page.getByRole('tab', { name: /modified\.txt Unsaved changes/ })).toBeVisible()
+  const tabEditor = page.getByRole('textbox', { name: 'modified.txt', exact: true })
+  await expect(tabEditor).toContainText('from diff')
+  await append(page, tabEditor, ' and tab')
+
+  const diffEditor = await openUnstaged(page, 'modified.txt')
+  await expect(diffEditor).toContainText('and tab')
+  await diffEditor.click()
+  await page.keyboard.press('Control+s')
+  await expect
+    .poll(() => readFileSync(join(app.repo, 'modified.txt'), 'utf8'))
+    .toBe('unstaged change from diff\n and tab')
+  await expect(page.getByRole('tab', { name: /modified\.txt Unsaved changes/ })).toHaveCount(0)
+})
+
+test('the staged side of a diff is read-only', async ({ page, app }) => {
+  await page.goto(app.url)
+  await page
+    .locator('#gitna-staged-tree__tree')
+    .getByRole('treeitem', { name: 'staged.txt', exact: true })
+    .click()
+  await expect(page.locator('.code-view')).toContainText('staged change')
+  await expect(page.locator('.code-view').getByRole('textbox')).toHaveCount(0)
+})
+
+test('edits the right file of a comparison', async ({ page, app }) => {
+  await page.goto(app.url)
+  await page.locator('[data-section="repository"]').click()
+  const explorer = page.locator('#gitna-repository-tree__tree')
+  await explorer.getByRole('treeitem', { name: 'main.txt', exact: true }).click()
+  const right = explorer.getByRole('treeitem', { name: 'feature.txt', exact: true })
+  await right.click({ modifiers: ['Control'] })
+  await right.click({ button: 'right' })
+  await page.getByRole('menuitem', { name: 'Compare Selected' }).click()
+  await expect(page.getByRole('tab', { name: 'main.txt ↔ feature.txt' })).toBeVisible()
+  const editor = page.locator('.code-view').getByRole('textbox', { name: 'feature.txt' })
+  await append(page, editor, ' compared')
+  await page.keyboard.press('Control+s')
+  await expect
+    .poll(() => readFileSync(join(app.repo, 'feature.txt'), 'utf8'))
+    .toBe('feature branch compared\n')
+})
+
+test('a refresh keeps the diff being edited', async ({ page, app }) => {
+  await page.goto(app.url)
+  const editor = await openUnstaged(page, 'modified.txt')
+  await append(page, editor, ' keep me')
+  writeFileSync(join(app.repo, 'untracked.txt'), 'changed outside\n')
+  await expect(
+    page.locator('.code-view').getByRole('textbox', { name: 'untracked.txt', exact: true }),
+  ).toContainText('changed outside')
+  await expect(editor).toContainText('keep me')
+  await page.keyboard.insertText(' still typing')
+  await expect(editor).toContainText('keep me still typing')
+})

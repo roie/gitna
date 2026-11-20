@@ -192,6 +192,7 @@ interface DiffsHubViewerProps {
   gitnaOpenFileAction?: GitnaOpenFileAction;
   gitnaConversations?: GitnaConversationActions;
   onDraftChange?: (open: boolean) => void;
+  onDiffEdit?: (path: string, file: FileContents) => void;
 }
 
 export const DiffsHubViewer = memo(function DiffsHubViewer({
@@ -218,6 +219,7 @@ export const DiffsHubViewer = memo(function DiffsHubViewer({
   gitnaOpenFileAction,
   gitnaConversations,
   onDraftChange,
+  onDiffEdit,
 }: DiffsHubViewerProps) {
   useEffect(() => {
     const container = scrollRef.current;
@@ -227,7 +229,9 @@ export const DiffsHubViewer = memo(function DiffsHubViewer({
   const handleEditorReady = useStableCallback(() => onEditorReady?.());
   // CodeView treats a new key resolver as changed options and rerenders the
   // editable DOM. Keep it stable when connection/header state changes.
-  const getEditStateKey = useStableCallback((item: CodeViewItem<CommentMetadata>) => `${editStateNamespace}worktree:${item.id}`);
+  const getEditStateKey = useStableCallback((item: CodeViewItem<CommentMetadata>) =>
+    item.type === 'file' ? `${editStateNamespace}worktree:${item.id}` : undefined
+  );
   const editorOptions = useMemo(
     () => ({ onAttach: handleEditorReady }) satisfies EditorOptions<'file' | 'file-diff', CommentMetadata, undefined>,
     [handleEditorReady]
@@ -628,7 +632,8 @@ export const DiffsHubViewer = memo(function DiffsHubViewer({
   );
   const handleItemEditChange = useStableCallback(
     (event: EditorChangeEvent<EditorType, CommentMetadata, undefined>, item: CodeViewItem<CommentMetadata>) => {
-      gitnaEditorActions?.onChange(item.id, event.file, event.editor.getViewState());
+      if (item.type === 'diff') onDiffEdit?.(item.fileDiff.name, event.file);
+      else gitnaEditorActions?.onChange(item.id, event.file, event.editor.getViewState());
     }
   );
 
@@ -645,7 +650,7 @@ export const DiffsHubViewer = memo(function DiffsHubViewer({
       options={options}
       editorOptions={editorOptions}
       getEditStateKey={getEditStateKey}
-      onItemEditChange={gitnaEditorActions == null ? undefined : handleItemEditChange}
+      onItemEditChange={handleItemEditChange}
       onItemEditComplete={() => 'accept'}
       onScroll={(scrollTop) => onScroll?.(scrollTop)}
       selectedLines={commenting ? selectedLines : null}

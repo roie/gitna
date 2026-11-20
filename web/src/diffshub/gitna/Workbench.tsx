@@ -58,17 +58,30 @@ import {
 import { ThemeSourceProvider } from '../components/ThemeSourceProvider'
 import { docsThemeCatalog, themeController } from '../components/themeController'
 import type { CommentMetadata, ViewerLoadState } from '../lib/types'
-import { ApiError, type DiffRequest, type DraftRecord, type ReviewRequest } from '../../lib/api'
+import {
+  ApiError,
+  type ApiClient,
+  type DiffRequest,
+  type DraftRecord,
+  type ReviewRequest,
+} from '../../lib/api'
 import {
   ConversationsModel,
   type Conversation,
   type ConversationSurface,
 } from '../../lib/conversations'
-import type { ContentSearchFile, FileDiff, ReviewIdentity, WorktreeFile } from '../../lib/types'
+import type {
+  ContentSearchFile,
+  DiffScope,
+  FileDiff,
+  ReviewIdentity,
+  WorktreeFile,
+} from '../../lib/types'
 import type { DarkThemeName, LightThemeName } from '../lib/themeNames'
 import type { LoadedDiffsHubData } from '../lib/diffsHubDataAccumulator'
 import { cn } from '../lib/cn'
 import { savePreference } from '../../lib/preferences'
+import { createReviewDiffLoader } from '../../lib/review-data'
 import { relocateDraft } from '../lib/draftLocation'
 import type { GitnaPaletteCommand } from './CommandPalette'
 import { GlobalToastHost } from './ConnectionStatus'
@@ -98,6 +111,7 @@ import {
   adaptWorktreeComparison,
   adaptWorktreeFile,
   diffImageAnnotations,
+  draftDiffItem,
   type GitnaReviewAccumulator,
 } from './reviewAdapter'
 import {
@@ -295,10 +309,33 @@ function keepDraftItems(
   return items.length === refreshed.items.length ? refreshed : { ...refreshed, items, itemIdToFile }
 }
 
+async function withDiffDrafts(
+  api: ApiClient,
+  drafts: ReadonlyMap<string, FileContents>,
+  data: LoadedDiffsHubData,
+  scope: DiffScope | undefined,
+): Promise<LoadedDiffsHubData> {
+  if (scope !== 'unstaged' || !data.items.some((item) => drafts.has(item.id))) return data
+  const items = await Promise.all(
+    data.items.map(async (item) => {
+      const draft = drafts.get(item.id)
+      if (draft == null || item.type !== 'diff' || item.edit !== true) return item
+      const diff = await api.diff({
+        scope: 'unstaged',
+        path: item.fileDiff.name,
+        oldPath: item.fileDiff.prevName,
+      })
+      return draftDiffItem(item, diff, draft)
+    }),
+  )
+  return { ...data, items }
+}
+
 function updateViewerItems(
   viewer: CodeViewHandle<CommentMetadata, undefined>,
   current: LoadedDiffsHubData,
   refreshed: LoadedDiffsHubData,
+  hasDraft: (path: string) => boolean,
 ): void {
   // An unsent comment draft lives only on the viewer item, so carry it over.
   const next = {
@@ -348,7 +385,11 @@ function updateViewerItems(
   }
   for (const item of next.items) {
     const existing = viewer.getItem(item.id)
-    if (existing?.type === 'file' && item.type === 'file' && existing.edit === true) {
+    if (
+      existing?.edit === true &&
+      existing.type === item.type &&
+      (item.type === 'file' || hasDraft(item.id))
+    ) {
       // The live editor owns the draft, undo history, focus, and selection.
       // Refresh updates the surrounding review metadata, but must not replace
       // the item while a local edit session is active.
@@ -1157,7 +1198,7 @@ function WorkbenchInner({
         request,
         targetKey: target.key,
       }
-      return result.data
+      return withDiffDrafts(repository.api, worktreeDraftsRef.current, result.data, request.scope)
     }
     const dataPromise =
       target.comparison == null
@@ -1227,7 +1268,9 @@ function WorkbenchInner({
     const previousData = reviewDataRef.current
     const viewer = viewerRef.current
     if (previousData != null && previousData.items.length > 0 && viewer != null) {
-      updateViewerItems(viewer, previousData, reviewData)
+      updateViewerItems(viewer, previousData, reviewData, (path) =>
+        worktreeDraftsRef.current.has(path),
+      )
     }
     reviewDataRef.current = reviewData
   }, [reviewData])
@@ -1247,7 +1290,14 @@ function WorkbenchInner({
           const result = appendGitnaReviewPage(paging.assembly, page)
           paging.cursor = page.nextCursor
           paging.loadedPages++
-          setReviewData(withDraftItems(result.data, true))
+          const data = await withDiffDrafts(
+            repository.api,
+            worktreeDraftsRef.current,
+            result.data,
+            paging.request.scope,
+          )
+          if (reviewPagingRef.current !== paging) return
+          setReviewData(withDraftItems(data, true))
           if (untilPath == null || result.data.treeSource.pathToItemId.has(untilPath)) return
         } while (paging.cursor != null)
       } catch (error) {
@@ -1681,6 +1731,15 @@ function WorkbenchInner({
           onError: setReviewActionError,
           disabledReason: backendDisabledReason,
         }
+  const loadDiffFiles = useMemo(
+    () =>
+      reviewIdentity != null &&
+      reviewIdentity.key === target?.key &&
+      reviewIdentity.identity.scope === 'unstaged'
+        ? createReviewDiffLoader(repository.api, reviewIdentity.identity)
+        : undefined,
+    [repository.api, reviewIdentity, target?.key],
+  )
 
   const graphFile = repository.activeReview === 'commit' ? repository.commitDiff : null
   const graphPath = graphFile?.path
@@ -1950,8 +2009,45 @@ function WorkbenchInner({
     },
     [repository],
   )
+  const baselineLoadsRef = useRef(new Map<string, Promise<void>>())
+  const lastDiffEditPathRef = useRef<string | null>(null)
+  const handleDiffEdit = useCallback(
+    (path: string, file: FileContents) => {
+      lastDiffEditPathRef.current = path
+      EditStateManager.clear('file', `${reviewCacheNamespace}worktree:${path}`)
+      if (!worktreeFilesRef.current.has(path) && !baselineLoadsRef.current.has(path)) {
+        const load = repository.api
+          .readWorktreeFile(path)
+          .then((loaded) => {
+            if (worktreeFilesRef.current.has(path)) return
+            const nextFiles = new Map(worktreeFilesRef.current).set(path, loaded)
+            worktreeFilesRef.current = nextFiles
+            setWorktreeFiles(nextFiles)
+          })
+          .catch((error: unknown) =>
+            setReviewActionError(error instanceof Error ? error.message : String(error)),
+          )
+          .finally(() => baselineLoadsRef.current.delete(path))
+        baselineLoadsRef.current.set(path, load)
+      }
+      setRecentlySavedPath((current) => (current === path ? null : current))
+      const next = new Map(worktreeDraftsRef.current)
+      const baseline = worktreeFilesRef.current.get(path)
+      if (
+        savingPathRef.current !== path &&
+        baseline != null &&
+        baseline.content === file.contents
+      ) {
+        next.delete(path)
+      } else next.set(path, { ...file, name: path })
+      worktreeDraftsRef.current = next
+      setWorktreeDrafts(next)
+    },
+    [repository, reviewCacheNamespace],
+  )
   const saveWorktreeFileNow = useCallback(
     async (path: string): Promise<boolean> => {
+      await baselineLoadsRef.current.get(path)
       const baseline = worktreeFilesRef.current.get(path)
       const draft = worktreeDraftsRef.current.get(path)
       if (baseline == null || draft == null || savingPathRef.current != null) return false
@@ -2138,7 +2234,11 @@ function WorkbenchInner({
   useEffect(() => {
     const onSave = (event: KeyboardEvent) => {
       if (!(event.ctrlKey || event.metaKey) || event.key.toLowerCase() !== 's') return
-      const path = target?.filePath
+      const inReview =
+        target?.filePath == null &&
+        event.target instanceof Node &&
+        scrollRef.current?.contains(event.target) === true
+      const path = inReview ? lastDiffEditPathRef.current : target?.filePath
       if (
         path == null ||
         (!worktreeDraftsRef.current.has(path) && !repository.isUntitledPath(path))
@@ -2749,6 +2849,8 @@ function WorkbenchInner({
                         viewerRef={viewerRef}
                         initialItems={reviewData.items}
                         editStateNamespace={reviewCacheNamespace}
+                        loadDiffFiles={loadDiffFiles}
+                        onDiffEdit={handleDiffEdit}
                         gitnaActions={gitnaActions}
                         gitnaComparisonActions={gitnaComparisonActions}
                         gitnaEditorActions={gitnaEditorActions}

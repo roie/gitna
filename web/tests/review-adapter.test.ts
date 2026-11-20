@@ -203,6 +203,31 @@ describe('paged Gitna review adapter', () => {
     })
   })
 
+  it('marks only working-tree diffs that Pierre can hydrate as editable', () => {
+    const input = page('untracked.txt')
+    input.patch = [
+      'diff --git a/changed.txt b/changed.txt\n--- a/changed.txt\n+++ b/changed.txt\n@@ -1 +1 @@\n-a\n+b\n',
+      'diff --git a/added.txt b/added.txt\nnew file mode 100644\n--- /dev/null\n+++ b/added.txt\n@@ -0,0 +1 @@\n+a\n',
+      'diff --git a/removed.txt b/removed.txt\ndeleted file mode 100644\n--- a/removed.txt\n+++ /dev/null\n@@ -1 +0,0 @@\n-a\n',
+    ].join('')
+    const editable = (review: ReviewResponse) =>
+      Object.fromEntries(
+        appendGitnaReviewPage(createGitnaReviewAccumulator(review), review).data.items.map(
+          (item) => [
+            item.type === 'diff' ? item.fileDiff.name : item.file.name,
+            item.edit === true,
+          ],
+        ),
+      )
+    expect(editable(input)).toEqual({
+      'changed.txt': true,
+      'added.txt': false,
+      'removed.txt': false,
+      'untracked.txt': true,
+    })
+    expect(Object.values(editable({ ...input, identity: { scope: 'staged' } }))).not.toContain(true)
+  })
+
   it('keeps canonical unicode paths for content-derived untracked files', () => {
     const path = 'Q3 — FINAL.md'
     const input = page(path)

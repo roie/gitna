@@ -15,6 +15,7 @@ import {
   type DiffsHubDataAccumulator,
   type LoadedDiffsHubData,
 } from '../lib/diffsHubDataAccumulator'
+import type { CodeViewItem } from '@pierre/diffs'
 import type { CommentMetadata, ImageAnnotationMetadata } from '../lib/types'
 import type { FileDiff, FileVersion, ReviewResponse, WorktreeFile } from '../../lib/types'
 
@@ -123,6 +124,7 @@ export function adaptWorktreeComparison(
   const item = accumulator.items.at(-1)
   if (item?.type === 'diff') {
     item.version = generation
+    item.edit = !diff.binary && !diff.tooLarge
     const annotations = diffImageAnnotations(diff, diff.after.path)
     if (annotations.length > 0) item.annotations = annotations
   }
@@ -250,8 +252,49 @@ export function appendGitnaReviewPage(
   }
 
   const pendingItems = takePendingDiffsHubItems(accumulator)
-  for (const item of pendingItems) item.version = assembly.itemVersion
+  for (const item of pendingItems) {
+    item.version = assembly.itemVersion
+    if (review.identity.scope === 'unstaged' && isEditableDiff(item)) item.edit = true
+  }
   return { data: snapshotDiffsHubData(accumulator), pendingItems }
+}
+
+function isEditableDiff(item: CodeViewItem<CommentMetadata>): boolean {
+  return (
+    item.type === 'diff' &&
+    (item.fileDiff.isPartial
+      ? ['change', 'rename-changed', 'rename-pure'].includes(item.fileDiff.type)
+      : item.fileDiff.type !== 'deleted') &&
+    !item.annotations?.some(
+      ({ metadata }) => metadata.kind === 'image' || metadata.kind === 'preview',
+    )
+  )
+}
+
+export function draftDiffItem(
+  item: CodeViewItem<CommentMetadata>,
+  diff: FileDiff,
+  draft: FileContents,
+): CodeViewItem<CommentMetadata> {
+  if (item.type !== 'diff') return item
+  const before: FileContents | null =
+    item.fileDiff.type === 'new'
+      ? null
+      : {
+          name: diff.before.path || item.fileDiff.prevName || item.fileDiff.name,
+          contents: diff.before.content,
+          lang: diff.before.language as FileContents['lang'],
+        }
+  const fileDiff = parseDiffFromFile(
+    before,
+    { ...draft, name: item.fileDiff.name },
+    undefined,
+    true,
+  )
+  fileDiff.name = item.fileDiff.name
+  fileDiff.prevName = item.fileDiff.prevName
+  fileDiff.type = item.fileDiff.type === 'new' ? 'new' : fileDiff.type
+  return { ...item, fileDiff }
 }
 
 export function adaptGitnaReview(review: ReviewResponse, cacheNamespace = ''): LoadedDiffsHubData {
