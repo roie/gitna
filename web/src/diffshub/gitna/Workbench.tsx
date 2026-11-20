@@ -3766,7 +3766,7 @@ function Tab({
         onClick={onSelect}
         onKeyDown={onTabKeyDown}
         actions={
-          <span className="pointer-events-none absolute inset-y-0 right-0 flex items-center rounded-e-md bg-linear-to-l from-accent from-60% to-transparent ps-4 pe-1 opacity-0 group-focus-within/row:opacity-100 group-hover/row:opacity-100 [@media(hover:none)]:static [@media(hover:none)]:bg-none [@media(hover:none)]:p-0 [@media(hover:none)]:opacity-100">
+          <span className="pointer-events-none absolute inset-y-0 right-0 flex items-center rounded-e-md bg-linear-to-l from-accent from-60% to-transparent ps-4 pe-1 opacity-0 focus-within:opacity-100 group-hover/row:opacity-100 [@media(hover:none)]:static [@media(hover:none)]:bg-none [@media(hover:none)]:p-0 [@media(hover:none)]:opacity-100">
             <button
               type="button"
               className="pointer-events-auto flex size-5 cursor-pointer items-center justify-center rounded text-muted-foreground hover:bg-background/70 hover:text-foreground focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-ring"
