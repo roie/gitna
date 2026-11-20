@@ -1,6 +1,4 @@
-// Modified by Gitna: declare callbacks as receiver-independent function properties.
-// Modified from the pinned DiffsHub donor: localRepository adapts the URL
-// editor into explicit local folder open and reveal actions.
+// Modified by Gitna: use local folder navigation and remove GitHub-only controls.
 import type { DiffIndicators } from '@pierre/diffs';
 import {
   IconArrowUpRight,
@@ -27,7 +25,6 @@ import {
 } from '@pierre/icons';
 import type { ColorMode } from '@pierre/theming';
 import type { Folder } from '../../lib/types';
-import Link from '../vite/next';
 import {
   type Dispatch,
   memo,
@@ -43,7 +40,6 @@ import {
 
 import { GitnaLogo } from '../gitna/GitnaLogo';
 import { CHROME_ICON_BUTTON_CLASS } from './chromeButtonStyles';
-import { DiffUrlForm } from './DiffUrlForm';
 import { Button } from './Button';
 import { ButtonGroup, ButtonGroupItem } from './ButtonGroup';
 import {
@@ -53,7 +49,6 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from './DropdownMenu';
-import { GitHubTokenControl } from './GitHubTokenControl';
 import { Switch } from './Switch';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from './Tooltip';
 import { docsThemeCatalog } from './themeCatalog';
@@ -75,17 +70,13 @@ interface HeaderProps {
   diffStyle: 'split' | 'unified';
   fileTreeAvailable: boolean;
   fileTreeOverlayOpen: boolean;
-  githubTokenActive: boolean;
   homeButtonRef?: Ref<HTMLButtonElement>;
   initialUrl: string;
-  localRepository?: boolean;
   lightThemeName: LightThemeName;
   lineNumbers: boolean;
   overflow: 'wrap' | 'scroll';
-  onClearGitHubToken: () => void;
-  onOpenHome?: () => void;
+  onOpenHome: () => void;
   onOpenCommandPalette?: () => void;
-  onSaveGitHubToken: (token: string) => void;
   onOpenFolder?: (path: string) => Promise<void>;
   onOpenFolderInNewTab?: (path: string) => Promise<void>;
   onRemoveRecentFolder?: (path: string) => Promise<void>;
@@ -442,17 +433,13 @@ export const DiffsHubHeader = memo(function DiffsHubHeader({
   diffStyle,
   fileTreeAvailable,
   fileTreeOverlayOpen,
-  githubTokenActive,
   homeButtonRef,
   initialUrl,
-  localRepository = false,
   lightThemeName,
   lineNumbers,
   overflow,
-  onClearGitHubToken,
   onOpenHome,
   onOpenCommandPalette,
-  onSaveGitHubToken,
   onOpenFolder,
   onOpenFolderInNewTab,
   onRemoveRecentFolder,
@@ -477,10 +464,6 @@ export const DiffsHubHeader = memo(function DiffsHubHeader({
   conversations,
   setConversations,
 }: HeaderProps) {
-  const [currentUrl, setCurrentUrl] = useState(initialUrl);
-  // Only show the external-link button when the input still reflects the
-  // committed URL — otherwise we'd be pointing at a draft the user is editing.
-  const showExternalLink = !localRepository && currentUrl === initialUrl;
   return (
     <div
       className={cn(
@@ -488,77 +471,42 @@ export const DiffsHubHeader = memo(function DiffsHubHeader({
         className
       )}
     >
-      {localRepository && onOpenHome != null ? (
-        <button
-          ref={homeButtonRef}
-          type="button"
-          aria-label="Open Gitna Home"
-          title="Gitna Home"
-          className="absolute top-4 left-[50%] inline-flex -translate-x-1/2 cursor-pointer rounded-md transition-transform duration-200 hover:scale-110 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring md:static md:translate-x-0"
-          onClick={onOpenHome}
-        >
-          <GitnaLogo />
-        </button>
-      ) : (
-        <Link
-          href="/"
-          className="absolute top-4 left-[50%] inline-flex -translate-x-1/2 transition-transform duration-200 hover:scale-110 md:static md:translate-x-0"
-        >
-          <GitnaLogo />
-        </Link>
-      )}
-      {localRepository ? (
-        <LocalFolderForm
-          initialPath={initialUrl}
-          onOpenInNewTab={onOpenFolderInNewTab}
-          onRemoveRecent={onRemoveRecentFolder}
-          onSwitch={onOpenFolder}
-          backendDisabledReason={backendDisabledReason}
-          openFolderDisabledReason={openFolderDisabledReason}
-          recentFolders={recentFolders}
-        />
-      ) : (
-        <DiffUrlForm
-          className="order-last md:order-none md:mr-auto"
-          initialUrl={initialUrl}
-          onUrlChange={setCurrentUrl}
-          placeholder="https://github.com/org/repo/123"
-          inputClassName="w-full md:w-auto"
-        />
-      )}
+      <button
+        ref={homeButtonRef}
+        type="button"
+        aria-label="Open Gitna Home"
+        title="Gitna Home"
+        className="absolute top-4 left-[50%] inline-flex -translate-x-1/2 cursor-pointer rounded-md transition-transform duration-200 hover:scale-110 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring md:static md:translate-x-0"
+        onClick={onOpenHome}
+      >
+        <GitnaLogo />
+      </button>
+      <LocalFolderForm
+        initialPath={initialUrl}
+        onOpenInNewTab={onOpenFolderInNewTab}
+        onRemoveRecent={onRemoveRecentFolder}
+        onSwitch={onOpenFolder}
+        backendDisabledReason={backendDisabledReason}
+        openFolderDisabledReason={openFolderDisabledReason}
+        recentFolders={recentFolders}
+      />
       {connectionStatus}
       <div className="flex w-full items-center justify-between gap-2 md:w-auto md:justify-end">
         <Button
           type="button"
           variant="ghost"
           size="icon-md"
-          aria-label={
-            localRepository
-              ? fileTreeOverlayOpen
-                ? 'Close Source Control'
-                : 'Open Source Control'
-              : fileTreeOverlayOpen
-                ? 'Hide file tree'
-                : 'Show file tree'
-          }
+          aria-label={fileTreeOverlayOpen ? 'Close Source Control' : 'Open Source Control'}
           aria-pressed={fileTreeOverlayOpen}
           disabled={!fileTreeAvailable}
-          title={
-            localRepository
-              ? fileTreeOverlayOpen
-                ? 'Close Source Control'
-                : 'Open Source Control'
-              : fileTreeOverlayOpen
-                ? 'Hide file tree'
-                : 'Show file tree'
-          }
+          title={fileTreeOverlayOpen ? 'Close Source Control' : 'Open Source Control'}
           className={cn(CHROME_ICON_BUTTON_CLASS, 'md:hidden')}
           onClick={onToggleFileTreeOverlay}
         >
           <IconFileTreeFill className="size-4 md:size-3" />
         </Button>
         <div className="flex items-center gap-2">
-          {localRepository && onOpenCommandPalette != null && (
+          {onOpenCommandPalette != null && (
             <Button
               type="button"
               variant="ghost"
@@ -571,7 +519,7 @@ export const DiffsHubHeader = memo(function DiffsHubHeader({
               <IconSearch className="size-4 md:size-3" />
             </Button>
           )}
-          {localRepository && onRevealFolder != null && (
+          {onRevealFolder != null && (
             <>
               <Button
                 type="button"
@@ -584,23 +532,6 @@ export const DiffsHubHeader = memo(function DiffsHubHeader({
                 onClick={() => void onRevealFolder()}
               >
                 <IconShare className="size-4 md:size-3" />
-              </Button>
-              <div className="bg-border hidden h-3 w-px md:block" />
-            </>
-          )}
-          {showExternalLink && (
-            <>
-              <Button
-                asChild
-                variant="ghost"
-                size="icon-md"
-                aria-label="Open source in new tab"
-                title="Open source in new tab"
-                className={cn(CHROME_ICON_BUTTON_CLASS, 'hidden md:flex')}
-              >
-                <a href={initialUrl} target="_blank" rel="noreferrer noopener">
-                  <IconShare className="size-4 md:size-3" />
-                </a>
               </Button>
               <div className="bg-border hidden h-3 w-px md:block" />
             </>
@@ -666,16 +597,6 @@ export const DiffsHubHeader = memo(function DiffsHubHeader({
                 </Button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end" className="w-72 p-2">
-                {!localRepository && (
-                  <>
-                    <GitHubTokenControl
-                      active={githubTokenActive}
-                      onClear={onClearGitHubToken}
-                      onSave={onSaveGitHubToken}
-                    />
-                    <div className="bg-border/70 my-2 h-px" />
-                  </>
-                )}
                 <DropdownMenuItem
                   className="cursor-default p-0"
                   onSelect={(e) => e.preventDefault()}
@@ -714,7 +635,7 @@ export const DiffsHubHeader = memo(function DiffsHubHeader({
                     />
                   </label>
                 </DropdownMenuItem>
-                {localRepository && setInlineBlame != null && (
+                {setInlineBlame != null && (
                   <DropdownMenuItem
                     className="cursor-default p-0"
                     onSelect={(e) => e.preventDefault()}
@@ -729,7 +650,7 @@ export const DiffsHubHeader = memo(function DiffsHubHeader({
                     </label>
                   </DropdownMenuItem>
                 )}
-                {localRepository && setConversations != null && (
+                {setConversations != null && (
                   <DropdownMenuItem
                     className="cursor-default p-0"
                     onSelect={(e) => e.preventDefault()}

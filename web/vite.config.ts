@@ -50,8 +50,6 @@ export default defineConfig({
   resolve: {
     alias: {
       '@': path.resolve(rootDir, 'src/diffshub'),
-      'next/link': path.resolve(rootDir, 'src/diffshub/vite/next.tsx'),
-      'next/navigation': path.resolve(rootDir, 'src/diffshub/vite/next.tsx'),
     },
   },
   worker: {

@@ -2670,17 +2670,13 @@ function WorkbenchInner({
               diffStyle={diffStyle}
               fileTreeAvailable={!homeOpen}
               fileTreeOverlayOpen={fileTreeOverlayOpen}
-              githubTokenActive={false}
               homeButtonRef={homeButtonRef}
               initialUrl={repository.snapshot?.root ?? ''}
-              localRepository
               lightThemeName={lightThemeName}
               lineNumbers={lineNumbers}
               overflow={overflow}
-              onClearGitHubToken={() => {}}
               onOpenHome={openHome}
               onOpenCommandPalette={() => setCommandPaletteOpen(true)}
-              onSaveGitHubToken={() => {}}
               onOpenFolder={(path) => requestFolderSwitch(path, false)}
               backendDisabledReason={backendDisabledReason}
               openFolderDisabledReason={openFolderDisabledReason}

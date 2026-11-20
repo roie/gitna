@@ -13,9 +13,7 @@
     "allowArbitraryExtensions": true,
     "types": ["vite/client", "node"],
     "paths": {
-      "@/*": ["./src/diffshub/*"],
-      "next/link": ["./src/diffshub/vite/next.tsx"],
-      "next/navigation": ["./src/diffshub/vite/next.tsx"]
+      "@/*": ["./src/diffshub/*"]
     }
   },
   "include": ["src/**/*.ts", "src/**/*.tsx", "tests/**/*.ts"],
