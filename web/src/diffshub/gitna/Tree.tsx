@@ -293,44 +293,20 @@ export const Tree = memo(function Tree({
     }
     return result
   }, [resolvedTheme])
-  const sourceRef = useRef(source)
-  const dragAndDropRef = useRef(dragAndDrop)
-  const renderContextMenuRef = useRef(renderContextMenu)
-  const selectedPathRef = useRef(selectedPath)
-  const onSelectPathsRef = useRef(onSelectPaths)
-  const lazyDirectoriesRef = useRef(lazyDirectories)
-  const pagedDirectoriesRef = useRef(pagedDirectories)
-  const onLoadDirectoryRef = useRef(onLoadDirectory)
-  const onLoadMoreDirectoryRef = useRef(onLoadMoreDirectory)
   const loadingMoreDirectoriesRef = useRef(new Set<string>())
   const syncingSelectionRef = useRef(false)
   const previousSourceRef = useRef(source)
   const revealedSelectionRef = useRef<{ model: FileTreeModel; path: string } | null>(null)
   const [initialVisibleRowCount] = useState(getInitialBatchSize)
-  sourceRef.current = source
-  dragAndDropRef.current = dragAndDrop
-  renderContextMenuRef.current = renderContextMenu
-  selectedPathRef.current = selectedPath
-  onSelectPathsRef.current = onSelectPaths
-  lazyDirectoriesRef.current = lazyDirectories
-  pagedDirectoriesRef.current = pagedDirectories
-  onLoadDirectoryRef.current = onLoadDirectory
-  onLoadMoreDirectoryRef.current = onLoadMoreDirectory
   const initialPathsRef = useRef<readonly string[] | null>(null)
   initialPathsRef.current ??= source.paths.slice(0, source.pathCount)
   const appliedPathsRef = useRef(new Set(initialPathsRef.current))
   const onSelectionChange = useStableCallback((modelSelectedPaths: readonly FileTreePublicId[]) => {
     if (syncingSelectionRef.current || onSelectItem == null) return
-    const canonicalPaths = modelSelectedPaths.map(
-      (path) => sourceRef.current.pathToItemId.get(path) ?? path,
-    )
-    onSelectPathsRef.current?.(canonicalPaths)
-    if (
-      canonicalPaths.length === 0 &&
-      onSelectPathsRef.current == null &&
-      selectedPathRef.current != null
-    ) {
-      onSelectItem(selectedPathRef.current)
+    const canonicalPaths = modelSelectedPaths.map((path) => source.pathToItemId.get(path) ?? path)
+    onSelectPaths?.(canonicalPaths)
+    if (canonicalPaths.length === 0 && onSelectPaths == null && selectedPath != null) {
+      onSelectItem(selectedPath)
       return
     }
     if (canonicalPaths.length !== 1) return
@@ -338,17 +314,16 @@ export const Tree = memo(function Tree({
   })
 
   const stableCanDrag = useStableCallback((paths: readonly string[]) => {
-    return dragAndDropRef.current?.canDrag?.(paths) ?? true
+    return dragAndDrop?.canDrag?.(paths) ?? true
   })
   const stableCanDrop = useStableCallback((event: FileTreeDropContext) => {
-    const config = dragAndDropRef.current
-    return config?.canDrop?.(event) ?? true
+    return dragAndDrop?.canDrop?.(event) ?? true
   })
   const stableOnDropComplete = useStableCallback((event: FileTreeDropResult) => {
-    dragAndDropRef.current?.onDropComplete?.(event)
+    dragAndDrop?.onDropComplete?.(event)
   })
   const stableOnDropError = useStableCallback((error: string, event: FileTreeDropContext) => {
-    dragAndDropRef.current?.onDropError?.(error, event)
+    dragAndDrop?.onDropError?.(error, event)
   })
 
   const handleClickCapture = useStableCallback((event: ReactMouseEvent<HTMLElement>) => {
@@ -357,7 +332,7 @@ export const Tree = memo(function Tree({
       event.ctrlKey ||
       event.metaKey ||
       event.shiftKey ||
-      selectedPathRef.current == null
+      selectedPath == null
     )
       return
     const row = event.nativeEvent
@@ -368,8 +343,8 @@ export const Tree = memo(function Tree({
       )
     const rowPath = row?.dataset.itemPath
     if (rowPath == null) return
-    const canonicalPath = sourceRef.current.pathToItemId.get(rowPath) ?? rowPath
-    if (canonicalPath === selectedPathRef.current) onSelectItem(canonicalPath)
+    const canonicalPath = source.pathToItemId.get(rowPath) ?? rowPath
+    if (canonicalPath === selectedPath) onSelectItem(canonicalPath)
   })
 
   const stableRenderContextMenu = useStableCallback(
@@ -385,14 +360,14 @@ export const Tree = memo(function Tree({
         model.getItem(item.path)?.select()
         syncingSelectionRef.current = false
         modelSelectedPaths = contextSelection
-        onSelectPathsRef.current?.([sourceRef.current.pathToItemId.get(item.path) ?? item.path])
+        onSelectPaths?.([source.pathToItemId.get(item.path) ?? item.path])
       }
-      const canonicalPath = sourceRef.current.pathToItemId.get(item.path) ?? item.path
+      const canonicalPath = source.pathToItemId.get(item.path) ?? item.path
       const canonicalItem = canonicalPath === item.path ? item : { ...item, path: canonicalPath }
       const canonicalSelectedPaths = modelSelectedPaths.map(
-        (path) => sourceRef.current.pathToItemId.get(path) ?? path,
+        (path) => source.pathToItemId.get(path) ?? path,
       )
-      return renderContextMenuRef.current?.(canonicalItem, context, canonicalSelectedPaths) ?? null
+      return renderContextMenu?.(canonicalItem, context, canonicalSelectedPaths) ?? null
     },
   )
 
@@ -401,10 +376,10 @@ export const Tree = memo(function Tree({
       const normalized = rowPath.replace(/\/$/, '')
       const separator = normalized.lastIndexOf('/')
       const parent = separator < 0 ? '' : normalized.slice(0, separator)
-      if (pagedDirectoriesRef.current?.has(parent) !== true) continue
+      if (pagedDirectories?.has(parent) !== true) continue
       if (loadingMoreDirectoriesRef.current.has(parent)) return
       loadingMoreDirectoriesRef.current.add(parent)
-      void onLoadMoreDirectoryRef.current?.(parent).finally(() => {
+      void onLoadMoreDirectory?.(parent).finally(() => {
         loadingMoreDirectoriesRef.current.delete(parent)
       })
       return
@@ -412,7 +387,7 @@ export const Tree = memo(function Tree({
   })
 
   const handleWheelCapture = useStableCallback((event: ReactWheelEvent<HTMLElement>) => {
-    if (event.deltaY <= 0 || pagedDirectoriesRef.current == null) return
+    if (event.deltaY <= 0 || pagedDirectories == null) return
     const scroller = event.nativeEvent
       .composedPath()
       .find(
@@ -491,40 +466,38 @@ export const Tree = memo(function Tree({
     }
   }, [knownEmptyDirectories, lazyDirectories, model, source])
 
+  const loadDirectory = useStableCallback((path: string) => {
+    const attempt = beginLazyDirectoryLoad(model, path)
+    if (attempt == null) return
+    void onLoadDirectory?.(path.replace(/\/$/, ''))
+      .then((children) => {
+        if (children == null) {
+          model.failChildLoad(attempt, 'Directory loading was canceled')
+          return
+        }
+        if (!applyLazyDirectoryChildren(model, attempt, path, children, appliedPathsRef.current)) {
+          return
+        }
+        for (const child of children) {
+          if (
+            child.endsWith('/') &&
+            lazyDirectories?.has(child) === true &&
+            model.getItem(child)?.isDirectory() &&
+            model.getDirectoryLoadState(child) === 'loaded'
+          ) {
+            model.markDirectoryUnloaded(child)
+          }
+        }
+        model.completeChildLoad(attempt)
+      })
+      .catch((reason: unknown) => {
+        model.failChildLoad(attempt, reason instanceof Error ? reason.message : String(reason))
+      })
+  })
+
   useEffect(() => {
     if (lazyDirectories == null || onLoadDirectory == null) return
     const expanded = new Set<string>()
-    const load = (path: string) => {
-      const attempt = beginLazyDirectoryLoad(model, path)
-      if (attempt == null) return
-      void onLoadDirectoryRef
-        .current?.(path.replace(/\/$/, ''))
-        .then((children) => {
-          if (children == null) {
-            model.failChildLoad(attempt, 'Directory loading was canceled')
-            return
-          }
-          if (
-            !applyLazyDirectoryChildren(model, attempt, path, children, appliedPathsRef.current)
-          ) {
-            return
-          }
-          for (const child of children) {
-            if (
-              child.endsWith('/') &&
-              lazyDirectoriesRef.current?.has(child) === true &&
-              model.getItem(child)?.isDirectory() &&
-              model.getDirectoryLoadState(child) === 'loaded'
-            ) {
-              model.markDirectoryUnloaded(child)
-            }
-          }
-          model.completeChildLoad(attempt)
-        })
-        .catch((reason: unknown) => {
-          model.failChildLoad(attempt, reason instanceof Error ? reason.message : String(reason))
-        })
-    }
     return model.subscribe(() => {
       const nextExpanded = new Set<string>()
       for (const path of appliedPathsRef.current) {
@@ -535,7 +508,7 @@ export const Tree = memo(function Tree({
         nextExpanded.add(path)
         const wasExpanded = expanded.has(path)
         expanded.add(path)
-        if (!wasExpanded && model.getDirectoryLoadState(path) !== 'loading') load(path)
+        if (!wasExpanded && model.getDirectoryLoadState(path) !== 'loading') loadDirectory(path)
       }
       for (const path of expanded) {
         if (!nextExpanded.has(path)) expanded.delete(path)
