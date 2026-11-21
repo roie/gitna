@@ -36,7 +36,7 @@ import {
   useSyncExternalStore,
 } from 'react'
 
-import { DiffsHubHeader } from '../components/DiffsHubHeader'
+import { WorkbenchHeader } from './WorkbenchHeader'
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -44,8 +44,8 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '../components/DropdownMenu'
-import { DiffsHubSidebar } from '../components/DiffsHubSidebar'
-import { DiffsHubStatusPanel } from '../components/DiffsHubStatusPanel'
+import { Sidebar } from './Sidebar'
+import { ReviewStatus } from './ReviewStatus'
 import {
   Viewer,
   getNextItemVersion,
@@ -2663,7 +2663,7 @@ export function Workbench({
       >
         <ReviewGrid containerRef={reviewRootRef} sidebarVisible={sidebarVisible}>
           {!homeOpen && (
-            <DiffsHubHeader
+            <WorkbenchHeader
               appVersion={repository.snapshot?.appVersion ?? 'dev'}
               className="z-40 [grid-area:header]"
               collapseMode={collapseMode}
@@ -2736,7 +2736,7 @@ export function Workbench({
             inert={homeOpen || undefined}
           >
             {themesHydrated && (
-              <DiffsHubSidebar
+              <Sidebar
                 ariaLabel={sidebarMode === 'search' ? 'Search' : 'Source Control'}
                 className={cn(
                   '[grid-area:viewer] md:[grid-area:tree]',
@@ -2786,7 +2786,7 @@ export function Workbench({
                     setCommandPaletteOpen(true)
                   }}
                 />
-              </DiffsHubSidebar>
+              </Sidebar>
             )}
             <div className="flex min-h-0 flex-col [grid-area:viewer]">
               <TabBar
@@ -3012,7 +3012,7 @@ export function Workbench({
                   </div>
                 ) : (
                   <div className="grid h-full min-h-0 [&>*]:h-full">
-                    <DiffsHubStatusPanel
+                    <ReviewStatus
                       operation={target?.key}
                       contentKind={target?.filePath == null ? 'diff' : 'file'}
                       errorMessage={
@@ -3033,7 +3033,6 @@ export function Workbench({
                             }
                           : undefined
                       }
-                      localRepository
                       onRetry={
                         fileErrorCode === 'unsupported-encoding' ||
                         fileErrorCode === 'binary-file' ||

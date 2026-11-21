@@ -1,41 +1,39 @@
-// Modified by Gitna: declare callbacks as receiver-independent function properties.
-// Modified from the pinned DiffsHub donor: localRepository uses truthful
-// local-Git loading copy while retaining every donor state and layout.
-import { IconCiWarningFill, IconRefresh } from '@pierre/icons';
-import { useLoadingIndicator } from '../lib/loading';
+// Modified by Gitna: retain local file/review loading, retry and size-consent states.
+import { IconCiWarningFill, IconRefresh } from '@pierre/icons'
+import { useLoadingIndicator } from '../lib/loading'
 
-import { Button } from '@/components/Button';
-import type { ViewerLoadState } from '@/lib/types';
+import { Button } from '@/components/Button'
+import type { ViewerLoadState } from '@/lib/types'
 
-interface DiffsHubStatusPanelProps {
-  operation?: unknown;
-  contentKind?: 'diff' | 'file';
-  errorMessage: string | null;
-  localRepository?: boolean;
-  suppressError?: boolean;
-  onRetry?: () => void;
-  onOpenAnyway?: () => void;
-  state: ViewerLoadState;
+interface ReviewStatusProps {
+  operation?: unknown
+  contentKind?: 'diff' | 'file'
+  errorMessage: string | null
+  suppressError?: boolean
+  onRetry?: () => void
+  onOpenAnyway?: () => void
+  state: ViewerLoadState
 }
 
-export function DiffsHubStatusPanel({
+export function ReviewStatus({
   operation,
   contentKind = 'diff',
   errorMessage,
-  localRepository = false,
   onRetry,
   onOpenAnyway,
   suppressError = false,
   state,
-}: DiffsHubStatusPanelProps) {
-  const isError = state === 'error';
-  const loadingVisible = useLoadingIndicator(!isError, operation);
-  if (isError && suppressError) return null;
-  const fileContent = contentKind === 'file';
+}: ReviewStatusProps) {
+  const isError = state === 'error'
+  const loadingVisible = useLoadingIndicator(!isError, operation)
+  if (isError && suppressError) return null
+  const fileContent = contentKind === 'file'
   const title = isError
-    ? onOpenAnyway != null ? 'Open large file?' : fileContent
-      ? 'Couldn’t open file'
-      : 'Couldn’t load diff'
+    ? onOpenAnyway != null
+      ? 'Open large file?'
+      : fileContent
+        ? 'Couldn’t open file'
+        : 'Couldn’t load diff'
     : state === 'parsing'
       ? fileContent
         ? 'Preparing file'
@@ -46,7 +44,7 @@ export function DiffsHubStatusPanel({
           : 'Fetching diff'
         : fileContent
           ? 'Opening file'
-          : 'Streaming diff';
+          : 'Streaming diff'
 
   const message = isError
     ? (errorMessage ??
@@ -58,10 +56,8 @@ export function DiffsHubStatusPanel({
       : state === 'parsing'
         ? 'Parsing the patch and building the file tree…'
         : state === 'fetching'
-          ? localRepository
-            ? 'Fetching the patch from the local repository…'
-            : 'Fetching the patch from GitHub…'
-          : 'Reading the patch and showing files as they arrive…';
+          ? 'Fetching the patch from the local repository…'
+          : 'Reading the patch and showing files as they arrive…'
 
   return (
     <div
@@ -84,9 +80,7 @@ export function DiffsHubStatusPanel({
           />
         )}
         <h2 className="text-foreground text-sm font-medium">{title}</h2>
-        <p className="text-muted-foreground mt-1 text-sm text-pretty">
-          {message}
-        </p>
+        <p className="text-muted-foreground mt-1 text-sm text-pretty">{message}</p>
         {isError && (onOpenAnyway != null || onRetry != null) && (
           <Button type="button" className="mbs-4" onClick={onOpenAnyway ?? onRetry}>
             {onOpenAnyway == null ? 'Try again' : 'Open anyway'}
@@ -94,5 +88,5 @@ export function DiffsHubStatusPanel({
         )}
       </section>
     </div>
-  );
+  )
 }

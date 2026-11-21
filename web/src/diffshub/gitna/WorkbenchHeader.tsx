@@ -1,5 +1,5 @@
-// Modified by Gitna: use local folder navigation and remove GitHub-only controls.
-import type { DiffIndicators } from '@pierre/diffs';
+// Modified by Gitna: own local navigation and settings without donor button-group state.
+import type { DiffIndicators } from '@pierre/diffs'
 import {
   IconArrowUpRight,
   IconBrandGithub,
@@ -22,9 +22,9 @@ import {
   IconSymbolDiffstat,
   IconTrash,
   IconX,
-} from '@pierre/icons';
-import type { ColorMode } from '@pierre/theming';
-import type { Folder } from '../../lib/types';
+} from '@pierre/icons'
+import type { ColorMode } from '@pierre/theming'
+import type { Folder } from '../../lib/types'
 import {
   type Dispatch,
   memo,
@@ -36,70 +36,69 @@ import {
   useMemo,
   useRef,
   useState,
-} from 'react';
+} from 'react'
 
-import { GitnaLogo } from '../gitna/GitnaLogo';
-import { CHROME_ICON_BUTTON_CLASS } from './chromeButtonStyles';
-import { Button } from './Button';
-import { ButtonGroup, ButtonGroupItem } from './ButtonGroup';
+import { GitnaLogo } from './GitnaLogo'
+import { CHROME_ICON_BUTTON_CLASS } from '../components/chromeButtonStyles'
+import { Button } from '../components/Button'
 import {
   DropdownMenu,
   DropdownMenuBackItem,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuTrigger,
-} from './DropdownMenu';
-import { Switch } from './Switch';
-import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from './Tooltip';
-import { themeCatalog } from '../gitna/ThemeRoot';
-import { cn } from '../lib/cn';
+} from '../components/DropdownMenu'
+import { Switch } from '../components/Switch'
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '../components/Tooltip'
+import { themeCatalog } from './ThemeRoot'
+import { cn } from '../lib/cn'
 
-type LightThemeName = string;
-type DarkThemeName = string;
+type LightThemeName = string
+type DarkThemeName = string
 
 const SETTING_ROW_CLASS =
-  'w-full flex cursor-pointer items-center justify-between gap-4 px-2 py-1.5 text-sm';
+  'w-full flex cursor-pointer items-center justify-between gap-4 px-2 py-1.5 text-sm'
 
 interface HeaderProps {
-  appVersion: string;
-  className?: string;
-  collapseMode: 'expanded' | 'collapsed';
-  colorMode: ColorMode;
-  darkThemeName: DarkThemeName;
-  diffIndicators: DiffIndicators;
-  diffStyle: 'split' | 'unified';
-  fileTreeAvailable: boolean;
-  fileTreeOverlayOpen: boolean;
-  homeButtonRef?: Ref<HTMLButtonElement>;
-  initialUrl: string;
-  lightThemeName: LightThemeName;
-  lineNumbers: boolean;
-  overflow: 'wrap' | 'scroll';
-  onOpenHome: () => void;
-  onOpenCommandPalette?: () => void;
-  onOpenFolder?: (path: string) => Promise<void>;
-  onOpenFolderInNewTab?: (path: string) => Promise<void>;
-  onRemoveRecentFolder?: (path: string) => Promise<void>;
-  onRevealFolder?: () => Promise<void>;
-  backendDisabledReason?: string | null;
-  connectionStatus?: ReactNode;
-  openFolderDisabledReason?: string | null;
-  recentFolders?: readonly Folder[];
-  onToggleCollapseMode: () => void;
-  onToggleFileTreeOverlay: () => void;
-  setColorMode: (mode: ColorMode) => void;
-  setDarkThemeName: (name: DarkThemeName) => void;
-  setDiffIndicators: Dispatch<SetStateAction<DiffIndicators>>;
-  setDiffStyle: Dispatch<SetStateAction<'split' | 'unified'>>;
-  setLightThemeName: (name: LightThemeName) => void;
-  setLineNumbers: Dispatch<SetStateAction<boolean>>;
-  setOverflow: Dispatch<SetStateAction<'wrap' | 'scroll'>>;
-  setShowBackgrounds: Dispatch<SetStateAction<boolean>>;
-  showBackgrounds: boolean;
-  inlineBlame?: boolean;
-  setInlineBlame?: (enabled: boolean) => void;
-  conversations?: boolean;
-  setConversations?: (enabled: boolean) => void;
+  appVersion: string
+  className?: string
+  collapseMode: 'expanded' | 'collapsed'
+  colorMode: ColorMode
+  darkThemeName: DarkThemeName
+  diffIndicators: DiffIndicators
+  diffStyle: 'split' | 'unified'
+  fileTreeAvailable: boolean
+  fileTreeOverlayOpen: boolean
+  homeButtonRef?: Ref<HTMLButtonElement>
+  initialUrl: string
+  lightThemeName: LightThemeName
+  lineNumbers: boolean
+  overflow: 'wrap' | 'scroll'
+  onOpenHome: () => void
+  onOpenCommandPalette?: () => void
+  onOpenFolder?: (path: string) => Promise<void>
+  onOpenFolderInNewTab?: (path: string) => Promise<void>
+  onRemoveRecentFolder?: (path: string) => Promise<void>
+  onRevealFolder?: () => Promise<void>
+  backendDisabledReason?: string | null
+  connectionStatus?: ReactNode
+  openFolderDisabledReason?: string | null
+  recentFolders?: readonly Folder[]
+  onToggleCollapseMode: () => void
+  onToggleFileTreeOverlay: () => void
+  setColorMode: (mode: ColorMode) => void
+  setDarkThemeName: (name: DarkThemeName) => void
+  setDiffIndicators: Dispatch<SetStateAction<DiffIndicators>>
+  setDiffStyle: Dispatch<SetStateAction<'split' | 'unified'>>
+  setLightThemeName: (name: LightThemeName) => void
+  setLineNumbers: Dispatch<SetStateAction<boolean>>
+  setOverflow: Dispatch<SetStateAction<'wrap' | 'scroll'>>
+  setShowBackgrounds: Dispatch<SetStateAction<boolean>>
+  showBackgrounds: boolean
+  inlineBlame?: boolean
+  setInlineBlame?: (enabled: boolean) => void
+  conversations?: boolean
+  setConversations?: (enabled: boolean) => void
 }
 
 function LocalFolderForm({
@@ -111,99 +110,91 @@ function LocalFolderForm({
   openFolderDisabledReason,
   recentFolders = [],
 }: {
-  initialPath: string;
-  onOpenInNewTab?: (path: string) => Promise<void>;
-  onRemoveRecent?: (path: string) => Promise<void>;
-  onSwitch?: (path: string) => Promise<void>;
-  backendDisabledReason?: string | null;
-  openFolderDisabledReason?: string | null;
-  recentFolders?: readonly Folder[];
+  initialPath: string
+  onOpenInNewTab?: (path: string) => Promise<void>
+  onRemoveRecent?: (path: string) => Promise<void>
+  onSwitch?: (path: string) => Promise<void>
+  backendDisabledReason?: string | null
+  openFolderDisabledReason?: string | null
+  recentFolders?: readonly Folder[]
 }) {
-  const [path, setPath] = useState(initialPath);
-  const [pending, setPending] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [actionError, setActionError] = useState<string | null>(null);
-  const [folderAction, setFolderAction] = useState<string | null>(null);
-  const [suggestionsOpen, setSuggestionsOpen] = useState(false);
-  const [showAllRecent, setShowAllRecent] = useState(true);
-  const [activeIndex, setActiveIndex] = useState(-1);
-  const inputRef = useRef<HTMLInputElement>(null);
-  const listboxRef = useRef<HTMLUListElement>(null);
-  const listboxId = 'gitna-folder-location-suggestions';
+  const [path, setPath] = useState(initialPath)
+  const [pending, setPending] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const [actionError, setActionError] = useState<string | null>(null)
+  const [folderAction, setFolderAction] = useState<string | null>(null)
+  const [suggestionsOpen, setSuggestionsOpen] = useState(false)
+  const [showAllRecent, setShowAllRecent] = useState(true)
+  const [activeIndex, setActiveIndex] = useState(-1)
+  const inputRef = useRef<HTMLInputElement>(null)
+  const listboxRef = useRef<HTMLUListElement>(null)
+  const listboxId = 'gitna-folder-location-suggestions'
 
   useEffect(() => {
-    setPath(initialPath);
-    setSuggestionsOpen(false);
-    setActiveIndex(-1);
-  }, [initialPath]);
+    setPath(initialPath)
+    setSuggestionsOpen(false)
+    setActiveIndex(-1)
+  }, [initialPath])
 
   const suggestions = useMemo(() => {
-    const available = recentFolders.filter(
-      (folder) => folder.path !== initialPath
-    );
-    if (showAllRecent) return available;
-    const query = path.trim().toLocaleLowerCase();
-    if (query === '') return available;
+    const available = recentFolders.filter((folder) => folder.path !== initialPath)
+    if (showAllRecent) return available
+    const query = path.trim().toLocaleLowerCase()
+    if (query === '') return available
     return available.filter((folder) =>
-      `${folder.name}\n${folder.path}`.toLocaleLowerCase().includes(query)
-    );
-  }, [initialPath, path, recentFolders, showAllRecent]);
-  const nextPath = path.trim();
-  const canSwitch =
-    nextPath !== '' && nextPath !== initialPath && onSwitch != null;
-  const showClear =
-    path.length > 0 && (path === initialPath || error !== null);
-  const showSuggestions = suggestionsOpen && suggestions.length > 0;
+      `${folder.name}\n${folder.path}`.toLocaleLowerCase().includes(query),
+    )
+  }, [initialPath, path, recentFolders, showAllRecent])
+  const nextPath = path.trim()
+  const canSwitch = nextPath !== '' && nextPath !== initialPath && onSwitch != null
+  const showClear = path.length > 0 && (path === initialPath || error !== null)
+  const showSuggestions = suggestionsOpen && suggestions.length > 0
 
   useEffect(() => {
-    if (activeIndex >= suggestions.length) setActiveIndex(suggestions.length - 1);
-  }, [activeIndex, suggestions.length]);
+    if (activeIndex >= suggestions.length) setActiveIndex(suggestions.length - 1)
+  }, [activeIndex, suggestions.length])
 
   useEffect(() => {
-    if (!showSuggestions || activeIndex < 0) return;
+    if (!showSuggestions || activeIndex < 0) return
     listboxRef.current
       ?.querySelector<HTMLElement>(`#${listboxId}-${activeIndex}`)
-      ?.scrollIntoView({ block: 'nearest' });
-  }, [activeIndex, showSuggestions]);
+      ?.scrollIntoView({ block: 'nearest' })
+  }, [activeIndex, showSuggestions])
 
-  const runFolderAction = (
-    action: 'new-tab' | 'remove',
-    folder: Folder
-  ) => {
-    const callback = action === 'new-tab' ? onOpenInNewTab : onRemoveRecent;
-    if (callback == null || folderAction != null) return;
-    const reason = action === 'new-tab' ? openFolderDisabledReason : backendDisabledReason;
+  const runFolderAction = (action: 'new-tab' | 'remove', folder: Folder) => {
+    const callback = action === 'new-tab' ? onOpenInNewTab : onRemoveRecent
+    if (callback == null || folderAction != null) return
+    const reason = action === 'new-tab' ? openFolderDisabledReason : backendDisabledReason
     if (reason != null) {
-      setActionError(reason);
-      return;
+      setActionError(reason)
+      return
     }
-    setFolderAction(`${action}:${folder.path}`);
-    setActionError(null);
+    setFolderAction(`${action}:${folder.path}`)
+    setActionError(null)
     void callback(folder.path)
       .catch((reason: unknown) => {
-        setActionError(reason instanceof Error ? reason.message : String(reason));
+        setActionError(reason instanceof Error ? reason.message : String(reason))
       })
-      .finally(() => setFolderAction(null));
-  };
+      .finally(() => setFolderAction(null))
+  }
 
   const switchFolder = (targetPath: string) => {
-    if (targetPath === '' || targetPath === initialPath || onSwitch == null)
-      return;
+    if (targetPath === '' || targetPath === initialPath || onSwitch == null) return
     if (openFolderDisabledReason != null) {
-      setError(openFolderDisabledReason);
-      return;
+      setError(openFolderDisabledReason)
+      return
     }
-    setPath(targetPath);
-    setPending(true);
-    setError(null);
-    setSuggestionsOpen(false);
-    setActiveIndex(-1);
+    setPath(targetPath)
+    setPending(true)
+    setError(null)
+    setSuggestionsOpen(false)
+    setActiveIndex(-1)
     void onSwitch(targetPath)
       .catch((reason: unknown) => {
-        setError(reason instanceof Error ? reason.message : String(reason));
+        setError(reason instanceof Error ? reason.message : String(reason))
       })
-      .finally(() => setPending(false));
-  };
+      .finally(() => setPending(false))
+  }
 
   return (
     <form
@@ -213,28 +204,26 @@ function LocalFolderForm({
           event.relatedTarget instanceof Node &&
           event.currentTarget.contains(event.relatedTarget)
         ) {
-          return;
+          return
         }
-        setSuggestionsOpen(false);
-        setActiveIndex(-1);
-        if (path.trim() === '') setPath(initialPath);
+        setSuggestionsOpen(false)
+        setActiveIndex(-1)
+        if (path.trim() === '') setPath(initialPath)
       }}
       onSubmit={(event) => {
-        event.preventDefault();
+        event.preventDefault()
         if (activeIndex >= 0 && suggestions[activeIndex] != null) {
-          switchFolder(suggestions[activeIndex].path);
-          return;
+          switchFolder(suggestions[activeIndex].path)
+          return
         }
-        if (canSwitch) switchFolder(nextPath);
+        if (canSwitch) switchFolder(nextPath)
       }}
     >
       <input
         ref={inputRef}
         role="combobox"
         aria-activedescendant={
-          showSuggestions && activeIndex >= 0
-            ? `${listboxId}-${activeIndex}`
-            : undefined
+          showSuggestions && activeIndex >= 0 ? `${listboxId}-${activeIndex}` : undefined
         }
         aria-autocomplete="list"
         aria-controls={showSuggestions ? listboxId : undefined}
@@ -249,47 +238,45 @@ function LocalFolderForm({
         title={error ?? initialPath}
         value={path}
         onChange={(event) => {
-          setPath(event.currentTarget.value);
-          setError(null);
-          setShowAllRecent(false);
-          setSuggestionsOpen(true);
-          setActiveIndex(-1);
+          setPath(event.currentTarget.value)
+          setError(null)
+          setShowAllRecent(false)
+          setSuggestionsOpen(true)
+          setActiveIndex(-1)
         }}
         onFocus={(event) => {
           if (path === initialPath) {
-            event.currentTarget.select();
-            setShowAllRecent(true);
+            event.currentTarget.select()
+            setShowAllRecent(true)
           }
-          setSuggestionsOpen(true);
+          setSuggestionsOpen(true)
         }}
         onKeyDown={(event) => {
           if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
-            if (suggestions.length === 0) return;
-            event.preventDefault();
-            setSuggestionsOpen(true);
+            if (suggestions.length === 0) return
+            event.preventDefault()
+            setSuggestionsOpen(true)
             setActiveIndex((current) => {
-              if (current < 0)
-                return event.key === 'ArrowDown' ? 0 : suggestions.length - 1;
+              if (current < 0) return event.key === 'ArrowDown' ? 0 : suggestions.length - 1
               return (
-                (current + (event.key === 'ArrowDown' ? 1 : -1) +
-                  suggestions.length) %
+                (current + (event.key === 'ArrowDown' ? 1 : -1) + suggestions.length) %
                 suggestions.length
-              );
-            });
+              )
+            })
           } else if (
             event.key === 'Enter' &&
             activeIndex >= 0 &&
             suggestions[activeIndex] != null
           ) {
-            event.preventDefault();
-            switchFolder(suggestions[activeIndex].path);
+            event.preventDefault()
+            switchFolder(suggestions[activeIndex].path)
           } else if (event.key === 'Escape') {
-            event.preventDefault();
-            setPath(initialPath);
-            setError(null);
-            setSuggestionsOpen(false);
-            setActiveIndex(-1);
-            inputRef.current?.blur();
+            event.preventDefault()
+            setPath(initialPath)
+            setError(null)
+            setSuggestionsOpen(false)
+            setActiveIndex(-1)
+            inputRef.current?.blur()
           }
         }}
       />
@@ -315,12 +302,12 @@ function LocalFolderForm({
           title="Clear folder path"
           className="opacity-0 transition-opacity duration-200 will-change-auto group-focus-within:opacity-50 group-hover:opacity-50 hover:opacity-75"
           onClick={() => {
-            setPath('');
-            setError(null);
-            setShowAllRecent(true);
-            setSuggestionsOpen(true);
-            setActiveIndex(-1);
-            inputRef.current?.focus();
+            setPath('')
+            setError(null)
+            setShowAllRecent(true)
+            setSuggestionsOpen(true)
+            setActiveIndex(-1)
+            inputRef.current?.focus()
           }}
         >
           <IconX className="size-4" />
@@ -336,14 +323,14 @@ function LocalFolderForm({
         >
           <TooltipProvider delayDuration={500}>
             {suggestions.map((folder, index) => {
-              const actionPending = folderAction?.endsWith(`:${folder.path}`) === true;
+              const actionPending = folderAction?.endsWith(`:${folder.path}`) === true
               return (
                 <li
                   key={folder.path}
                   role="none"
                   className={cn(
                     'group/folder flex min-w-0 items-center px-1 hover:bg-muted',
-                    index === activeIndex && 'bg-muted'
+                    index === activeIndex && 'bg-muted',
                   )}
                 >
                   <button
@@ -356,9 +343,7 @@ function LocalFolderForm({
                     title={openFolderDisabledReason ?? undefined}
                     onClick={() => switchFolder(folder.path)}
                   >
-                    <span className="block truncate text-sm font-medium">
-                      {folder.name}
-                    </span>
+                    <span className="block truncate text-sm font-medium">{folder.name}</span>
                     <span
                       className="mt-0.5 block truncate text-xs text-muted-foreground"
                       title={folder.path}
@@ -376,7 +361,9 @@ function LocalFolderForm({
                             size="icon-md"
                             className="size-8"
                             aria-label={`Open ${folder.name} in new tab`}
-                            disabled={pending || folderAction != null || openFolderDisabledReason != null}
+                            disabled={
+                              pending || folderAction != null || openFolderDisabledReason != null
+                            }
                             title={openFolderDisabledReason ?? undefined}
                             onMouseDown={(event) => event.preventDefault()}
                             onClick={() => runFolderAction('new-tab', folder)}
@@ -384,7 +371,7 @@ function LocalFolderForm({
                             <IconArrowUpRight className="size-4" />
                           </Button>
                         </TooltipTrigger>
-                        <TooltipContent >Open in New Tab</TooltipContent>
+                        <TooltipContent>Open in New Tab</TooltipContent>
                       </Tooltip>
                     )}
                     {onRemoveRecent != null && (
@@ -396,7 +383,9 @@ function LocalFolderForm({
                             size="icon-md"
                             className="size-8 hover:text-destructive"
                             aria-label={`Remove ${folder.name} from recent folders`}
-                            disabled={pending || folderAction != null || backendDisabledReason != null}
+                            disabled={
+                              pending || folderAction != null || backendDisabledReason != null
+                            }
                             title={backendDisabledReason ?? undefined}
                             onMouseDown={(event) => event.preventDefault()}
                             onClick={() => runFolderAction('remove', folder)}
@@ -404,12 +393,12 @@ function LocalFolderForm({
                             <IconTrash className="size-4" />
                           </Button>
                         </TooltipTrigger>
-                        <TooltipContent >Remove from Recent</TooltipContent>
+                        <TooltipContent>Remove from Recent</TooltipContent>
                       </Tooltip>
                     )}
                   </span>
                 </li>
-              );
+              )
             })}
           </TooltipProvider>
           {actionError != null && (
@@ -420,10 +409,10 @@ function LocalFolderForm({
         </ul>
       )}
     </form>
-  );
+  )
 }
 
-export const DiffsHubHeader = memo(function DiffsHubHeader({
+export const WorkbenchHeader = memo(function WorkbenchHeader({
   appVersion,
   className,
   collapseMode,
@@ -468,7 +457,7 @@ export const DiffsHubHeader = memo(function DiffsHubHeader({
     <div
       className={cn(
         'z-10 contain-layout flex flex-wrap md:flex-nowrap items-center gap-2.5 pt-3 pb-2 px-4 md:px-3 md:py-1.5 border-b border-[var(--color-border-opaque)]',
-        className
+        className,
       )}
     >
       <button
@@ -541,15 +530,9 @@ export const DiffsHubHeader = memo(function DiffsHubHeader({
               type="button"
               variant="ghost"
               size="icon-md"
-              title={
-                diffStyle === 'split'
-                  ? 'Switch to unified view'
-                  : 'Switch to split view'
-              }
+              title={diffStyle === 'split' ? 'Switch to unified view' : 'Switch to split view'}
               className={cn(CHROME_ICON_BUTTON_CLASS, 'hidden md:flex')}
-              onClick={() =>
-                setDiffStyle(diffStyle === 'split' ? 'unified' : 'split')
-              }
+              onClick={() => setDiffStyle(diffStyle === 'split' ? 'unified' : 'split')}
             >
               {diffStyle === 'split' ? (
                 <IconDiffSplit className="size-4 md:size-3" />
@@ -562,11 +545,7 @@ export const DiffsHubHeader = memo(function DiffsHubHeader({
               variant="ghost"
               size="icon-md"
               aria-pressed={collapseMode === 'collapsed'}
-              title={
-                collapseMode === 'expanded'
-                  ? 'Collapse all files'
-                  : 'Expand all files'
-              }
+              title={collapseMode === 'expanded' ? 'Collapse all files' : 'Expand all files'}
               className={CHROME_ICON_BUTTON_CLASS}
               onClick={onToggleCollapseMode}
             >
@@ -603,10 +582,7 @@ export const DiffsHubHeader = memo(function DiffsHubHeader({
                 >
                   <label className={SETTING_ROW_CLASS}>
                     <span className="min-w-0 flex-1">Backgrounds</span>
-                    <Switch
-                      checked={showBackgrounds}
-                      onCheckedChange={setShowBackgrounds}
-                    />
+                    <Switch checked={showBackgrounds} onCheckedChange={setShowBackgrounds} />
                   </label>
                 </DropdownMenuItem>
                 <DropdownMenuItem
@@ -615,10 +591,7 @@ export const DiffsHubHeader = memo(function DiffsHubHeader({
                 >
                   <label className={SETTING_ROW_CLASS}>
                     <span className="min-w-0 flex-1">Line numbers</span>
-                    <Switch
-                      checked={lineNumbers}
-                      onCheckedChange={setLineNumbers}
-                    />
+                    <Switch checked={lineNumbers} onCheckedChange={setLineNumbers} />
                   </label>
                 </DropdownMenuItem>
                 <DropdownMenuItem
@@ -629,9 +602,7 @@ export const DiffsHubHeader = memo(function DiffsHubHeader({
                     <span className="min-w-0 flex-1">Word wrap</span>
                     <Switch
                       checked={overflow === 'wrap'}
-                      onCheckedChange={(checked) =>
-                        setOverflow(checked ? 'wrap' : 'scroll')
-                      }
+                      onCheckedChange={(checked) => setOverflow(checked ? 'wrap' : 'scroll')}
                     />
                   </label>
                 </DropdownMenuItem>
@@ -672,9 +643,8 @@ export const DiffsHubHeader = memo(function DiffsHubHeader({
                               </span>
                             </TooltipTrigger>
                             <TooltipContent side="bottom" className="max-w-60">
-                              Comment on lines of code and discuss them with
-                              coding agents. Turning this off hides conversations;
-                              nothing is deleted.
+                              Comment on lines of code and discuss them with coding agents. Turning
+                              this off hides conversations; nothing is deleted.
                             </TooltipContent>
                           </Tooltip>
                         </TooltipProvider>
@@ -692,23 +662,32 @@ export const DiffsHubHeader = memo(function DiffsHubHeader({
                   onSelect={(e) => e.preventDefault()}
                 >
                   <span>Indicator style</span>
-                  <ButtonGroup
-                    className="ml-auto"
-                    value={diffIndicators}
-                    onValueChange={(value) =>
-                      setDiffIndicators(value as DiffIndicators)
-                    }
+                  <div
+                    role="group"
+                    className="bg-secondary inline-flex self-start rounded-lg ml-auto"
                   >
-                    <ButtonGroupItem value="bars" className="size-7 p-0">
-                      <IconCodeStyleBars className="size-3" />
-                    </ButtonGroupItem>
-                    <ButtonGroupItem value="classic" className="size-7 p-0">
-                      <IconSymbolDiffstat className="size-3" />
-                    </ButtonGroupItem>
-                    <ButtonGroupItem value="none" className="size-7 p-0">
-                      <IconEyeSlash className="size-3" />
-                    </ButtonGroupItem>
-                  </ButtonGroup>
+                    {(
+                      [
+                        ['bars', IconCodeStyleBars],
+                        ['classic', IconSymbolDiffstat],
+                        ['none', IconEyeSlash],
+                      ] as const
+                    ).map(([value, Icon]) => (
+                      <Button
+                        key={value}
+                        title={value}
+                        className={cn(
+                          'text-muted-foreground rounded-[calc(var(--radius-lg)-1px)] gap-1.5',
+                          diffIndicators === value && 'text-foreground pointer-events-none',
+                          'size-7 p-0',
+                        )}
+                        variant={diffIndicators === value ? 'outline' : 'ghost'}
+                        onClick={() => setDiffIndicators(value)}
+                      >
+                        <Icon className="size-3" />
+                      </Button>
+                    ))}
+                  </div>
                 </DropdownMenuItem>
                 <div className="bg-border/70 my-2 h-px" />
                 <div className="flex items-center gap-3 px-2 py-1.5">
@@ -738,11 +717,7 @@ export const DiffsHubHeader = memo(function DiffsHubHeader({
                         target="_blank"
                         title="npm package"
                       >
-                        <svg
-                          aria-hidden="true"
-                          className="size-3.5"
-                          viewBox="0 0 16 16"
-                        >
+                        <svg aria-hidden="true" className="size-3.5" viewBox="0 0 16 16">
                           <path
                             fill="currentColor"
                             fillRule="evenodd"
@@ -761,22 +736,22 @@ export const DiffsHubHeader = memo(function DiffsHubHeader({
       </div>
       <hr className="border-border/80 w-full md:hidden" />
     </div>
-  );
-});
+  )
+})
 
 function colorModeIcon(colorMode: ColorMode) {
-  if (colorMode === 'light') return IconColorLight;
-  if (colorMode === 'dark') return IconColorDark;
-  return IconColorAuto;
+  if (colorMode === 'light') return IconColorLight
+  if (colorMode === 'dark') return IconColorDark
+  return IconColorAuto
 }
 
 interface ThemeDropdownProps {
-  colorMode: ColorMode;
-  darkThemeName: DarkThemeName;
-  lightThemeName: LightThemeName;
-  setColorMode: (mode: ColorMode) => void;
-  setDarkThemeName: (name: DarkThemeName) => void;
-  setLightThemeName: (name: LightThemeName) => void;
+  colorMode: ColorMode
+  darkThemeName: DarkThemeName
+  lightThemeName: LightThemeName
+  setColorMode: (mode: ColorMode) => void
+  setDarkThemeName: (name: DarkThemeName) => void
+  setLightThemeName: (name: LightThemeName) => void
 }
 
 // Theme picker shown next to the gear icon. Avoids horizontal sub-menus
@@ -794,13 +769,13 @@ function ThemeDropdown({
   setDarkThemeName,
   setLightThemeName,
 }: ThemeDropdownProps) {
-  const TriggerIcon = colorModeIcon(colorMode);
-  const [view, setView] = useState<'main' | 'light' | 'dark'>('main');
+  const TriggerIcon = colorModeIcon(colorMode)
+  const [view, setView] = useState<'main' | 'light' | 'dark'>('main')
   // Only offer a reset when at least one slot drifts from the default
   // pierre pair, so the link stays out of the way until it's useful.
   const themesAreCustom =
     lightThemeName !== themeCatalog.defaultLightThemeName ||
-    darkThemeName !== themeCatalog.defaultDarkThemeName;
+    darkThemeName !== themeCatalog.defaultDarkThemeName
   return (
     // `modal={false}` lets the user scroll and click the code view while the
     // theme picker is open. The default Radix DropdownMenu blocks pointer
@@ -809,7 +784,7 @@ function ThemeDropdown({
     <DropdownMenu
       modal={false}
       onOpenChange={(open) => {
-        if (!open) setView('main');
+        if (!open) setView('main')
       }}
     >
       <DropdownMenuTrigger asChild>
@@ -830,68 +805,60 @@ function ThemeDropdown({
               className="cursor-default p-0 focus:bg-transparent"
               onSelect={(event) => event.preventDefault()}
             >
-              <ButtonGroup
-                className="w-full"
-                value={colorMode}
-                onValueChange={(value) => {
-                  if (
-                    value === 'system' ||
-                    value === 'light' ||
-                    value === 'dark'
-                  ) {
-                    setColorMode(value);
-                  }
-                }}
-              >
-                <ButtonGroupItem value="system" className="flex-1">
-                  <IconColorAuto />
-                  Auto
-                </ButtonGroupItem>
-                <ButtonGroupItem value="light" className="flex-1">
-                  <IconColorLight />
-                  Light
-                </ButtonGroupItem>
-                <ButtonGroupItem value="dark" className="flex-1">
-                  <IconColorDark />
-                  Dark
-                </ButtonGroupItem>
-              </ButtonGroup>
+              <div role="group" className="bg-secondary inline-flex self-start rounded-lg w-full">
+                {(
+                  [
+                    ['system', 'Auto', IconColorAuto],
+                    ['light', 'Light', IconColorLight],
+                    ['dark', 'Dark', IconColorDark],
+                  ] as const
+                ).map(([value, label, Icon]) => (
+                  <Button
+                    key={value}
+                    title={value}
+                    className={cn(
+                      'text-muted-foreground rounded-[calc(var(--radius-lg)-1px)] gap-1.5',
+                      colorMode === value && 'text-foreground pointer-events-none',
+                      'flex-1',
+                    )}
+                    variant={colorMode === value ? 'outline' : 'ghost'}
+                    onClick={() => setColorMode(value)}
+                  >
+                    <Icon />
+                    {label}
+                  </Button>
+                ))}
+              </div>
             </DropdownMenuItem>
             <DropdownMenuItem
               className="mt-1 flex cursor-pointer items-center gap-2"
               onSelect={(event) => {
-                event.preventDefault();
-                setView('light');
+                event.preventDefault()
+                setView('light')
               }}
             >
               <IconColorLight />
               <span className="min-w-0 flex-1 truncate">{lightThemeName}</span>
-              <IconChevronSm
-                aria-hidden
-                className="text-muted-foreground -rotate-90"
-              />
+              <IconChevronSm aria-hidden className="text-muted-foreground -rotate-90" />
             </DropdownMenuItem>
             <DropdownMenuItem
               className="flex cursor-pointer items-center gap-2"
               onSelect={(event) => {
-                event.preventDefault();
-                setView('dark');
+                event.preventDefault()
+                setView('dark')
               }}
             >
               <IconColorDark />
               <span className="min-w-0 flex-1 truncate">{darkThemeName}</span>
-              <IconChevronSm
-                aria-hidden
-                className="text-muted-foreground -rotate-90"
-              />
+              <IconChevronSm aria-hidden className="text-muted-foreground -rotate-90" />
             </DropdownMenuItem>
             {themesAreCustom && (
               <DropdownMenuItem
                 className="text-muted-foreground hover:text-foreground mt-1 cursor-pointer justify-center text-xs focus:bg-transparent"
                 onSelect={(event) => {
-                  event.preventDefault();
-                  setLightThemeName(themeCatalog.defaultLightThemeName);
-                  setDarkThemeName(themeCatalog.defaultDarkThemeName);
+                  event.preventDefault()
+                  setLightThemeName(themeCatalog.defaultLightThemeName)
+                  setDarkThemeName(themeCatalog.defaultDarkThemeName)
                 }}
               >
                 Reset to default themes
@@ -905,29 +872,29 @@ function ThemeDropdown({
             currentDark={darkThemeName}
             onBack={() => setView('main')}
             onPickLight={(theme) => {
-              setLightThemeName(theme);
-              setColorMode('light');
-              setView('main');
+              setLightThemeName(theme)
+              setColorMode('light')
+              setView('main')
             }}
             onPickDark={(theme) => {
-              setDarkThemeName(theme);
-              setColorMode('dark');
-              setView('main');
+              setDarkThemeName(theme)
+              setColorMode('dark')
+              setView('main')
             }}
           />
         )}
       </DropdownMenuContent>
     </DropdownMenu>
-  );
+  )
 }
 
 interface ThemeListProps {
-  view: 'light' | 'dark';
-  currentLight: LightThemeName;
-  currentDark: DarkThemeName;
-  onBack: () => void;
-  onPickLight: (theme: LightThemeName) => void;
-  onPickDark: (theme: DarkThemeName) => void;
+  view: 'light' | 'dark'
+  currentLight: LightThemeName
+  currentDark: DarkThemeName
+  onBack: () => void
+  onPickLight: (theme: LightThemeName) => void
+  onPickDark: (theme: DarkThemeName) => void
 }
 
 // Inline list of theme names shown after the user enters the light or dark
@@ -942,42 +909,40 @@ function ThemeList({
   onPickLight,
   onPickDark,
 }: ThemeListProps) {
-  const isLight = view === 'light';
+  const isLight = view === 'light'
   const themes = themeCatalog.getThemeNames({
     colorScheme: isLight ? 'light' : 'dark',
-  });
-  const current = isLight ? currentLight : currentDark;
-  const HeaderIcon = isLight ? IconColorLight : IconColorDark;
+  })
+  const current = isLight ? currentLight : currentDark
+  const HeaderIcon = isLight ? IconColorLight : IconColorDark
   // Auto-scroll so the currently-selected row sits at the second visible
   // position when the list opens. The current theme lands right under the
   // user's cursor (Radix opens the menu under the trigger) and the row
   // above it makes the previous theme easy to reach with one tap of the
   // up arrow — sequential browsing through themes feels natural without
   // the user having to hunt for the active row first.
-  const scrollContainerRef = useRef<HTMLDivElement>(null);
-  const selectedItemRef = useRef<HTMLDivElement>(null);
+  const scrollContainerRef = useRef<HTMLDivElement>(null)
+  const selectedItemRef = useRef<HTMLDivElement>(null)
   useLayoutEffect(() => {
-    const container = scrollContainerRef.current;
-    const selected = selectedItemRef.current;
-    if (container == null || selected == null) return;
+    const container = scrollContainerRef.current
+    const selected = selectedItemRef.current
+    if (container == null || selected == null) return
     // `offsetTop` measures from the nearest positioned ancestor, which the
     // scroll container is not — use bounding rects so the math works
     // regardless of where ancestors set `position`. Subtract one row
     // height so the selected row appears as the second-from-top visible
     // row instead of flush with the top.
-    const containerTop = container.getBoundingClientRect().top;
-    const selectedTop = selected.getBoundingClientRect().top;
-    const offsetWithinScroll = selectedTop - containerTop + container.scrollTop;
-    const rowHeight = selected.offsetHeight;
-    container.scrollTop = Math.max(0, offsetWithinScroll - rowHeight);
-  }, [view]);
+    const containerTop = container.getBoundingClientRect().top
+    const selectedTop = selected.getBoundingClientRect().top
+    const offsetWithinScroll = selectedTop - containerTop + container.scrollTop
+    const rowHeight = selected.offsetHeight
+    container.scrollTop = Math.max(0, offsetWithinScroll - rowHeight)
+  }, [view])
   return (
     <>
       <DropdownMenuBackItem onBack={onBack}>
         <HeaderIcon />
-        <span className="flex-1 truncate">
-          {isLight ? 'Light theme' : 'Dark theme'}
-        </span>
+        <span className="flex-1 truncate">{isLight ? 'Light theme' : 'Dark theme'}</span>
       </DropdownMenuBackItem>
       <div
         ref={scrollContainerRef}
@@ -988,11 +953,11 @@ function ThemeList({
             key={theme}
             ref={current === theme ? selectedItemRef : undefined}
             onSelect={(event) => {
-              event.preventDefault();
+              event.preventDefault()
               if (isLight) {
-                onPickLight(theme);
+                onPickLight(theme)
               } else {
-                onPickDark(theme);
+                onPickDark(theme)
               }
             }}
             selected={current === theme}
@@ -1007,5 +972,5 @@ function ThemeList({
         ))}
       </div>
     </>
-  );
+  )
 }

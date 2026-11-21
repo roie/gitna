@@ -4,22 +4,16 @@
 // Modified from the pinned DiffsHub donor: Gitna's only sidebar is the
 // VS Code Source Control workflow. The donor tab row, comments, diff stats and
 // worker monitor are removed; the themed responsive drawer remains intact.
-import {
-  memo,
-  type ReactNode,
-  type RefObject,
-  useEffect,
-  useState,
-} from 'react'
+import { memo, type ReactNode, type RefObject, useEffect, useState } from 'react'
 
-import { CHROME_ICON_BUTTON_CLASS } from './chromeButtonStyles'
+import { CHROME_ICON_BUTTON_CLASS } from '../components/chromeButtonStyles'
 import { Button } from '@/components/Button'
 import { cn } from '@/lib/cn'
 import { IconXSquircle } from '@pierre/icons'
 
 const MOBILE_MEDIA_QUERY = '(max-width: 767px)'
 
-interface DiffsHubSidebarProps {
+interface SidebarProps {
   children: ReactNode
   className?: string
   mobileOverlayOpen?: boolean
@@ -28,14 +22,14 @@ interface DiffsHubSidebarProps {
   ariaLabel?: string
 }
 
-export const DiffsHubSidebar = memo(function DiffsHubSidebar({
+export const Sidebar = memo(function Sidebar({
   children,
   className,
   mobileOverlayOpen = false,
   onMobileClose,
   scrollRef,
   ariaLabel = 'Source Control',
-}: DiffsHubSidebarProps) {
+}: SidebarProps) {
   const [mobileViewport, setMobileViewport] = useState(
     () => window.matchMedia(MOBILE_MEDIA_QUERY).matches,
   )
@@ -82,11 +76,17 @@ export const DiffsHubSidebar = memo(function DiffsHubSidebar({
         )}
         onClick={onMobileClose}
       />
-      <SidebarWrapper
-        className={className}
-        mobileHidden={mobileViewport && !mobileOverlayOpen}
-        mobileOverlayOpen={mobileOverlayOpen}
-        ariaLabel={ariaLabel}
+      <aside
+        aria-hidden={(mobileViewport && !mobileOverlayOpen) || undefined}
+        aria-label={ariaLabel}
+        inert={(mobileViewport && !mobileOverlayOpen) || undefined}
+        className={cn(
+          className,
+          'contain-strict z-30 flex h-full min-h-0 flex-col border-r border-[var(--color-border-opaque)] bg-[var(--diffshub-sidebar-bg)] transition-transform duration-300 ease-[cubic-bezier(0.32,0.72,0,1)] will-change-transform motion-reduce:transition-none md:z-auto md:translate-y-0 md:will-change-auto',
+          mobileOverlayOpen
+            ? 'pointer-events-auto translate-y-0 overflow-hidden rounded-t-xl md:h-full md:overflow-visible md:rounded-none'
+            : 'pointer-events-none translate-y-[calc(100%+1.5rem)] overflow-hidden rounded-xl md:pointer-events-auto md:h-full md:overflow-visible md:rounded-none',
+        )}
       >
         <div className="flex h-10 shrink-0 items-center justify-end px-4 md:hidden">
           <Button
@@ -100,40 +100,7 @@ export const DiffsHubSidebar = memo(function DiffsHubSidebar({
           </Button>
         </div>
         <div className="min-h-0 flex-1">{children}</div>
-      </SidebarWrapper>
+      </aside>
     </>
   )
 })
-
-interface SidebarWrapperProps {
-  children: ReactNode
-  className?: string
-  mobileHidden: boolean
-  mobileOverlayOpen: boolean
-  ariaLabel: string
-}
-
-function SidebarWrapper({
-  children,
-  className,
-  mobileHidden,
-  mobileOverlayOpen,
-  ariaLabel,
-}: SidebarWrapperProps) {
-  return (
-    <aside
-      aria-hidden={mobileHidden || undefined}
-      aria-label={ariaLabel}
-      inert={mobileHidden || undefined}
-      className={cn(
-        className,
-        'contain-strict z-30 flex h-full min-h-0 flex-col border-r border-[var(--color-border-opaque)] bg-[var(--diffshub-sidebar-bg)] transition-transform duration-300 ease-[cubic-bezier(0.32,0.72,0,1)] will-change-transform motion-reduce:transition-none md:z-auto md:translate-y-0 md:will-change-auto',
-        mobileOverlayOpen
-          ? 'pointer-events-auto translate-y-0 overflow-hidden rounded-t-xl md:h-full md:overflow-visible md:rounded-none'
-          : 'pointer-events-none translate-y-[calc(100%+1.5rem)] overflow-hidden rounded-xl md:pointer-events-auto md:h-full md:overflow-visible md:rounded-none',
-      )}
-    >
-      {children}
-    </aside>
-  )
-}
