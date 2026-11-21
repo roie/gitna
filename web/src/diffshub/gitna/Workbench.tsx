@@ -1448,6 +1448,7 @@ export function Workbench({
   }, [repository.api, repository.generation, selectedImageRequest])
 
   const colorMode: ColorMode = themesHydrated ? themeState.mode : 'system'
+  const viewerThemeType = themesHydrated ? themeState.resolvedColorScheme : colorMode
   const lightThemeName = themesHydrated
     ? themeState.lightThemeName
     : themeCatalog.defaultLightThemeName
@@ -2861,7 +2862,7 @@ export function Workbench({
                         diffIndicators={diffIndicators}
                         lineNumbers={lineNumbers}
                         scrollRef={scrollRef}
-                        themeType={colorMode}
+                        themeType={viewerThemeType}
                         viewerRef={viewerRef}
                         initialItems={reviewData.items}
                         editStateNamespace={reviewCacheNamespace}
