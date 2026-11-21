@@ -4,7 +4,7 @@ import { Agents } from './Agents'
 import type { Conversation, ConversationsModel, Participant } from '../../lib/conversations'
 import { Button } from '../components/Button'
 import { CHROME_ICON_BUTTON_CLASS } from '../components/chromeButtonStyles'
-import { DiffsHubCommentsList } from '../components/DiffsHubCommentsList'
+import { ConversationList } from './ConversationList'
 import {
   DropdownMenu,
   DropdownMenuCheckboxItem,
@@ -105,7 +105,7 @@ export function Conversations({
       />
       {open && (
         <div className="min-h-0 flex-1">
-          <DiffsHubCommentsList
+          <ConversationList
             commentSections={sections}
             emptyTitle={`No ${filter} conversations`}
             onSelectComment={({ key }) => {

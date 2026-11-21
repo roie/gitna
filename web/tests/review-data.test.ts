@@ -1,7 +1,6 @@
 import { describe, expect, it } from 'vite-plus/test'
 import { reviewFileCount, reviewIdentityKey, reviewToItems } from '../src/lib/review-data'
 import { adaptGitnaReview } from '../src/diffshub/gitna/reviewAdapter'
-import { buildDiffsHubData } from '../src/diffshub/lib/diffsHubDataAccumulator'
 import type { ReviewResponse } from '../src/lib/types'
 
 const patch = `diff --git a/a.txt b/a.txt
@@ -62,7 +61,6 @@ describe('review data', () => {
         return reviewToItems(input)
       },
       (owner: string) => adaptGitnaReview(review(), owner),
-      (owner: string) => buildDiffsHubData(patch, owner),
     ]
     for (const adapt of adapters) {
       const key = (owner: string) => {

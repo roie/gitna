@@ -1,53 +1,58 @@
 // Modified by Gitna: render a conversation's messages with real authors, add
 // resolve beside delete, a per-message menu to copy or delete one message, and
 // accept a reply form as children.
-import { IconCheck, IconEllipsis, IconX } from '@pierre/icons';
-import { memo, type ReactNode } from 'react';
+import { IconCheck, IconEllipsis, IconX } from '@pierre/icons'
+import { memo, type ReactNode } from 'react'
 
-import { AuthorInitial } from './DraftAnnotation';
-import { Button } from '@/components/Button';
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/DropdownMenu';
-import { annotationCardBase, annotationCornerButton } from '@/lib/annotation';
-import { cn } from '@/lib/cn';
+import { AuthorInitial } from './DraftComment'
+import { Button } from '@/components/Button'
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '@/components/DropdownMenu'
+import { annotationCardBase, annotationCornerButton } from './annotation'
+import { cn } from '@/lib/cn'
 
-export interface ExampleAnnotationMessage {
-  id: string;
-  author: string;
-  agent: boolean;
-  message: ReactNode;
+export interface ConversationCardMessage {
+  id: string
+  author: string
+  agent: boolean
+  message: ReactNode
   // text is the message as written, for copying.
-  text: string;
-  after?: ReactNode;
+  text: string
+  after?: ReactNode
   // live marks an agent reply that is still being written; it has no actions.
-  live?: boolean;
+  live?: boolean
 }
 
-interface ExampleAnnotationProps {
-  messages: readonly ExampleAnnotationMessage[];
-  children?: ReactNode;
-  onSelect: () => void;
-  onDelete: () => void;
-  onDeleteMessage: (id: string) => void;
-  onResolve: () => void;
+interface ConversationCardProps {
+  messages: readonly ConversationCardMessage[]
+  children?: ReactNode
+  onSelect: () => void
+  onDelete: () => void
+  onDeleteMessage: (id: string) => void
+  onResolve: () => void
 }
 
 // Keep clicks and typing inside a comment from reaching an editable code view.
-const isolate = (event: { stopPropagation(): void }) => event.stopPropagation();
+const isolate = (event: { stopPropagation(): void }) => event.stopPropagation()
 
-export const ExampleAnnotation = memo(function ExampleAnnotation({
+export const ConversationCard = memo(function ConversationCard({
   messages,
   children,
   onSelect,
   onDelete,
   onDeleteMessage,
   onResolve,
-}: ExampleAnnotationProps) {
+}: ConversationCardProps) {
   return (
     <div
       role="article"
       className={cn(
         annotationCardBase,
-        'group relative flex-col hover:border-[var(--diffshub-annotation-hover-border,var(--diffshub-annotation-border,var(--color-border)))]'
+        'group relative flex-col hover:border-[var(--diffshub-annotation-hover-border,var(--diffshub-annotation-border,var(--color-border)))]',
       )}
       onKeyDown={isolate}
       onPointerDown={isolate}
@@ -85,10 +90,10 @@ export const ExampleAnnotation = memo(function ExampleAnnotation({
             index === 0
               ? (event) => {
                   if (event.key !== 'Enter' && event.key !== ' ') {
-                    return;
+                    return
                   }
-                  event.preventDefault();
-                  onSelect();
+                  event.preventDefault()
+                  onSelect()
                 }
               : undefined
           }
@@ -112,9 +117,16 @@ export const ExampleAnnotation = memo(function ExampleAnnotation({
                       </Button>
                     </DropdownMenuTrigger>
                     <DropdownMenuContent align="start">
-                      <DropdownMenuItem onSelect={() => void navigator.clipboard.writeText(message.text)}>Copy</DropdownMenuItem>
+                      <DropdownMenuItem
+                        onSelect={() => void navigator.clipboard.writeText(message.text)}
+                      >
+                        Copy
+                      </DropdownMenuItem>
                       {messages.length > 1 && (
-                        <DropdownMenuItem variant="danger" onSelect={() => onDeleteMessage(message.id)}>
+                        <DropdownMenuItem
+                          variant="danger"
+                          onSelect={() => onDeleteMessage(message.id)}
+                        >
                           Delete
                         </DropdownMenuItem>
                       )}
@@ -128,11 +140,15 @@ export const ExampleAnnotation = memo(function ExampleAnnotation({
             ) : (
               <div className="text-[14px]">{message.message}</div>
             )}
-            {message.after != null && <div onClick={isolate} onKeyDown={isolate}>{message.after}</div>}
+            {message.after != null && (
+              <div onClick={isolate} onKeyDown={isolate}>
+                {message.after}
+              </div>
+            )}
           </div>
         </div>
       ))}
       {children}
     </div>
-  );
-});
+  )
+})

@@ -1,9 +1,9 @@
 import { useEffect, useSyncExternalStore } from 'react'
 
-import { AuthorInitial, CommentComposer } from '@/components/DraftAnnotation'
+import { AuthorInitial, CommentComposer } from './DraftComment'
 import { Button } from '@/components/Button'
-import { ExampleAnnotation } from '@/components/ExampleAnnotation'
-import { annotationCardBase } from '@/lib/annotation'
+import { ConversationCard } from './ConversationCard'
+import { annotationCardBase } from './annotation'
 import { cn } from '@/lib/cn'
 import type { Conversation, ConversationsModel, Run } from '../../lib/conversations'
 import { replyRecipients, resolveMentions } from '../../lib/mentions'
@@ -67,7 +67,7 @@ export function Thread({
   }
 
   return (
-    <ExampleAnnotation
+    <ConversationCard
       messages={[
         ...conversation.messages.map((message) => ({
           id: message.id,
@@ -203,7 +203,7 @@ export function Thread({
         initialTo={replyRecipients(conversation, model.agents)}
         onSubmit={(body, to) => model.reply(conversation, body, to)}
       />
-    </ExampleAnnotation>
+    </ConversationCard>
   )
 }
 

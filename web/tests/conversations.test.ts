@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from 'vite-plus/test'
 import { createElement } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { Thread } from '../src/diffshub/gitna/Thread'
-import { CommentComposer } from '../src/diffshub/components/DraftAnnotation'
+import { CommentComposer } from '../src/diffshub/gitna/DraftComment'
 
 import {
   captureLines,

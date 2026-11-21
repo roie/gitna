@@ -78,10 +78,10 @@ import type {
   WorktreeFile,
 } from '../../lib/types'
 import type { DarkThemeName, LightThemeName } from '../lib/themeNames'
-import type { LoadedDiffsHubData } from '../lib/diffsHubDataAccumulator'
+import type { LoadedReviewData } from './reviewData'
 import { cn } from '../lib/cn'
 import { savePreference } from '../../lib/preferences'
-import { relocateDraft } from '../lib/draftLocation'
+import { relocateDraft } from './draftLocation'
 import type { GitnaPaletteCommand } from './CommandPalette'
 import { GlobalToastHost } from './ConnectionStatus'
 import { LoadingScreen, folderDisplayName } from './LoadingScreen'
@@ -281,9 +281,9 @@ function renderFolderLoadingDocument(newTab: Window, path: string, colorMode: Co
 
 function keepDraftItems(
   viewer: CodeViewHandle<CommentMetadata, undefined>,
-  current: LoadedDiffsHubData,
-  refreshed: LoadedDiffsHubData,
-): LoadedDiffsHubData {
+  current: LoadedReviewData,
+  refreshed: LoadedReviewData,
+): LoadedReviewData {
   const ids = new Set(refreshed.items.map(({ id }) => id))
   const items = [...refreshed.items]
   const itemIdToFile = new Map(refreshed.itemIdToFile)
@@ -311,9 +311,9 @@ function keepDraftItems(
 async function withDiffDrafts(
   api: ApiClient,
   drafts: ReadonlyMap<string, FileContents>,
-  data: LoadedDiffsHubData,
+  data: LoadedReviewData,
   scope: DiffScope | undefined,
-): Promise<LoadedDiffsHubData> {
+): Promise<LoadedReviewData> {
   if (scope !== 'unstaged' || !data.items.some((item) => drafts.has(item.id))) return data
   const items = await Promise.all(
     data.items.map(async (item) => {
@@ -332,8 +332,8 @@ async function withDiffDrafts(
 
 function updateViewerItems(
   viewer: CodeViewHandle<CommentMetadata, undefined>,
-  current: LoadedDiffsHubData,
-  refreshed: LoadedDiffsHubData,
+  current: LoadedReviewData,
+  refreshed: LoadedReviewData,
   hasDraft: (path: string) => boolean,
 ): void {
   // An unsent comment draft lives only on the viewer item, so carry it over.
@@ -620,7 +620,7 @@ export function Workbench({
   const [filePreviewModes, setFilePreviewModes] = useState<Map<string, FilePreviewMode>>(
     () => new Map(),
   )
-  const [reviewData, setReviewData] = useState<LoadedDiffsHubData | null>(null)
+  const [reviewData, setReviewData] = useState<LoadedReviewData | null>(null)
   const previewFile = reviewData?.items[0]
   const previewFilePath = previewFile?.type === 'file' ? previewFile.file.name : undefined
   const previewMode =
@@ -697,10 +697,10 @@ export function Workbench({
   const folderSwitchRestoreFocusRef = useRef<HTMLElement | null>(null)
   const editorRepositoryRootRef = useRef<string | null>(null)
   const draftClientIdRef = useRef<string | null>(null)
-  const reviewDataRef = useRef<LoadedDiffsHubData | null>(null)
+  const reviewDataRef = useRef<LoadedReviewData | null>(null)
   const [draftOpen, setDraftOpen] = useState(false)
   const keptDraftItemIdsRef = useRef<ReadonlySet<string>>(new Set())
-  const withDraftItems = useCallback((data: LoadedDiffsHubData, sameReview: boolean) => {
+  const withDraftItems = useCallback((data: LoadedReviewData, sameReview: boolean) => {
     const viewer = viewerRef.current
     const current = reviewDataRef.current
     const kept =
@@ -1067,7 +1067,7 @@ export function Workbench({
     setErrorMessage(null)
     setFileErrorCode(null)
     setLargeFileWarning(null)
-    const loadRepositoryFile = async (path: string): Promise<LoadedDiffsHubData> => {
+    const loadRepositoryFile = async (path: string): Promise<LoadedReviewData> => {
       try {
         const untitled = repository.untitledDocument(path)
         if (untitled != null) {
@@ -1136,7 +1136,7 @@ export function Workbench({
     }
     const loadWorktreeComparison = async (
       comparison: RepositoryFileComparison,
-    ): Promise<LoadedDiffsHubData> => {
+    ): Promise<LoadedReviewData> => {
       const leftIsImage = rasterImagePattern.test(comparison.leftPath)
       const rightIsImage = rasterImagePattern.test(comparison.rightPath)
       if (leftIsImage !== rightIsImage) {
@@ -1171,7 +1171,7 @@ export function Workbench({
         reviewCacheNamespace,
       )
     }
-    const loadReview = async (): Promise<LoadedDiffsHubData> => {
+    const loadReview = async (): Promise<LoadedReviewData> => {
       const request = { ...target.request!, signal: reviewAbortController.signal }
       let page = await repository.api.review(request)
       setReviewIdentity({ key: target.key, identity: page.identity })

@@ -9,13 +9,13 @@ import {
 
 import { DIFF_PARSE_OPTIONS } from '../lib/constants'
 import {
-  appendFileDiffToDiffsHubData,
-  createDiffsHubDataAccumulator,
-  snapshotDiffsHubData,
-  takePendingDiffsHubItems,
-  type DiffsHubDataAccumulator,
-  type LoadedDiffsHubData,
-} from '../lib/diffsHubDataAccumulator'
+  appendReviewDiff,
+  createReviewAccumulator,
+  snapshotReviewData,
+  takePendingReviewItems,
+  type ReviewAccumulator,
+  type LoadedReviewData,
+} from './reviewData'
 import type { CodeViewItem } from '@pierre/diffs'
 import type { CommentMetadata, ImageAnnotationMetadata } from '../lib/types'
 import type { FileDiff, FileVersion, ReviewResponse, WorktreeFile } from '../../lib/types'
@@ -80,7 +80,7 @@ export function adaptWorktreeFile(
   generation: number,
   draft?: FileContents,
   cacheNamespace = '',
-): LoadedDiffsHubData {
+): LoadedReviewData {
   const file: FileContents = draft ?? {
     name: source.path,
     contents: source.content,
@@ -106,7 +106,7 @@ export function adaptWorktreeComparison(
   leftDraft?: FileContents,
   rightDraft?: FileContents,
   cacheNamespace = '',
-): LoadedDiffsHubData {
+): LoadedReviewData {
   const before: FileContents = leftDraft ?? {
     name: diff.before.path,
     contents: diff.before.content,
@@ -120,8 +120,8 @@ export function adaptWorktreeComparison(
     cacheKey: `${cacheNamespace}worktree-compare:${generation}:${diff.after.path}`,
   }
   const fileDiff = parseDiffFromFile(before, after, DIFF_PARSE_OPTIONS, true)
-  const accumulator = createDiffsHubDataAccumulator()
-  appendFileDiffToDiffsHubData(accumulator, fileDiff, undefined)
+  const accumulator = createReviewAccumulator()
+  appendReviewDiff(accumulator, fileDiff, undefined)
   const item = accumulator.items.at(-1)
   if (item?.type === 'diff') {
     item.version = generation
@@ -129,14 +129,14 @@ export function adaptWorktreeComparison(
     const annotations = diffImageAnnotations(diff, diff.after.path)
     if (annotations.length > 0) item.annotations = annotations
   }
-  return snapshotDiffsHubData(accumulator)
+  return snapshotReviewData(accumulator)
 }
 
 export function adaptGitnaFile(
   diff: FileDiff,
   generation: number,
   cacheNamespace = '',
-): LoadedDiffsHubData {
+): LoadedReviewData {
   const path = diff.after.path || diff.before.path
   const contents = diff.binary || diff.tooLarge ? '' : diff.after.content
   const file: FileContents = {
@@ -168,7 +168,7 @@ export function adaptGitnaFile(
 }
 
 export interface GitnaReviewAccumulator {
-  accumulator: DiffsHubDataAccumulator
+  accumulator: ReviewAccumulator
   cacheKey: string
   generation: number
   itemVersion: number
@@ -180,7 +180,7 @@ export function createGitnaReviewAccumulator(
   cacheNamespace = '',
 ): GitnaReviewAccumulator {
   return {
-    accumulator: createDiffsHubDataAccumulator(),
+    accumulator: createReviewAccumulator(),
     cacheKey: `${cacheNamespace}${reviewIdentityKey(review)}:${review.generation}`,
     generation: review.generation,
     itemVersion,
@@ -191,7 +191,7 @@ export function createGitnaReviewAccumulator(
 export function appendGitnaReviewPage(
   assembly: GitnaReviewAccumulator,
   review: ReviewResponse,
-): { data: LoadedDiffsHubData; pendingItems: LoadedDiffsHubData['items'] } {
+): { data: LoadedReviewData; pendingItems: LoadedReviewData['items'] } {
   if (review.generation !== assembly.generation) {
     throw new Error('Review changed while additional files were loading')
   }
@@ -203,7 +203,7 @@ export function appendGitnaReviewPage(
     })
     for (const patch of parsed) {
       for (const fileDiff of patch.files) {
-        appendFileDiffToDiffsHubData(accumulator, fileDiff, undefined)
+        appendReviewDiff(accumulator, fileDiff, undefined)
       }
     }
   }
@@ -246,18 +246,18 @@ export function appendGitnaReviewPage(
       fileDiff.type = fileDiff.hunks.length > 0 ? 'rename-changed' : 'rename-pure'
     }
     fileDiff.lang = after.lang
-    appendFileDiffToDiffsHubData(accumulator, fileDiff, undefined)
+    appendReviewDiff(accumulator, fileDiff, undefined)
     const item = accumulator.items.at(-1)
     const annotations = diffImageAnnotations(supplement.diff, supplement.path)
     if (item?.type === 'diff' && annotations.length > 0) item.annotations = annotations
   }
 
-  const pendingItems = takePendingDiffsHubItems(accumulator)
+  const pendingItems = takePendingReviewItems(accumulator)
   for (const item of pendingItems) {
     item.version = assembly.itemVersion
     if (review.identity.scope === 'unstaged' && isEditableDiff(item)) item.edit = true
   }
-  return { data: snapshotDiffsHubData(accumulator), pendingItems }
+  return { data: snapshotReviewData(accumulator), pendingItems }
 }
 
 function isEditableDiff(item: CodeViewItem<CommentMetadata>): boolean {
@@ -297,7 +297,7 @@ export function draftDiffItem(
   return { ...item, fileDiff }
 }
 
-export function adaptGitnaReview(review: ReviewResponse, cacheNamespace = ''): LoadedDiffsHubData {
+export function adaptGitnaReview(review: ReviewResponse, cacheNamespace = ''): LoadedReviewData {
   return appendGitnaReviewPage(
     createGitnaReviewAccumulator(review, review.generation, cacheNamespace),
     review,

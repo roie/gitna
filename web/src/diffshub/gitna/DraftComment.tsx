@@ -2,45 +2,50 @@
 // show the real author, save asynchronously, share the form as CommentComposer, and
 // let it pick a recipient, with a corner button to discard the draft like the
 // conversation card's.
-import type { DiffLineAnnotation } from '@pierre/diffs';
-import { IconArrowRight, IconPlus, IconX } from '@pierre/icons';
-import { useEffect, useId, useRef, useState, type ReactNode } from 'react';
+import type { DiffLineAnnotation } from '@pierre/diffs'
+import { IconArrowRight, IconPlus, IconX } from '@pierre/icons'
+import { useEffect, useId, useRef, useState, type ReactNode } from 'react'
 
-import { Button } from '@/components/Button';
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/DropdownMenu';
-import { annotationCardBase, annotationCornerButton } from '@/lib/annotation';
-import { cn } from '@/lib/cn';
-import type { DraftCommentMetadata } from '@/lib/types';
-import type { Participant } from '../../lib/conversations';
-import { mentionAt, removeMention, resolveMentions } from '../../lib/mentions';
+import { Button } from '@/components/Button'
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '@/components/DropdownMenu'
+import { annotationCardBase, annotationCornerButton } from './annotation'
+import { cn } from '@/lib/cn'
+import type { DraftCommentMetadata } from '@/lib/types'
+import type { Participant } from '../../lib/conversations'
+import { mentionAt, removeMention, resolveMentions } from '../../lib/mentions'
 
-interface DraftAnnotationProps {
-  annotation: DiffLineAnnotation<DraftCommentMetadata>;
-  author: string;
-  itemId: string;
-  agents: readonly Participant[];
-  unsavedCount: number;
-  onCancel: (itemId: string, key: string) => void;
-  onSave: (itemId: string, key: string, message: string, to: string[]) => void | Promise<void>;
+interface DraftCommentProps {
+  annotation: DiffLineAnnotation<DraftCommentMetadata>
+  author: string
+  itemId: string
+  agents: readonly Participant[]
+  unsavedCount: number
+  onCancel: (itemId: string, key: string) => void
+  onSave: (itemId: string, key: string, message: string, to: string[]) => void | Promise<void>
 }
 
 interface CommentComposerProps {
-  avatar: ReactNode;
-  autoFocus?: boolean;
-  className?: string;
-  initialText?: string;
-  initialTo?: readonly string[];
-  placeholder?: string;
-  unsavedCount: number;
-  agents: readonly Participant[];
-  onCancel?: () => void;
-  onChange?: (message: string) => void;
-  onRecipientsChange?: (to: string[]) => void;
-  onSubmit: (message: string, to: string[]) => void | Promise<void>;
+  avatar: ReactNode
+  autoFocus?: boolean
+  className?: string
+  initialText?: string
+  initialTo?: readonly string[]
+  placeholder?: string
+  unsavedCount: number
+  agents: readonly Participant[]
+  onCancel?: () => void
+  onChange?: (message: string) => void
+  onRecipientsChange?: (to: string[]) => void
+  onSubmit: (message: string, to: string[]) => void | Promise<void>
 }
 
 // Keep typing and clicks inside a comment from reaching an editable code view.
-const isolate = (event: { stopPropagation(): void }) => event.stopPropagation();
+const isolate = (event: { stopPropagation(): void }) => event.stopPropagation()
 
 export function CommentComposer({
   avatar,
@@ -56,105 +61,121 @@ export function CommentComposer({
   onRecipientsChange,
   onSubmit,
 }: CommentComposerProps) {
-  const [message, setMessage] = useState(initialText);
-  const [chosen, setChosen] = useState<readonly string[]>(initialTo);
-  const [caret, setCaret] = useState<number | null>(null);
-  const [selected, setSelected] = useState(0);
-  const [dismissed, setDismissed] = useState(false);
-  const listboxID = useId();
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const textareaRef = useRef<HTMLTextAreaElement>(null);
-  const trimmedMessage = message.trim();
-  const mention = caret == null || dismissed ? null : mentionAt(message, caret);
-  const choices = mention == null ? [] : [{ id: 'all', name: 'all' }, ...agents]
-    .filter(({ name }) => name.toLowerCase().startsWith(mention.query.toLowerCase()));
-  const active = Math.min(selected, choices.length - 1);
-  const mentioned = resolveMentions(message, agents);
-  const to = chosen.includes('all') || mentioned.includes('all') ? ['all'] : [...new Set([...chosen, ...mentioned])];
-  const toNames = to.map((id) => id === 'all' ? 'all' : agents.find((agent) => agent.id === id)!.name);
-  const everyone = to.includes('all') || agents.every(({ id }) => to.includes(id));
-  const addable = everyone ? [] : [{ id: 'all', name: 'all' }, ...agents].filter(({ id }) => !to.includes(id));
+  const [message, setMessage] = useState(initialText)
+  const [chosen, setChosen] = useState<readonly string[]>(initialTo)
+  const [caret, setCaret] = useState<number | null>(null)
+  const [selected, setSelected] = useState(0)
+  const [dismissed, setDismissed] = useState(false)
+  const listboxID = useId()
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const textareaRef = useRef<HTMLTextAreaElement>(null)
+  const trimmedMessage = message.trim()
+  const mention = caret == null || dismissed ? null : mentionAt(message, caret)
+  const choices =
+    mention == null
+      ? []
+      : [{ id: 'all', name: 'all' }, ...agents].filter(({ name }) =>
+          name.toLowerCase().startsWith(mention.query.toLowerCase()),
+        )
+  const active = Math.min(selected, choices.length - 1)
+  const mentioned = resolveMentions(message, agents)
+  const to =
+    chosen.includes('all') || mentioned.includes('all')
+      ? ['all']
+      : [...new Set([...chosen, ...mentioned])]
+  const toNames = to.map((id) =>
+    id === 'all' ? 'all' : agents.find((agent) => agent.id === id)!.name,
+  )
+  const everyone = to.includes('all') || agents.every(({ id }) => to.includes(id))
+  const addable = everyone
+    ? []
+    : [{ id: 'all', name: 'all' }, ...agents].filter(({ id }) => !to.includes(id))
 
   function setRecipients(next: readonly string[]) {
-    setChosen(next);
-    onRecipientsChange?.([...next]);
-    requestAnimationFrame(() => textareaRef.current?.focus({ preventScroll: true }));
+    setChosen(next)
+    onRecipientsChange?.([...next])
+    requestAnimationFrame(() => textareaRef.current?.focus({ preventScroll: true }))
   }
 
   function remove(id: string) {
-    const text = removeMention(message, id, agents);
+    const text = removeMention(message, id, agents)
     if (text !== message) {
-      setMessage(text);
-      onChange?.(text);
+      setMessage(text)
+      onChange?.(text)
     }
-    setRecipients(chosen.filter((candidate) => candidate !== id));
+    setRecipients(chosen.filter((candidate) => candidate !== id))
   }
 
   function choose(name: string) {
-    if (mention == null || caret == null) return;
-    const prefix = `${message.slice(0, mention.start)}@${name} `;
-    const text = prefix + message.slice(caret);
-    setMessage(text);
-    onChange?.(text);
-    setCaret(null);
-    setDismissed(true);
+    if (mention == null || caret == null) return
+    const prefix = `${message.slice(0, mention.start)}@${name} `
+    const text = prefix + message.slice(caret)
+    setMessage(text)
+    onChange?.(text)
+    setCaret(null)
+    setDismissed(true)
     requestAnimationFrame(() => {
-      textareaRef.current?.focus({ preventScroll: true });
-      textareaRef.current?.setSelectionRange(prefix.length, prefix.length);
-    });
+      textareaRef.current?.focus({ preventScroll: true })
+      textareaRef.current?.setSelectionRange(prefix.length, prefix.length)
+    })
   }
 
   async function handleSave() {
     if (trimmedMessage.length === 0 || busy) {
-      return;
+      return
     }
-    setBusy(true);
-    setError(null);
+    setBusy(true)
+    setError(null)
     try {
-      await onSubmit(trimmedMessage, to);
-      setMessage(initialText);
-      setChosen(to);
-      setCaret(null);
+      await onSubmit(trimmedMessage, to)
+      setMessage(initialText)
+      setChosen(to)
+      setCaret(null)
     } catch (failure) {
-      setError(failure instanceof Error ? failure.message : String(failure));
+      setError(failure instanceof Error ? failure.message : String(failure))
     } finally {
-      setBusy(false);
+      setBusy(false)
     }
   }
 
   function tryCancel() {
     if (onCancel == null) {
-      return;
+      return
     }
     if (trimmedMessage.length > 0 && !window.confirm('Discard this comment?')) {
-      return;
+      return
     }
-    onCancel();
+    onCancel()
   }
 
   useEffect(() => {
-    const textarea = textareaRef.current;
+    const textarea = textareaRef.current
     if (!autoFocus || textarea == null) {
-      return;
+      return
     }
 
-    textarea.focus({ preventScroll: true });
-    const cursorIndex = textarea.value.length;
-    textarea.setSelectionRange(cursorIndex, cursorIndex);
-  }, [autoFocus]);
+    textarea.focus({ preventScroll: true })
+    const cursorIndex = textarea.value.length
+    textarea.setSelectionRange(cursorIndex, cursorIndex)
+  }, [autoFocus])
 
   return (
     <form
-      className={cn(annotationCardBase, 'group relative flex-col md:flex-row', onCancel != null && 'md:pr-10', className)}
+      className={cn(
+        annotationCardBase,
+        'group relative flex-col md:flex-row',
+        onCancel != null && 'md:pr-10',
+        className,
+      )}
       onKeyDown={isolate}
       onPointerDown={isolate}
       onMouseDown={isolate}
       onBeforeInput={isolate}
       onPaste={isolate}
       onSubmit={(event) => {
-        event.preventDefault();
-        void handleSave();
+        event.preventDefault()
+        void handleSave()
       }}
     >
       {onCancel != null && (
@@ -184,53 +205,58 @@ export function CommentComposer({
             onSelect={({ currentTarget }) => setCaret(currentTarget.selectionStart)}
             onBlur={() => setCaret(null)}
             onChange={({ currentTarget }) => {
-              setMessage(currentTarget.value);
-              setCaret(currentTarget.selectionStart);
-              setSelected(0);
-              setDismissed(false);
-              onChange?.(currentTarget.value);
+              setMessage(currentTarget.value)
+              setCaret(currentTarget.selectionStart)
+              setSelected(0)
+              setDismissed(false)
+              onChange?.(currentTarget.value)
             }}
             onKeyDown={(event) => {
-              if (event.nativeEvent.isComposing || event.nativeEvent.keyCode === 229) return;
+              if (event.nativeEvent.isComposing || event.nativeEvent.keyCode === 229) return
               if (choices.length > 0) {
                 if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
-                  event.preventDefault();
-                  setSelected((active + (event.key === 'ArrowDown' ? 1 : -1) + choices.length) % choices.length);
-                  return;
+                  event.preventDefault()
+                  setSelected(
+                    (active + (event.key === 'ArrowDown' ? 1 : -1) + choices.length) %
+                      choices.length,
+                  )
+                  return
                 }
                 if (event.key === 'Enter' || event.key === 'Tab') {
-                  event.preventDefault();
-                  choose(choices[active]!.name);
-                  return;
+                  event.preventDefault()
+                  choose(choices[active]!.name)
+                  return
                 }
                 if (event.key === 'Escape') {
-                  event.preventDefault();
-                  setDismissed(true);
-                  return;
+                  event.preventDefault()
+                  setDismissed(true)
+                  return
                 }
               }
               if (event.key === 'Escape') {
-                event.preventDefault();
-                tryCancel();
-                return;
+                event.preventDefault()
+                tryCancel()
+                return
               }
 
-              if (
-                (!event.shiftKey && !event.metaKey && !event.ctrlKey) ||
-                event.key !== 'Enter'
-              ) {
-                return;
+              if ((!event.shiftKey && !event.metaKey && !event.ctrlKey) || event.key !== 'Enter') {
+                return
               }
 
-              event.preventDefault();
-              void handleSave();
+              event.preventDefault()
+              void handleSave()
             }}
             placeholder={placeholder}
             rows={1}
             className="field-sizing-content w-full resize-none [caret-color:auto] rounded-sm bg-transparent py-1.5 text-[14px] text-inherit placeholder:text-muted-foreground focus:outline-none"
           />
           {choices.length > 0 && (
-            <ul id={listboxID} role="listbox" aria-label="Mention an agent" className="m-0 flex list-none flex-col rounded-sm border border-border bg-background p-1">
+            <ul
+              id={listboxID}
+              role="listbox"
+              aria-label="Mention an agent"
+              className="m-0 flex list-none flex-col rounded-sm border border-border bg-background p-1"
+            >
               {choices.map(({ id, name }, index) => (
                 <li key={id} role="presentation">
                   <button
@@ -241,7 +267,10 @@ export function CommentComposer({
                     tabIndex={-1}
                     onMouseDown={(event) => event.preventDefault()}
                     onClick={() => choose(name)}
-                    className={cn('w-full rounded-sm px-2 py-1 text-start text-xs active:bg-accent focus-visible:outline-2', index === active && 'bg-accent')}
+                    className={cn(
+                      'w-full rounded-sm px-2 py-1 text-start text-xs active:bg-accent focus-visible:outline-2',
+                      index === active && 'bg-accent',
+                    )}
                   >
                     @{name}
                   </button>
@@ -250,10 +279,17 @@ export function CommentComposer({
             </ul>
           )}
           {agents.length > 0 && (
-            <div role="group" aria-label="Recipients" className="flex flex-wrap items-center gap-1 py-1 text-xs text-muted-foreground">
+            <div
+              role="group"
+              aria-label="Recipients"
+              className="flex flex-wrap items-center gap-1 py-1 text-xs text-muted-foreground"
+            >
               {to.length > 0 && <span>To:</span>}
               {to.map((id, index) => (
-                <span key={id} className="inline-flex items-center gap-0.5 rounded-full bg-muted py-0.5 pr-0.5 pl-2 text-foreground">
+                <span
+                  key={id}
+                  className="inline-flex items-center gap-0.5 rounded-full bg-muted py-0.5 pr-0.5 pl-2 text-foreground"
+                >
                   {toNames[index]}
                   <button
                     type="button"
@@ -283,7 +319,10 @@ export function CommentComposer({
                   </DropdownMenuTrigger>
                   <DropdownMenuContent align="start">
                     {addable.map(({ id, name }) => (
-                      <DropdownMenuItem key={id} onSelect={() => setRecipients(id === 'all' ? ['all'] : [...chosen, id])}>
+                      <DropdownMenuItem
+                        key={id}
+                        onSelect={() => setRecipients(id === 'all' ? ['all'] : [...chosen, id])}
+                      >
                         @{name}
                       </DropdownMenuItem>
                     ))}
@@ -292,7 +331,12 @@ export function CommentComposer({
               )}
             </div>
           )}
-          {to.length > 0 && unsavedCount > 0 && <p className="m-0 py-1 text-xs text-muted-foreground">{unsavedCount} unsaved {unsavedCount === 1 ? 'file' : 'files'}. Agents see files on disk, not unsaved edits.</p>}
+          {to.length > 0 && unsavedCount > 0 && (
+            <p className="m-0 py-1 text-xs text-muted-foreground">
+              {unsavedCount} unsaved {unsavedCount === 1 ? 'file' : 'files'}. Agents see files on
+              disk, not unsaved edits.
+            </p>
+          )}
           {error != null && (
             <p role="alert" className="m-0 text-xs text-destructive">
               {error}
@@ -333,7 +377,7 @@ export function CommentComposer({
         </Button>
       </div>
     </form>
-  );
+  )
 }
 
 export function AuthorInitial({
@@ -341,9 +385,9 @@ export function AuthorInitial({
   agent = false,
   className,
 }: {
-  name: string;
-  agent?: boolean;
-  className?: string;
+  name: string
+  agent?: boolean
+  className?: string
 }) {
   return (
     <span
@@ -353,15 +397,15 @@ export function AuthorInitial({
         agent
           ? 'bg-[var(--gitna-agent)]/20 text-[var(--gitna-agent)]'
           : 'bg-highlight/20 text-highlight',
-        className
+        className,
       )}
     >
       {name.slice(0, 1)}
     </span>
-  );
+  )
 }
 
-export function DraftAnnotation({
+export function DraftComment({
   annotation,
   author,
   itemId,
@@ -369,8 +413,8 @@ export function DraftAnnotation({
   unsavedCount,
   onCancel,
   onSave,
-}: DraftAnnotationProps) {
-  const { metadata } = annotation;
+}: DraftCommentProps) {
+  const { metadata } = annotation
   const composer = (
     <CommentComposer
       autoFocus
@@ -381,14 +425,14 @@ export function DraftAnnotation({
       unsavedCount={unsavedCount}
       onCancel={() => onCancel(itemId, metadata.key)}
       onChange={(message) => {
-        metadata.message = message;
+        metadata.message = message
       }}
       onRecipientsChange={(to) => {
-        metadata.to = to;
+        metadata.to = to
       }}
       onSubmit={(message, to) => onSave(itemId, metadata.key, message, to)}
     />
-  );
+  )
   return (
     <div className="flex flex-col gap-2">
       {metadata.outdated === true && (
@@ -398,5 +442,5 @@ export function DraftAnnotation({
       )}
       {composer}
     </div>
-  );
+  )
 }

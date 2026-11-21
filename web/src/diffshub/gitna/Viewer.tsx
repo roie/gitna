@@ -53,14 +53,13 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from '../components/DropdownMenu'
-import { DraftAnnotation } from '../components/DraftAnnotation'
+import { DraftComment } from './DraftComment'
 import { useThemeController } from '@pierre/theming/react'
 import { themeController } from './ThemeRoot'
 import { ImageAnnotation } from './ImageAnnotation'
 import { cn } from '@/lib/cn'
 import { CODE_VIEW_CUSTOM_CSS, CODE_VIEW_LAYOUT, DIFF_PARSE_OPTIONS } from '@/lib/constants'
-import { shownCode } from '@/lib/draftLocation'
-import { isDraftMetadata } from '@/lib/isDraftMetadata'
+import { shownCode } from './draftLocation'
 import type { CommentMetadata, DraftCommentMetadata } from '@/lib/types'
 import type { MutateRequest } from '../../lib/api'
 import { splitHunkPatches } from '../../lib/hunk-patches'
@@ -436,7 +435,7 @@ export const Viewer = memo(function Viewer({
     ) {
       setItemAnnotations(viewer, previous, (existing) => existing.key !== activeDraft.key, [])
     }
-    setItemAnnotations(viewer, item, (existing) => !isDraftMetadata(existing), [
+    setItemAnnotations(viewer, item, (existing) => existing.kind !== 'draft', [
       item.type === 'file' ? { lineNumber, metadata } : { side, lineNumber, metadata },
     ])
     activeDraftRef.current = { itemId, key: metadata.key }
@@ -525,7 +524,7 @@ export const Viewer = memo(function Viewer({
       if (metadata.kind === 'draft') {
         return (
           <div hidden={!gitnaConversations.visible}>
-            <DraftAnnotation
+            <DraftComment
               annotation={annotation as DiffLineAnnotation<DraftCommentMetadata>}
               author={gitnaConversations.model.participant?.name ?? 'You'}
               itemId={item.id}

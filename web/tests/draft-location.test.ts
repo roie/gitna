@@ -1,7 +1,7 @@
 import type { CodeViewItem, LineAnnotation } from '@pierre/diffs'
 import { describe, expect, it } from 'vite-plus/test'
 
-import { relocateDraft } from '../src/diffshub/lib/draftLocation'
+import { relocateDraft } from '../src/diffshub/gitna/draftLocation'
 import type { CommentMetadata, DraftCommentMetadata } from '../src/diffshub/lib/types'
 
 function file(contents: string): CodeViewItem<CommentMetadata> {
