@@ -7,14 +7,11 @@ import {
 } from '@pierre/diffs/react';
 import { type Ref, useMemo } from 'react';
 
-import { useDiffThemeProps } from './useDiffThemeProps';
-import { useWorkerDiffTheme } from './useWorkerDiffTheme';
-import type { DiffThemeInput } from '@/lib/theme/diffThemeProps';
+import { useDiffTheme } from '../gitna/useDiffTheme';
 
 type ThemedCodeViewComponent = <LAnnotation = undefined>(
   props: CodeViewProps<LAnnotation, undefined> & {
     ref?: Ref<CodeViewHandle<LAnnotation, undefined>>;
-    theme?: DiffThemeInput;
   }
 ) => React.JSX.Element;
 
@@ -24,21 +21,19 @@ export const ThemedCodeView: ThemedCodeViewComponent = <
   disableWorkerPool = false,
   options,
   ref,
-  theme,
   ...props
 }: CodeViewProps<LAnnotation, undefined> & {
   ref?: Ref<CodeViewHandle<LAnnotation, undefined>>;
-  theme?: DiffThemeInput;
 }): React.JSX.Element => {
-  const diffTheme = useDiffThemeProps(theme);
-  const workerPoolDisabled = useWorkerDiffTheme(diffTheme.theme, disableWorkerPool);
+  const diffTheme = useDiffTheme();
+  const workerPoolDisabled = disableWorkerPool || diffTheme.workersFailed;
   const themedOptions = useMemo(
     () => ({
       ...options,
       theme: diffTheme.theme,
       themeType: options?.themeType ?? diffTheme.themeType,
     }),
-    [diffTheme, options]
+    [diffTheme.theme, diffTheme.themeType, options]
   );
   return (
     <CodeView<LAnnotation, undefined>

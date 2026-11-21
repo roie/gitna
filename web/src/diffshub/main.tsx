@@ -2,7 +2,7 @@ import { lazy, Suspense, useCallback, useEffect, useRef, useState } from 'react'
 import { createRoot } from 'react-dom/client'
 
 import { ScrollbarGutterVariables } from './components/ScrollbarGutterVariables'
-import { ThemeProvider } from './components/ThemeProvider'
+import { Theme } from './gitna/ThemeRoot'
 import { WorkerPoolContext } from './components/WorkerPoolContext'
 import { RepositoryProvider } from './gitna/repository'
 import { isHomePath } from './gitna/navigation'
@@ -139,13 +139,13 @@ function App({ Workbench }: { Workbench: ReviewUI | null }) {
   }, [])
   if (pdfPath != null) {
     return (
-      <ThemeProvider attribute="class">
+      <Theme>
         <section className="flex h-full min-h-0 flex-col bg-background" aria-label="Media preview">
           <Suspense fallback={null}>
             <StandalonePDF path={pdfPath} standalone />
           </Suspense>
         </section>
-      </ThemeProvider>
+      </Theme>
     )
   }
   if (Workbench == null) throw new Error('Missing Gitna workbench')
@@ -153,7 +153,7 @@ function App({ Workbench }: { Workbench: ReviewUI | null }) {
     <>
       <ScrollbarGutterVariables />
       <WorkerPoolContext>
-        <ThemeProvider attribute="class">
+        <Theme>
           <RepositoryProvider key={folderURL} baseURL={folderURL}>
             <Workbench
               homeOpen={homeOpen}
@@ -167,7 +167,7 @@ function App({ Workbench }: { Workbench: ReviewUI | null }) {
           </RepositoryProvider>
           <div id="dark-mode-portal-container" className="dark" data-theme="dark" />
           <div id="light-mode-portal-container" className="light" data-theme="light" />
-        </ThemeProvider>
+        </Theme>
       </WorkerPoolContext>
     </>
   )

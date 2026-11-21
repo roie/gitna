@@ -4,7 +4,7 @@ import { useThemeController } from '@pierre/theming/react'
 import { themes } from '@pierre/highlights/themes/loader'
 import { createHighlightsPlugin } from '@pierre/words/highlights'
 import type { CodeHighlighterPlugin } from '@pierre/words/html'
-import { themeController } from '../components/themeController'
+import { themeController } from './ThemeRoot'
 
 export interface MarkdownTheme {
   name: string

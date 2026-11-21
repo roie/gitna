@@ -27,7 +27,7 @@ import {
   useRef,
   useState,
 } from 'react'
-import { themeController } from '../components/themeController'
+import { themeController } from './ThemeRoot'
 import { deriveChromeTokens } from '../lib/theme/deriveChromeTokens'
 import { CODE_VIEW_FILE_TREE_ITEM_HEIGHT, getInitialBatchSize } from '@/lib/constants'
 import { cn } from '@/lib/cn'

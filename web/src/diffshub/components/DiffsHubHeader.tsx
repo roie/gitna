@@ -51,7 +51,7 @@ import {
 } from './DropdownMenu';
 import { Switch } from './Switch';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from './Tooltip';
-import { docsThemeCatalog } from './themeCatalog';
+import { themeCatalog } from '../gitna/ThemeRoot';
 import { cn } from '../lib/cn';
 
 type LightThemeName = string;
@@ -799,8 +799,8 @@ function ThemeDropdown({
   // Only offer a reset when at least one slot drifts from the default
   // pierre pair, so the link stays out of the way until it's useful.
   const themesAreCustom =
-    lightThemeName !== docsThemeCatalog.defaultLightThemeName ||
-    darkThemeName !== docsThemeCatalog.defaultDarkThemeName;
+    lightThemeName !== themeCatalog.defaultLightThemeName ||
+    darkThemeName !== themeCatalog.defaultDarkThemeName;
   return (
     // `modal={false}` lets the user scroll and click the code view while the
     // theme picker is open. The default Radix DropdownMenu blocks pointer
@@ -890,8 +890,8 @@ function ThemeDropdown({
                 className="text-muted-foreground hover:text-foreground mt-1 cursor-pointer justify-center text-xs focus:bg-transparent"
                 onSelect={(event) => {
                   event.preventDefault();
-                  setLightThemeName(docsThemeCatalog.defaultLightThemeName);
-                  setDarkThemeName(docsThemeCatalog.defaultDarkThemeName);
+                  setLightThemeName(themeCatalog.defaultLightThemeName);
+                  setDarkThemeName(themeCatalog.defaultDarkThemeName);
                 }}
               >
                 Reset to default themes
@@ -943,7 +943,7 @@ function ThemeList({
   onPickDark,
 }: ThemeListProps) {
   const isLight = view === 'light';
-  const themes = docsThemeCatalog.getThemeNames({
+  const themes = themeCatalog.getThemeNames({
     colorScheme: isLight ? 'light' : 'dark',
   });
   const current = isLight ? currentLight : currentDark;

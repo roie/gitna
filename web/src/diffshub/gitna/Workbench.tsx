@@ -56,8 +56,7 @@ import {
   type GitnaFileAction,
   type GitnaViewerActions,
 } from '../components/DiffsHubViewer'
-import { ThemeSourceProvider } from '../components/ThemeSourceProvider'
-import { docsThemeCatalog, themeController } from '../components/themeController'
+import { themeCatalog, themeController } from './ThemeRoot'
 import type { CommentMetadata, ViewerLoadState } from '../lib/types'
 import {
   ApiError,
@@ -522,15 +521,7 @@ type WorkbenchProps = {
   onNavigationGuardChange?: (guard: (() => boolean) | null) => void
 }
 
-export function Workbench(props: WorkbenchProps) {
-  return (
-    <ThemeSourceProvider controller={themeController}>
-      <WorkbenchInner {...props} />
-    </ThemeSourceProvider>
-  )
-}
-
-function WorkbenchInner({
+export function Workbench({
   homeOpen: routedHomeOpen,
   onHomeNavigate,
   folderURL = window.location.href,
@@ -1444,10 +1435,10 @@ function WorkbenchInner({
   const colorMode: ColorMode = themesHydrated ? themeState.mode : 'system'
   const lightThemeName = themesHydrated
     ? themeState.lightThemeName
-    : docsThemeCatalog.defaultLightThemeName
+    : themeCatalog.defaultLightThemeName
   const darkThemeName = themesHydrated
     ? themeState.darkThemeName
-    : docsThemeCatalog.defaultDarkThemeName
+    : themeCatalog.defaultDarkThemeName
   const setColorMode = useCallback((mode: ColorMode) => themeController.setColorMode(mode), [])
   const setLightThemeName = useCallback(
     (name: LightThemeName) => themeController.setThemeNameForScheme('light', name),
