@@ -194,7 +194,7 @@ async function selectLongLineOffset(page: Page, character: number) {
   )
 }
 
-for (const wrapped of [false]) {
+for (const wrapped of [false, true]) {
   test(`long ASCII line edits, search, selection and scroll: wrap ${wrapped}`, async ({
     page,
     app,
@@ -222,7 +222,18 @@ for (const wrapped of [false]) {
     await expect(page.locator('[data-matches]')).toHaveText('1 of 1')
     await expect
       .poll(() =>
-        page.evaluate(() => {
+        editor.evaluate((element) => {
+          const box = element.querySelector<HTMLElement>('[data-long-match="current"]')
+          if (box) {
+            const rect = box.getBoundingClientRect()
+            return (
+              Number(box.dataset.end) - Number(box.dataset.start) === 30 &&
+              rect.right > 0 &&
+              rect.left < innerWidth &&
+              rect.bottom > 0 &&
+              rect.top < innerHeight
+            )
+          }
           const registry = (CSS as typeof CSS & { highlights: Map<string, Set<Range>> }).highlights
           return [...(registry.get('diffs-search-current') ?? [])].some((range) => {
             if (!(range instanceof Range)) return false
@@ -263,6 +274,44 @@ for (const wrapped of [false]) {
         element.parentElement!.scrollLeft = 200000
       })
     } else {
+      await expect(editor.locator('[data-long-row]').first()).toHaveAttribute('data-char', '0')
+      const boundary = await editor.locator('[data-long-row]').nth(10).getAttribute('data-char')
+      const column = Number(boundary)
+      await selectLongLineOffset(page, column - 2)
+      await page.keyboard.press('Shift+ArrowRight')
+      await page.keyboard.press('Shift+ArrowRight')
+      await page.keyboard.press('Shift+ArrowRight')
+      await page.keyboard.press('Shift+ArrowRight')
+      await page.keyboard.press('Control+c')
+      await expect
+        .poll(() => page.evaluate(() => navigator.clipboard.readText()))
+        .toBe(changed.slice(column - 2, column + 2))
+      const points = await editor.evaluate((element, offset) => {
+        const point = (character: number) => {
+          const token = [...element.querySelectorAll<HTMLElement>('[data-long-row]')].find(
+            (row) => {
+              const start = Number(row.dataset.char)
+              return character >= start && character < start + (row.textContent?.length ?? 0)
+            },
+          )!
+          const start = Number(token.dataset.char)
+          const rect = token.getBoundingClientRect()
+          const width = rect.width / (token.textContent?.length ?? 1)
+          return { x: rect.left + (character - start) * width, y: rect.top + rect.height / 2 }
+        }
+        return [point(offset - 2), point(offset + 2)]
+      }, column)
+      await page.mouse.move(points[0]!.x, points[0]!.y)
+      await page.mouse.down()
+      await page.mouse.move(points[1]!.x, points[1]!.y, { steps: 5 })
+      await page.mouse.up()
+      await page.keyboard.press('Control+c')
+      await expect
+        .poll(() => page.evaluate(() => navigator.clipboard.readText()))
+        .toBe(changed.slice(column - 2, column + 2))
+      await expect
+        .poll(() => editor.textContent().then((text) => text?.length ?? 0))
+        .toBeLessThan(20000)
       await page.locator('.code-view.cv-scrollbar').evaluate((element) => {
         element.scrollTop = 5000
       })
@@ -277,7 +326,55 @@ for (const wrapped of [false]) {
     expect(visible.length).toBeGreaterThan(0)
     for (const token of visible)
       expect(changed.slice(token.start, token.start + token.text.length)).toBe(token.text)
-    if (!wrapped) expect(visible[0]!.start).toBeGreaterThan(0)
+    expect(visible[0]!.start).toBeGreaterThan(0)
+  })
+}
+
+for (const wrapped of [false, true]) {
+  test(`long tabbed line uses logical columns: wrap ${wrapped}`, async ({ page, app, context }) => {
+    await context.grantPermissions(['clipboard-read', 'clipboard-write'])
+    await page.setViewportSize({ width: 1300, height: 1000 })
+    const prefix = 'header\n'.repeat(10)
+    const original =
+      prefix +
+      Array.from({ length: 5000 }, (_, index) => `${String(index).padStart(9, '0')}\t`).join('')
+    const file = join(app.repo, 'tabbed.txt')
+    writeFileSync(file, original)
+    await page.goto(app.url)
+    await openFile(page, 'tabbed.txt')
+    await page.getByRole('button', { name: 'Display settings', exact: true }).click()
+    const wrap = page.getByRole('switch', { name: 'Word wrap', exact: true })
+    if ((await wrap.isChecked()) !== wrapped) await wrap.click()
+    await page.keyboard.press('Escape')
+    const editor = page.getByRole('textbox', { name: 'tabbed.txt', exact: true })
+    await editor.focus()
+    await page.keyboard.press('Control+f')
+    await page.getByRole('textbox', { name: 'Search', exact: true }).fill('000002500')
+    await expect(page.locator('[data-matches]')).toHaveText('1 of 1')
+    const match = editor.locator('[data-long-match="current"]').first()
+    await expect(match).toBeVisible()
+    const rect = (await match.boundingBox())!
+    await page.keyboard.press('Escape')
+    const tabWidth = await editor.evaluate((element) => {
+      const size = Number(getComputedStyle(element).tabSize)
+      return size - (9 % size)
+    })
+    await page.mouse.click(
+      rect.x + rect.width + ((tabWidth - 0.2) * rect.width) / 9,
+      rect.y + rect.height / 2,
+    )
+    await page.keyboard.insertText('TABMARK')
+    await page.keyboard.press('Control+s')
+    const offset = prefix.length + 25010
+    await expect.poll(() => readFileSync(file, 'utf8').indexOf('TABMARK')).toBe(offset)
+    expect(readFileSync(file, 'utf8')).toBe(
+      `${original.slice(0, offset)}TABMARK${original.slice(offset)}`,
+    )
+    await page.keyboard.down('Shift')
+    for (let index = 0; index < 7; index++) await page.keyboard.press('ArrowLeft')
+    await page.keyboard.up('Shift')
+    await page.keyboard.press('Control+c')
+    await expect.poll(() => page.evaluate(() => navigator.clipboard.readText())).toBe('TABMARK')
   })
 }
 

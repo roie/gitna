@@ -304,9 +304,8 @@ for (const chunk of ['aB09', 'const x = 1; ']) {
     await page.getByRole('button', { name: 'Open anyway' }).click()
     const editor = page.locator('.code-view [contenteditable="true"]').first()
     await expect(editor).toBeVisible({ timeout: 20000 })
-    await expect
-      .poll(() => editor.evaluate((element) => element.textContent?.length))
-      .toBe(content.length)
+    await expect(editor.locator('[data-long-row]').first()).toBeVisible()
+    expect(await editor.evaluate((element) => element.textContent?.length)).toBeLessThan(10000)
     await editor.focus()
     await editor.press('Control+End', { timeout: 8000 })
     await editor.press('Z', { timeout: 8000 })
