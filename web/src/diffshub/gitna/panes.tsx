@@ -16,12 +16,8 @@ import { Button } from '../components/Button'
 import { CHROME_ICON_BUTTON_CLASS } from '../components/chromeButtonStyles'
 import { DropdownMenuTrigger } from '../components/DropdownMenu'
 import { cn } from '../lib/cn'
-import {
-  CODE_VIEW_FILE_TREE_SEARCH_OPEN_HEIGHT,
-  LAZY_REPOSITORY_FILE_TREE_OPTIONS,
-  BASE_FILE_TREE_OPTIONS,
-} from '../lib/constants'
-import { Tree } from './Tree'
+import { CODE_VIEW_FILE_TREE_SEARCH_OPEN_HEIGHT } from '../lib/constants'
+import { Tree, TREE_CSS } from './Tree'
 import type { DiffsHubFileTreeSource } from '../lib/types'
 import { Header } from './ui/Header'
 
@@ -319,10 +315,15 @@ export function TreeSection({
               >
                 <Tree
                   options={{
-                    ...(lazyDirectories == null
-                      ? BASE_FILE_TREE_OPTIONS
-                      : LAZY_REPOSITORY_FILE_TREE_OPTIONS),
                     id: modelId,
+                    ...(lazyDirectories == null
+                      ? {}
+                      : {
+                          flattenEmptyDirectories: false,
+                          search: false,
+                          initialExpansion: 'closed',
+                          unsafeCSS: TREE_CSS,
+                        }),
                   }}
                   key={lazyDirectories == null ? 'complete' : 'lazy'}
                   className={cn(

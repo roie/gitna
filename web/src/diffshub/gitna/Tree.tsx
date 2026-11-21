@@ -144,6 +144,85 @@ export function resetLazyDirectory(model: FileTreeModel, path: string): void {
   if (expanded) (model.getItem(path) as FileTreeDirectoryHandle).expand()
 }
 
+const HIDDEN_SEARCH_UNSAFE_CSS = `
+  [data-file-tree-search-container][data-open='false'] {
+    display: none;
+  }
+  [data-file-tree-search-container] {
+    padding-bottom: 12px;
+    margin-bottom: 12px;
+    margin-right: 4px;
+    border-bottom: 1px solid var(--color-border);
+    padding-inline-start: 1px;
+    padding-inline-end: 5px;
+  }
+
+  [data-file-tree-sticky-overlay-content] {
+
+    [data-item-section="spacing"] {
+      opacity: 0.5;
+    }
+
+    > [data-file-tree-sticky-path]:last-of-type {
+      border-bottom-left-radius: 0;
+      border-bottom-right-radius: 0;
+
+      [data-item-section="spacing"] {
+        margin-bottom: 4px;
+      }
+    }
+  }
+
+  @media (prefers-color-scheme: dark) {
+    [data-file-tree-sticky-overlay-content] {
+
+      [data-item-section="spacing"] {
+        opacity: 0.6;
+      }
+    }
+  }
+`
+
+const SIDEBAR_VIRTUALIZED_SCROLL_UNSAFE_CSS = `
+  [data-file-tree-virtualized-scroll="true"] {
+    padding-inline-start: 0;
+    padding-inline-end: 2px;
+    margin-inline-end: 2px;
+  }
+
+  @media (width <= 767px) {
+    [data-file-tree-search-container="true"],
+    [data-file-tree-virtualized-scroll="true"] {
+      padding-inline-start: 14px;
+    }
+
+    [data-file-tree-search-container="true"] {
+      margin-right: 0;
+      padding-inline-end: 14px;
+    }
+
+    [data-file-tree-virtualized-scroll="true"] {
+      padding-inline-end: max(0px, calc(14px - var(--trees-scrollbar-gutter)));
+    }
+  }
+`
+
+const SUPPRESS_FOLDER_DOT_UNSAFE_CSS = `
+  [data-item-contains-git-change='true'] > [data-item-section='git'] {
+    display: none;
+  }
+`
+
+const FILE_TREE_ACTION_SPRITE_SHEET = `
+<svg xmlns="http://www.w3.org/2000/svg" aria-hidden="true" style="display:none">
+  <symbol id="gitna-action-stage" viewBox="0 0 16 16"><path d="M7 3h2v4h4v2H9v4H7V9H3V7h4z" /></symbol>
+  <symbol id="gitna-action-unstage" viewBox="0 0 16 16"><path d="M3 7h10v2H3z" /></symbol>
+  <symbol id="gitna-action-discard" viewBox="0 0 16 16"><path d="M6 3v2h4a4 4 0 1 1 0 8H8v-2h2a2 2 0 1 0 0-4H6v2L2 6l4-4v1z" /></symbol>
+  <symbol id="gitna-action-open-file" viewBox="0 0 16 16"><path d="M3 2h7l3 3v9H3V2zm2 2v8h6V6H9V4H5zm1 3h4v1.5H6V7zm0 2.5h4V11H6V9.5z" /></symbol>
+</svg>`
+
+export const TREE_CSS = `${HIDDEN_SEARCH_UNSAFE_CSS}\n${SIDEBAR_VIRTUALIZED_SCROLL_UNSAFE_CSS}`
+
 const DENSITY_OVERRIDE_STYLES = {
   '--trees-padding-inline-override': 8,
   '--trees-git-renamed-color-override': 'light-dark(#007aff, #007aff)',
@@ -154,8 +233,6 @@ interface TreeProps {
   style?: CSSProperties
   className?: string
   dragAndDrop?: FileTreeDragAndDropConfig
-  initialExpandedPaths?: readonly string[]
-  onExpandedPathsChange?: (paths: readonly string[]) => void
   lazyDirectories?: ReadonlySet<string>
   knownEmptyDirectories?: ReadonlySet<string>
   pagedDirectories?: ReadonlySet<string>
@@ -180,8 +257,6 @@ export const Tree = memo(function Tree({
   style,
   className,
   dragAndDrop,
-  initialExpandedPaths,
-  onExpandedPathsChange,
   lazyDirectories,
   knownEmptyDirectories,
   pagedDirectories,
@@ -369,10 +444,15 @@ export const Tree = memo(function Tree({
   )
 
   const { model } = useFileTree({
-    ...options,
+    flattenEmptyDirectories: true,
+    initialExpansion: 'open',
+    icons: { set: 'complete', spriteSheet: FILE_TREE_ACTION_SPRITE_SHEET },
+    presorted: true,
+    search: true,
+    stickyFolders: true,
+    unsafeCSS: `${TREE_CSS}\n${SUPPRESS_FOLDER_DOT_UNSAFE_CSS}`,
     density: 'compact',
-    initialExpansion: initialExpandedPaths == null ? options.initialExpansion : 'closed',
-    initialExpandedPaths,
+    ...options,
     gitStatus: source.gitStatus,
     dragAndDrop:
       dragAndDrop == null
@@ -392,32 +472,6 @@ export const Tree = memo(function Tree({
     initialVisibleRowCount,
     initialUnloadedDirectoryPaths: lazyDirectories == null ? undefined : [...lazyDirectories],
   })
-
-  const directoryPaths = useMemo(() => {
-    if (onExpandedPathsChange == null) return []
-    const directories = new Set<string>()
-    for (const path of source.paths.slice(0, source.pathCount)) {
-      let separator = path.indexOf('/')
-      while (separator >= 0) {
-        directories.add(path.slice(0, separator + 1))
-        separator = path.indexOf('/', separator + 1)
-      }
-    }
-    return [...directories]
-  }, [onExpandedPathsChange, source])
-
-  useLayoutEffect(() => {
-    if (onExpandedPathsChange == null) return
-    const publish = () =>
-      onExpandedPathsChange(
-        directoryPaths.filter((path) => {
-          const item = model.getItem(path)
-          return item?.isDirectory() && (item as FileTreeDirectoryHandle).isExpanded()
-        }),
-      )
-    publish()
-    return model.subscribe(publish)
-  }, [directoryPaths, model, onExpandedPathsChange])
 
   useEffect(() => {
     if (lazyDirectories == null) return
@@ -506,7 +560,7 @@ export const Tree = memo(function Tree({
     if (fileTreeContainer != null) model.render({ fileTreeContainer })
   }, [model, renderRowActions])
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     onModelReady?.(model)
     return () => onModelReady?.(null)
   }, [model, onModelReady])

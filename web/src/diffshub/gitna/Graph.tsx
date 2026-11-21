@@ -14,7 +14,8 @@ import type { GraphRow } from '../../lib/graph-lanes'
 import type { CommitFile } from '../../lib/types'
 import { Button } from '../components/Button'
 import { CHROME_ICON_BUTTON_CLASS } from '../components/chromeButtonStyles'
-import { DiffsHubFileTree } from '../components/DiffsHubFileTree'
+import type { FileTree, FileTreeDirectoryHandle } from '@pierre/trees'
+import { Tree } from './Tree'
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -611,6 +612,35 @@ const CommitRow = memo(function CommitRow({
     },
     [files, treeExpansionCache, view],
   )
+  const [treeModel, setTreeModel] = useState<FileTree | null>(null)
+  const [treeHeight, setTreeHeight] = useState(0)
+  const directoryPaths = useMemo(() => {
+    const paths = new Set<string>()
+    for (const path of source.paths) {
+      for (
+        let separator = path.indexOf('/');
+        separator >= 0;
+        separator = path.indexOf('/', separator + 1)
+      ) {
+        paths.add(path.slice(0, separator + 1))
+      }
+    }
+    return [...paths]
+  }, [source])
+  useLayoutEffect(() => {
+    if (treeModel == null) return
+    const publish = () => {
+      setTreeHeight(treeModel.getVisibleCount() * treeModel.getItemHeight())
+      saveExpandedPaths(
+        directoryPaths.filter((path) => {
+          const item = treeModel.getItem(path)
+          return item?.isDirectory() && (item as FileTreeDirectoryHandle).isExpanded()
+        }),
+      )
+    }
+    publish()
+    return treeModel.subscribe(publish)
+  }, [directoryPaths, saveExpandedPaths, treeModel])
   const selectedPath =
     repository.commitDiff?.oid === row.commit.oid ? repository.commitDiff.path : null
   const refs = row.commit.refs.filter(
@@ -788,13 +818,17 @@ const CommitRow = memo(function CommitRow({
             <p className="px-3 py-2 text-xs text-muted-foreground">Loading…</p>
           )}
           {files != null && files.length > 0 && (
-            <DiffsHubFileTree
+            <Tree
               key={view}
-              className="md:ml-1"
-              modelId={`gitna-graph-${row.commit.oid}`}
-              fitContent
-              initialExpandedPaths={initialExpandedPaths}
-              onExpandedPathsChange={saveExpandedPaths}
+              className="overscroll-auto md:ml-1"
+              style={{ height: treeHeight }}
+              options={{
+                id: `gitna-graph-${row.commit.oid}`,
+                ...(initialExpandedPaths == null
+                  ? {}
+                  : { initialExpansion: 'closed', initialExpandedPaths }),
+              }}
+              onModelReady={setTreeModel}
               onSelectItem={(path) => {
                 const file = files.find((candidate) => candidate.path === path)
                 if (file != null) {
