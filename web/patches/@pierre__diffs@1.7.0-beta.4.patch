@@ -466,14 +466,14 @@ index 545a3446a17190214924f5fc445c51bb1a24db52..628995a5ab9e0065076331ff28ed1063
  		element,
  		reset
 diff --git a/dist/editor/editor.js b/dist/editor/editor.js
-index b4c280390b52434f63fbe7916d81b150d9006fb4..8226d7d04639dfac981d04448716fbddc6841133 100644
+index b4c280390b52434f63fbe7916d81b150d9006fb4..f9d1fc59c6303c1779072a6bae2c011ec602415c 100644
 --- a/dist/editor/editor.js
 +++ b/dist/editor/editor.js
 @@ -29,6 +29,7 @@ import { findBracketMatchRanges } from "./matchBrackets.js";
  import { SelectionActionWidget } from "./selectionAction.js";
  import { Metrics, getExpandedAsciiTextColumns, getUnicodeMeasurementOffsets, snapTextOffsetToUnicodeBoundary } from "./textMeasure.js";
  import { EditorTokenizer } from "./tokenizer.js";
-+import { longLine, longLineElements } from "./longLine.js";
++import { LONG_LINE, longLine, longLineElements } from "./longLine.js";
  //#region src/editor/editor.ts
  function createFullDocumentChange(previousText, text) {
  	const previousContents = normalizeLineBreaks(previousText);
@@ -485,7 +485,7 @@ index b4c280390b52434f63fbe7916d81b150d9006fb4..8226d7d04639dfac981d04448716fbdd
  	#wrapLineOffsetsCache = /* @__PURE__ */ new Map();
  	#lastAccessedCharX;
  	#globalStyleElement;
-@@ -732,6 +734,79 @@ var Editor = class {
+@@ -732,6 +734,84 @@ var Editor = class {
  	__assertOutsideChangeCallback(caller) {
  		if (this.#inChangeCallback) throw new Error(`${caller}: not allowed inside onChange or onEditChange; the editor owns the document, so observe the change and call back after the callback returns`);
  	}
@@ -510,6 +510,7 @@ index b4c280390b52434f63fbe7916d81b150d9006fb4..8226d7d04639dfac981d04448716fbdd
 +		if (this.#longLines.size > 0) queueRender(this.#refreshLongLines);
 +	};
 +	__bindLongLines(content, specs) {
++		if (this.#longLines.size === 0) return;
 +		const layouts = new Map(specs.filter((spec) => spec.content.longLineLayout != null).map((spec) => [Number(spec.content.properties["data-line"]), spec.content]));
 +		for (const element of content.querySelectorAll(":scope > [data-long-line]")) {
 +			const number = Number(element.dataset.line);
@@ -518,7 +519,7 @@ index b4c280390b52434f63fbe7916d81b150d9006fb4..8226d7d04639dfac981d04448716fbdd
 +			if (node != null) {
 +				const layout = node.longLineLayout;
 +				this.#longLines.set(line, layout);
-+				longLineElements.set(element, { layout, rendered: node.longLineWindow, ch: this.#metrics.ch, lineHeight: this.#metrics.lineHeight });
++				longLineElements.set(element, { layout, ch: this.#metrics.ch, lineHeight: this.#metrics.lineHeight });
 +			}
 +		}
 +	}
@@ -529,6 +530,10 @@ index b4c280390b52434f63fbe7916d81b150d9006fb4..8226d7d04639dfac981d04448716fbdd
 +			const number = Number(spec.content.properties["data-line"]);
 +			if (!number || spec.content.properties["data-line-type"] === "change-deletion") return spec;
 +			const line = this.#fileDiffInstance?.editLineFor(number) ?? number - 1;
++			if (this.#editSession?.document?.getLineLength(line) <= LONG_LINE) {
++				this.#longLines.delete(line);
++				return spec;
++			}
 +			let held = this.#longLineNodes.get(spec.content);
 +			if (held == null) {
 +				held = { layout: longLine(spec.content, this.#metrics.tabSize) };
@@ -565,7 +570,7 @@ index b4c280390b52434f63fbe7916d81b150d9006fb4..8226d7d04639dfac981d04448716fbdd
  	/** @internal */
  	__syncRenderView(props) {
  		const { highlighter, fileContainer, columns, renderRange, domCurrent } = props;
-@@ -930,6 +1005,7 @@ var Editor = class {
+@@ -930,6 +1010,7 @@ var Editor = class {
  		});
  	}
  	#resetCache() {
@@ -573,7 +578,7 @@ index b4c280390b52434f63fbe7916d81b150d9006fb4..8226d7d04639dfac981d04448716fbdd
  		this.#lineYCache.clear();
  		this.#lastAccessedCharX = void 0;
  	}
-@@ -1058,6 +1134,7 @@ var Editor = class {
+@@ -1058,6 +1139,7 @@ var Editor = class {
  			addEventListener(document, "selectionchange", () => {
  				const shadowRoot = this.#fileContainer?.shadowRoot;
  				if (shadowRoot == null || !this.#canReadNativeSelection()) return;
@@ -581,7 +586,7 @@ index b4c280390b52434f63fbe7916d81b150d9006fb4..8226d7d04639dfac981d04448716fbdd
  				if (this.#selections !== void 0 && this.#selections.length > 1 && !this.#isContentMouseDown) return;
  				const composedRange = getComposedSelectionRange(shadowRoot);
  				if (composedRange === void 0 || !this.#rangeBelongsToEditor(composedRange)) return;
-@@ -1116,6 +1193,10 @@ var Editor = class {
+@@ -1116,6 +1198,10 @@ var Editor = class {
  	#preserveEditorSelectionsForGutterGesture() {
  		this.#suppressNativeSelectionSync = this.#selections !== void 0;
  	}
@@ -592,7 +597,7 @@ index b4c280390b52434f63fbe7916d81b150d9006fb4..8226d7d04639dfac981d04448716fbdd
  	#canReadNativeSelection() {
  		return !this.#isComposing && this.#focusRequest == null && !this.#isPointerOverAnnotation && !this.#suppressNativeSelectionSync && this.#contentHasFocus;
  	}
-@@ -1128,6 +1209,15 @@ var Editor = class {
+@@ -1128,6 +1214,15 @@ var Editor = class {
  		};
  		this.#editorEventDisposes?.forEach((dispose) => dispose());
  		this.#editorEventDisposes = [
@@ -608,7 +613,7 @@ index b4c280390b52434f63fbe7916d81b150d9006fb4..8226d7d04639dfac981d04448716fbdd
  			addEventListener(contentEl, "focus", () => {
  				this.#contentHasFocus = true;
  				onFocus?.();
-@@ -1161,6 +1251,31 @@ var Editor = class {
+@@ -1161,6 +1256,31 @@ var Editor = class {
  					selectEventDisposes.push(...annotationDisposes);
  				}
  				this.#isContentMouseDown = true;
@@ -640,7 +645,7 @@ index b4c280390b52434f63fbe7916d81b150d9006fb4..8226d7d04639dfac981d04448716fbdd
  				const isAltColumnDrag = e.button === 0 && e.altKey && !e.ctrlKey && !e.metaKey && !e.shiftKey;
  				this.#selectionStart = void 0;
  				if (isAltColumnDrag) {
-@@ -1195,7 +1310,7 @@ var Editor = class {
+@@ -1195,7 +1315,7 @@ var Editor = class {
  					}
  					this.#shiftKeyPressed = true;
  				}
@@ -649,7 +654,7 @@ index b4c280390b52434f63fbe7916d81b150d9006fb4..8226d7d04639dfac981d04448716fbdd
  			addEventListener(contentEl, "keydown", (e) => {
  				if (!targetIsContentElement(e)) return;
  				this.#canMountSelectionAction = true;
-@@ -1863,6 +1978,7 @@ var Editor = class {
+@@ -1863,6 +1983,7 @@ var Editor = class {
  		if (!gutterWidthChanged && !contentWidthChanged) return;
  		this.#lastAccessedCharX = void 0;
  		this.#metrics.clearTextWidthCache();
@@ -657,7 +662,7 @@ index b4c280390b52434f63fbe7916d81b150d9006fb4..8226d7d04639dfac981d04448716fbdd
  		if (contentWidthChanged) {
  			this.#wrapLineOffsetsCache.clear();
  			if (this.#isWrap || lineAnnotations > 0) this.#lineYCache.clear();
-@@ -2075,6 +2191,7 @@ var Editor = class {
+@@ -2075,6 +2196,7 @@ var Editor = class {
  		const winSelection = window.getSelection();
  		if (winSelection === null) return;
  		let { start, end, direction } = selection;
@@ -665,7 +670,7 @@ index b4c280390b52434f63fbe7916d81b150d9006fb4..8226d7d04639dfac981d04448716fbdd
  		if (comparePosition(start, end) > 0) [start, end] = [end, start];
  		const startLineElement = this.#getLineElement(start.line);
  		const endLineElement = this.#getLineElement(end.line);
-@@ -2790,6 +2907,7 @@ var Editor = class {
+@@ -2790,6 +2912,7 @@ var Editor = class {
  		prediction.rendered = true;
  	}
  	#updateSelections(selections) {
@@ -673,7 +678,7 @@ index b4c280390b52434f63fbe7916d81b150d9006fb4..8226d7d04639dfac981d04448716fbdd
  		this.__postponeBgTokenizeToNextFrame();
  		const previousSelections = this.#selections;
  		let selectionsChanged = previousSelections?.length !== selections.length;
-@@ -2923,7 +3041,7 @@ var Editor = class {
+@@ -2923,7 +3046,7 @@ var Editor = class {
  			if (this.#isWrap) {
  				const contentWidth = this.#getContentWidth();
  				const lineText = this.#editSession?.document.getLineText(line);
@@ -682,7 +687,7 @@ index b4c280390b52434f63fbe7916d81b150d9006fb4..8226d7d04639dfac981d04448716fbdd
  					this.#renderWrappedSelection(renderCtx, line, lineText, startChar, endChar, isLastLine, type, extraDataset, connectedCaret);
  					continue;
  				}
-@@ -2943,10 +3061,39 @@ var Editor = class {
+@@ -2943,10 +3066,39 @@ var Editor = class {
  		}
  	}
  	#renderWrappedSelection(renderCtx, line, lineText, startChar, endChar, isLastLine, type, extraDataset, connectedCaret) {
@@ -723,7 +728,7 @@ index b4c280390b52434f63fbe7916d81b150d9006fb4..8226d7d04639dfac981d04448716fbdd
  			const segmentStart = wrapOffsets[wrapLine];
  			const segmentEnd = wrapOffsets[wrapLine + 1];
  			const wrapStartChar = Math.max(startChar, segmentStart);
-@@ -2963,6 +3110,65 @@ var Editor = class {
+@@ -2963,6 +3115,65 @@ var Editor = class {
  			});
  		}
  	}
@@ -789,7 +794,7 @@ index b4c280390b52434f63fbe7916d81b150d9006fb4..8226d7d04639dfac981d04448716fbdd
  	#segmentTextWidth(lineText, segmentStart, character) {
  		if (character <= segmentStart) return 0;
  		const segmentText = lineText.slice(segmentStart, character);
-@@ -3314,7 +3520,7 @@ var Editor = class {
+@@ -3314,7 +3525,7 @@ var Editor = class {
  			this.#revealLineIfCollapsed(position.line);
  			this.#scrollingToLine = void 0;
  			this.#scrollingToLineFixed = false;
@@ -798,7 +803,7 @@ index b4c280390b52434f63fbe7916d81b150d9006fb4..8226d7d04639dfac981d04448716fbdd
  				centerSearchNavigation = true;
  				this.#scrollToLine(position.line, position.character, true);
  			}
-@@ -3655,7 +3861,11 @@ var Editor = class {
+@@ -3655,7 +3866,11 @@ var Editor = class {
  		if (cachedY !== void 0) return cachedY;
  		const lineElement = this.#getLineElement(line);
  		if (lineElement === void 0) return -1;
@@ -811,7 +816,7 @@ index b4c280390b52434f63fbe7916d81b150d9006fb4..8226d7d04639dfac981d04448716fbdd
  		y += this.#activeContentOffset?.top ?? 0;
  		this.#lineYCache.set(line, y);
  		return y;
-@@ -3665,7 +3875,19 @@ var Editor = class {
+@@ -3665,7 +3880,19 @@ var Editor = class {
  		const lineText = this.#editSession?.document?.getLineText(line);
  		const offsetLeft = this.#getGutterWidth() + this.#metrics.ch;
  		if (lineText === void 0 || lineText.length === 0 || char <= 0) return [offsetLeft + (this.#activeContentOffset?.left ?? 0), 0];
@@ -831,7 +836,7 @@ index b4c280390b52434f63fbe7916d81b150d9006fb4..8226d7d04639dfac981d04448716fbdd
  		const textBeforeCharacter = lineText.slice(0, boundedCharacter);
  		const asciiColumns = getExpandedAsciiTextColumns(textBeforeCharacter, this.#metrics.tabSize);
  		let left = 0;
-@@ -3674,7 +3896,7 @@ var Editor = class {
+@@ -3674,7 +3901,7 @@ var Editor = class {
  		else left = offsetLeft + this.#metrics.measureTextWidth(textBeforeCharacter);
  		if (this.#isWrap) {
  			const contentWidth = this.#getContentWidth();
@@ -840,7 +845,7 @@ index b4c280390b52434f63fbe7916d81b150d9006fb4..8226d7d04639dfac981d04448716fbdd
  				const wrapOffsets = this.#wrapLineText(line);
  				if (wrapOffsets == null) return [left + (this.#activeContentOffset?.left ?? 0), 0];
  				for (let w = 0; w + 1 < wrapOffsets.length; w++) {
-@@ -3704,7 +3926,114 @@ var Editor = class {
+@@ -3704,7 +3931,114 @@ var Editor = class {
  		];
  		return [left, wrapLine];
  	}
@@ -955,7 +960,7 @@ index b4c280390b52434f63fbe7916d81b150d9006fb4..8226d7d04639dfac981d04448716fbdd
  		const cachedOffsets = this.#wrapLineOffsetsCache.get(line);
  		if (cachedOffsets !== void 0) return cachedOffsets;
  		if (this.#wrapLineOffsetsCache.size >= MAX_WRAP_OFFSETS_CACHE_LINES) this.#wrapLineOffsetsCache.clear();
-@@ -3716,6 +4045,16 @@ var Editor = class {
+@@ -3716,6 +4050,16 @@ var Editor = class {
  		}
  		const contentElement = this.#contentElement;
  		if (contentElement == null || !contentElement.isConnected) return;
@@ -972,7 +977,7 @@ index b4c280390b52434f63fbe7916d81b150d9006fb4..8226d7d04639dfac981d04448716fbdd
  		const div = h("div", {
  			style: {
  				position: "absolute",
-@@ -3739,6 +4078,13 @@ var Editor = class {
+@@ -3739,6 +4083,13 @@ var Editor = class {
  		try {
  			const divRect = div.getBoundingClientRect();
  			if (divRect.width === 0) return;
@@ -988,10 +993,10 @@ index b4c280390b52434f63fbe7916d81b150d9006fb4..8226d7d04639dfac981d04448716fbdd
  			const graphemeCount = unicodeOffsets === void 0 ? lineText.length : unicodeOffsets.length - 1;
 diff --git a/dist/editor/longLine.js b/dist/editor/longLine.js
 new file mode 100644
-index 0000000000000000000000000000000000000000..5409df7c2a4b785febc803d2750e65a2faf35a27
+index 0000000000000000000000000000000000000000..6ad5e0370c14c7bd13fc3cec16a35a7b1f113724
 --- /dev/null
 +++ b/dist/editor/longLine.js
-@@ -0,0 +1,144 @@
+@@ -0,0 +1,143 @@
 +const LONG_LINE = 20000;
 +
 +class LongLine {
@@ -1071,7 +1076,7 @@ index 0000000000000000000000000000000000000000..5409df7c2a4b785febc803d2750e65a2
 +			});
 +			this.rows.set(row, children[children.length - 1]);
 +		}
-+		const node = { ...this.node, longLineLayout: this, longLineWindow: { first, last }, properties: { ...this.node.properties, "data-long-line": "", "data-window-start": first, "data-window-end": last, style: `${this.node.properties.style ?? ""};contain:strict;position:relative;block-size:${this.rowCount * lineHeight}px;white-space:pre;word-break:normal;` }, children };
++		const node = { ...this.node, longLineLayout: this, properties: { ...this.node.properties, "data-long-line": "", "data-window-start": first, "data-window-end": last, style: `${this.node.properties.style ?? ""};contain:strict;position:relative;block-size:${this.rowCount * lineHeight}px;white-space:pre;word-break:normal;` }, children };
 +		this.rendered = { first, last, ch, lineHeight, node };
 +		return node;
 +	}
@@ -1084,7 +1089,6 @@ index 0000000000000000000000000000000000000000..5409df7c2a4b785febc803d2750e65a2
 +		const node = {
 +			...this.node,
 +			longLineLayout: this,
-+			longLineWindow: { start, end },
 +			properties: {
 +				...this.node.properties,
 +				"data-long-line": "",
@@ -1734,7 +1738,7 @@ index 540503f0ea47ce82d5882dd7d610b602992b53be..2bafa724ee9461f1f796e92b179d406f
  		};
  		if (rowSource != null && model.live && rowSource.model === model) {
 diff --git a/dist/search/SearchHighlighter.js b/dist/search/SearchHighlighter.js
-index 22d85aa225334e39ae642b0f3533b5aecaa98892..71b7796c9113a10ada0a3f9b6578df5cd81364ce 100644
+index 22d85aa225334e39ae642b0f3533b5aecaa98892..130c4952d0862d2fcf89ef6d190bedb944954de2 100644
 --- a/dist/search/SearchHighlighter.js
 +++ b/dist/search/SearchHighlighter.js
 @@ -1,3 +1,4 @@
@@ -1797,23 +1801,6 @@ index 22d85aa225334e39ae642b0f3533b5aecaa98892..71b7796c9113a10ada0a3f9b6578df5c
  		const document = row.ownerDocument;
  		const walker = document.createTreeWalker(row, NodeFilter.SHOW_TEXT);
  		let offset = 0;
-@@ -64,13 +99,15 @@ var SearchHighlighter = class SearchHighlighter {
- 		let range;
- 		let node;
- 		while ((node = walker.nextNode()) != null && index < matches.length) {
-+			if (row.hasAttribute("data-long-line")) offset = Number(node.parentElement.closest("[data-char]").dataset.char);
- 			const end = offset + (node.textContent?.length ?? 0);
-+			while (index < matches.length && matches[index].endCharacter <= offset) index++;
- 			while (index < matches.length) {
- 				const match = matches[index];
- 				if (match.startCharacter >= end) break;
- 				if (range == null) {
- 					range = document.createRange();
--					range.setStart(node, match.startCharacter - offset);
-+					range.setStart(node, Math.max(0, match.startCharacter - offset));
- 				}
- 				if (match.endCharacter > end) break;
- 				range.setEnd(node, match.endCharacter - offset);
 diff --git a/dist/search/SearchPanelWidget.js b/dist/search/SearchPanelWidget.js
 index 14970e0ba17385d19ae26ad01a4921f69ce1d2ff..2849e77750cb7e6990b837cb127a93c28effacff 100644
 --- a/dist/search/SearchPanelWidget.js
