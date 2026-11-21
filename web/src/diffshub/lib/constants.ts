@@ -1,4 +1,9 @@
-import type { CodeViewLayout } from '@pierre/diffs';
+// Modified by Gitna: preserve local review layout and select the measured diff engine.
+import { canUseWASM, type CodeViewLayout, type ParseDiffOptions } from '@pierre/diffs';
+
+export const DIFF_PARSE_OPTIONS: ParseDiffOptions = {
+  preferredDiffLib: canUseWASM() ? '@pierre/patches' : 'jsdiff',
+};
 
 export const CODE_VIEW_LAYOUT: CodeViewLayout = {
   paddingTop: 0,

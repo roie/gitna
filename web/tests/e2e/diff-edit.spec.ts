@@ -134,6 +134,44 @@ test('undo in a diff survives leaving and reopening the review', async ({ page, 
   await expect(reopened).not.toContainText('undo me')
 })
 
+for (const surface of ['file', 'diff'] as const) {
+  test(`${surface} undo and redo retain history after saving`, async ({ page, app }) => {
+    await page.goto(app.url)
+    if (surface === 'file') {
+      await page.locator('[data-section="repository"]').click()
+      await page
+        .locator('#gitna-repository-tree__tree')
+        .getByRole('treeitem', { name: 'modified.txt', exact: true })
+        .click()
+    } else {
+      await openUnstaged(page, 'modified.txt')
+    }
+    const editor = page.getByRole('textbox', { name: 'modified.txt', exact: true })
+    const original = await editor.textContent()
+    await editor.click()
+    await page.keyboard.press('Control+End')
+    await page.keyboard.type(' undo-redo')
+    await expect(editor).toContainText('undo-redo')
+    await page.keyboard.press('Control+z')
+    await expect(editor).toHaveText(original ?? '')
+    await page.keyboard.press('Control+y')
+    await expect(editor).toContainText('undo-redo')
+    await page.keyboard.press('Control+z')
+    await expect(editor).toHaveText(original ?? '')
+    await page.keyboard.press('Control+Shift+z')
+    await expect(editor).toContainText('undo-redo')
+    await page.keyboard.press('Control+s')
+    await expect
+      .poll(() => readFileSync(join(app.repo, 'modified.txt'), 'utf8'))
+      .toBe(surface === 'file' ? 'unstaged change\n undo-redo' : 'unstaged change undo-redo\n')
+    await expect(editor).toBeFocused()
+    await page.keyboard.press('Control+z')
+    await expect(editor).toHaveText(original ?? '')
+    await page.keyboard.press('Control+Shift+z')
+    await expect(editor).toContainText('undo-redo')
+  })
+}
+
 test('an intent-to-add file can be edited in its diff', async ({ page, app }) => {
   writeFileSync(join(app.repo, 'intent.txt'), 'intent\n')
   const result = spawnSync('git', ['add', '-N', '--', 'intent.txt'], {

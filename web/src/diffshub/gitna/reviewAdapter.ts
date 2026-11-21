@@ -7,6 +7,7 @@ import {
   type LineAnnotation,
 } from '@pierre/diffs'
 
+import { DIFF_PARSE_OPTIONS } from '../lib/constants'
 import {
   appendFileDiffToDiffsHubData,
   createDiffsHubDataAccumulator,
@@ -118,7 +119,7 @@ export function adaptWorktreeComparison(
     lang: diff.after.language as FileContents['lang'],
     cacheKey: `${cacheNamespace}worktree-compare:${generation}:${diff.after.path}`,
   }
-  const fileDiff = parseDiffFromFile(before, after, undefined, true)
+  const fileDiff = parseDiffFromFile(before, after, DIFF_PARSE_OPTIONS, true)
   const accumulator = createDiffsHubDataAccumulator()
   appendFileDiffToDiffsHubData(accumulator, fileDiff, undefined)
   const item = accumulator.items.at(-1)
@@ -234,7 +235,7 @@ export function appendGitnaReviewPage(
           cacheKey: after.cacheKey,
           throwOnError: true,
         })
-      : parseDiffFromFile(before, after, undefined, true)
+      : parseDiffFromFile(before, after, DIFF_PARSE_OPTIONS, true)
     if (fileDiff == null) throw new Error(`Invalid review patch for ${supplement.path}`)
     // Protocol paths, not quoted patch headers, are the operation identity.
     fileDiff.name = supplement.path
@@ -287,7 +288,7 @@ export function draftDiffItem(
   const fileDiff = parseDiffFromFile(
     before,
     { ...draft, name: item.fileDiff.name },
-    undefined,
+    DIFF_PARSE_OPTIONS,
     true,
   )
   fileDiff.name = item.fileDiff.name

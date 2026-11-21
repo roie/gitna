@@ -1,4 +1,5 @@
 'use client';
+// Modified by Gitna: bound local workers and use the measured diff engine.
 
 import { canUseWASM, DEFAULT_THEMES } from '@pierre/diffs';
 import DiffsWorker from '@pierre/diffs/worker/worker.js?worker';
@@ -8,6 +9,7 @@ import {
   type WorkerPoolOptions,
 } from '@pierre/diffs/react';
 import type { ReactNode } from 'react';
+import { DIFF_PARSE_OPTIONS } from '../lib/constants';
 
 // Modified from the pinned DiffsHub donor: Vite exposes browser globals through
 // globalThis rather than Next.js's `global` compatibility binding.
@@ -57,6 +59,7 @@ const HighlighterOptions: WorkerInitializationRenderOptions = {
   langs: [],
   preferredHighlighter: canUseWASM() ? 'highlights' : 'shiki-js',
   useTokenTransformer: true,
+  preferredDiffLib: DIFF_PARSE_OPTIONS.preferredDiffLib,
 };
 
 interface WorkerPoolProps {

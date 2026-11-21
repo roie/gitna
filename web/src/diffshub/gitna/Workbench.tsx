@@ -47,7 +47,7 @@ import {
 import { DiffsHubSidebar } from '../components/DiffsHubSidebar'
 import { DiffsHubStatusPanel } from '../components/DiffsHubStatusPanel'
 import {
-  DiffsHubViewer,
+  Viewer,
   getNextItemVersion,
   worktreeDiffStateKeys,
   type GitnaComparisonActions,
@@ -55,7 +55,7 @@ import {
   type GitnaEditorActions,
   type GitnaFileAction,
   type GitnaViewerActions,
-} from '../components/DiffsHubViewer'
+} from './Viewer'
 import { themeCatalog, themeController } from './ThemeRoot'
 import type { CommentMetadata, ViewerLoadState } from '../lib/types'
 import {
@@ -392,6 +392,18 @@ function updateViewerItems(
       // The live editor owns the draft, undo history, focus, and selection.
       // Refresh updates the surrounding review metadata, but must not replace
       // the item while a local edit session is active.
+      continue
+    }
+    if (
+      existing?.type === 'diff' &&
+      item.type === 'diff' &&
+      !item.fileDiff.isPartial &&
+      existing.fileDiff.type === item.fileDiff.type &&
+      existing.fileDiff.lang === item.fileDiff.lang &&
+      existing.fileDiff.deletionLines.join('') === item.fileDiff.deletionLines.join('') &&
+      viewer.getEditor(item.id)?.getText() === item.fileDiff.additionLines.join('')
+    ) {
+      viewer.updateItem({ ...item, fileDiff: existing.fileDiff })
       continue
     }
     viewer.updateItem(item)
@@ -2838,7 +2850,7 @@ export function Workbench({
                       onTouchMoveCapture={() => claimScroll('editor')}
                       onKeyDownCapture={(event) => claimScroll('editor', event.key)}
                     >
-                      <DiffsHubViewer
+                      <Viewer
                         className="code-view h-full"
                         diffStyle={diffStyle}
                         overflow={overflow}
