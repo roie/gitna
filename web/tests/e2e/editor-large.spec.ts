@@ -146,6 +146,141 @@ for (const file of ['ordinary-2.tsx', 'ordinary-8.tsx', 'wrapped-6.txt']) {
   })
 }
 
+async function selectLongLineOffset(page: Page, character: number) {
+  const editor = page.getByRole('textbox', { name: 'windowed.txt', exact: true })
+  await editor.evaluate((element) => {
+    element.dispatchEvent(
+      new PointerEvent('pointerdown', { pointerType: 'mouse', bubbles: true, composed: true }),
+    )
+    element.focus({ preventScroll: true })
+  })
+  await expect
+    .poll(() =>
+      editor
+        .locator('span[data-char]')
+        .evaluateAll(
+          (tokens, offset) =>
+            tokens.some(
+              (token) =>
+                Number(token.getAttribute('data-char')) <= offset &&
+                Number(token.getAttribute('data-char')) + (token.textContent?.length ?? 0) >=
+                  offset,
+            ),
+          character,
+        ),
+    )
+    .toBe(true)
+  await editor.evaluate((element, offset) => {
+    const row = element.querySelector('[data-line-index="0"]')!
+    const tokens = row.querySelectorAll<HTMLElement>('span[data-char]')
+    for (const token of tokens) {
+      const start = Number(token.dataset.char)
+      if (offset < start || offset > start + (token.textContent?.length ?? 0)) continue
+      const walker = document.createTreeWalker(token, NodeFilter.SHOW_TEXT)
+      let remaining = offset - start
+      for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+        if (remaining <= (node.textContent?.length ?? 0)) {
+          window.getSelection()!.setBaseAndExtent(node, remaining, node, remaining)
+          return
+        }
+        remaining -= node.textContent?.length ?? 0
+      }
+    }
+    throw new Error(`Column ${offset} is not rendered`)
+  }, character)
+  await page.waitForTimeout(50)
+  await page.evaluate(() =>
+    document.dispatchEvent(new PointerEvent('pointerup', { pointerType: 'mouse', bubbles: true })),
+  )
+}
+
+for (const wrapped of [false]) {
+  test(`long ASCII line edits, search, selection and scroll: wrap ${wrapped}`, async ({
+    page,
+    app,
+    context,
+  }) => {
+    await context.grantPermissions(['clipboard-read', 'clipboard-write'])
+    const original = Array.from(
+      { length: 5000 },
+      (_, index) => `${String(index).padStart(9, '0')} `,
+    ).join('')
+    const file = join(app.repo, 'windowed.txt')
+    writeFileSync(file, original)
+    await page.goto(app.url)
+    await openFile(page, 'windowed.txt')
+    await page.getByRole('button', { name: 'Display settings', exact: true }).click()
+    const wrap = page.getByRole('switch', { name: 'Word wrap', exact: true })
+    if ((await wrap.isChecked()) !== wrapped) await wrap.click()
+    await page.keyboard.press('Escape')
+    const editor = page.getByRole('textbox', { name: 'windowed.txt', exact: true })
+    await editor.focus()
+    await page.keyboard.press('Control+f')
+    await page
+      .getByRole('textbox', { name: 'Search', exact: true })
+      .fill(original.slice(25000, 25030))
+    await expect(page.locator('[data-matches]')).toHaveText('1 of 1')
+    await expect
+      .poll(() =>
+        page.evaluate(() => {
+          const registry = (CSS as typeof CSS & { highlights: Map<string, Set<Range>> }).highlights
+          return [...(registry.get('diffs-search-current') ?? [])].some((range) => {
+            if (!(range instanceof Range)) return false
+            const rect = range.getBoundingClientRect()
+            return range.toString().length === 30 && rect.right > 0 && rect.left < innerWidth
+          })
+        }),
+      )
+      .toBe(true)
+    await selectLongLineOffset(page, 25000)
+    await page.keyboard.insertText('INSERT')
+    await page.keyboard.press('Control+s')
+    const changed = `${original.slice(0, 25000)}INSERT${original.slice(25000)}`
+    await expect.poll(() => readFileSync(file, 'utf8')).toBe(changed)
+    await page.keyboard.press('Shift+ArrowLeft')
+    await page.keyboard.press('Control+c')
+    await expect.poll(() => page.evaluate(() => navigator.clipboard.readText())).toBe('T')
+    await page.keyboard.press('ArrowRight')
+    await page.keyboard.press('Control+z')
+    await page.keyboard.press('Control+s')
+    await expect.poll(() => readFileSync(file, 'utf8')).toBe(original)
+    await page.keyboard.press('Shift+ArrowLeft')
+    await page.keyboard.press('Control+c')
+    await expect
+      .poll(() => page.evaluate(() => navigator.clipboard.readText()))
+      .toBe(original[24999])
+    await page.keyboard.press('ArrowRight')
+    await page.keyboard.press('Control+Shift+z')
+    await page.keyboard.press('Control+s')
+    await expect.poll(() => readFileSync(file, 'utf8')).toBe(changed)
+    await page.keyboard.press('Control+Home')
+    await page.keyboard.press('Escape')
+    if (!wrapped) {
+      await expect
+        .poll(() => editor.textContent().then((text) => text?.length ?? 0))
+        .toBeLessThan(10000)
+      await editor.evaluate((element) => {
+        element.parentElement!.scrollLeft = 200000
+      })
+    } else {
+      await page.locator('.code-view.cv-scrollbar').evaluate((element) => {
+        element.scrollTop = 5000
+      })
+    }
+    await page.waitForTimeout(100)
+    const visible = await editor.locator('[data-line] span[data-char]').evaluateAll((tokens) =>
+      tokens.map((token) => ({
+        start: Number(token.getAttribute('data-char')),
+        text: token.textContent ?? '',
+      })),
+    )
+    expect(visible.length).toBeGreaterThan(0)
+    for (const token of visible)
+      expect(changed.slice(token.start, token.start + token.text.length)).toBe(token.text)
+    if (!wrapped) expect(visible[0]!.start).toBeGreaterThan(0)
+  })
+}
+
 test('large Unicode drafts retain byte approval and survive backend restart', async ({
   page,
   app,

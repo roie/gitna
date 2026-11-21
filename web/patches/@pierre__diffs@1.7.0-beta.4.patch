@@ -20,7 +20,7 @@ index b10df4452e4b2e3dbbb7e949f59939e66d5326f1..f5a7e47e670e8266488fdef8978d335e
    onSelectedLinesChange?(selection: CodeViewLineSelection | null): void;
    layout?: CodeViewLayout;
 diff --git a/dist/components/CodeView.js b/dist/components/CodeView.js
-index 0b14f541214c7319e259bc88b9747c543f295d5d..965615ccf8279980727597ace63b7a244145ac47 100644
+index 0b14f541214c7319e259bc88b9747c543f295d5d..ebc59b886a0b1a4b6be75c9f95f2aa8db71fa27c 100644
 --- a/dist/components/CodeView.js
 +++ b/dist/components/CodeView.js
 @@ -460,9 +460,6 @@ var CodeView = class CodeView {
@@ -43,7 +43,15 @@ index 0b14f541214c7319e259bc88b9747c543f295d5d..965615ccf8279980727597ace63b7a24
  		this.layoutDirtyIndex = void 0;
  		this.pendingLayoutReset = void 0;
  		this.stickyContainer.textContent = "";
-@@ -1743,6 +1743,7 @@ var CodeView = class CodeView {
+@@ -643,6 +643,7 @@ var CodeView = class CodeView {
+ 		this.searchState.current = match;
+ 		this.render();
+ 		const item = this.idToItem.get(match.itemId);
++		this.itemEditors.get(match.itemId)?.editor.__revealLongLineMatch(match.lineIndex, match.startCharacter);
+ 		if (item != null && this.isSearchMatchHidden(item, match)) this.revealSearchMatch(item, match);
+ 		else {
+ 			this.paintSearchRanges();
+@@ -1743,6 +1744,7 @@ var CodeView = class CodeView {
  			if (state == null) return;
  			return (event) => this.completeFileItemEdit(state, event);
  		});
@@ -51,7 +59,7 @@ index 0b14f541214c7319e259bc88b9747c543f295d5d..965615ccf8279980727597ace63b7a24
  		for (const key of CODE_VIEW_SHARED_CALLBACK_KEYS) this.defineItemSharedCallback(prototype, "file", key);
  		for (const key of CODE_VIEW_SELECTION_CALLBACK_KEYS) this.defineItemSelectionCallback(prototype, "file", key);
  		return prototype;
-@@ -1763,6 +1764,7 @@ var CodeView = class CodeView {
+@@ -1763,6 +1765,7 @@ var CodeView = class CodeView {
  			if (state == null) return;
  			return (event) => this.completeDiffItemEdit(state, event);
  		});
@@ -59,7 +67,7 @@ index 0b14f541214c7319e259bc88b9747c543f295d5d..965615ccf8279980727597ace63b7a24
  		for (const key of CODE_VIEW_SHARED_CALLBACK_KEYS) this.defineItemSharedCallback(prototype, "diff", key);
  		for (const key of CODE_VIEW_SELECTION_CALLBACK_KEYS) this.defineItemSelectionCallback(prototype, "diff", key);
  		return prototype;
-@@ -2830,9 +2832,9 @@ function syncRenderedItemOrder(container, element, prevElement) {
+@@ -2830,9 +2833,9 @@ function syncRenderedItemOrder(container, element, prevElement) {
  function hasAnnotations(renderedItem) {
  	return (renderedItem.item.annotations?.length ?? 0) > 0 || getCodeViewItemRenderData(renderedItem).lineAnnotations.length > 0;
  }
@@ -72,7 +80,7 @@ index 0b14f541214c7319e259bc88b9747c543f295d5d..965615ccf8279980727597ace63b7a24
  	const slotSnapshot = [];
  	for (const renderedItem of renderedItems) if (hasAnnotations(renderedItem)) slotSnapshot.push(renderedItem);
 diff --git a/dist/components/File.js b/dist/components/File.js
-index 046839c9f260b24fcbe0e69aed9b427cacb0ed43..baee41f0d8380f6ed8fb2ba737dd984583bb6240 100644
+index 046839c9f260b24fcbe0e69aed9b427cacb0ed43..b165dfd7e75b41958028a0eb1bec1b59e9b19e13 100644
 --- a/dist/components/File.js
 +++ b/dist/components/File.js
 @@ -73,6 +73,8 @@ var File = class {
@@ -154,8 +162,16 @@ index 046839c9f260b24fcbe0e69aed9b427cacb0ed43..baee41f0d8380f6ed8fb2ba737dd9845
  		const tokenizeMaxLength = this.options.tokenizeMaxLength ?? 1e5;
  		if (this.fileRenderer.getLineCount(file) > tokenizeMaxLength) return;
  		await workerManager.primeFileHighlightCache(file).catch((error) => {
+@@ -1010,6 +1052,7 @@ var File = class {
+ 			columns.gutter.style.setProperty("grid-row", `span ${rowCount}`);
+ 			columns.content.style.setProperty("grid-row", `span ${rowCount}`);
+ 		}
++		if (this.editor != null) ({ specs, patched } = this.editor.__windowColumn(specs, patched, columns.content));
+ 		let reconciler = this.columnReconcilers.get(code);
+ 		if (reconciler == null) {
+ 			reconciler = new ColumnReconciler(columns.gutter, columns.content);
 diff --git a/dist/components/FileDiff.js b/dist/components/FileDiff.js
-index fd4c349bfe9e308ff1afdb44a9cfc830c43110a6..9f403db268452fec00502a90b5265ca92efc265a 100644
+index fd4c349bfe9e308ff1afdb44a9cfc830c43110a6..734ee04aad14ff8cb5232a2f16879c5f700f7bdb 100644
 --- a/dist/components/FileDiff.js
 +++ b/dist/components/FileDiff.js
 @@ -89,6 +89,8 @@ var FileDiff = class {
@@ -228,6 +244,14 @@ index fd4c349bfe9e308ff1afdb44a9cfc830c43110a6..9f403db268452fec00502a90b5265ca9
  	removeRenderedCode() {
  		this.resizeManager.cleanUp();
  		this.scrollSyncManager.cleanUp();
+@@ -1556,6 +1598,7 @@ var FileDiff = class {
+ 			columns.gutter.style.setProperty("grid-row", `span ${rowCount}`);
+ 			columns.content.style.setProperty("grid-row", `span ${rowCount}`);
+ 		}
++		if (this.editor != null) ({ specs, patched } = this.editor.__windowColumn(specs, patched, columns.content));
+ 		let reconciler = this.columnReconcilers.get(code);
+ 		if (reconciler == null) {
+ 			reconciler = new ColumnReconciler(columns.gutter, columns.content);
 diff --git a/dist/components/VirtualizedFile.js b/dist/components/VirtualizedFile.js
 index 39d2805012f8f3abb5a07f41679551ca7fd5eb95..5286ec64219e20f13f676cfd25cab0df0d63577d 100644
 --- a/dist/components/VirtualizedFile.js
@@ -282,7 +306,7 @@ index 6f863c761ce05864533be67660982900f0e8b13d..4824b511a8b5d3b4cff3ade8e4db90b0
  	searchResultCount: "{count, plural, one {# result} other {# results}}",
  	/**
 diff --git a/dist/dom/ColumnReconciler.js b/dist/dom/ColumnReconciler.js
-index 545a3446a17190214924f5fc445c51bb1a24db52..2513682cb40042625bbcbcc8f92e28939142fe6c 100644
+index 545a3446a17190214924f5fc445c51bb1a24db52..296c58aa0e00d8fd236e1caf4d6fe9b33187ff93 100644
 --- a/dist/dom/ColumnReconciler.js
 +++ b/dist/dom/ColumnReconciler.js
 @@ -172,19 +172,19 @@ var ColumnReconciler = class {
@@ -317,11 +341,12 @@ index 545a3446a17190214924f5fc445c51bb1a24db52..2513682cb40042625bbcbcc8f92e2893
  			result.gutterRewritten = true;
  			result.changed.add(spec.key);
  		}
-@@ -231,6 +231,20 @@ function insertRun(parent, cursor, cells) {
+@@ -231,6 +231,21 @@ function insertRun(parent, cursor, cells) {
  	if (node !== before) throw new Error("ColumnReconciler: a row cell did not parse to one element");
  	return elements;
  }
 +function singleTextPatch(node) {
++	if (node?.properties?.["data-long-line"] != null) return;
 +	const child = node?.children?.length === 1 ? node.children[0] : void 0;
 +	if (child?.type === "text") return { text: child.value, wrapper: void 0 };
 +	if (child?.type === "element" && child.children.length === 1 && child.children[0].type === "text") return { text: child.children[0].value, wrapper: child };
@@ -338,7 +363,7 @@ index 545a3446a17190214924f5fc445c51bb1a24db52..2513682cb40042625bbcbcc8f92e2893
  function patchCell(element, previous, next) {
  	if (element.tagName.toLowerCase() !== next.tagName.toLowerCase()) {
  		element.insertAdjacentHTML("beforebegin", hastToHtml(next));
-@@ -247,7 +261,28 @@ function patchCell(element, previous, next) {
+@@ -247,7 +262,28 @@ function patchCell(element, previous, next) {
  		syncAttributes(element, next);
  		reset = true;
  	}
@@ -369,10 +394,18 @@ index 545a3446a17190214924f5fc445c51bb1a24db52..2513682cb40042625bbcbcc8f92e2893
  		element,
  		reset
 diff --git a/dist/editor/editor.js b/dist/editor/editor.js
-index b4c280390b52434f63fbe7916d81b150d9006fb4..7c61783b2e619ef96910c7fd2fa40258aecea8c4 100644
+index b4c280390b52434f63fbe7916d81b150d9006fb4..7f2bc842a9cad545b16870a544c38b2cdcc605cf 100644
 --- a/dist/editor/editor.js
 +++ b/dist/editor/editor.js
-@@ -83,6 +83,7 @@ var Editor = class {
+@@ -29,6 +29,7 @@ import { findBracketMatchRanges } from "./matchBrackets.js";
+ import { SelectionActionWidget } from "./selectionAction.js";
+ import { Metrics, getExpandedAsciiTextColumns, getUnicodeMeasurementOffsets, snapTextOffsetToUnicodeBoundary } from "./textMeasure.js";
+ import { EditorTokenizer } from "./tokenizer.js";
++import { longLine } from "./longLine.js";
+ //#region src/editor/editor.ts
+ function createFullDocumentChange(previousText, text) {
+ 	const previousContents = normalizeLineBreaks(previousText);
+@@ -83,6 +84,7 @@ var Editor = class {
  	#gutterWidthCache;
  	#contentWidthCache;
  	#lineYCache = /* @__PURE__ */ new Map();
@@ -380,7 +413,60 @@ index b4c280390b52434f63fbe7916d81b150d9006fb4..7c61783b2e619ef96910c7fd2fa40258
  	#wrapLineOffsetsCache = /* @__PURE__ */ new Map();
  	#lastAccessedCharX;
  	#globalStyleElement;
-@@ -930,6 +931,7 @@ var Editor = class {
+@@ -732,6 +734,52 @@ var Editor = class {
+ 	__assertOutsideChangeCallback(caller) {
+ 		if (this.#inChangeCallback) throw new Error(`${caller}: not allowed inside onChange or onEditChange; the editor owns the document, so observe the change and call back after the callback returns`);
+ 	}
++	__revealLongLineMatch(line, character) {
++		if (!this.#longLines.has(line)) return false;
++		return this.#scrollCaretIntoView(line, character, "nearest");
++	}
++	#longLineNodes = new WeakMap();
++	#longLines = new Map();
++	#refreshLongLines = () => {
++		if (this.#longLines.size > 0 && this.#contentElement?.isConnected) this.#fileInstance?.rerender();
++	};
++	#queueLongLineRefresh = () => {
++		if (this.#longLines.size > 0) queueRender(this.#refreshLongLines);
++	};
++	__windowColumn(specs, patched, content) {
++		if (this.#isWrap) {
++			this.#longLines.clear();
++			return { specs, patched };
++		}
++		let viewport;
++		const transform = (spec) => {
++			if (spec.content.properties["data-long-line"] != null) return spec;
++			const number = Number(spec.content.properties["data-line"]);
++			if (!number || spec.content.properties["data-line-type"] === "change-deletion") return spec;
++			const line = this.#fileDiffInstance?.editLineFor(number) ?? number - 1;
++			let held = this.#longLineNodes.get(spec.content);
++			if (held == null) {
++				held = { layout: longLine(spec.content, this.#metrics.tabSize) };
++				this.#longLineNodes.set(spec.content, held);
++			}
++			const layout = held.layout;
++			if (layout == null) {
++				this.#longLines.delete(line);
++				return spec;
++			}
++			this.#longLines.set(line, layout);
++			if (viewport == null) {
++				this.#metrics.init(content);
++				const code = content.parentElement;
++				const ch = this.#metrics.ch;
++				viewport = { ch, start: Math.max(0, Math.floor((code.scrollLeft - code.clientWidth) / ch)), end: Math.ceil((code.scrollLeft + 2 * code.clientWidth) / ch) };
++			}
++			const node = layout.window(viewport.start, viewport.end, viewport.ch, this.#metrics.lineHeight);
++			if (held.spec?.content !== node) held.spec = { ...spec, content: node };
++			return held.spec;
++		};
++		return { specs: specs.map(transform), patched: patched?.map(transform) };
++	}
+ 	/** @internal */
+ 	__syncRenderView(props) {
+ 		const { highlighter, fileContainer, columns, renderRange, domCurrent } = props;
+@@ -930,6 +978,7 @@ var Editor = class {
  		});
  	}
  	#resetCache() {
@@ -388,7 +474,15 @@ index b4c280390b52434f63fbe7916d81b150d9006fb4..7c61783b2e619ef96910c7fd2fa40258
  		this.#lineYCache.clear();
  		this.#lastAccessedCharX = void 0;
  	}
-@@ -1116,6 +1118,10 @@ var Editor = class {
+@@ -1058,6 +1107,7 @@ var Editor = class {
+ 			addEventListener(document, "selectionchange", () => {
+ 				const shadowRoot = this.#fileContainer?.shadowRoot;
+ 				if (shadowRoot == null || !this.#canReadNativeSelection()) return;
++				if (!this.#isContentMouseDown && this.#selections?.some((selection) => this.#longLines.has(selection.start.line) || this.#longLines.has(selection.end.line))) return;
+ 				if (this.#selections !== void 0 && this.#selections.length > 1 && !this.#isContentMouseDown) return;
+ 				const composedRange = getComposedSelectionRange(shadowRoot);
+ 				if (composedRange === void 0 || !this.#rangeBelongsToEditor(composedRange)) return;
+@@ -1116,6 +1166,10 @@ var Editor = class {
  	#preserveEditorSelectionsForGutterGesture() {
  		this.#suppressNativeSelectionSync = this.#selections !== void 0;
  	}
@@ -399,18 +493,22 @@ index b4c280390b52434f63fbe7916d81b150d9006fb4..7c61783b2e619ef96910c7fd2fa40258
  	#canReadNativeSelection() {
  		return !this.#isComposing && this.#focusRequest == null && !this.#isPointerOverAnnotation && !this.#suppressNativeSelectionSync && this.#contentHasFocus;
  	}
-@@ -1128,6 +1134,10 @@ var Editor = class {
+@@ -1128,6 +1182,14 @@ var Editor = class {
  		};
  		this.#editorEventDisposes?.forEach((dispose) => dispose());
  		this.#editorEventDisposes = [
-+			() => dequeueRender(this.#refreshClippedWrappedSelection),
++			() => {
++				dequeueRender(this.#refreshClippedWrappedSelection);
++				dequeueRender(this.#refreshLongLines);
++			},
++			addEventListener(contentEl.parentElement, "scroll", this.#queueLongLineRefresh, { passive: true }),
 +			addEventListener(this.#getScrollViewport() ?? document, "scroll", () => {
 +				if (this.#hasClippedWrappedSelection) queueRender(this.#refreshClippedWrappedSelection);
 +			}, { passive: true }),
  			addEventListener(contentEl, "focus", () => {
  				this.#contentHasFocus = true;
  				onFocus?.();
-@@ -1863,6 +1873,7 @@ var Editor = class {
+@@ -1863,6 +1925,7 @@ var Editor = class {
  		if (!gutterWidthChanged && !contentWidthChanged) return;
  		this.#lastAccessedCharX = void 0;
  		this.#metrics.clearTextWidthCache();
@@ -418,7 +516,15 @@ index b4c280390b52434f63fbe7916d81b150d9006fb4..7c61783b2e619ef96910c7fd2fa40258
  		if (contentWidthChanged) {
  			this.#wrapLineOffsetsCache.clear();
  			if (this.#isWrap || lineAnnotations > 0) this.#lineYCache.clear();
-@@ -2790,6 +2801,7 @@ var Editor = class {
+@@ -2075,6 +2138,7 @@ var Editor = class {
+ 		const winSelection = window.getSelection();
+ 		if (winSelection === null) return;
+ 		let { start, end, direction } = selection;
++		if (this.#longLines.has(start.line) || this.#longLines.has(end.line)) return;
+ 		if (comparePosition(start, end) > 0) [start, end] = [end, start];
+ 		const startLineElement = this.#getLineElement(start.line);
+ 		const endLineElement = this.#getLineElement(end.line);
+@@ -2790,6 +2854,7 @@ var Editor = class {
  		prediction.rendered = true;
  	}
  	#updateSelections(selections) {
@@ -426,7 +532,7 @@ index b4c280390b52434f63fbe7916d81b150d9006fb4..7c61783b2e619ef96910c7fd2fa40258
  		this.__postponeBgTokenizeToNextFrame();
  		const previousSelections = this.#selections;
  		let selectionsChanged = previousSelections?.length !== selections.length;
-@@ -2923,7 +2935,7 @@ var Editor = class {
+@@ -2923,7 +2988,7 @@ var Editor = class {
  			if (this.#isWrap) {
  				const contentWidth = this.#getContentWidth();
  				const lineText = this.#editSession?.document.getLineText(line);
@@ -435,7 +541,7 @@ index b4c280390b52434f63fbe7916d81b150d9006fb4..7c61783b2e619ef96910c7fd2fa40258
  					this.#renderWrappedSelection(renderCtx, line, lineText, startChar, endChar, isLastLine, type, extraDataset, connectedCaret);
  					continue;
  				}
-@@ -2943,10 +2955,27 @@ var Editor = class {
+@@ -2943,10 +3008,27 @@ var Editor = class {
  		}
  	}
  	#renderWrappedSelection(renderCtx, line, lineText, startChar, endChar, isLastLine, type, extraDataset, connectedCaret) {
@@ -464,7 +570,7 @@ index b4c280390b52434f63fbe7916d81b150d9006fb4..7c61783b2e619ef96910c7fd2fa40258
  			const segmentStart = wrapOffsets[wrapLine];
  			const segmentEnd = wrapOffsets[wrapLine + 1];
  			const wrapStartChar = Math.max(startChar, segmentStart);
-@@ -2963,6 +2992,65 @@ var Editor = class {
+@@ -2963,6 +3045,65 @@ var Editor = class {
  			});
  		}
  	}
@@ -530,9 +636,34 @@ index b4c280390b52434f63fbe7916d81b150d9006fb4..7c61783b2e619ef96910c7fd2fa40258
  	#segmentTextWidth(lineText, segmentStart, character) {
  		if (character <= segmentStart) return 0;
  		const segmentText = lineText.slice(segmentStart, character);
-@@ -3666,6 +3754,13 @@ var Editor = class {
+@@ -3314,7 +3455,7 @@ var Editor = class {
+ 			this.#revealLineIfCollapsed(position.line);
+ 			this.#scrollingToLine = void 0;
+ 			this.#scrollingToLineFixed = false;
+-			if (centerSearchNavigation || !this.#isSearchMatchInView(match)) {
++			if (this.#longLines.has(position.line) || centerSearchNavigation || !this.#isSearchMatchInView(match)) {
+ 				centerSearchNavigation = true;
+ 				this.#scrollToLine(position.line, position.character, true);
+ 			}
+@@ -3655,7 +3796,11 @@ var Editor = class {
+ 		if (cachedY !== void 0) return cachedY;
+ 		const lineElement = this.#getLineElement(line);
+ 		if (lineElement === void 0) return -1;
+-		let y = lineElement.offsetTop + this.#metrics.paddingTop;
++		let y;
++		if (this.#longLines.has(line) && !this.#isDiff && typeof this.#fileInstance?.getLinePosition === "function") {
++			const first = Number(this.#contentElement.querySelector("[data-line]")?.dataset.line);
++			y = this.#fileInstance.getLinePosition(line + 1).top - this.#fileInstance.getLinePosition(first).top + this.#metrics.paddingTop;
++		} else y = lineElement.offsetTop + this.#metrics.paddingTop;
+ 		y += this.#activeContentOffset?.top ?? 0;
+ 		this.#lineYCache.set(line, y);
+ 		return y;
+@@ -3665,7 +3810,16 @@ var Editor = class {
+ 		const lineText = this.#editSession?.document?.getLineText(line);
  		const offsetLeft = this.#getGutterWidth() + this.#metrics.ch;
  		if (lineText === void 0 || lineText.length === 0 || char <= 0) return [offsetLeft + (this.#activeContentOffset?.left ?? 0), 0];
++		const long = this.#longLines.get(line);
++		if (long != null) return [offsetLeft + long.columnAt(Math.min(char, lineText.length)) * this.#metrics.ch + (this.#activeContentOffset?.left ?? 0), 0];
  		const boundedCharacter = snapTextOffsetToUnicodeBoundary(lineText, Math.min(char, lineText.length));
 +		if (this.#isWrap && lineText.length > 4096) {
 +			const position = this.#getRenderedCharX(line, boundedCharacter, lineText);
@@ -544,7 +675,7 @@ index b4c280390b52434f63fbe7916d81b150d9006fb4..7c61783b2e619ef96910c7fd2fa40258
  		const textBeforeCharacter = lineText.slice(0, boundedCharacter);
  		const asciiColumns = getExpandedAsciiTextColumns(textBeforeCharacter, this.#metrics.tabSize);
  		let left = 0;
-@@ -3674,7 +3769,7 @@ var Editor = class {
+@@ -3674,7 +3828,7 @@ var Editor = class {
  		else left = offsetLeft + this.#metrics.measureTextWidth(textBeforeCharacter);
  		if (this.#isWrap) {
  			const contentWidth = this.#getContentWidth();
@@ -553,7 +684,7 @@ index b4c280390b52434f63fbe7916d81b150d9006fb4..7c61783b2e619ef96910c7fd2fa40258
  				const wrapOffsets = this.#wrapLineText(line);
  				if (wrapOffsets == null) return [left + (this.#activeContentOffset?.left ?? 0), 0];
  				for (let w = 0; w + 1 < wrapOffsets.length; w++) {
-@@ -3704,6 +3799,111 @@ var Editor = class {
+@@ -3704,6 +3858,111 @@ var Editor = class {
  		];
  		return [left, wrapLine];
  	}
@@ -665,7 +796,7 @@ index b4c280390b52434f63fbe7916d81b150d9006fb4..7c61783b2e619ef96910c7fd2fa40258
  	#wrapLineText(line) {
  		const cachedOffsets = this.#wrapLineOffsetsCache.get(line);
  		if (cachedOffsets !== void 0) return cachedOffsets;
-@@ -3716,6 +3916,16 @@ var Editor = class {
+@@ -3716,6 +3975,16 @@ var Editor = class {
  		}
  		const contentElement = this.#contentElement;
  		if (contentElement == null || !contentElement.isConnected) return;
@@ -682,7 +813,7 @@ index b4c280390b52434f63fbe7916d81b150d9006fb4..7c61783b2e619ef96910c7fd2fa40258
  		const div = h("div", {
  			style: {
  				position: "absolute",
-@@ -3739,6 +3949,13 @@ var Editor = class {
+@@ -3739,6 +4008,13 @@ var Editor = class {
  		try {
  			const divRect = div.getBoundingClientRect();
  			if (divRect.width === 0) return;
@@ -696,6 +827,97 @@ index b4c280390b52434f63fbe7916d81b150d9006fb4..7c61783b2e619ef96910c7fd2fa40258
  			const unicodeOffsets = getUnicodeMeasurementOffsets(lineText);
  			const wrapLineStartLeft = divRect.left + this.#metrics.ch;
  			const graphemeCount = unicodeOffsets === void 0 ? lineText.length : unicodeOffsets.length - 1;
+diff --git a/dist/editor/longLine.js b/dist/editor/longLine.js
+new file mode 100644
+index 0000000000000000000000000000000000000000..12336bc6b29f786a50cb92a14fa4884228dbfc4e
+--- /dev/null
++++ b/dist/editor/longLine.js
+@@ -0,0 +1,85 @@
++const LONG_LINE = 20000;
++
++class LongLine {
++	constructor(node, tabSize) {
++		this.node = node;
++		this.text = textOf(node);
++		this.tabSize = tabSize;
++		this.tabs = [];
++		let extra = 0;
++		for (let index = this.text.indexOf("\t"); index !== -1; index = this.text.indexOf("\t", index + 1)) {
++			const column = index + extra;
++			const width = tabSize - column % tabSize;
++			extra += width - 1;
++			this.tabs.push({ index, extra });
++		}
++		this.columns = this.text.length + extra;
++	}
++	columnAt(character) {
++		let low = 0;
++		let high = this.tabs.length;
++		while (low < high) {
++			const middle = low + high >>> 1;
++			if (this.tabs[middle].index < character) low = middle + 1;
++			else high = middle;
++		}
++		return character + (this.tabs[low - 1]?.extra ?? 0);
++	}
++	characterAt(column) {
++		if (this.tabs.length === 0) return Math.max(0, Math.min(this.text.length, column));
++		let low = 0;
++		let high = this.text.length;
++		while (low < high) {
++			const middle = low + high + 1 >>> 1;
++			if (this.columnAt(middle) <= column) low = middle;
++			else high = middle - 1;
++		}
++		return low;
++	}
++	window(startColumn, endColumn, ch, lineHeight) {
++		const start = this.characterAt(startColumn);
++		const end = Math.min(this.text.length, this.characterAt(endColumn) + 1);
++		if (this.rendered?.start === start && this.rendered?.end === end && this.rendered?.ch === ch) return this.rendered.node;
++		const children = sliceChildren(this.node.children, start, end);
++		const node = {
++			...this.node,
++			properties: {
++				...this.node.properties,
++				"data-long-line": "",
++				style: `${this.node.properties.style ?? ""};contain:strict;block-size:${lineHeight}px;white-space:pre;word-break:normal;inline-size:${(this.columns + 2) * ch}px;`,
++			},
++			children: [{
++				type: "element", tagName: "span",
++				properties: { "data-char": start, style: `margin-inline-start:${this.columnAt(start) * ch}px;` },
++				children,
++			}],
++		};
++		this.rendered = { start, end, ch, node };
++		return node;
++	}
++}
++function textOf(node) {
++	return node.type === "text" ? node.value : (node.children ?? []).map(textOf).join("");
++}
++function sliceChildren(children, start, end) {
++	let offset = 0;
++	const slice = (node) => {
++		if (node.type === "text") {
++			const base = offset;
++			offset += node.value.length;
++			if (offset <= start || base >= end) return;
++			return { ...node, value: node.value.slice(Math.max(0, start - base), end - base) };
++		}
++		const base = offset;
++		const clipped = (node.children ?? []).map(slice).filter(Boolean);
++		if (clipped.length === 0) return;
++		return { ...node, properties: { ...node.properties, "data-char": Math.max(start, base) }, children: clipped };
++	};
++	return children.map(slice).filter(Boolean);
++}
++function longLine(node, tabSize) {
++	const text = textOf(node);
++	// shortcut: Non-ASCII long lines retain browser wrapping and measurement.
++	return text.length > LONG_LINE && !/[^\t\x20-\x7e]/.test(text) ? new LongLine(node, tabSize) : void 0;
++}
++export { LONG_LINE, longLine };
 diff --git a/dist/highlighter/highlights-editor.js b/dist/highlighter/highlights-editor.js
 index f8a2da8383b9d2d0a1549259febd40a88c489d40..a078ff93e0ffe053d706a44ea992e8b9c3213228 100644
 --- a/dist/highlighter/highlights-editor.js
@@ -1293,6 +1515,27 @@ index 540503f0ea47ce82d5882dd7d610b602992b53be..2bafa724ee9461f1f796e92b179d406f
  			lineIds: lines?.ids
  		};
  		if (rowSource != null && model.live && rowSource.model === model) {
+diff --git a/dist/search/SearchHighlighter.js b/dist/search/SearchHighlighter.js
+index 22d85aa225334e39ae642b0f3533b5aecaa98892..0f8b911b7e7ea350a5d0fe4f7723aeb50892cfcc 100644
+--- a/dist/search/SearchHighlighter.js
++++ b/dist/search/SearchHighlighter.js
+@@ -64,13 +64,15 @@ var SearchHighlighter = class SearchHighlighter {
+ 		let range;
+ 		let node;
+ 		while ((node = walker.nextNode()) != null && index < matches.length) {
++			if (row.hasAttribute("data-long-line")) offset = Number(node.parentElement.closest("[data-char]").dataset.char);
+ 			const end = offset + (node.textContent?.length ?? 0);
++			while (index < matches.length && matches[index].endCharacter <= offset) index++;
+ 			while (index < matches.length) {
+ 				const match = matches[index];
+ 				if (match.startCharacter >= end) break;
+ 				if (range == null) {
+ 					range = document.createRange();
+-					range.setStart(node, match.startCharacter - offset);
++					range.setStart(node, Math.max(0, match.startCharacter - offset));
+ 				}
+ 				if (match.endCharacter > end) break;
+ 				range.setEnd(node, match.endCharacter - offset);
 diff --git a/dist/search/SearchPanelWidget.js b/dist/search/SearchPanelWidget.js
 index 14970e0ba17385d19ae26ad01a4921f69ce1d2ff..2849e77750cb7e6990b837cb127a93c28effacff 100644
 --- a/dist/search/SearchPanelWidget.js
