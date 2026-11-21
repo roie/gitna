@@ -1,3 +1,4 @@
+// Modified by Gitna: omit the shadow token and normalize the scrollbar condition.
 /**
  * deriveChromeTokens derives diffshub's contrast-heavy "chrome" token set — the
  * opinionated app palette (most-legible foreground, derived muted text,

@@ -730,8 +730,14 @@ export const Viewer = memo(function Viewer({
       event: EditorChangeEvent<EditorType, CommentMetadata, undefined>,
       item: CodeViewItem<CommentMetadata>,
     ) => {
-      if (item.type === 'diff') onDiffEdit?.(item.fileDiff.name, event.file)
-      else gitnaEditorActions?.onChange(item.id, event.file, event.editor.getViewState())
+      if (item.type === 'diff') {
+        if (
+          dirtyPaths?.has(item.fileDiff.name) ||
+          event.file.contents !== item.fileDiff.additionLines.join('')
+        ) {
+          onDiffEdit?.(item.fileDiff.name, event.file)
+        }
+      } else gitnaEditorActions?.onChange(item.id, event.file, event.editor.getViewState())
     },
   )
 

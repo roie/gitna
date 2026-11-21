@@ -1,3 +1,4 @@
+// Modified by Gitna: compose the standalone entry, native providers and local sessions.
 import { lazy, Suspense, useCallback, useEffect, useRef, useState } from 'react'
 import { createRoot } from 'react-dom/client'
 

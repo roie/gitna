@@ -403,7 +403,10 @@ function updateViewerItems(
       existing.fileDiff.deletionLines.join('') === item.fileDiff.deletionLines.join('') &&
       viewer.getEditor(item.id)?.getText() === item.fileDiff.additionLines.join('')
     ) {
-      viewer.updateItem({ ...item, fileDiff: existing.fileDiff })
+      viewer.updateItem({
+        ...item,
+        fileDiff: { ...item.fileDiff, cacheKey: existing.fileDiff.cacheKey },
+      })
       continue
     }
     viewer.updateItem(item)

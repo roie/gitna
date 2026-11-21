@@ -1,6 +1,4 @@
-// Modified by Gitna: render a conversation's messages with real authors, add
-// resolve beside delete, a per-message menu to copy or delete one message, and
-// accept a reply form as children.
+// Modified by Gitna: render real messages with replies, resolution and per-message actions.
 import { IconCheck, IconEllipsis, IconX } from '@pierre/icons'
 import { memo, type ReactNode } from 'react'
 

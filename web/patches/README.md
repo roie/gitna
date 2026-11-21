@@ -19,6 +19,10 @@ and do no whole-document work per keystroke. Plain-text edits rewrite only the r
 update the visible lines without full-document
 background tokenization.
 
+During teardown, CodeView keeps child instances registered until their editors
+and renderers finish cleanup. This prevents an active editor from notifying an
+already unregistered parent when Gitna switches folders.
+
 ## Trees 1.0.0
 
 `@pierre/trees@1.0.0` is Apache-2.0 software from Pierre Computer Company.

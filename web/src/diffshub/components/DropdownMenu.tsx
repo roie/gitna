@@ -1,3 +1,4 @@
+// Modified by Gitna: use Pierre icons, scrolling panels, back navigation and dialog-safe focus.
 'use client';
 
 import * as DropdownMenuPrimitive from '@radix-ui/react-dropdown-menu';

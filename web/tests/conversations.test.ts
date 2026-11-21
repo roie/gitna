@@ -216,6 +216,19 @@ describe('native run presentation', () => {
     model.dispose()
   })
 
+  it('keeps a remembered recipient after it joins the repository', () => {
+    const html = renderToStaticMarkup(
+      createElement(CommentComposer, {
+        avatar: null,
+        agents: [{ id: 'agent:joined', kind: 'agent', name: 'helper', agent: 'helper-definition' }],
+        initialTo: ['def:helper-definition'],
+        unsavedCount: 0,
+        onSubmit: vi.fn(),
+      }),
+    )
+    expect(html).toContain('Remove helper')
+  })
+
   it('shows unsaved guidance only with recipients and unsaved files', () => {
     const composer = (text: string, unsavedCount: number) =>
       renderToStaticMarkup(

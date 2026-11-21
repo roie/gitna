@@ -20,9 +20,29 @@ index b10df4452e4b2e3dbbb7e949f59939e66d5326f1..f5a7e47e670e8266488fdef8978d335e
    onSelectedLinesChange?(selection: CodeViewLineSelection | null): void;
    layout?: CodeViewLayout;
 diff --git a/dist/components/CodeView.js b/dist/components/CodeView.js
-index 0b14f541214c7319e259bc88b9747c543f295d5d..cd666524d961ed60ecd62ed9da693489d787805f 100644
+index 0b14f541214c7319e259bc88b9747c543f295d5d..965615ccf8279980727597ace63b7a244145ac47 100644
 --- a/dist/components/CodeView.js
 +++ b/dist/components/CodeView.js
+@@ -460,9 +460,6 @@ var CodeView = class CodeView {
+ 		this.focusedEditor = void 0;
+ 		this.attachedEditors.clear();
+ 		this.selectedLines = null;
+-		this.items = [];
+-		this.idToItem.clear();
+-		this.instanceToItem.clear();
+ 		let failed = false;
+ 		let failure;
+ 		for (const record of teardownSessions) try {
+@@ -481,6 +478,9 @@ var CodeView = class CodeView {
+ 				failure = error;
+ 			}
+ 		}
++		this.items = [];
++		this.idToItem.clear();
++		this.instanceToItem.clear();
+ 		this.layoutDirtyIndex = void 0;
+ 		this.pendingLayoutReset = void 0;
+ 		this.stickyContainer.textContent = "";
 @@ -1743,6 +1743,7 @@ var CodeView = class CodeView {
  			if (state == null) return;
  			return (event) => this.completeFileItemEdit(state, event);

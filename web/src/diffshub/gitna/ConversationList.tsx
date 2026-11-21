@@ -1,5 +1,4 @@
-// Modified by Gitna: declare callbacks as receiver-independent function properties,
-// show real authors, and offer reopen on resolved conversations.
+// Modified by Gitna: list real conversation authors and support reopening resolved threads.
 'use client'
 
 import type { AnnotationSide } from '@pierre/diffs'

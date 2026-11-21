@@ -2,8 +2,7 @@
 
 import { useLayoutEffect } from 'react';
 
-// Modified from the pinned DiffsHub donor: use a relative import so this
-// standalone Vite boundary remains resolvable outside the donor monorepo.
+// Modified by Gitna: resolve gutter detection outside the donor monorepo.
 import { detectGutterSize } from '../lib/gutterDetector';
 
 const SCROLLBARS_TO_MEASURE: string[] = ['cv', 'gitna'];

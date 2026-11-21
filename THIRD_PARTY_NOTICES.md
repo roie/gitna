@@ -10,30 +10,13 @@ are listed separately because they have different provenance requirements.
 Gitna's DiffsHub donor is pinned to:
 
 - Repository: [pierrecomputer/pierre](https://github.com/pierrecomputer/pierre)
-- Tag: `diffs-v1.3.5`
-- Commit: `59ec35ffac97abccef4c69f8d58d3747cbfbc6cb`
+- Tag: `diffs-v1.7.0-beta.4`
+- Commit: `8b12bdd75d723ac5b83cb9efe11c8ddb818bf462`
 - License: Apache-2.0, Copyright 2025 Pierre Computer Company
 - Verbatim license: `LICENSES/Apache-2.0.txt`
 - Donor app license copy: `web/src/diffshub/LICENSE.md`
 
-Relevant React components, CSS and frontend helpers from
-`apps/diffshub` are incorporated under `web/src/diffshub`. Most files remain
-byte-identical. Modified donor files carry a prominent explanation and are
-limited to standalone Vite, local-repository, strict-CSP and VS Code Source
-Control integration boundaries, plus type-only callback declarations for
-receiver-independent functions under type-aware linting.
-
-| Exact upstream responsibility | Local destination | Current disposition |
-| --- | --- | --- |
-| Header, display/theme controls and URL form | `web/src/diffshub/components/DiffsHubHeader.tsx`, `DiffUrlForm.tsx`; Gitna branding at `web/src/diffshub/gitna/GitnaLogo.tsx` | Header/form retain donor structure with capability-safe Vite links and truthful local repository identity; the donor logo is replaced by Gitna's theme-aware product mark. |
-| Sidebar, file tree, comments, stats and worker monitor | corresponding files under `web/src/diffshub/components` | Donor source retained. Gitna's sidebar removes the inapplicable Files/Comments tabs, Diff Stats and System Monitor while preserving the themed responsive drawer. The file-tree boundary adds unique IDs and external selection so Repository, Staged Changes, Changes and expanded Graph commits all use Pierre Trees; closed narrow overlays add `aria-hidden`/`inert`. |
-| Continuous CodeView and themed wrappers | `DiffsHubViewer.tsx`, `ThemedCodeView.tsx`, themed hooks/helpers | Donor viewer retained with Gitna file/hunk actions added through its header metadata slot. |
-| Worker pool | `WorkerPoolContext.tsx` | Vite `?worker` replaces the Next worker URL, with ES module workers loading highlighting backends on demand. Highlights uses WASM when supported; Shiki JS is the fallback. The CSP permits WASM compilation, not JavaScript eval. |
-| Status panel | `DiffsHubStatusPanel.tsx` | Donor states/layout retained with local-repository loading copy. |
-| Theme system, annotations, accumulators and frontend helpers | matching paths under `web/src/diffshub` | Verbatim except the documented lint-normalized `gitPatchMetadata.ts` conditional. |
-| `app/globals.css` and app font loading | `web/src/diffshub/globals.css`, `web/src/diffshub/vite/fonts.css` | CSS is verbatim; static `@font-face` replaces `next/font` with the exact checked-in assets and variables. |
-| `ReviewUI.tsx` and `RootLayout.tsx` composition | `web/src/diffshub/main.tsx`, `web/src/diffshub/gitna/Workbench.tsx` | Next/GitHub orchestration replaced by typed local adapters while preserving provider order and donor review composition. |
-| GitHub loaders/auth, Next metadata and marketing route | none | Not distributed; these remote/site-only features have no truthful local Gitna counterpart. |
+Retained source from `apps/diffshub` lives under `web/src/diffshub`; changed copies carry in-file `Modified by Gitna:` notes.
 
 ## Pierre npm packages
 

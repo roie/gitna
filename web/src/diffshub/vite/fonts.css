@@ -1,4 +1,4 @@
-/* Replaces next/font while preserving the donor's exact CSS variable contract. */
+/* Modified by Gitna: replace next/font with bundled fonts and the same CSS variables. */
 @font-face {
   font-family: 'Geist';
   src: url('../../assets/Geist-Variable.woff2') format('woff2');

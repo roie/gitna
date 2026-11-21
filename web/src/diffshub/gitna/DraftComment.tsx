@@ -1,7 +1,4 @@
-// Modified by Gitna: declare callbacks as receiver-independent function properties,
-// show the real author, save asynchronously, share the form as CommentComposer, and
-// let it pick a recipient, with a corner button to discard the draft like the
-// conversation card's.
+// Modified by Gitna: share an asynchronous composer with real authors, recipients and draft cancellation.
 import type { DiffLineAnnotation } from '@pierre/diffs'
 import { IconArrowRight, IconPlus, IconX } from '@pierre/icons'
 import { useEffect, useId, useRef, useState, type ReactNode } from 'react'
@@ -79,11 +76,14 @@ export function CommentComposer({
           name.toLowerCase().startsWith(mention.query.toLowerCase()),
         )
   const active = Math.min(selected, choices.length - 1)
+  const recipients = chosen.map(
+    (id) => agents.find((agent) => id === `def:${agent.agent}`)?.id ?? id,
+  )
   const mentioned = resolveMentions(message, agents)
   const to =
-    chosen.includes('all') || mentioned.includes('all')
+    recipients.includes('all') || mentioned.includes('all')
       ? ['all']
-      : [...new Set([...chosen, ...mentioned])]
+      : [...new Set([...recipients, ...mentioned])]
   const toNames = to.map((id) =>
     id === 'all' ? 'all' : agents.find((agent) => agent.id === id)!.name,
   )
@@ -104,7 +104,7 @@ export function CommentComposer({
       setMessage(text)
       onChange?.(text)
     }
-    setRecipients(chosen.filter((candidate) => candidate !== id))
+    setRecipients(recipients.filter((candidate) => candidate !== id))
   }
 
   function choose(name: string) {

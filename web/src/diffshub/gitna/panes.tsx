@@ -240,7 +240,7 @@ export function TreeSection({
         !pane &&
           'relative border-t border-transparent before:absolute before:inset-x-0 before:-top-px before:h-px before:bg-border first:border-t-0 first:before:hidden md:before:right-1.5 md:before:left-3',
         !pane && !fill && 'shrink-0',
-        fill && open && 'md:flex md:min-h-0 md:flex-1 md:flex-col md:overflow-hidden',
+        fill && open && 'md:flex md:min-h-14 md:flex-1 md:flex-col md:overflow-hidden',
         pane && 'flex h-full min-h-0 flex-col overflow-hidden',
         pane && open && 'max-md:h-[50vh]',
         pane && !open && 'max-md:h-auto',

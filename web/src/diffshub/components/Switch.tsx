@@ -1,3 +1,4 @@
+// Modified by Gitna: remove the thumb shadow for the flat application chrome.
 'use client';
 
 import * as SwitchPrimitives from '@radix-ui/react-switch';

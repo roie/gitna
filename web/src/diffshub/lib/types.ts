@@ -1,3 +1,4 @@
+// Modified by Gitna: describe persistent conversations and local review data.
 import type { AnnotationSide, SelectedLineRange } from '@pierre/diffs';
 import type { GitStatusEntry } from '@pierre/trees';
 

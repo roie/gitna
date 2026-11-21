@@ -1,3 +1,4 @@
+// Modified by Gitna: remove input shadows and retain the thin focus ring.
 import { cva, type VariantProps } from 'class-variance-authority';
 import * as React from 'react';
 
