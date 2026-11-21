@@ -27,7 +27,7 @@ export function Row({
   return (
     <div
       className={cn(
-        'group/row flex min-w-0 items-center gap-1 rounded-md px-2 hover:bg-accent',
+        'group/row flex min-w-0 items-center gap-1 rounded-md px-2 hover:bg-accent has-data-[state=open]:bg-accent',
         large ? 'min-h-10 text-sm' : 'h-7 text-xs',
         selected && 'bg-accent text-accent-foreground',
         className,
