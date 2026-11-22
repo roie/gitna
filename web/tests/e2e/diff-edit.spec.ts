@@ -204,6 +204,36 @@ for (const surface of ['file', 'diff'] as const) {
   })
 }
 
+test('an undo after saving a diff survives the refresh that follows the save', async ({
+  page,
+  app,
+}) => {
+  await page.goto(app.url)
+  const editor = await openUnstaged(page, 'modified.txt')
+  await append(page, editor, ' saved')
+  let release = () => {}
+  const held = new Promise<void>((resolve) => (release = resolve))
+  await page.route('**/api/v1/review?*', async (route) => {
+    await held
+    await route.continue()
+  })
+  await page.keyboard.press('Control+s')
+  await expect
+    .poll(() => readFileSync(join(app.repo, 'modified.txt'), 'utf8'))
+    .toBe('unstaged change saved\n')
+  const unsaved = page.locator('.code-view').getByLabel('Unsaved changes')
+  await expect(unsaved).toHaveCount(0)
+  await page.keyboard.press('Control+z')
+  await expect(editor).not.toContainText('saved')
+  await expect(unsaved).toHaveCount(1)
+  const refreshed = page.waitForResponse('**/api/v1/review?*')
+  release()
+  await refreshed
+  await expect(editor).not.toContainText('saved')
+  await page.keyboard.press('Control+Shift+z')
+  await expect(editor).toContainText('saved')
+})
+
 test('an intent-to-add file can be edited in its diff', async ({ page, app }) => {
   writeFileSync(join(app.repo, 'intent.txt'), 'intent\n')
   const result = spawnSync('git', ['add', '-N', '--', 'intent.txt'], {

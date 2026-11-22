@@ -2011,7 +2011,9 @@ export function Workbench({
   const baselineLoadsRef = useRef(new Map<string, Promise<void>>())
   const diffDraftsRef = useRef(new Map<string, FileContents | undefined>())
   const handleDiffEdit = useCallback(
-    (path: string, file: FileContents) => {
+    (path: string, file: FileContents, reviewedContents: string) => {
+      const saved = worktreeFilesRef.current.get(path)?.content ?? reviewedContents
+      if (!worktreeDraftsRef.current.has(path) && file.contents === saved) return
       EditStateManager.clear('file', `${reviewCacheNamespace}worktree:${path}`)
       if (!worktreeFilesRef.current.has(path) && !baselineLoadsRef.current.has(path)) {
         const load = repository.api

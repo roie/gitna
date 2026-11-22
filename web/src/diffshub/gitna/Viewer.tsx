@@ -213,7 +213,7 @@ interface ViewerProps {
   gitnaOpenFileAction?: GitnaOpenFileAction
   gitnaConversations?: GitnaConversationActions
   onDraftChange?: (open: boolean) => void
-  onDiffEdit?: (path: string, file: FileContents) => void
+  onDiffEdit?: (path: string, file: FileContents, reviewedContents: string) => void
   dirtyPaths?: ReadonlySet<string>
 }
 
@@ -731,12 +731,7 @@ export const Viewer = memo(function Viewer({
       item: CodeViewItem<CommentMetadata>,
     ) => {
       if (item.type === 'diff') {
-        if (
-          dirtyPaths?.has(item.fileDiff.name) ||
-          event.file.contents !== item.fileDiff.additionLines.join('')
-        ) {
-          onDiffEdit?.(item.fileDiff.name, event.file)
-        }
+        onDiffEdit?.(item.fileDiff.name, event.file, item.fileDiff.additionLines.join(''))
       } else gitnaEditorActions?.onChange(item.id, event.file, event.editor.getViewState())
     },
   )
