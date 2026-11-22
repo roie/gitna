@@ -1932,6 +1932,7 @@ test('command palette searches complete paths and runs workbench commands', asyn
   await expect(serverFile).toBeVisible()
   await expect(serverFile).toHaveAttribute('aria-selected', 'true')
   await search.press('Enter')
+  await expect(palette).toHaveCount(0)
   await expect(page.getByRole('textbox', { name: 'server/palette-token/index.ts' })).toBeVisible()
 
   const editor = page.getByRole('textbox', { name: 'server/palette-token/index.ts' })
