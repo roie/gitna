@@ -1738,32 +1738,40 @@ index 540503f0ea47ce82d5882dd7d610b602992b53be..2bafa724ee9461f1f796e92b179d406f
  		};
  		if (rowSource != null && model.live && rowSource.model === model) {
 diff --git a/dist/search/SearchHighlighter.js b/dist/search/SearchHighlighter.js
-index 22d85aa225334e39ae642b0f3533b5aecaa98892..130c4952d0862d2fcf89ef6d190bedb944954de2 100644
+index 22d85aa225334e39ae642b0f3533b5aecaa98892..d713784d19e3a21776fbbe8c3b3b5f1ccc23bb71 100644
 --- a/dist/search/SearchHighlighter.js
 +++ b/dist/search/SearchHighlighter.js
-@@ -1,3 +1,4 @@
+@@ -1,5 +1,7 @@
 +import { longLineElements } from "../editor/longLine.js";
  //#region src/search/SearchHighlighter.ts
  const highlightsByDocument = /* @__PURE__ */ new WeakMap();
++const boxKeys = /* @__PURE__ */ new WeakMap();
  function isAlreadyRegisteredError(error) {
-@@ -7,6 +8,7 @@ var SearchHighlighter = class SearchHighlighter {
+ 	return error instanceof Error && error.name === "InvalidModificationError";
+ }
+@@ -7,6 +9,8 @@ var SearchHighlighter = class SearchHighlighter {
  	highlights;
  	ranges = [];
  	currentRange;
 +	boxes = [];
++	staleBoxes = [];
  	constructor(highlights) {
  		this.highlights = highlights;
  	}
-@@ -41,6 +43,8 @@ var SearchHighlighter = class SearchHighlighter {
+@@ -41,6 +45,12 @@ var SearchHighlighter = class SearchHighlighter {
  		return new SearchHighlighter(highlights);
  	}
  	clear() {
-+		for (const box of this.boxes) box.remove();
-+		this.boxes.length = 0;
++		if (this.boxes.length > 0) {
++			this.staleBoxes.push(...this.boxes.splice(0));
++			queueMicrotask(() => {
++				for (const box of this.staleBoxes.splice(0)) box.remove();
++			});
++		}
  		for (const { range, highlight } of this.ranges) highlight.delete(range);
  		this.ranges.length = 0;
  		this.currentRange = void 0;
-@@ -57,6 +61,37 @@ var SearchHighlighter = class SearchHighlighter {
+@@ -57,6 +67,42 @@ var SearchHighlighter = class SearchHighlighter {
  		}
  	}
  	paintLine(row, matches) {
@@ -1781,13 +1789,18 @@ index 22d85aa225334e39ae642b0f3533b5aecaa98892..130c4952d0862d2fcf89ef6d190bedb9
 +					const from = Math.max(start, wrap * columns || 0, layout.wrapColumns ? 0 : layout.columnAt(rendered.start));
 +					const to = Math.min(end, (wrap + 1) * columns, layout.wrapColumns ? Infinity : layout.columnAt(rendered.end));
 +					if (to <= from) continue;
-+					const box = row.ownerDocument.createElement("span");
-+					box.dataset.longMatch = match.current ? "current" : "match";
-+					box.dataset.start = match.startCharacter;
-+					box.dataset.end = match.endCharacter;
-+					box.contentEditable = "false";
-+					box.style.cssText = `position:absolute;pointer-events:none;z-index:-1;inset-inline-start:${ch + (from - (wrap * columns || 0)) * ch}px;inset-block-start:${wrap * lineHeight}px;inline-size:${(to - from) * ch}px;block-size:${lineHeight}px;background:var(--diffs-search-${match.current ? "current" : "match"}-color);`;
-+					row.appendChild(box);
++					const key = `${match.startCharacter}:${match.endCharacter}:${match.current}:${ch + (from - (wrap * columns || 0)) * ch}:${wrap * lineHeight}:${(to - from) * ch}:${lineHeight}`;
++					const stale = this.staleBoxes.findIndex((box) => box.parentNode === row && boxKeys.get(box) === key);
++					const box = stale === -1 ? row.ownerDocument.createElement("span") : this.staleBoxes.splice(stale, 1)[0];
++					if (stale === -1) {
++						box.dataset.longMatch = match.current ? "current" : "match";
++						box.dataset.start = match.startCharacter;
++						box.dataset.end = match.endCharacter;
++						box.contentEditable = "false";
++						box.style.cssText = `position:absolute;pointer-events:none;z-index:-1;inset-inline-start:${ch + (from - (wrap * columns || 0)) * ch}px;inset-block-start:${wrap * lineHeight}px;inline-size:${(to - from) * ch}px;block-size:${lineHeight}px;background:var(--diffs-search-${match.current ? "current" : "match"}-color);`;
++						boxKeys.set(box, key);
++						row.appendChild(box);
++					}
 +					this.boxes.push(box);
 +					if (match.current && this.currentRange == null) {
 +						const range = row.ownerDocument.createRange();

@@ -17,7 +17,7 @@ overrides:
   vite@*: npm:@voidzero-dev/vite-plus-core@1.1.0
 
 patchedDependencies:
-  '@pierre/diffs@1.7.0-beta.4': 3ca3c0bea991e3b30edc7df5518ad8450335005d40d2dc257dabec6800a15505
+  '@pierre/diffs@1.7.0-beta.4': b06bb5daf7846ef341aac13e9fb838becfd06890576090d68bb4b04e239f2831
   '@pierre/trees@1.0.0': 4f09373fd52c2c1489c691bb782475518e1305a12d733b6564f77d6f0170ae8a
   '@radix-ui/react-dismissable-layer@1.1.20': e8244aa5dab22034fa3d9781fe4f9df92778f87fa08c658a9b89cb3c5f201205
 
@@ -27,7 +27,7 @@ importers:
     dependencies:
       '@pierre/diffs':
         specifier: 1.7.0-beta.4
-        version: 1.7.0-beta.4(patch_hash=3ca3c0bea991e3b30edc7df5518ad8450335005d40d2dc257dabec6800a15505)(@shikijs/themes@4.4.3)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
+        version: 1.7.0-beta.4(patch_hash=b06bb5daf7846ef341aac13e9fb838becfd06890576090d68bb4b04e239f2831)(@shikijs/themes@4.4.3)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
       '@pierre/highlights':
         specifier: 0.5.1
         version: 0.5.1
@@ -2377,7 +2377,7 @@ snapshots:
 
   '@oxlint/plugins@1.79.0': {}
 
-  '@pierre/diffs@1.7.0-beta.4(patch_hash=3ca3c0bea991e3b30edc7df5518ad8450335005d40d2dc257dabec6800a15505)(@shikijs/themes@4.4.3)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)':
+  '@pierre/diffs@1.7.0-beta.4(patch_hash=b06bb5daf7846ef341aac13e9fb838becfd06890576090d68bb4b04e239f2831)(@shikijs/themes@4.4.3)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)':
     dependencies:
       '@pierre/highlights': 0.5.1
       '@pierre/patches': 0.0.1
