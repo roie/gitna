@@ -741,6 +741,37 @@ test('display settings turn conversations off and on, and explain them', async (
   expect((await stored(page, app)).map(({ messages }) => messages[0].body)).toEqual(['keep me'])
 })
 
+test('a display setting survives an immediate reload and a failed save', async ({ page, app }) => {
+  const control = page.getByRole('menu').getByRole('switch', { name: 'Conversations' })
+  const flip = async (on: boolean) => {
+    await page.getByRole('button', { name: 'Display settings' }).click()
+    await control.click()
+    await expect(control).toHaveAttribute('aria-checked', String(on))
+    await page.keyboard.press('Escape')
+  }
+  const shows = async (on: boolean) => {
+    await page.getByRole('button', { name: 'Display settings' }).click()
+    await expect(control).toHaveAttribute('aria-checked', String(on))
+    await page.keyboard.press('Escape')
+  }
+  const saved = async () => (await page.request.get(new URL('preferences.js', app.url).href)).text()
+
+  await page.goto(app.url)
+  await flip(false)
+  await page.reload()
+  await shows(false)
+  await expect.poll(saved).toContain('"gitna:conversations":"false"')
+
+  await page.route('**/api/v1/preferences', (route) => route.abort())
+  await flip(true)
+  await flip(false)
+  await flip(true)
+  await page.unroute('**/api/v1/preferences')
+  await page.reload()
+  await shows(true)
+  await expect.poll(saved).toContain('"gitna:conversations":"true"')
+})
+
 test('hiding conversations preserves a draft and releases its review after canceling', async ({
   page,
   app,

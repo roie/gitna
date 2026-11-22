@@ -24,7 +24,7 @@ func (s *Server) servePreferencesScript(w http.ResponseWriter, r *http.Request) 
 	if r.Method == http.MethodHead {
 		return
 	}
-	_, _ = w.Write([]byte("try{const p=" + string(encoded) + ";for(const k in p)localStorage.setItem(k,p[k])}catch{}\n"))
+	_, _ = w.Write([]byte("try{const p=" + string(encoded) + ";const u=JSON.parse(localStorage.getItem('gitna:unsynced-preferences')||'[]');for(const k in p)if(!u.includes(k))localStorage.setItem(k,p[k])}catch{}\n"))
 }
 
 func (s *Server) handleSetPreference(w http.ResponseWriter, r *http.Request) {

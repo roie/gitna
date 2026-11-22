@@ -7,6 +7,7 @@ import { Theme } from './gitna/ThemeRoot'
 import { WorkerPoolContext } from './components/WorkerPoolContext'
 import { RepositoryProvider } from './gitna/repository'
 import { isHomePath } from './gitna/navigation'
+import { startPreferenceSync } from '../lib/preferences'
 
 const pdfPath = new URLSearchParams(window.location.search).get('pdf')
 type ReviewUI = typeof import('./gitna/Workbench').Workbench
@@ -177,6 +178,7 @@ function App({ Workbench }: { Workbench: ReviewUI | null }) {
 const root = document.getElementById('diffshub-root')
 if (root == null) throw new Error('Missing DiffsHub React root')
 root.className = 'flex h-dvh min-h-0 flex-col'
+startPreferenceSync()
 async function mountApp(root: HTMLElement): Promise<void> {
   const Workbench = pdfPath == null ? (await import('./gitna/Workbench')).Workbench : null
   createRoot(root).render(<App Workbench={Workbench} />)
