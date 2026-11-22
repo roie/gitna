@@ -2247,13 +2247,11 @@ export function Workbench({
         event.target instanceof Node &&
         scrollRef.current?.contains(event.target) === true
       ) {
-        const paths = (reviewDataRef.current?.items ?? []).flatMap((item) =>
-          item.type === 'diff' &&
-          item.edit === true &&
-          worktreeDraftsRef.current.has(item.fileDiff.name)
-            ? [item.fileDiff.name]
-            : [],
-        )
+        const paths = (reviewDataRef.current?.items ?? []).flatMap((item) => {
+          if (item.edit !== true) return []
+          const path = item.type === 'diff' ? item.fileDiff.name : item.file.name
+          return worktreeDraftsRef.current.has(path) ? [path] : []
+        })
         if (paths.length === 0) return
         event.preventDefault()
         for (const path of paths) void saveWorktreeFile(path)

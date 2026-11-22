@@ -55,6 +55,38 @@ test('a diff draft and the editor tab share one unsaved state', async ({ page, a
   await expect(page.getByRole('tab', { name: /modified\.txt Unsaved changes/ })).toHaveCount(0)
 })
 
+test('saving while a review loads saves the edited file still on screen', async ({ page, app }) => {
+  await page.goto(app.url)
+  await page.locator('[data-section="repository"]').click()
+  await page
+    .locator('#gitna-repository-tree__tree')
+    .getByRole('treeitem', { name: 'modified.txt', exact: true })
+    .click()
+  const editor = page.getByRole('textbox', { name: 'modified.txt', exact: true })
+  await append(page, editor, ' while loading')
+  await expect(page.getByRole('tab', { name: /modified\.txt Unsaved changes/ })).toBeVisible()
+
+  let release = () => {}
+  const held = new Promise<void>((resolve) => (release = resolve))
+  await page.route('**/api/v1/review?*', async (route) => {
+    await held
+    await route.continue()
+  })
+  const reviewRequested = page.waitForRequest('**/api/v1/review?*')
+  await page
+    .locator('#gitna-unstaged-tree__tree')
+    .getByRole('treeitem', { name: 'modified.txt', exact: true })
+    .click()
+  await reviewRequested
+  await editor.click()
+  await page.keyboard.press('Control+s')
+  await expect
+    .poll(() => readFileSync(join(app.repo, 'modified.txt'), 'utf8'))
+    .toBe('unstaged change\n while loading')
+  release()
+  await expect(page.getByRole('tab', { name: /modified\.txt Unsaved changes/ })).toHaveCount(0)
+})
+
 test('the staged side of a diff is read-only', async ({ page, app }) => {
   await page.goto(app.url)
   await page
