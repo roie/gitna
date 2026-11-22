@@ -310,21 +310,21 @@ function keepDraftItems(
 
 async function withDiffDrafts(
   api: ApiClient,
-  drafts: ReadonlyMap<string, FileContents>,
+  drafts: () => ReadonlyMap<string, FileContents>,
   data: LoadedReviewData,
   scope: DiffScope | undefined,
 ): Promise<LoadedReviewData> {
-  if (scope !== 'unstaged' || !data.items.some((item) => drafts.has(item.id))) return data
+  if (scope !== 'unstaged' || !data.items.some((item) => drafts().has(item.id))) return data
   const items = await Promise.all(
     data.items.map(async (item) => {
-      const draft = drafts.get(item.id)
-      if (draft == null || item.type !== 'diff' || item.edit !== true) return item
+      if (!drafts().has(item.id) || item.type !== 'diff' || item.edit !== true) return item
       const diff = await api.diff({
         scope: 'unstaged',
         path: item.fileDiff.name,
         oldPath: item.fileDiff.prevName,
       })
-      return draftDiffItem(item, diff, draft)
+      const draft = drafts().get(item.id)
+      return draft == null ? item : draftDiffItem(item, diff, draft)
     }),
   )
   return { ...data, items }
@@ -1204,7 +1204,12 @@ export function Workbench({
         request,
         targetKey: target.key,
       }
-      return withDiffDrafts(repository.api, worktreeDraftsRef.current, result.data, request.scope)
+      return withDiffDrafts(
+        repository.api,
+        () => worktreeDraftsRef.current,
+        result.data,
+        request.scope,
+      )
     }
     const dataPromise =
       target.comparison == null
@@ -1298,7 +1303,7 @@ export function Workbench({
           paging.loadedPages++
           const data = await withDiffDrafts(
             repository.api,
-            worktreeDraftsRef.current,
+            () => worktreeDraftsRef.current,
             result.data,
             paging.request.scope,
           )

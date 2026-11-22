@@ -234,6 +234,34 @@ test('an undo after saving a diff survives the refresh that follows the save', a
   await expect(editor).toContainText('saved')
 })
 
+test('a refresh that started during an edit leaves a diff undone since then', async ({
+  page,
+  app,
+}) => {
+  await page.goto(app.url)
+  const editor = await openUnstaged(page, 'modified.txt')
+  const original = await editor.textContent()
+  await append(page, editor, ' draft')
+  let release = () => {}
+  const held = new Promise<void>((resolve) => (release = resolve))
+  await page.route('**/api/v1/diff?*', async (route) => {
+    await held
+    await route.continue()
+  })
+  const draftDiff = page.waitForRequest('**/api/v1/diff?*')
+  writeFileSync(join(app.repo, 'untracked.txt'), 'refresh\n')
+  await draftDiff
+  await page.keyboard.press('Control+z')
+  await expect(editor).toHaveText(original ?? '')
+  const applied = page.waitForResponse('**/api/v1/diff?*')
+  release()
+  await applied
+  await expect(page.locator('.code-view').getByText('refresh', { exact: true })).toBeVisible()
+  await expect(editor).toHaveText(original ?? '')
+  await page.keyboard.press('Control+Shift+z')
+  await expect(editor).toContainText('draft')
+})
+
 test('an intent-to-add file can be edited in its diff', async ({ page, app }) => {
   writeFileSync(join(app.repo, 'intent.txt'), 'intent\n')
   const result = spawnSync('git', ['add', '-N', '--', 'intent.txt'], {
