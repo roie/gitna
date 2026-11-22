@@ -662,7 +662,10 @@ test('Markdown preview keeps README HTML, alerts, footnotes and highlighted code
   await root.getByRole('button', { name: 'Copy code' }).click()
   await expect(root.getByRole('button', { name: 'Copy code' })).toHaveText('Copied')
   await expect
-    .poll(() => page.evaluate(() => navigator.clipboard.readText()))
+    // Chromium on Windows stores clipboard text with CRLF line endings.
+    .poll(async () =>
+      (await page.evaluate(() => navigator.clipboard.readText())).replace(/\r\n/g, '\n'),
+    )
     .toBe('const answer: number = 42\n')
   await expect(root.getByRole('button', { name: 'Copy code' })).toHaveText('Copy')
   const token = root.locator('[data-language="ts"] code span[style]', { hasText: 'const' })
