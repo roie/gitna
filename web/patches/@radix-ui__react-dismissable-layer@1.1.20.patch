@@ -1,0 +1,58 @@
+diff --git a/dist/index.js b/dist/index.js
+index 402fee19053394d5a404bc818d9dff4348cc1e21..5260914e7673a360624135650b48e3ba23b0cf55 100644
+--- a/dist/index.js
++++ b/dist/index.js
+@@ -130,6 +130,9 @@ var DismissableLayer = /* @__PURE__ */ React.forwardRef(
+       if (event.key !== "Escape") {
+         return;
+       }
++      if (node !== Array.from(context.layers).at(-1)) {
++        return;
++      }
+       onEscapeKeyDown?.(event);
+       if (!event.defaultPrevented && onDismiss) {
+         event.preventDefault();
+@@ -137,12 +140,12 @@ var DismissableLayer = /* @__PURE__ */ React.forwardRef(
+       }
+     });
+     React.useEffect(() => {
+-      if (!isHighestLayer) {
++      if (!node) {
+         return;
+       }
+       ownerDocument.addEventListener("keydown", handleKeyDown, { capture: true });
+       return () => ownerDocument.removeEventListener("keydown", handleKeyDown, { capture: true });
+-    }, [ownerDocument, isHighestLayer, handleKeyDown]);
++    }, [ownerDocument, node, handleKeyDown]);
+     React.useEffect(() => {
+       if (!node) return;
+       if (disableOutsidePointerEvents) {
+diff --git a/dist/index.mjs b/dist/index.mjs
+index 8b8b80f54b3b11264b3156f13a537e3d7d534490..46210b22172e3fe2f785985cc825f6a3ec4113a1 100644
+--- a/dist/index.mjs
++++ b/dist/index.mjs
+@@ -92,6 +92,9 @@ var DismissableLayer = /* @__PURE__ */ React.forwardRef(
+       if (event.key !== "Escape") {
+         return;
+       }
++      if (node !== Array.from(context.layers).at(-1)) {
++        return;
++      }
+       onEscapeKeyDown?.(event);
+       if (!event.defaultPrevented && onDismiss) {
+         event.preventDefault();
+@@ -99,12 +102,12 @@ var DismissableLayer = /* @__PURE__ */ React.forwardRef(
+       }
+     });
+     React.useEffect(() => {
+-      if (!isHighestLayer) {
++      if (!node) {
+         return;
+       }
+       ownerDocument.addEventListener("keydown", handleKeyDown, { capture: true });
+       return () => ownerDocument.removeEventListener("keydown", handleKeyDown, { capture: true });
+-    }, [ownerDocument, isHighestLayer, handleKeyDown]);
++    }, [ownerDocument, node, handleKeyDown]);
+     React.useEffect(() => {
+       if (!node) return;
+       if (disableOutsidePointerEvents) {

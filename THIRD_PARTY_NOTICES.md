@@ -29,8 +29,10 @@ that follows the hovered line. The Trees patch adds a generic public
 interactive row-action renderer with semantic action buttons and hover/focus
 styling, on-demand folder loading, `<div>` row elements, and grapheme-safe
 middle truncation, while preserving Pierre's row rendering, focus, selection
-and virtualization ownership. `web/patches/README.md` describes both patches.
-The other packages are distributed unmodified.
+and virtualization ownership. `@radix-ui/react-dismissable-layer` (MIT) is
+patched so Escape closes the topmost layer even as it opens.
+`web/patches/README.md` describes all three patches. The other packages are
+distributed unmodified.
 
 | Package | Installed version | Package license evidence | Required distribution material |
 | --- | --- | --- | --- |

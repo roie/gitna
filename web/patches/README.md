@@ -1,4 +1,4 @@
-# Pierre package patches
+# Package patches
 
 Only the active patches listed in `web/pnpm-workspace.yaml` belong here.
 Previous patch versions remain available in Git history.
@@ -44,3 +44,14 @@ combining marks instead of dividing them between separate DOM elements.
 The patch is retained as the reproducible distribution artifact rather than a
 parallel or copied Tree implementation. See `THIRD_PARTY_NOTICES.md` for the
 license and attribution record.
+
+## Radix dismissable layer 1.1.20
+
+`@radix-ui__react-dismissable-layer@1.1.20.patch` makes Escape close the
+topmost dialog or menu even when it is pressed as that layer opens. Upstream
+attaches the Escape listener only to the layer that was topmost at its last
+render, so for a moment after a nested dialog opens the parent still handles
+Escape and closes instead. The patch keeps the listener on every mounted layer
+and checks the live layer stack when the key is pressed. Upstream 1.2.1 has the
+same code. Remove the patch once an upstream release fixes this; until then,
+re-check it whenever Radix is upgraded.
