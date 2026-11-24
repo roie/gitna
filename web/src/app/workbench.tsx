@@ -81,7 +81,9 @@ import type { DarkThemeName, LightThemeName } from '../lib/theme/theme-names'
 import type { LoadedReviewData } from '../features/viewer/review-data'
 import { cn } from '../lib/cn'
 import { savePreference } from '../lib/preferences'
+import { DraftComment } from '../features/conversations/draft-comment'
 import { relocateDraft } from '../features/conversations/draft-location'
+import { Thread } from '../features/conversations/thread'
 import type { GitnaPaletteCommand } from '../features/command-palette/command-palette'
 import { GlobalToastHost } from './connection-status'
 import { LoadingScreen, folderDisplayName } from './loading-screen'
@@ -2235,7 +2237,15 @@ export function Workbench({
     const surface = JSON.parse(conversationSurfaceKey) as ConversationSurface | null
     return conversationsModel == null || surface == null
       ? undefined
-      : { model: conversationsModel, surface, visible: showConversations }
+      : {
+          model: conversationsModel,
+          surface,
+          visible: showConversations,
+          renderThread: (conversation, model) => (
+            <Thread conversation={conversation} model={model} />
+          ),
+          renderDraftComment: (props) => <DraftComment {...props} />,
+        }
   }, [conversationsModel, conversationSurfaceKey, showConversations])
 
   useEffect(() => {

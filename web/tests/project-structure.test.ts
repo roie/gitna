@@ -16,25 +16,7 @@ const layers: Record<string, readonly string[]> = {
   components: ['lib'],
   lib: [],
 }
-const crossFeatureImports = new Map([
-  [
-    'features/source-control/source-control.tsx',
-    [
-      'features/explorer/entry-dialog.tsx',
-      'features/explorer/explorer.tsx',
-      'features/graph/graph.tsx',
-      'features/conversations/conversations.tsx',
-    ],
-  ],
-  [
-    'features/viewer/viewer.tsx',
-    [
-      'features/conversations/thread.tsx',
-      'features/conversations/draft-comment.tsx',
-      'features/conversations/draft-location.ts',
-    ],
-  ],
-])
+const crossFeatureImports = new Map<string, readonly string[]>()
 
 function* imports(node: unknown): Generator<string> {
   if (Array.isArray(node)) {

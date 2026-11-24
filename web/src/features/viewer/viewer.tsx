@@ -53,25 +53,25 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from '../../components/ui/dropdown-menu'
-import { DraftComment } from '../conversations/draft-comment'
 import { useThemeController } from '@pierre/theming/react'
 import { themeController } from '../../lib/theme/theme-root'
 import { ImageAnnotation } from './image-annotation'
 import { cn } from '@/lib/cn'
 import { CODE_VIEW_CUSTOM_CSS, CODE_VIEW_LAYOUT, DIFF_PARSE_OPTIONS } from '@/lib/code-view'
-import { shownCode } from '../conversations/draft-location'
+import { shownCode } from '@/lib/shown-lines'
 import type { CommentMetadata, DraftCommentMetadata } from '@/lib/review-types'
 import type { MutateRequest } from '../../lib/api'
 import { splitHunkPatches } from './hunk-patches'
 import type { ChangeKind, ChangeScope, FileDiff, ContentSearchMatch } from '../../lib/types'
 import { installSearchHighlights, type ActiveSearchMatch } from './search-highlights'
-import { Thread } from '../conversations/thread'
 import {
   captureLines,
+  type Conversation,
   type ConversationAnchor,
   type ConversationSide,
   type ConversationSurface,
   type ConversationsModel,
+  type Participant,
 } from '../../lib/conversations'
 
 export type GitnaFileAction = 'stage' | 'unstage' | 'discard' | 'delete'
@@ -108,6 +108,16 @@ export interface GitnaConversationActions {
   visible: boolean
   model: ConversationsModel
   surface: ConversationSurface
+  renderThread: (conversation: Conversation, model: ConversationsModel) => ReactNode
+  renderDraftComment: (props: {
+    annotation: DiffLineAnnotation<DraftCommentMetadata>
+    author: string
+    itemId: string
+    agents: readonly Participant[]
+    unsavedCount: number
+    onCancel: (itemId: string, key: string) => void
+    onSave: (itemId: string, key: string, message: string, to: string[]) => void | Promise<void>
+  }) => ReactNode
 }
 
 type ConversationViewItem = CodeViewItem<CommentMetadata>
@@ -524,15 +534,15 @@ export const Viewer = memo(function Viewer({
       if (metadata.kind === 'draft') {
         return (
           <div hidden={!gitnaConversations.visible}>
-            <DraftComment
-              annotation={annotation as DiffLineAnnotation<DraftCommentMetadata>}
-              author={gitnaConversations.model.participant?.name ?? 'You'}
-              itemId={item.id}
-              agents={gitnaConversations.model.agents}
-              unsavedCount={gitnaConversations.model.unsavedCount}
-              onCancel={handleRemoveDraft}
-              onSave={handleSaveDraft}
-            />
+            {gitnaConversations.renderDraftComment({
+              annotation: annotation as DiffLineAnnotation<DraftCommentMetadata>,
+              author: gitnaConversations.model.participant?.name ?? 'You',
+              itemId: item.id,
+              agents: gitnaConversations.model.agents,
+              unsavedCount: gitnaConversations.model.unsavedCount,
+              onCancel: handleRemoveDraft,
+              onSave: handleSaveDraft,
+            })}
           </div>
         )
       }
@@ -540,9 +550,9 @@ export const Viewer = memo(function Viewer({
         return null
       }
       const conversation = gitnaConversations.model.find(metadata.conversationId)
-      return conversation == null ? null : (
-        <Thread conversation={conversation} model={gitnaConversations.model} />
-      )
+      return conversation == null
+        ? null
+        : gitnaConversations.renderThread(conversation, gitnaConversations.model)
     },
   )
 
