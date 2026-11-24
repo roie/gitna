@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type RefObject } from 'react'
 import type { ApiClient } from '../../lib/api'
-import { installChangeGutter, type GutterChange } from './gutter-changes'
+import type { GutterChange } from './gutter-changes'
+import { installChangeGutter } from './gutter-painter'
 
 export function ChangeGutter({
   path,
