@@ -25,7 +25,6 @@ import { ReviewStatus } from '../features/viewer/review-status'
 import { useViewSettings } from '../features/viewer/use-view-settings'
 import {
   Viewer,
-  getNextItemVersion,
   worktreeDiffStateKeys,
   type GitnaComparisonActions,
   type GitnaConversationActions,
@@ -34,26 +33,14 @@ import {
   type GitnaViewerActions,
 } from '../features/viewer/viewer'
 import { themeCatalog, themeController } from '../lib/theme/theme-root'
-import type { CommentMetadata, ViewerLoadState } from '../lib/review-types'
-import {
-  ApiError,
-  type ApiClient,
-  type DiffRequest,
-  type DraftRecord,
-  type ReviewRequest,
-} from '../lib/api'
+import type { CommentMetadata } from '../lib/review-types'
+import { ApiError, type DiffRequest, type DraftRecord } from '../lib/api'
 import {
   ConversationsModel,
   type Conversation,
   type ConversationSurface,
 } from '../lib/conversations'
-import type {
-  ContentSearchFile,
-  DiffScope,
-  FileDiff,
-  ReviewIdentity,
-  WorktreeFile,
-} from '../lib/types'
+import type { ContentSearchFile, FileDiff, ReviewIdentity, WorktreeFile } from '../lib/types'
 import type { DarkThemeName, LightThemeName } from '../lib/theme/theme-names'
 import type { LoadedReviewData } from '../features/viewer/review-data'
 import { cn } from '../lib/cn'
@@ -77,6 +64,11 @@ import { Confirm } from '../components/modal'
 import { SaveAs } from '../features/viewer/save-as'
 import { UnsavedChanges } from '../features/viewer/unsaved-changes'
 import { DraftRecovery } from '../features/viewer/draft-recovery'
+import {
+  getReviewTarget,
+  useReviewTarget,
+  type ReviewTarget,
+} from '../features/viewer/use-review-target'
 import { usePreview } from '../features/viewer/use-preview'
 import { SVGPreview } from '../features/viewer/preview/svg-preview'
 import { MediaPreview, nativeMediaKind } from '../features/viewer/preview/media-preview'
@@ -84,19 +76,10 @@ import { FolderEmptyState, GitnaEmptyState } from './empty-state'
 import { TabBar } from './tab-bar'
 import {
   adaptGitnaFile,
-  appendGitnaReviewPage,
-  createGitnaReviewAccumulator,
-  adaptWorktreeComparison,
   adaptWorktreeFile,
   diffImageAnnotations,
-  draftDiffItem,
-  type GitnaReviewAccumulator,
 } from '../features/viewer/review-adapter'
-import {
-  ActionGuardError,
-  useRepository,
-  type RepositoryFileComparison,
-} from '../repository/repository'
+import { ActionGuardError, useRepository } from '../repository/repository'
 
 const CommandPalette = lazy(() =>
   import('../features/command-palette/command-palette').then(({ CommandPalette }) => ({
@@ -111,25 +94,6 @@ const MarkdownPreview = lazy(() =>
     default: MarkdownPreview,
   })),
 )
-
-interface ReviewTarget {
-  comparison?: RepositoryFileComparison
-  filePath?: string
-  key: string
-  oldPath?: string
-  request?: ReviewRequest
-  selectedPath?: string
-}
-
-interface ReviewPagingState {
-  assembly: GitnaReviewAccumulator
-  controller: AbortController
-  cursor?: string
-  loadedPages: number
-  loading: boolean
-  request: ReviewRequest
-  targetKey: string
-}
 
 const rasterImagePattern = /\.(?:gif|jpe?g|png|webp)$/i
 
@@ -146,57 +110,6 @@ function previousWorktreePath(path: string, source: string, destination: string)
 
 function repositoryName(root: string): string {
   return folderDisplayName(root)
-}
-
-function keepDraftItems(
-  viewer: CodeViewHandle<CommentMetadata, undefined>,
-  current: LoadedReviewData,
-  refreshed: LoadedReviewData,
-): LoadedReviewData {
-  const ids = new Set(refreshed.items.map(({ id }) => id))
-  const items = [...refreshed.items]
-  const itemIdToFile = new Map(refreshed.itemIdToFile)
-  current.items.forEach(({ id }, index) => {
-    const existing = ids.has(id) ? undefined : viewer.getItem(id)
-    const drafts = existing?.annotations?.filter(({ metadata }) => metadata.kind === 'draft')
-    if (existing == null || drafts == null || drafts.length === 0) return
-    const kept = drafts.every(({ metadata }) => metadata.kind === 'draft' && metadata.outdated)
-      ? existing
-      : ({
-          ...existing,
-          annotations: drafts.map((draft) => ({
-            ...draft,
-            metadata: { ...draft.metadata, outdated: true },
-          })),
-          version: getNextItemVersion(existing),
-        } as typeof existing)
-    items.splice(Math.min(index, items.length), 0, kept)
-    const file = current.itemIdToFile.get(id)
-    if (file != null) itemIdToFile.set(id, file)
-  })
-  return items.length === refreshed.items.length ? refreshed : { ...refreshed, items, itemIdToFile }
-}
-
-async function withDiffDrafts(
-  api: ApiClient,
-  drafts: () => ReadonlyMap<string, FileContents>,
-  data: LoadedReviewData,
-  scope: DiffScope | undefined,
-): Promise<LoadedReviewData> {
-  if (scope !== 'unstaged' || !data.items.some((item) => drafts().has(item.id))) return data
-  const items = await Promise.all(
-    data.items.map(async (item) => {
-      if (!drafts().has(item.id) || item.type !== 'diff' || item.edit !== true) return item
-      const diff = await api.diff({
-        scope: 'unstaged',
-        path: item.fileDiff.name,
-        oldPath: item.fileDiff.prevName,
-      })
-      const draft = drafts().get(item.id)
-      return draft == null ? item : draftDiffItem(item, diff, draft)
-    }),
-  )
-  return { ...data, items }
 }
 
 function updateViewerItems(
@@ -290,20 +203,6 @@ function imageDiffRequest(target: ReviewTarget | null, repository: boolean): Dif
   return { ...target.request, path, oldPath: target.oldPath }
 }
 
-function repositoryFileErrorMessage(error: unknown): string {
-  if (error instanceof ApiError) {
-    if (error.code === 'file-too-large') return 'This file is too large to open in Gitna.'
-    if (error.code === 'binary-file') return 'Binary files can’t be opened in the editor.'
-    if (error.code === 'unsupported-encoding') {
-      return 'This file contains invalid UTF-8 text. Convert it to UTF-8 in another tool before opening it for editing. Gitna has not changed the file.'
-    }
-    if (error.code === 'file-not-found') {
-      return 'This file is no longer available. Refresh Explorer or select another file.'
-    }
-  }
-  return 'Gitna couldn’t read this file. Try again or select another file.'
-}
-
 /** Names the content each side of the open view shows, or null where code
  * cannot carry conversations. */
 function conversationSurface(
@@ -343,58 +242,6 @@ function conversationSurface(
   }
 }
 
-function useReviewTarget(): ReviewTarget | null {
-  const repository = useRepository()
-  if (repository.repositoryFileComparisonActive && repository.repositoryFileComparison != null) {
-    const comparison = repository.repositoryFileComparison
-    return {
-      comparison,
-      key: `file-compare:${comparison.leftPath}:${comparison.rightPath}:${comparison.version}`,
-    }
-  }
-  if (repository.activeReview === 'compare' && repository.compare != null) {
-    return {
-      key: `compare:${repository.compare.from}:${repository.compare.to}`,
-      request: {
-        scope: 'compare',
-        from: repository.compare.from,
-        to: repository.compare.to,
-      },
-      selectedPath: repository.compareDiff?.path,
-      oldPath: repository.compareDiff?.oldPath,
-    }
-  }
-  if (repository.activeReview === 'commit' && repository.commitDiff != null) {
-    return {
-      key: `commit:${repository.commitDiff.oid}`,
-      request: { scope: 'commit', commit: repository.commitDiff.oid },
-      selectedPath: repository.commitDiff.path,
-      oldPath: repository.commitDiff.oldPath,
-    }
-  }
-  if (repository.repositoryFilePath != null) {
-    return {
-      filePath: repository.repositoryFilePath,
-      key: `file:${repository.repositoryFilePath}`,
-      selectedPath: repository.repositoryFilePath,
-    }
-  }
-  if (repository.selection != null) {
-    return {
-      key: repository.selection.scope,
-      request: { scope: repository.selection.scope },
-      selectedPath: repository.selection.change.path,
-      oldPath: repository.selection.change.oldPath,
-    }
-  }
-  const snapshot = repository.snapshot
-  if (snapshot == null || !snapshot.repository) return null
-  const scope =
-    repository.heldScope ??
-    (snapshot.unstaged.length > 0 || snapshot.staged.length === 0 ? 'unstaged' : 'staged')
-  return { key: scope, request: { scope } }
-}
-
 type WorkbenchProps = {
   homeOpen?: boolean
   onHomeNavigate?: (open: boolean) => void
@@ -415,7 +262,7 @@ export function Workbench({
   onNavigationGuardChange,
 }: WorkbenchProps) {
   const repository = useRepository()
-  const target = useReviewTarget()
+  const target = getReviewTarget(repository)
   const nativePath =
     target?.filePath != null && nativeMediaKind(target.filePath) != null ? target.filePath : null
   const targetKeyRef = useRef(target?.key)
@@ -490,39 +337,12 @@ export function Workbench({
   }
   const scrollRef = useRef<HTMLDivElement>(null)
   const viewerRef = useRef<CodeViewHandle<CommentMetadata, undefined> | null>(null)
-  const [reviewData, setReviewData] = useState<LoadedReviewData | null>(null)
-  const previewFile = reviewData?.items[0]
-  const previewFilePath = previewFile?.type === 'file' ? previewFile.file.name : undefined
-  const {
-    cachedPreviewPath,
-    claimScroll,
-    handleEditorScroll,
-    handlePreviewMount,
-    handlePreviewScroll,
-    markdownPath,
-    previewLabel,
-    previewLayoutMode,
-    previewMode,
-    previewPath,
-    setPreviewMode,
-    svgPath,
-  } = usePreview(previewFilePath, scrollRef, viewerRef)
-  const [previewHeaderHeight, setPreviewHeaderHeight] = useState(44)
   const [themesHydrated, setThemesHydrated] = useState(false)
-  const [loadState, setLoadState] = useState<ViewerLoadState>('fetching')
-  const [errorMessage, setErrorMessage] = useState<string | null>(null)
-  const [failedTargetKey, setFailedTargetKey] = useState<string | null>(null)
-  const [fileErrorCode, setFileErrorCode] = useState<string | null>(null)
-  const [largeFileWarning, setLargeFileWarning] = useState<{
-    path: string
-    sizeBytes: number
-  } | null>(null)
   const approvedFileBudgetsRef = useRef(new Map<string, number>())
   const largeDraftBackupsRef = useRef(
     new Map<string, { record: DraftRecord; pending: Promise<void> }>(),
   )
   const [imageDiff, setImageDiff] = useState<FileDiff | null>(null)
-  const [reviewAttempt, setReviewAttempt] = useState(0)
   const [reviewActionError, setReviewActionError] = useState<string | null>(null)
   const [localHomeOpen, setLocalHomeOpen] = useState(false)
   const homeOpen = routedHomeOpen ?? localHomeOpen
@@ -548,40 +368,11 @@ export function Workbench({
   const allowFolderNavigationRef = useRef(false)
   const editorRepositoryRootRef = useRef<string | null>(null)
   const draftClientIdRef = useRef<string | null>(null)
-  const reviewDataRef = useRef<LoadedReviewData | null>(null)
   const [draftOpen, setDraftOpen] = useState(false)
-  const keptDraftItemIdsRef = useRef<ReadonlySet<string>>(new Set())
-  const withDraftItems = useCallback((data: LoadedReviewData, sameReview: boolean) => {
-    const viewer = viewerRef.current
-    const current = reviewDataRef.current
-    const kept =
-      sameReview && viewer != null && current != null ? keepDraftItems(viewer, current, data) : data
-    keptDraftItemIdsRef.current = new Set(
-      kept.items.filter((item) => !data.items.includes(item)).map(({ id }) => id),
-    )
-    return kept
-  }, [])
   const reviewScope = target?.request?.scope
   const heldScope =
     draftOpen && (reviewScope === 'staged' || reviewScope === 'unstaged') ? reviewScope : null
   useEffect(() => repository.holdScope(heldScope), [heldScope, repository])
-  useEffect(() => {
-    const kept = keptDraftItemIdsRef.current
-    if (draftOpen || kept.size === 0) return
-    keptDraftItemIdsRef.current = new Set()
-    setReviewData(
-      (data) => data && { ...data, items: data.items.filter(({ id }) => !kept.has(id)) },
-    )
-  }, [draftOpen])
-  const renderedTargetKeyRef = useRef<string | null>(null)
-  const reviewPagingRef = useRef<ReviewPagingState | null>(null)
-  const handleNativeReady = useCallback(() => {
-    if (targetKeyRef.current !== target?.key) return
-    reviewDataRef.current = null
-    renderedTargetKeyRef.current = target?.key ?? null
-    setReviewData(null)
-  }, [target?.key])
-  const worktreeComparisonRef = useRef<{ key: string; diff: FileDiff } | null>(null)
   // CodeView owns the imperative header root, so its save callback may outlive a React render.
   const savingPathRef = useRef<string | null>(null)
   const worktreeFilesRef = useRef(worktreeFiles)
@@ -608,7 +399,6 @@ export function Workbench({
     targetKey: string
     path: string
   } | null>(null)
-  const reviewItemVersionRef = useRef(0)
   const [reviewCacheNamespace] = useState(() => `${crypto.randomUUID()}:`)
   const themeState = useThemeController(themeController)
 
@@ -861,54 +651,8 @@ export function Workbench({
     return () => window.removeEventListener('keydown', openPalette)
   }, [homeOpen])
 
-  const comparisonLeftDraft =
-    target?.comparison == null ? undefined : worktreeDrafts.get(target.comparison.leftPath)
-  const comparisonRightDraft =
-    target?.comparison == null ? undefined : worktreeDrafts.get(target.comparison.rightPath)
-
-  useEffect(() => {
-    if (target == null) {
-      if (repository.connectionState === 'reconciling' && reviewDataRef.current != null) {
-        setErrorMessage(null)
-        setLoadState('ready')
-        return
-      }
-      reviewDataRef.current = null
-      renderedTargetKeyRef.current = null
-      setReviewData(null)
-      setErrorMessage(null)
-      setLoadState(repository.snapshot?.repository === false ? 'ready' : 'fetching')
-      return
-    }
-    if (target.filePath != null && nativeMediaKind(target.filePath) != null) {
-      reviewPagingRef.current = null
-      setErrorMessage(null)
-      setLoadState('ready')
-      return
-    }
-    let active = true
-    const previousLoadedPages =
-      reviewPagingRef.current?.targetKey === target.key ? reviewPagingRef.current.loadedPages : 1
-    const reviewAbortController = new AbortController()
-    reviewPagingRef.current = null
-    const refreshingVisibleReview =
-      renderedTargetKeyRef.current === target.key &&
-      reviewDataRef.current != null &&
-      viewerRef.current != null
-    const preserveVisibleEditor =
-      refreshingVisibleReview &&
-      repository.connectionState === 'reconciling' &&
-      target.filePath != null &&
-      editorViewStatesRef.current.has(target.filePath)
-    if (!refreshingVisibleReview && reviewDataRef.current == null) {
-      renderedTargetKeyRef.current = null
-      setReviewData(null)
-      setLoadState('fetching')
-    }
-    setErrorMessage(null)
-    setFileErrorCode(null)
-    setLargeFileWarning(null)
-    const loadRepositoryFile = async (path: string): Promise<LoadedReviewData> => {
+  const loadRepositoryFile = useCallback(
+    async (path: string, signal: AbortSignal): Promise<LoadedReviewData> => {
       try {
         const untitled = repository.untitledDocument(path)
         if (untitled != null) {
@@ -921,7 +665,7 @@ export function Workbench({
           approvedFileBudgetsRef.current.get(path),
           worktreeFilesRef.current.get(path),
         )
-        reviewAbortController.signal.throwIfAborted()
+        signal.throwIfAborted()
         const rename = repository.worktreeRename
         const previousPath =
           rename == null ? path : previousWorktreePath(path, rename.source, rename.destination)
@@ -963,222 +707,63 @@ export function Workbench({
         if (/\.(md|markdown|mdown|mkdn)$/i.test(path)) throw error
         if (!repository.snapshot?.repository) {
           if (!rasterImagePattern.test(path)) throw error
-          const diff = await repository.api.compareWorktreeFiles(
-            path,
-            path,
-            reviewAbortController.signal,
-          )
+          const diff = await repository.api.compareWorktreeFiles(path, path, signal)
           if (diff.tooLarge || diff.after.image == null) throw error
           return adaptGitnaFile(diff, repository.generation, reviewCacheNamespace)
         }
         const diff = await repository.api.diff({ scope: 'unstaged', path })
         return adaptGitnaFile(diff, repository.generation, reviewCacheNamespace)
       }
-    }
-    const loadWorktreeComparison = async (
-      comparison: RepositoryFileComparison,
-    ): Promise<LoadedReviewData> => {
-      const leftIsImage = rasterImagePattern.test(comparison.leftPath)
-      const rightIsImage = rasterImagePattern.test(comparison.rightPath)
-      if (leftIsImage !== rightIsImage) {
-        throw new Error('Text files and images can’t be compared with each other.')
-      }
-      const comparisonKey = `${repository.snapshot?.root ?? ''}:${repository.generation}:${comparison.leftPath}:${comparison.rightPath}`
-      let diff =
-        worktreeComparisonRef.current?.key === comparisonKey
-          ? worktreeComparisonRef.current.diff
-          : null
-      if (diff == null) {
-        diff = await repository.api.compareWorktreeFiles(
-          comparison.leftPath,
-          comparison.rightPath,
-          reviewAbortController.signal,
-        )
-        worktreeComparisonRef.current = { key: comparisonKey, diff }
-      }
-      if (diff.tooLarge) {
-        throw new Error('One of these files is too large to compare in Gitna.')
-      }
-      if (diff.binary && (diff.before.image == null || diff.after.image == null)) {
-        throw new Error('Binary files can’t be compared in Gitna.')
-      }
-      const leftDraft = worktreeDraftsRef.current.get(comparison.leftPath)
-      const rightDraft = worktreeDraftsRef.current.get(comparison.rightPath)
-      return adaptWorktreeComparison(
-        diff,
-        repository.generation + comparison.version,
-        leftDraft == null ? undefined : { ...leftDraft, name: comparison.leftPath },
-        rightDraft == null ? undefined : { ...rightDraft, name: comparison.rightPath },
-        reviewCacheNamespace,
-      )
-    }
-    const loadReview = async (): Promise<LoadedReviewData> => {
-      const request = { ...target.request!, signal: reviewAbortController.signal }
-      let page = await repository.api.review(request)
-      setReviewIdentity({ key: target.key, identity: page.identity })
-      // CodeView ignores new content for matching IDs and versions, even across commits.
-      const assembly = createGitnaReviewAccumulator(
-        page,
-        ++reviewItemVersionRef.current,
-        reviewCacheNamespace,
-      )
-      let result = appendGitnaReviewPage(assembly, page)
-      let loadedPages = 1
-      while (
-        refreshingVisibleReview &&
-        page.nextCursor != null &&
-        loadedPages < previousLoadedPages
-      ) {
-        page = await repository.api.review({ ...request, cursor: page.nextCursor })
-        result = appendGitnaReviewPage(assembly, page)
-        loadedPages++
-      }
-      reviewPagingRef.current = {
-        assembly,
-        controller: reviewAbortController,
-        cursor: page.nextCursor,
-        loadedPages,
-        loading: false,
-        request,
-        targetKey: target.key,
-      }
-      return withDiffDrafts(
-        repository.api,
-        () => worktreeDraftsRef.current,
-        result.data,
-        request.scope,
-      )
-    }
-    const dataPromise =
-      target.comparison == null
-        ? target.filePath == null
-          ? loadReview()
-          : loadRepositoryFile(target.filePath)
-        : loadWorktreeComparison(target.comparison)
-    dataPromise
-      .then((data) => {
-        if (!active) return
-        if (!refreshingVisibleReview && !preserveVisibleEditor) setLoadState('parsing')
-        renderedTargetKeyRef.current = target.key
-        const preserveLiveEditor = preserveVisibleEditor
-        if (!preserveLiveEditor) setReviewData(withDraftItems(data, refreshingVisibleReview))
-        setLoadState('ready')
-      })
-      .catch((error: unknown) => {
-        if (!active) return
-        const nextError =
-          target.filePath == null
-            ? error instanceof Error
-              ? error.message
-              : String(error)
-            : repositoryFileErrorMessage(error)
-        if (refreshingVisibleReview || preserveVisibleEditor) {
-          setReviewActionError(`Could not refresh review: ${nextError}`)
-          setLoadState('ready')
-        } else {
-          if (
-            target.filePath != null &&
-            error instanceof ApiError &&
-            error.code === 'file-too-large' &&
-            Number.isSafeInteger(error.sizeBytes) &&
-            error.sizeBytes! > 0
-          ) {
-            setLargeFileWarning({ path: target.filePath, sizeBytes: error.sizeBytes! })
-          }
-          setFileErrorCode(
-            target.filePath != null && error instanceof ApiError ? (error.code ?? null) : null,
-          )
-          setFailedTargetKey(target.key)
-          setErrorMessage(nextError)
-          setLoadState('error')
-        }
-      })
-    return () => {
-      active = false
-      reviewAbortController.abort()
-    }
-  }, [
-    comparisonLeftDraft?.contents,
-    comparisonRightDraft?.contents,
-    repository.api,
-    repository.generation,
-    repository.snapshot?.root,
-    reviewAttempt,
-    target?.key,
-  ])
-
-  useEffect(() => {
-    if (reviewData == null) return
-    if (reviewData.items.length === 0) {
-      viewerRef.current = null
-      reviewDataRef.current = reviewData
-      return
-    }
-    const previousData = reviewDataRef.current
-    const viewer = viewerRef.current
-    if (previousData != null && previousData.items.length > 0 && viewer != null) {
-      updateViewerItems(viewer, previousData, reviewData, (path) =>
-        worktreeDraftsRef.current.has(path),
-      )
-    }
-    reviewDataRef.current = reviewData
-  }, [reviewData])
-
-  const loadMoreReview = useCallback(
-    async (untilPath?: string) => {
-      const paging = reviewPagingRef.current
-      if (paging == null || paging.cursor == null || paging.loading) return
-      paging.loading = true
-      try {
-        do {
-          const page = await repository.api.review({
-            ...paging.request,
-            cursor: paging.cursor,
-          })
-          if (reviewPagingRef.current !== paging) return
-          const result = appendGitnaReviewPage(paging.assembly, page)
-          paging.cursor = page.nextCursor
-          paging.loadedPages++
-          const data = await withDiffDrafts(
-            repository.api,
-            () => worktreeDraftsRef.current,
-            result.data,
-            paging.request.scope,
-          )
-          if (reviewPagingRef.current !== paging) return
-          setReviewData(withDraftItems(data, true))
-          if (untilPath == null || result.data.treeSource.pathToItemId.has(untilPath)) return
-        } while (paging.cursor != null)
-      } catch (error) {
-        if (
-          reviewPagingRef.current !== paging ||
-          paging.controller.signal.aborted ||
-          (error instanceof ApiError && error.code === 'review-invalidated')
-        ) {
-          return
-        }
-        setReviewActionError(
-          `Could not load remaining changes: ${error instanceof Error ? error.message : String(error)}`,
-        )
-      } finally {
-        if (reviewPagingRef.current === paging) paging.loading = false
-      }
     },
-    [repository.api],
+    [repository, reviewCacheNamespace],
   )
-
-  useEffect(() => {
-    const selectedPath = target?.selectedPath
-    if (
-      selectedPath == null ||
-      reviewData == null ||
-      reviewData.treeSource.pathToItemId.has(selectedPath)
-    ) {
-      return
-    }
-    void loadMoreReview(selectedPath)
-  }, [loadMoreReview, reviewData, target?.selectedPath])
-
+  const getDrafts = useCallback(() => worktreeDraftsRef.current, [])
+  const hasEditorState = useCallback((path: string) => editorViewStatesRef.current.has(path), [])
+  const {
+    errorMessage,
+    failedTargetKey,
+    fileErrorCode,
+    handleNativeReady,
+    largeFileWarning,
+    loadMoreReview,
+    loadState,
+    renderedTargetKeyRef,
+    reviewData,
+    reviewDataRef,
+    reviewIdentity,
+    setLargeFileWarning,
+    setLoadState,
+    setReviewAttempt,
+  } = useReviewTarget({
+    draftOpen,
+    getDrafts,
+    hasEditorState,
+    loadRepositoryFile,
+    repository,
+    reviewCacheNamespace,
+    setReviewActionError,
+    target,
+    targetKeyRef,
+    updateViewerItems,
+    viewerRef,
+  })
+  const previewFile = reviewData?.items[0]
+  const previewFilePath = previewFile?.type === 'file' ? previewFile.file.name : undefined
+  const {
+    cachedPreviewPath,
+    claimScroll,
+    handleEditorScroll,
+    handlePreviewMount,
+    handlePreviewScroll,
+    markdownPath,
+    previewLabel,
+    previewLayoutMode,
+    previewMode,
+    previewPath,
+    setPreviewMode,
+    svgPath,
+  } = usePreview(previewFilePath, scrollRef, viewerRef)
+  const [previewHeaderHeight, setPreviewHeaderHeight] = useState(44)
   const handleReviewScroll = useCallback(
     (scrollTop: number) => {
       const scroller = scrollRef.current
@@ -1412,10 +997,6 @@ export function Workbench({
     target?.request?.scope === 'staged' || target?.request?.scope === 'unstaged'
       ? target.request.scope
       : null
-  const [reviewIdentity, setReviewIdentity] = useState<{
-    key: string
-    identity: ReviewIdentity
-  } | null>(null)
   const [conversationsModel, setConversationsModel] = useState<ConversationsModel | null>(null)
   useEffect(() => {
     const api = repository.api.conversations
