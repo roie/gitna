@@ -5,13 +5,10 @@ import type {
   FileTree,
   FileTreeDragAndDropConfig,
   FileTreeOptions,
-  GitStatus,
-  GitStatusEntry,
 } from '@pierre/trees'
 import { useFileTreeSearch } from '@pierre/trees/react'
 import { type ComponentType, type CSSProperties, type ReactNode, useEffect, useState } from 'react'
 import { createPortal } from 'react-dom'
-import type { ChangeKind } from '../lib/types'
 import { Button } from './ui/button'
 import { CHROME_ICON_BUTTON_CLASS } from './ui/button-styles'
 import { DropdownMenuTrigger } from './ui/dropdown-menu'
@@ -36,73 +33,7 @@ export function trimDirectoryPath(path: string): string {
   return path.replace(/\/$/, '')
 }
 
-export interface TreeFile {
-  kind: ChangeKind
-  oldPath?: string
-  path: string
-}
-
 export type RepositoryViewMode = 'tree' | 'list'
-
-export function gitStatus(kind: ChangeKind): GitStatus {
-  if (kind === 'added') return 'added'
-  if (kind === 'untracked') return 'untracked'
-  if (kind === 'deleted') return 'deleted'
-  if (kind === 'renamed') return 'renamed'
-  return 'modified'
-}
-
-export function createRepositoryListSource(
-  paths: readonly string[],
-  changes: readonly TreeFile[],
-  ignored: ReadonlySet<string>,
-): FileTreeSource {
-  const statusesByPath = new Map<string, GitStatus>([
-    ...[...ignored].map((path) => [path, 'ignored'] as const),
-    ...changes.map((change) => [change.path, gitStatus(change.kind)] as const),
-  ])
-  const displayPaths: string[] = []
-  const pathToItemId = new Map<string, string>()
-  const itemIdToPath = new Map<string, string>()
-  const used = new Set<string>()
-  for (const path of paths) {
-    if (path.endsWith('/')) continue
-    const base = path.replaceAll('/', ' › ')
-    let display = base
-    while (used.has(display)) display += '\u2063'
-    used.add(display)
-    displayPaths.push(display)
-    pathToItemId.set(display, path)
-    itemIdToPath.set(path, display)
-  }
-  return {
-    gitStatus: displayPaths.flatMap((display) => {
-      const original = pathToItemId.get(display)!
-      const status = statusesByPath.get(original)
-      return status == null ? [] : [{ path: display, status }]
-    }),
-    pathCount: displayPaths.length,
-    paths: displayPaths,
-    pathToItemId,
-    itemIdToPath,
-  }
-}
-
-export function createTreeSource(files: readonly TreeFile[]): FileTreeSource {
-  const byPath = new Map<string, TreeFile>()
-  for (const file of files) byPath.set(file.path, file)
-  const paths = [...byPath.keys()].sort()
-  const statuses: GitStatusEntry[] = paths.map((path) => ({
-    path,
-    status: gitStatus(byPath.get(path)!.kind),
-  }))
-  return {
-    gitStatus: statuses,
-    pathCount: paths.length,
-    paths,
-    pathToItemId: new Map(paths.map((path) => [path, path])),
-  }
-}
 
 function treeViewportHeight(source: FileTreeSource): number {
   if (source.pathCount === 0) return 0

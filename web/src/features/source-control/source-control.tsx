@@ -42,11 +42,10 @@ import {
   type PendingConfirm,
   message,
   trimDirectoryPath,
-  type TreeFile,
-  createTreeSource,
   FileTreeContextMenuTrigger,
   TreeSection,
 } from '../../components/tree-section'
+import { type TreeFile, createTreeSource } from '../../lib/tree-files'
 
 type OperationDialog = 'compare' | 'integrate' | 'stash' | 'tags' | null
 

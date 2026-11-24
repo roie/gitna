@@ -34,13 +34,15 @@ import {
   trimDirectoryPath,
   TreeSection,
   message,
+  type RepositoryViewMode,
+  FileTreeContextMenuTrigger,
+} from '../../components/tree-section'
+import {
   createTreeSource,
   createRepositoryListSource,
   type TreeFile,
-  type RepositoryViewMode,
   gitStatus,
-  FileTreeContextMenuTrigger,
-} from '../../components/tree-section'
+} from '../../lib/tree-files'
 
 export function repositoryName(root: string): string {
   return root.split(/[\\/]/).filter(Boolean).at(-1) ?? root

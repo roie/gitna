@@ -41,12 +41,8 @@ import { useRepository } from '../../repository/repository'
 import { Header } from '../../components/ui/header'
 import { Pane } from '../../components/ui/pane'
 import { Row } from '../../components/ui/row'
-import {
-  type PendingConfirm,
-  type RepositoryViewMode,
-  createRepositoryListSource,
-  createTreeSource,
-} from '../../components/tree-section'
+import { type PendingConfirm, type RepositoryViewMode } from '../../components/tree-section'
+import { createRepositoryListSource, createTreeSource } from '../../lib/tree-files'
 
 interface GraphProps {
   onSearchCommits?: () => void
