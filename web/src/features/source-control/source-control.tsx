@@ -404,10 +404,7 @@ function SourceControlInner({
     () =>
       activeRepositoryFilters.size === 0
         ? null
-        : filterFileTreeSource(
-            createTreeSource(repositoryChanges),
-            activeRepositoryFilters,
-          ),
+        : filterFileTreeSource(createTreeSource(repositoryChanges), activeRepositoryFilters),
     [activeRepositoryFilters, repositoryChanges],
   )
   const filteredRepositoryPaths = filteredChanges?.paths ?? visibleRepositoryPaths

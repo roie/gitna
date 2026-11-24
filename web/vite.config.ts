@@ -72,8 +72,6 @@ export default defineConfig({
       'src/lib/theme/theme-names.ts',
       'src/lib/theme/theme-root.tsx',
       'src/lib/tree-source.ts',
-      'src/main.tsx',
-      'src/styles/fonts.css',
       'src/styles/globals.css',
     ],
   },

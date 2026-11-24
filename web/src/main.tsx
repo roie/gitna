@@ -12,7 +12,9 @@ import { startPreferenceSync } from './lib/preferences'
 const pdfPath = new URLSearchParams(window.location.search).get('pdf')
 type ReviewUI = typeof import('./app/workbench').Workbench
 const StandalonePDF = lazy(() =>
-  import('./features/viewer/preview/pdf-preview').then(({ PDFPreview }) => ({ default: PDFPreview })),
+  import('./features/viewer/preview/pdf-preview').then(({ PDFPreview }) => ({
+    default: PDFPreview,
+  })),
 )
 import './styles/fonts.css'
 import '@pierre/words/styles.css'
