@@ -77,16 +77,11 @@ import { Confirm } from '../components/modal'
 import { SaveAs } from '../features/viewer/save-as'
 import { UnsavedChanges } from '../features/viewer/unsaved-changes'
 import { DraftRecovery } from '../features/viewer/draft-recovery'
-import type { MarkdownViewMode as FilePreviewMode } from '../features/viewer/preview/markdown-preview'
+import { usePreview } from '../features/viewer/use-preview'
 import { SVGPreview } from '../features/viewer/preview/svg-preview'
 import { MediaPreview, nativeMediaKind } from '../features/viewer/preview/media-preview'
 import { FolderEmptyState, GitnaEmptyState } from './empty-state'
 import { TabBar } from './tab-bar'
-import {
-  scrollPreviewToSourceLine,
-  sourceLineAtEditorTop,
-  sourceLineAtPreviewTop,
-} from '../features/viewer/preview/markdown-scroll'
 import {
   adaptGitnaFile,
   appendGitnaReviewPage,
@@ -493,30 +488,25 @@ export function Workbench({
     setShowConversations(enabled)
     savePreference('gitna:conversations', String(enabled))
   }
-  const [filePreviewModes, setFilePreviewModes] = useState<Map<string, FilePreviewMode>>(
-    () => new Map(),
-  )
+  const scrollRef = useRef<HTMLDivElement>(null)
+  const viewerRef = useRef<CodeViewHandle<CommentMetadata, undefined> | null>(null)
   const [reviewData, setReviewData] = useState<LoadedReviewData | null>(null)
   const previewFile = reviewData?.items[0]
   const previewFilePath = previewFile?.type === 'file' ? previewFile.file.name : undefined
-  const previewMode =
-    previewFilePath == null ? 'editor' : (filePreviewModes.get(previewFilePath) ?? 'editor')
-  const setPreviewMode = useCallback(
-    (mode: FilePreviewMode) => {
-      if (previewFilePath == null) return
-      setFilePreviewModes((modes) => new Map(modes).set(previewFilePath, mode))
-    },
-    [previewFilePath],
-  )
-  const [cachedPreviewPath, setCachedPreviewPath] = useState<string | null>(null)
-  const [cachedPreviewMode, setCachedPreviewMode] = useState<'preview' | 'split'>('split')
-  const previewLayoutMode = previewMode === 'editor' ? cachedPreviewMode : previewMode
-  useEffect(() => {
-    if (previewMode !== 'editor') {
-      setCachedPreviewPath(previewFilePath ?? null)
-      setCachedPreviewMode(previewMode)
-    }
-  }, [previewMode, previewFilePath])
+  const {
+    cachedPreviewPath,
+    claimScroll,
+    handleEditorScroll,
+    handlePreviewMount,
+    handlePreviewScroll,
+    markdownPath,
+    previewLabel,
+    previewLayoutMode,
+    previewMode,
+    previewPath,
+    setPreviewMode,
+    svgPath,
+  } = usePreview(previewFilePath, scrollRef, viewerRef)
   const [previewHeaderHeight, setPreviewHeaderHeight] = useState(44)
   const [themesHydrated, setThemesHydrated] = useState(false)
   const [loadState, setLoadState] = useState<ViewerLoadState>('fetching')
@@ -604,14 +594,6 @@ export function Workbench({
     path: string
     paths: string[]
   } | null>(null)
-  const scrollRef = useRef<HTMLDivElement>(null)
-  const previewScrollRef = useRef<HTMLElement | null>(null)
-  const scrollOriginRef = useRef<'editor' | 'preview' | null>(null)
-  const scrollGuardTimerRef = useRef<number | null>(null)
-  const previousPreviewModeRef = useRef(previewMode)
-  useEffect(() => {
-    previousPreviewModeRef.current = previewMode
-  }, [previewMode])
   const reviewRootRef = useRef<HTMLDivElement>(null)
   const destinationFocusRestored = useRef(false)
   useEffect(() => {
@@ -621,7 +603,6 @@ export function Workbench({
   }, [focusOnReady, repository.snapshot])
   const homeButtonRef = useRef<HTMLButtonElement>(null)
   const restoreHomeFocusRef = useRef(false)
-  const viewerRef = useRef<CodeViewHandle<CommentMetadata, undefined> | null>(null)
   const revealedReviewRef = useRef<{
     viewer: ReturnType<CodeViewHandle<CommentMetadata, undefined>['getInstance']>
     targetKey: string
@@ -1198,89 +1179,15 @@ export function Workbench({
     void loadMoreReview(selectedPath)
   }, [loadMoreReview, reviewData, target?.selectedPath])
 
-  const guardScroll = useCallback((origin: 'editor' | 'preview') => {
-    scrollOriginRef.current = origin
-    if (scrollGuardTimerRef.current != null) window.clearTimeout(scrollGuardTimerRef.current)
-    scrollGuardTimerRef.current = window.setTimeout(() => {
-      scrollOriginRef.current = null
-      scrollGuardTimerRef.current = null
-    }, 120)
-  }, [])
-
-  const claimScroll = useCallback(
-    (origin: 'editor' | 'preview', key?: string) => {
-      if (previewMode !== 'split') return
-      if (
-        key != null &&
-        !['ArrowUp', 'ArrowDown', 'PageUp', 'PageDown', 'Home', 'End', ' '].includes(key)
-      )
-        return
-      // User input takes over immediately, even inside the feedback guard.
-      guardScroll(origin)
-    },
-    [guardScroll, previewMode],
-  )
-
-  const syncPreviewFromEditor = useCallback(() => {
-    const scroller = scrollRef.current
-    const preview = previewScrollRef.current
-    if (scroller == null || preview == null || scrollOriginRef.current === 'preview') return
-    const line = sourceLineAtEditorTop(scroller)
-    if (line == null) return
-    const before = preview.scrollTop
-    scrollPreviewToSourceLine(preview, line)
-    if (Math.abs(preview.scrollTop - before) > 1) guardScroll('editor')
-  }, [guardScroll])
-
-  const handlePreviewMount = useCallback(
-    (element: HTMLElement | null) => {
-      previewScrollRef.current = element
-      if (element == null || previewMode !== 'split') return
-      if (previousPreviewModeRef.current === 'preview' && previewFilePath != null) {
-        guardScroll('preview')
-        viewerRef.current?.scrollTo({
-          type: 'line',
-          id: previewFilePath,
-          lineNumber: sourceLineAtPreviewTop(element) - 1,
-          align: 'start',
-        })
-      } else {
-        requestAnimationFrame(syncPreviewFromEditor)
-      }
-    },
-    [guardScroll, previewMode, syncPreviewFromEditor, previewFilePath],
-  )
-
-  const handlePreviewScroll = useCallback(
-    (element: HTMLElement) => {
-      if (
-        previewMode !== 'split' ||
-        scrollOriginRef.current === 'editor' ||
-        previewFilePath == null
-      )
-        return
-      guardScroll('preview')
-      viewerRef.current?.scrollTo({
-        type: 'line',
-        id: previewFilePath,
-        lineNumber: sourceLineAtPreviewTop(element) - 1,
-        align: 'start',
-      })
-    },
-    [guardScroll, previewMode, previewFilePath],
-  )
-
   const handleReviewScroll = useCallback(
     (scrollTop: number) => {
       const scroller = scrollRef.current
       if (scroller == null) return
       const remaining = scroller.scrollHeight - scrollTop - scroller.clientHeight
       if (remaining <= scroller.clientHeight) void loadMoreReview()
-      if (previewMode === 'split' && scrollOriginRef.current !== 'preview') {
-        requestAnimationFrame(syncPreviewFromEditor)
-      }
+      handleEditorScroll()
     },
-    [loadMoreReview, previewMode, syncPreviewFromEditor],
+    [handleEditorScroll, loadMoreReview],
   )
 
   const selectedImageRequest = useMemo(
@@ -1904,14 +1811,6 @@ export function Workbench({
     },
     [repository, saveWorktreeFile],
   )
-  const markdownPath =
-    previewFilePath != null && /\.(md|markdown|mdown|mkdn)$/i.test(previewFilePath)
-      ? previewFilePath
-      : null
-  const svgPath =
-    previewFilePath != null && /\.svg$/i.test(previewFilePath) ? previewFilePath : null
-  const previewPath = markdownPath ?? svgPath
-  const previewLabel = svgPath != null ? 'SVG' : 'Markdown'
   const previewValue =
     previewPath == null
       ? null
