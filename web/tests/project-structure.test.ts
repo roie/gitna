@@ -16,7 +16,6 @@ const layers: Record<string, readonly string[]> = {
   components: ['lib'],
   lib: [],
 }
-const crossFeatureImports = new Map<string, readonly string[]>()
 
 function* imports(node: unknown): Generator<string> {
   if (Array.isArray(node)) {
@@ -51,11 +50,7 @@ function allowedImport(from: string, to: string): boolean {
   const [sourceLayer, sourceFeature] = source.split('/')
   const [targetLayer, targetFeature] = target.split('/')
   if (sourceLayer === targetLayer) {
-    return (
-      sourceLayer !== 'features' ||
-      sourceFeature === targetFeature ||
-      (crossFeatureImports.get(source)?.includes(target) ?? false)
-    )
+    return sourceLayer !== 'features' || sourceFeature === targetFeature
   }
   return layers[sourceLayer]?.includes(targetLayer) ?? false
 }
