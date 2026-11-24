@@ -24,6 +24,24 @@ go run ./cmd/gitna /path/to/repository
 
 Set `GITNA_HOME` to an absolute path to keep recent folders, drafts and conversations out of your real state directory.
 
+## Project layout
+
+Frontend code lives in `web/src/`. Each layer imports only the layers below it:
+
+| Layer | Owns | Imports |
+| --- | --- | --- |
+| `app/` | layout, navigation, tabs, global dialogs | `features/`, `repository/`, `components/`, `lib/` |
+| `features/<name>/` | one feature's UI, hooks and tests | `repository/`, `components/`, `lib/` |
+| `repository/` | Git and file state, no UI | `lib/` |
+| `components/` | shared UI, no feature logic | `lib/` |
+| `lib/` | API, types, preferences, themes, helpers | nothing |
+
+Features never import each other; `app/` connects them by passing components or callbacks. Files and folders are kebab-case, tests sit next to their code, and there are no `index.ts` files.
+
+Files copied from DiffsHub are listed in `THIRD_PARTY_NOTICES.md`. Leave them as they are; a changed copy says what changed in a `// Modified by Gitna:` line. Put new code in Gitna files, not in copies.
+
+`pnpm --dir web test tests/project-structure.test.ts` checks all of this.
+
 ## Validation
 
 Run the standard checks before opening a pull request:
