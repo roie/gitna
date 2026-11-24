@@ -1,12 +1,18 @@
-import { IconEllipsis, IconFilter, IconRefresh, IconXSquircle } from '@pierre/icons'
+import { LoadingIndicator, useLoadingIndicator } from '../../components/ui/loading'
+import { filterFileTreeSource } from '../../lib/tree-source'
+import { EntryDialog } from './entry-dialog'
+import { IconEllipsis, IconFileTree, IconFilter, IconRefresh, IconXSquircle } from '@pierre/icons'
 import type {
   ContextMenuItem,
   ContextMenuOpenContext,
   FileTree,
+  FileTreeDragAndDropConfig,
+  FileTreeDropContext,
+  FileTreeDropResult,
   FileTreeDirectoryHandle,
   GitStatus,
 } from '@pierre/trees'
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { ChangeScope } from '../../lib/types'
 import { Button } from '../../components/ui/button'
 import { CHROME_ICON_BUTTON_CLASS } from '../../components/ui/button-styles'
@@ -26,6 +32,10 @@ import { expandRepositoryFolders } from './expand-repository-folders'
 import { useRepository } from '../../repository/repository'
 import {
   trimDirectoryPath,
+  TreeSection,
+  message,
+  createTreeSource,
+  createRepositoryListSource,
   type TreeFile,
   type RepositoryViewMode,
   gitStatus,
@@ -533,6 +543,391 @@ export function RepositoryHeaderActions({
           </DropdownMenuItem>
         </DropdownMenuContent>
       </DropdownMenu>
+    </>
+  )
+}
+
+type RepositoryEntryDialog =
+  | { kind: 'file' | 'folder'; initialPath: string }
+  | { kind: 'rename'; initialPath: string; source: string }
+  | null
+
+export function Explorer({
+  snapshot,
+  open: repositoryOpen,
+  onOpenChange: setRepositoryOpen,
+  onFindInFiles,
+  onError: setLocalError,
+  run,
+}: {
+  snapshot: NonNullable<ReturnType<typeof useRepository>['snapshot']>
+  open: boolean
+  onOpenChange: (open: boolean) => void
+  onFindInFiles?: () => void
+  onError: (error: string | null) => void
+  run: (action: () => Promise<void>) => Promise<void>
+}) {
+  const repository = useRepository()
+  const [repositoryFilters, setRepositoryFilters] = useState<ReadonlySet<GitStatus>>(
+    () => new Set(),
+  )
+  const [repositoryView, setRepositoryView] = useState<RepositoryViewMode>('tree')
+  const [showHiddenFiles, setShowHiddenFiles] = useState(true)
+  const [showIgnoredFiles, setShowIgnoredFiles] = useState(true)
+  const [repositoryEntryDialog, setRepositoryEntryDialog] = useState<RepositoryEntryDialog>(null)
+  const connectionHealthy = repository.connectionState === 'connected'
+  const staged = snapshot?.staged ?? []
+  const unstaged = snapshot?.unstaged ?? []
+  const repositoryRefreshing =
+    repository.repositoryFilesLoading || repository.repositoryFileCountLoading
+  const repositoryRefreshVisible = useLoadingIndicator(repositoryRefreshing)
+  const repositoryChanges = useMemo(() => [...staged, ...unstaged], [staged, unstaged])
+  const availableRepositoryStatuses = useMemo(
+    () => new Set(repositoryChanges.map((change) => gitStatus(change.kind))),
+    [repositoryChanges],
+  )
+  const activeRepositoryFilters = useMemo(
+    () =>
+      new Set([...repositoryFilters].filter((status) => availableRepositoryStatuses.has(status))),
+    [availableRepositoryStatuses, repositoryFilters],
+  )
+  const visibleRepositoryPaths = useMemo(
+    () =>
+      repository.repositoryPaths.filter(
+        (path) =>
+          (showHiddenFiles || !isHiddenRepositoryPath(path)) &&
+          (showIgnoredFiles || !repository.repositoryIgnoredPaths.has(path)),
+      ),
+    [
+      repository.repositoryIgnoredPaths,
+      repository.repositoryPaths,
+      showHiddenFiles,
+      showIgnoredFiles,
+    ],
+  )
+  const filteredChanges = useMemo(
+    () =>
+      activeRepositoryFilters.size === 0
+        ? null
+        : filterFileTreeSource(createTreeSource(repositoryChanges), activeRepositoryFilters),
+    [activeRepositoryFilters, repositoryChanges],
+  )
+  const filteredRepositoryPaths = filteredChanges?.paths ?? visibleRepositoryPaths
+  const lazyRepositoryTree = repositoryView === 'tree' && filteredChanges == null
+  const repositorySource = useMemo(
+    () =>
+      repositoryView === 'tree'
+        ? (filteredChanges ??
+          createRepositoryTreeSource(
+            visibleRepositoryPaths,
+            repositoryChanges,
+            repository.repositoryIgnoredPaths,
+          ))
+        : createRepositoryListSource(
+            filteredRepositoryPaths,
+            repositoryChanges,
+            repository.repositoryIgnoredPaths,
+          ),
+    [
+      filteredChanges,
+      filteredRepositoryPaths,
+      visibleRepositoryPaths,
+      repositoryChanges,
+      repository.repositoryIgnoredPaths,
+      repositoryView,
+    ],
+  )
+  const repositoryVisibilityFiltered = !showHiddenFiles || !showIgnoredFiles
+  const repositorySettledTotal = repository.repositoryFileTotal
+  const repositoryExactTotal =
+    repository.repositoryFileTotalGeneration === repository.generation
+      ? repositorySettledTotal
+      : null
+  const repositoryCountOutdated = repositorySettledTotal != null && repositoryExactTotal == null
+  const repositoryRowsIncomplete =
+    repository.repositoryFilesLoading ||
+    repository.ordinaryUnloadedDirectories.size > 0 ||
+    repository.ordinaryPagedDirectories.size > 0
+  const repositoryCountPending = repositorySettledTotal == null && repositoryRowsIncomplete
+  let repositorySettledDisplay: string | null = null
+  if (repositorySettledTotal != null) {
+    repositorySettledDisplay =
+      repositorySettledTotal > 999_999 ? '999999+' : `${repositorySettledTotal}`
+  }
+  const repositoryDenominator = repositorySettledDisplay ?? repository.repositoryPaths.length
+  let repositoryCountTitle: string | undefined
+  if (repositorySettledTotal != null) {
+    repositoryCountTitle = `${repositorySettledTotal} files in Repository`
+    if (repositoryCountOutdated) {
+      repositoryCountTitle = repository.repositoryFileCountLoading
+        ? `Last known: ${repositorySettledTotal} files in Repository. Refreshing exact count.`
+        : `Last known: ${repositorySettledTotal} files in Repository. Exact count unavailable.`
+    }
+  }
+  let repositoryCountText: string
+  if (
+    activeRepositoryFilters.size === 0 &&
+    !repositoryVisibilityFiltered &&
+    repositorySettledDisplay != null
+  ) {
+    repositoryCountText = repositorySettledDisplay
+  } else if (activeRepositoryFilters.size === 0 && !repositoryVisibilityFiltered) {
+    repositoryCountText = `${repository.repositoryPaths.length}${repositoryCountPending ? '+' : ''}`
+  } else {
+    repositoryCountText = `${filteredRepositoryPaths.length}${repositoryRowsIncomplete ? '+' : ''} / ${repositoryDenominator}${repositoryCountPending ? '+' : ''}`
+  }
+  let repositoryCountLabel: string | undefined
+  if (repositoryCountOutdated) {
+    const state = repository.repositoryFileCountLoading ? 'refreshing' : 'exact count unavailable'
+    repositoryCountLabel = `${repositoryCountText}, based on the last known exact total; ${state}`
+  }
+  const repositoryCount = <span aria-label={repositoryCountLabel}>{repositoryCountText}</span>
+  const pagedOrdinaryDirectory = repository.ordinaryPagedDirectories.values().next().value
+  const selectRepositoryPath = useCallback(
+    (path: string) => repository.selectRepositoryFile(path),
+    [repository],
+  )
+  const loadOrdinaryDirectory = useCallback(
+    (path: string) => repository.loadOrdinaryDirectory(path),
+    [repository],
+  )
+  const loadMoreOrdinaryDirectory = useCallback(
+    (path: string) => repository.loadMoreOrdinaryDirectory(path),
+    [repository],
+  )
+  const changeScopesForPath = useCallback(
+    (path: string): readonly ChangeScope[] => {
+      const scopes: ChangeScope[] = []
+      if (unstaged.some((change) => change.path === path)) scopes.push('unstaged')
+      if (staged.some((change) => change.path === path)) scopes.push('staged')
+      return scopes
+    },
+    [staged, unstaged],
+  )
+  const canDropRepositoryPath = useCallback(
+    ({ draggedPaths, target }: FileTreeDropContext) => {
+      if (
+        repository.busy ||
+        repository.getActionDisabledReason() != null ||
+        repositoryView !== 'tree' ||
+        activeRepositoryFilters.size > 0 ||
+        repositoryVisibilityFiltered ||
+        draggedPaths.length !== 1
+      ) {
+        return false
+      }
+      const [rawSource] = draggedPaths
+      const source = trimDirectoryPath(rawSource)
+      const destination = repositoryDropDestination(rawSource, target.directoryPath)
+      const targetDirectory =
+        target.directoryPath == null ? '' : trimDirectoryPath(target.directoryPath)
+      if (
+        destination === source ||
+        (rawSource.endsWith('/') &&
+          (targetDirectory === source || targetDirectory.startsWith(`${source}/`)))
+      ) {
+        return false
+      }
+      return !repository.repositoryPaths.some(
+        (path) => path === destination || path.startsWith(`${destination}/`),
+      )
+    },
+    [
+      repository.busy,
+      repository.repositoryPaths,
+      activeRepositoryFilters.size,
+      repositoryView,
+      repositoryVisibilityFiltered,
+    ],
+  )
+  const moveRepositoryPath = useCallback(
+    ({ draggedPaths, target }: FileTreeDropResult) => {
+      const [rawSource] = draggedPaths
+      if (rawSource == null) return
+      const source = trimDirectoryPath(rawSource)
+      const destination = repositoryDropDestination(rawSource, target.directoryPath)
+      void run(() => repository.renameWorktreeEntry(source, destination))
+    },
+    [repository, run],
+  )
+  const repositoryDragAndDrop = useMemo<FileTreeDragAndDropConfig>(
+    () => ({
+      canDrag: (paths) =>
+        !repository.busy &&
+        repository.getActionDisabledReason() == null &&
+        repositoryView === 'tree' &&
+        activeRepositoryFilters.size === 0 &&
+        !repositoryVisibilityFiltered &&
+        paths.length === 1,
+      canDrop: canDropRepositoryPath,
+      onDropComplete: moveRepositoryPath,
+      onDropError: (error) => setLocalError(error),
+      openOnDropDelay: 600,
+    }),
+    [
+      canDropRepositoryPath,
+      moveRepositoryPath,
+      repository.busy,
+      activeRepositoryFilters.size,
+      repositoryView,
+      repositoryVisibilityFiltered,
+      setLocalError,
+    ],
+  )
+  const renderRepositoryContextMenu = useCallback(
+    (item: ContextMenuItem, context: ContextMenuOpenContext, selectedPaths: readonly string[]) => (
+      <RepositoryContextMenu
+        context={context}
+        item={item}
+        changeScopes={item.kind === 'file' ? changeScopesForPath(item.path) : []}
+        compareSelected={
+          selectedPaths.length === 2 &&
+          selectedPaths.every(
+            (path) => !path.endsWith('/') && repository.canOpenRepositoryFile(path),
+          )
+        }
+        onCompareSelected={() => repository.openRepositoryFileComparison()}
+        onCopyPath={(path) => {
+          void navigator.clipboard
+            .writeText(path)
+            .catch((error) => setLocalError(`Could not copy path: ${message(error)}`))
+        }}
+        onCreate={(kind, initialPath) => setRepositoryEntryDialog({ kind, initialPath })}
+        onOpen={selectRepositoryPath}
+        onReveal={(path) => void run(() => repository.revealPath(path))}
+        onOpenChange={(scope, path) => repository.select(scope, path)}
+        onRefresh={() => void repository.refreshExplorer()}
+        onRename={(source) =>
+          setRepositoryEntryDialog({ kind: 'rename', source, initialPath: source })
+        }
+      />
+    ),
+    [changeScopesForPath, repository, run, selectRepositoryPath, setLocalError],
+  )
+
+  useEffect(() => {
+    if (repository.repositoryFileRevealVersion === 0) return
+    setRepositoryFilters((current) => (current.size === 0 ? current : new Set()))
+    setShowHiddenFiles(true)
+    setShowIgnoredFiles(true)
+  }, [repository.repositoryFileRevealVersion])
+
+  return (
+    <>
+      <TreeSection
+        pane
+        count={repositoryCount}
+        countTitle={repositoryCountTitle}
+        headerClassName={snapshot.repository ? undefined : 'border-t-0'}
+        dragAndDrop={repositoryDragAndDrop}
+        dataSection="repository"
+        emptyMessage={snapshot.repository ? 'No repository files' : 'No folder files'}
+        footer={
+          <>
+            {repository.repositoryFilesLoading && repository.repositoryPaths.length === 0 && (
+              <LoadingIndicator>
+                <p className="px-8 py-2 text-xs text-muted-foreground" role="status">
+                  Loading files…
+                </p>
+              </LoadingIndicator>
+            )}
+            {connectionHealthy && repository.repositoryFilesError != null && (
+              <p className="px-8 py-2 text-xs text-destructive" role="alert">
+                {repository.repositoryFilesError}
+              </p>
+            )}
+            {!snapshot.repository && pagedOrdinaryDirectory != null && (
+              <div className="px-6 py-1">
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  disabled={repository.repositoryFilesLoading}
+                  onClick={() => void repository.loadMoreOrdinaryDirectory(pagedOrdinaryDirectory)}
+                >
+                  Load more files in{' '}
+                  {pagedOrdinaryDirectory === ''
+                    ? repositoryName(snapshot.root)
+                    : (pagedOrdinaryDirectory.split('/').at(-1) ?? pagedOrdinaryDirectory)}
+                </Button>
+              </div>
+            )}
+            {!snapshot.repository && repository.ordinaryWatchCoverage === 'partial' && (
+              <p className="px-8 py-2 text-xs text-muted-foreground" role="status">
+                Unopened folders refresh when opened.
+              </p>
+            )}
+          </>
+        }
+        renderContextMenu={renderRepositoryContextMenu}
+        renderHeaderActions={(model) => (
+          <RepositoryHeaderActions
+            availableStatuses={availableRepositoryStatuses}
+            repositoryMode={snapshot.repository}
+            loading={repositoryRefreshing}
+            refreshing={repositoryRefreshVisible}
+            model={model}
+            paths={repositoryView === 'tree' ? filteredRepositoryPaths : []}
+            selectedStatuses={activeRepositoryFilters}
+            showHiddenFiles={showHiddenFiles}
+            showIgnoredFiles={showIgnoredFiles}
+            view={repositoryView}
+            onClearFilters={() => setRepositoryFilters(new Set())}
+            onIsolateFilter={(status) => setRepositoryFilters(new Set([status]))}
+            onCreate={(kind, initialPath) => setRepositoryEntryDialog({ kind, initialPath })}
+            onFindInFiles={onFindInFiles}
+            onRefresh={() => void repository.refreshExplorer()}
+            onShowHiddenFilesChange={setShowHiddenFiles}
+            onShowIgnoredFilesChange={setShowIgnoredFiles}
+            onRename={(source) =>
+              setRepositoryEntryDialog({
+                kind: 'rename',
+                source: source.replace(/\/$/, ''),
+                initialPath: source.replace(/\/$/, ''),
+              })
+            }
+            onToggleFilter={(status) =>
+              setRepositoryFilters(() => {
+                const next = new Set(activeRepositoryFilters)
+                if (next.has(status)) next.delete(status)
+                else next.add(status)
+                return next
+              })
+            }
+            onViewChange={setRepositoryView}
+          />
+        )}
+        icon={IconFileTree}
+        lazyDirectories={lazyRepositoryTree ? repository.ordinaryUnloadedDirectories : undefined}
+        knownEmptyDirectories={
+          lazyRepositoryTree ? repository.ordinaryKnownEmptyDirectories : undefined
+        }
+        pagedDirectories={lazyRepositoryTree ? repository.ordinaryPagedDirectories : undefined}
+        modelId="gitna-repository-tree"
+        onLoadDirectory={lazyRepositoryTree ? loadOrdinaryDirectory : undefined}
+        onLoadMoreDirectory={lazyRepositoryTree ? loadMoreOrdinaryDirectory : undefined}
+        open={repositoryOpen}
+        selectedPath={repository.repositoryFilePath ?? repository.selection?.change.path}
+        selectedPaths={repository.repositorySelectedPaths}
+        source={repositorySource}
+        title={repositoryName(snapshot.root)}
+        onOpenChange={setRepositoryOpen}
+        onSelectPath={selectRepositoryPath}
+        onSelectPaths={(paths) => repository.setRepositorySelectedPaths(paths)}
+      />
+      {repositoryEntryDialog != null && (
+        <EntryDialog
+          key={`${repositoryEntryDialog.kind}:${repositoryEntryDialog.initialPath}`}
+          kind={repositoryEntryDialog.kind}
+          initialPath={repositoryEntryDialog.initialPath}
+          source={'source' in repositoryEntryDialog ? repositoryEntryDialog.source : undefined}
+          onClose={() => setRepositoryEntryDialog(null)}
+          onError={(error) => setLocalError(error || null)}
+          onCreatedFolder={(path) =>
+            setRepositoryEntryDialog({ kind: 'file', initialPath: `${path.replace(/\/$/, '')}/` })
+          }
+        />
+      )}
     </>
   )
 }

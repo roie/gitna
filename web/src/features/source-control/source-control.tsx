@@ -1,25 +1,15 @@
 import {
   IconBranch,
   IconEllipsis,
-  IconFileTree,
   IconMinus,
   IconPlus,
   IconRefresh,
   IconReply,
   IconSymbolDiffstatFill,
 } from '@pierre/icons'
-import type {
-  ContextMenuItem,
-  ContextMenuOpenContext,
-  FileTreeDragAndDropConfig,
-  FileTreeDropContext,
-  FileTreeDropResult,
-  FileTreeOptions,
-  GitStatus,
-} from '@pierre/trees'
+import type { ContextMenuItem, ContextMenuOpenContext, FileTreeOptions } from '@pierre/trees'
 import { type FormEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { ApiError } from '../../lib/api'
-import { savePreference } from '../../lib/preferences'
 import type { ChangeScope, ConflictEntry } from '../../lib/types'
 import { Button } from '../../components/ui/button'
 import { CHROME_ICON_BUTTON_CLASS } from '../../components/ui/button-styles'
@@ -42,11 +32,9 @@ import {
   TooltipTrigger,
 } from '../../components/ui/tooltip'
 import { cn } from '../../lib/cn'
-import { filterFileTreeSource } from '../../lib/tree-source'
-import { LoadingIndicator, useLoadingIndicator } from '../../components/ui/loading'
+import { useLoadingIndicator } from '../../components/ui/loading'
 import type { FileTreeSource } from '../../lib/review-types'
-import { Confirm, Modal } from '../../components/modal'
-import { EntryDialog } from '../explorer/entry-dialog'
+import { Modal } from '../../components/modal'
 import { useRepository } from '../../repository/repository'
 import { Header } from '../../components/ui/header'
 import { Pane } from '../../components/ui/pane'
@@ -55,30 +43,12 @@ import {
   message,
   trimDirectoryPath,
   type TreeFile,
-  type RepositoryViewMode,
-  gitStatus,
-  createRepositoryListSource,
   createTreeSource,
   FileTreeContextMenuTrigger,
   TreeSection,
 } from '../../components/tree-section'
-import {
-  repositoryName,
-  repositoryDropDestination,
-  isHiddenRepositoryPath,
-  createRepositoryTreeSource,
-  RepositoryContextMenu,
-  RepositoryHeaderActions,
-} from '../explorer/explorer'
-import { Graph } from '../graph/graph'
-import { type ConversationsPane, Conversations } from '../conversations/conversations'
 
 type OperationDialog = 'compare' | 'integrate' | 'stash' | 'tags' | null
-
-type RepositoryEntryDialog =
-  | { kind: 'file' | 'folder'; initialPath: string }
-  | { kind: 'rename'; initialPath: string; source: string }
-  | null
 
 interface DiscardConfirmationCopy {
   confirmLabel: string
@@ -123,7 +93,7 @@ function discardConfirmationCopy(
   }
 }
 
-const CHANGE_TREE_VIRTUALIZATION_THRESHOLD = 8
+export const CHANGE_TREE_VIRTUALIZATION_THRESHOLD = 8
 
 function mutationPaths(changes: readonly TreeFile[]): string[] {
   return [
@@ -135,369 +105,56 @@ function mutationPaths(changes: readonly TreeFile[]): string[] {
   ]
 }
 
-const PANE_SIZES_STORAGE_KEY = 'gitna-source-control-pane-sizes-v2'
-const DEFAULT_PANE_SIZES = [46, 26, 14, 14] as const
-type PaneSizes = [number, number, number, number]
-type PaneResizeIndex = 0 | 1 | 2
-
-function readPaneSizes(): PaneSizes {
-  try {
-    const value = JSON.parse(localStorage.getItem(PANE_SIZES_STORAGE_KEY) ?? 'null') as unknown
-    if (
-      Array.isArray(value) &&
-      (value.length === 3 || value.length === 4) &&
-      value.every((entry) => typeof entry === 'number' && entry >= 8)
-    ) {
-      return [value[0], value[1], value[2], value[3] ?? DEFAULT_PANE_SIZES[3]]
-    }
-  } catch {
-    // Invalid local state falls back to the stable VS Code-style proportions.
-  }
-  return [...DEFAULT_PANE_SIZES]
-}
-
-function usePaneSizes() {
-  const containerRef = useRef<HTMLDivElement>(null)
-  const [sizes, setSizes] = useState<PaneSizes>(readPaneSizes)
-  const [customized, setCustomized] = useState(() => {
-    try {
-      return localStorage.getItem(PANE_SIZES_STORAGE_KEY) != null
-    } catch {
-      return false
-    }
-  })
-  const resizeBy = useCallback((index: PaneResizeIndex, delta: number) => {
-    setCustomized(true)
-    setSizes((current) => {
-      const next = [...current] as PaneSizes
-      const bounded = Math.max(8 - current[index], Math.min(delta, current[index + 1] - 8))
-      next[index] += bounded
-      next[index + 1] -= bounded
-      savePreference(PANE_SIZES_STORAGE_KEY, JSON.stringify(next))
-      return next
-    })
-  }, [])
-  const startResize = useCallback(
-    (index: PaneResizeIndex, event: React.PointerEvent<HTMLElement>) => {
-      if (event.button !== 0 || containerRef.current == null) return
-      event.preventDefault()
-      const startY = event.clientY
-      const startSizes = [...sizes] as PaneSizes
-      setCustomized(true)
-      const height = containerRef.current.getBoundingClientRect().height
-      const onPointerMove = (moveEvent: PointerEvent) => {
-        const delta = ((moveEvent.clientY - startY) / Math.max(1, height)) * 100
-        const bounded = Math.max(8 - startSizes[index], Math.min(delta, startSizes[index + 1] - 8))
-        const next = [...startSizes] as PaneSizes
-        next[index] += bounded
-        next[index + 1] -= bounded
-        savePreference(PANE_SIZES_STORAGE_KEY, JSON.stringify(next))
-        setSizes(next)
-      }
-      const stop = () => {
-        window.removeEventListener('pointermove', onPointerMove)
-        window.removeEventListener('pointerup', stop)
-      }
-      window.addEventListener('pointermove', onPointerMove)
-      window.addEventListener('pointerup', stop, { once: true })
-    },
-    [sizes],
-  )
-  return { containerRef, customized, resizeBy, sizes, startResize }
-}
-
-function PaneResizeHandle({
-  disabled,
-  index,
-  onResize,
-  onStart,
-  size,
-}: {
-  disabled: boolean
-  index: PaneResizeIndex
-  onResize: (index: PaneResizeIndex, delta: number) => void
-  onStart: (index: PaneResizeIndex, event: React.PointerEvent<HTMLElement>) => void
-  size: number
-}) {
-  return (
-    <hr
-      aria-disabled={disabled}
-      aria-label="Resize sidebar panes"
-      aria-orientation="horizontal"
-      aria-valuemax={92}
-      aria-valuemin={8}
-      aria-valuenow={Math.round(size)}
-      tabIndex={disabled ? -1 : 0}
-      className={cn(
-        'relative z-20 hidden h-0 overflow-visible border-0 outline-none before:absolute before:inset-x-0 before:-top-0.5 before:h-1 before:cursor-[ns-resize] before:bg-transparent before:transition-colors before:duration-100 hover:before:bg-[var(--ring)] focus-visible:before:bg-[var(--ring)] active:before:bg-[var(--ring)] md:block',
-        disabled && 'pointer-events-none',
-      )}
-      onPointerDown={(event) => !disabled && onStart(index, event)}
-      onKeyDown={(event) => {
-        if (disabled || (event.key !== 'ArrowUp' && event.key !== 'ArrowDown')) return
-        event.preventDefault()
-        onResize(index, event.key === 'ArrowUp' ? -2 : 2)
-      }}
-    />
-  )
-}
-
-function useObservedHeight(ref: React.RefObject<HTMLElement | null>): number {
-  const [height, setHeight] = useState(0)
-  useEffect(() => {
-    const element = ref.current
-    if (element == null) return
-    const update = () => setHeight(Math.ceil(element.getBoundingClientRect().height))
-    update()
-    const observer = new ResizeObserver(update)
-    observer.observe(element)
-    return () => observer.disconnect()
-  })
-  return height
-}
-
-function useNaturalPaneHeight(
-  paneRef: React.RefObject<HTMLElement | null>,
-  contentRef: React.RefObject<HTMLElement | null>,
-): number {
-  const [height, setHeight] = useState(0)
-  useEffect(() => {
-    const pane = paneRef.current
-    const content = contentRef.current
-    const header = pane?.firstElementChild
-    if (pane == null || content == null || !(header instanceof HTMLElement)) return
-    const children = [...content.children].filter(
-      (child): child is HTMLElement => child instanceof HTMLElement,
-    )
-    const update = () =>
-      setHeight(
-        Math.ceil(
-          header.getBoundingClientRect().height +
-            children.reduce((total, child) => total + child.getBoundingClientRect().height, 0),
-        ),
-      )
-    update()
-    const observer = new ResizeObserver(update)
-    observer.observe(header)
-    for (const child of children) observer.observe(child)
-    return () => observer.disconnect()
-  })
-  return height
-}
-
 export function SourceControl({
-  active = true,
-  conversations,
-  onFindInFiles,
-  onSearchCommits,
-}: {
-  active?: boolean
-  conversations?: ConversationsPane
-  onFindInFiles?: () => void
-  onSearchCommits?: () => void
-}) {
-  const [commitMessage, setCommitMessage] = useState('')
-  const [amend, setAmend] = useState(false)
-  return active ? (
-    <SourceControlInner
-      conversations={conversations}
-      onFindInFiles={onFindInFiles}
-      onSearchCommits={onSearchCommits}
-      commitMessage={commitMessage}
-      setCommitMessage={setCommitMessage}
-      amend={amend}
-      setAmend={setAmend}
-    />
-  ) : null
-}
-
-function SourceControlInner({
-  conversations,
-  onFindInFiles,
-  onSearchCommits,
+  snapshot,
   commitMessage,
   setCommitMessage,
   amend,
   setAmend,
+  changedPathCount,
+  workflowOpen,
+  onWorkflowOpenChange: setWorkflowOpen,
+  changesOpen,
+  onChangesOpenChange: setChangesOpen,
+  stagedOpen,
+  onStagedOpenChange: setStagedOpen,
+  changesHeader,
+  composer,
+  workflowPane,
+  workflowContent,
+  onConfirm: setPendingConfirm,
+  onError: setLocalError,
+  run,
 }: {
-  conversations?: ConversationsPane
-  onFindInFiles?: () => void
-  onSearchCommits?: () => void
+  snapshot: NonNullable<ReturnType<typeof useRepository>['snapshot']>
   commitMessage: string
   setCommitMessage: (message: string) => void
   amend: boolean
   setAmend: (amend: boolean) => void
+  changedPathCount: number
+  workflowOpen: boolean
+  onWorkflowOpenChange: (open: boolean) => void
+  changesOpen: boolean
+  onChangesOpenChange: (open: boolean) => void
+  stagedOpen: boolean
+  onStagedOpenChange: (open: boolean) => void
+  changesHeader: React.RefObject<HTMLButtonElement | null>
+  composer: React.RefObject<HTMLTextAreaElement | null>
+  workflowPane: React.RefObject<HTMLElement | null>
+  workflowContent: React.RefObject<HTMLDivElement | null>
+  onConfirm: (confirm: PendingConfirm) => void
+  onError: (error: string | null) => void
+  run: (action: () => Promise<void>) => Promise<void>
 }) {
   const repository = useRepository()
-  const [repositoryOpen, setRepositoryOpen] = useState(false)
-  const [conversationsOpen, setConversationsOpen] = useState(false)
-  const conversationsPaneOpen = conversations != null && conversationsOpen
-  const [workflowOpen, setWorkflowOpen] = useState(true)
-  const [changesOpen, setChangesOpen] = useState(true)
-  const [stagedOpen, setStagedOpen] = useState(true)
-  const [graphOpen, setGraphOpen] = useState(false)
-  const [repositoryFilters, setRepositoryFilters] = useState<ReadonlySet<GitStatus>>(
-    () => new Set(),
-  )
-  const [repositoryView, setRepositoryView] = useState<RepositoryViewMode>('tree')
-  const [showHiddenFiles, setShowHiddenFiles] = useState(true)
-  const [showIgnoredFiles, setShowIgnoredFiles] = useState(true)
-  const [localError, setLocalError] = useState<string | null>(null)
-  const [pendingConfirm, setPendingConfirm] = useState<PendingConfirm | null>(null)
   const [operationDialog, setOperationDialog] = useState<OperationDialog>(null)
-  const [repositoryEntryDialog, setRepositoryEntryDialog] = useState<RepositoryEntryDialog>(null)
-  const changesHeader = useRef<HTMLButtonElement>(null)
-  const graphHeader = useRef<HTMLButtonElement>(null)
-  const composer = useRef<HTMLTextAreaElement>(null)
   const moreTrigger = useRef<HTMLButtonElement>(null)
-  const workflowPane = useRef<HTMLElement>(null)
-  const workflowContent = useRef<HTMLDivElement>(null)
-  const {
-    containerRef,
-    customized: paneSizesCustomized,
-    resizeBy,
-    sizes,
-    startResize,
-  } = usePaneSizes()
-  const paneStackHeight = useObservedHeight(containerRef)
-  const measuredWorkflowHeight = useNaturalPaneHeight(workflowPane, workflowContent)
-
-  const snapshot = repository.snapshot
-  const connectionHealthy = repository.connectionState === 'connected'
   const staged = snapshot?.staged ?? []
   const unstaged = snapshot?.unstaged ?? []
-  const changedPathCount = new Set(
-    [...staged, ...unstaged, ...(snapshot?.conflicts ?? [])].map((change) => change.path),
-  ).size
   const workflowRefreshVisible = useLoadingIndicator(repository.loading)
-  const repositoryRefreshing =
-    repository.repositoryFilesLoading || repository.repositoryFileCountLoading
-  const repositoryRefreshVisible = useLoadingIndicator(repositoryRefreshing)
   const headTitle =
     snapshot?.headBranch ??
     (snapshot?.headOid == null ? 'Detached HEAD' : `Detached at ${snapshot.headOid.slice(0, 8)}`)
-  const repositoryChanges = useMemo(() => [...staged, ...unstaged], [staged, unstaged])
-  const availableRepositoryStatuses = useMemo(
-    () => new Set(repositoryChanges.map((change) => gitStatus(change.kind))),
-    [repositoryChanges],
-  )
-  const activeRepositoryFilters = useMemo(
-    () =>
-      new Set([...repositoryFilters].filter((status) => availableRepositoryStatuses.has(status))),
-    [availableRepositoryStatuses, repositoryFilters],
-  )
-  const visibleRepositoryPaths = useMemo(
-    () =>
-      repository.repositoryPaths.filter(
-        (path) =>
-          (showHiddenFiles || !isHiddenRepositoryPath(path)) &&
-          (showIgnoredFiles || !repository.repositoryIgnoredPaths.has(path)),
-      ),
-    [
-      repository.repositoryIgnoredPaths,
-      repository.repositoryPaths,
-      showHiddenFiles,
-      showIgnoredFiles,
-    ],
-  )
-  const filteredChanges = useMemo(
-    () =>
-      activeRepositoryFilters.size === 0
-        ? null
-        : filterFileTreeSource(createTreeSource(repositoryChanges), activeRepositoryFilters),
-    [activeRepositoryFilters, repositoryChanges],
-  )
-  const filteredRepositoryPaths = filteredChanges?.paths ?? visibleRepositoryPaths
-  const lazyRepositoryTree = repositoryView === 'tree' && filteredChanges == null
-  const repositorySource = useMemo(
-    () =>
-      repositoryView === 'tree'
-        ? (filteredChanges ??
-          createRepositoryTreeSource(
-            visibleRepositoryPaths,
-            repositoryChanges,
-            repository.repositoryIgnoredPaths,
-          ))
-        : createRepositoryListSource(
-            filteredRepositoryPaths,
-            repositoryChanges,
-            repository.repositoryIgnoredPaths,
-          ),
-    [
-      filteredChanges,
-      filteredRepositoryPaths,
-      visibleRepositoryPaths,
-      repositoryChanges,
-      repository.repositoryIgnoredPaths,
-      repositoryView,
-    ],
-  )
-  const workflowCompact = changedPathCount === 0 && repository.conflicts.length === 0
-  const hasLargeOpenChangeSection =
-    (stagedOpen && staged.length > CHANGE_TREE_VIRTUALIZATION_THRESHOLD) ||
-    (changesOpen && unstaged.length > CHANGE_TREE_VIRTUALIZATION_THRESHOLD)
-  const useNaturalWorkflowHeight =
-    workflowOpen &&
-    !workflowCompact &&
-    (!hasLargeOpenChangeSection ||
-      ((repositoryOpen || graphOpen || conversationsPaneOpen) && !paneSizesCustomized))
-  const naturalWorkflowHeight = Math.min(
-    measuredWorkflowHeight || 142,
-    Math.max(142, (paneStackHeight * sizes[0]) / 100),
-  )
-  const workflowRow =
-    !workflowOpen || workflowCompact
-      ? 'max-content'
-      : !repositoryOpen && !graphOpen && !conversationsPaneOpen
-        ? 'minmax(142px, 1fr)'
-        : useNaturalWorkflowHeight
-          ? `${naturalWorkflowHeight}px`
-          : `minmax(142px, ${sizes[0]}fr)`
-  const repositoryVisibilityFiltered = !showHiddenFiles || !showIgnoredFiles
-  const repositorySettledTotal = repository.repositoryFileTotal
-  const repositoryExactTotal =
-    repository.repositoryFileTotalGeneration === repository.generation
-      ? repositorySettledTotal
-      : null
-  const repositoryCountOutdated = repositorySettledTotal != null && repositoryExactTotal == null
-  const repositoryRowsIncomplete =
-    repository.repositoryFilesLoading ||
-    repository.ordinaryUnloadedDirectories.size > 0 ||
-    repository.ordinaryPagedDirectories.size > 0
-  const repositoryCountPending = repositorySettledTotal == null && repositoryRowsIncomplete
-  let repositorySettledDisplay: string | null = null
-  if (repositorySettledTotal != null) {
-    repositorySettledDisplay =
-      repositorySettledTotal > 999_999 ? '999999+' : `${repositorySettledTotal}`
-  }
-  const repositoryDenominator = repositorySettledDisplay ?? repository.repositoryPaths.length
-  let repositoryCountTitle: string | undefined
-  if (repositorySettledTotal != null) {
-    repositoryCountTitle = `${repositorySettledTotal} files in Repository`
-    if (repositoryCountOutdated) {
-      repositoryCountTitle = repository.repositoryFileCountLoading
-        ? `Last known: ${repositorySettledTotal} files in Repository. Refreshing exact count.`
-        : `Last known: ${repositorySettledTotal} files in Repository. Exact count unavailable.`
-    }
-  }
-  let repositoryCountText: string
-  if (
-    activeRepositoryFilters.size === 0 &&
-    !repositoryVisibilityFiltered &&
-    repositorySettledDisplay != null
-  ) {
-    repositoryCountText = repositorySettledDisplay
-  } else if (activeRepositoryFilters.size === 0 && !repositoryVisibilityFiltered) {
-    repositoryCountText = `${repository.repositoryPaths.length}${repositoryCountPending ? '+' : ''}`
-  } else {
-    repositoryCountText = `${filteredRepositoryPaths.length}${repositoryRowsIncomplete ? '+' : ''} / ${repositoryDenominator}${repositoryCountPending ? '+' : ''}`
-  }
-  let repositoryCountLabel: string | undefined
-  if (repositoryCountOutdated) {
-    const state = repository.repositoryFileCountLoading ? 'refreshing' : 'exact count unavailable'
-    repositoryCountLabel = `${repositoryCountText}, based on the last known exact total; ${state}`
-  }
-  const repositoryCount = <span aria-label={repositoryCountLabel}>{repositoryCountText}</span>
   const workflowChangedDescription =
     changedPathCount > 0
       ? `${changedPathCount} changed ${changedPathCount === 1 ? 'file' : 'files'}`
@@ -527,21 +184,8 @@ function SourceControlInner({
         />
       </span>
     ) : null
-  const pagedOrdinaryDirectory = repository.ordinaryPagedDirectories.values().next().value
   const stagedSource = useMemo(() => createTreeSource(staged), [staged])
   const unstagedSource = useMemo(() => createTreeSource(unstaged), [unstaged])
-  const selectedScope = repository.selection?.scope
-  const selectedChangePath = repository.selection?.change.path
-
-  const run = useCallback(async (action: () => Promise<void>) => {
-    setLocalError(null)
-    try {
-      await action()
-    } catch (error) {
-      setLocalError(message(error))
-    }
-  }, [])
-
   const submitCommit = useCallback(async () => {
     const nextMessage = commitMessage.trim()
     if (nextMessage.length === 0 || repository.busy) return
@@ -557,528 +201,126 @@ function SourceControlInner({
     } catch (error) {
       setLocalError(message(error))
     }
-  }, [amend, commitMessage, repository])
+  }, [amend, commitMessage, repository, setCommitMessage, setLocalError])
 
   const backendDisabledReason = repository.getActionDisabledReason()
-  const previousMutationErrorRef = useRef(repository.mutationError)
-  useEffect(() => {
-    if (
-      repository.mutationError != null &&
-      repository.mutationError !== previousMutationErrorRef.current
-    ) {
-      setLocalError(null)
-    }
-    previousMutationErrorRef.current = repository.mutationError
-  }, [repository.mutationError])
-
-  const selectRepositoryPath = useCallback(
-    (path: string) => repository.selectRepositoryFile(path),
-    [repository],
-  )
-  const loadOrdinaryDirectory = useCallback(
-    (path: string) => repository.loadOrdinaryDirectory(path),
-    [repository],
-  )
-  const loadMoreOrdinaryDirectory = useCallback(
-    (path: string) => repository.loadMoreOrdinaryDirectory(path),
-    [repository],
-  )
-  const changeScopesForPath = useCallback(
-    (path: string): readonly ChangeScope[] => {
-      const scopes: ChangeScope[] = []
-      if (unstaged.some((change) => change.path === path)) scopes.push('unstaged')
-      if (staged.some((change) => change.path === path)) scopes.push('staged')
-      return scopes
-    },
-    [staged, unstaged],
-  )
-  const canDropRepositoryPath = useCallback(
-    ({ draggedPaths, target }: FileTreeDropContext) => {
-      if (
-        repository.busy ||
-        repository.getActionDisabledReason() != null ||
-        repositoryView !== 'tree' ||
-        activeRepositoryFilters.size > 0 ||
-        repositoryVisibilityFiltered ||
-        draggedPaths.length !== 1
-      ) {
-        return false
-      }
-      const [rawSource] = draggedPaths
-      const source = trimDirectoryPath(rawSource)
-      const destination = repositoryDropDestination(rawSource, target.directoryPath)
-      const targetDirectory =
-        target.directoryPath == null ? '' : trimDirectoryPath(target.directoryPath)
-      if (
-        destination === source ||
-        (rawSource.endsWith('/') &&
-          (targetDirectory === source || targetDirectory.startsWith(`${source}/`)))
-      ) {
-        return false
-      }
-      return !repository.repositoryPaths.some(
-        (path) => path === destination || path.startsWith(`${destination}/`),
-      )
-    },
-    [
-      repository.busy,
-      repository.repositoryPaths,
-      activeRepositoryFilters.size,
-      repositoryView,
-      repositoryVisibilityFiltered,
-    ],
-  )
-  const moveRepositoryPath = useCallback(
-    ({ draggedPaths, target }: FileTreeDropResult) => {
-      const [rawSource] = draggedPaths
-      if (rawSource == null) return
-      const source = trimDirectoryPath(rawSource)
-      const destination = repositoryDropDestination(rawSource, target.directoryPath)
-      void run(() => repository.renameWorktreeEntry(source, destination))
-    },
-    [repository, run],
-  )
-  const repositoryDragAndDrop = useMemo<FileTreeDragAndDropConfig>(
-    () => ({
-      canDrag: (paths) =>
-        !repository.busy &&
-        repository.getActionDisabledReason() == null &&
-        repositoryView === 'tree' &&
-        activeRepositoryFilters.size === 0 &&
-        !repositoryVisibilityFiltered &&
-        paths.length === 1,
-      canDrop: canDropRepositoryPath,
-      onDropComplete: moveRepositoryPath,
-      onDropError: (error) => setLocalError(error),
-      openOnDropDelay: 600,
-    }),
-    [
-      canDropRepositoryPath,
-      moveRepositoryPath,
-      repository.busy,
-      activeRepositoryFilters.size,
-      repositoryView,
-      repositoryVisibilityFiltered,
-    ],
-  )
-  const renderRepositoryContextMenu = useCallback(
-    (item: ContextMenuItem, context: ContextMenuOpenContext, selectedPaths: readonly string[]) => (
-      <RepositoryContextMenu
-        context={context}
-        item={item}
-        changeScopes={item.kind === 'file' ? changeScopesForPath(item.path) : []}
-        compareSelected={
-          selectedPaths.length === 2 &&
-          selectedPaths.every(
-            (path) => !path.endsWith('/') && repository.canOpenRepositoryFile(path),
-          )
-        }
-        onCompareSelected={() => repository.openRepositoryFileComparison()}
-        onCopyPath={(path) => {
-          void navigator.clipboard
-            .writeText(path)
-            .catch((error) => setLocalError(`Could not copy path: ${message(error)}`))
-        }}
-        onCreate={(kind, initialPath) => setRepositoryEntryDialog({ kind, initialPath })}
-        onOpen={selectRepositoryPath}
-        onReveal={(path) => void run(() => repository.revealPath(path))}
-        onOpenChange={(scope, path) => repository.select(scope, path)}
-        onRefresh={() => void repository.refreshExplorer()}
-        onRename={(source) =>
-          setRepositoryEntryDialog({ kind: 'rename', source, initialPath: source })
-        }
-      />
-    ),
-    [changeScopesForPath, repository, run, selectRepositoryPath],
-  )
-
-  useEffect(() => {
-    if (snapshot?.repository === false) setRepositoryOpen(true)
-  }, [snapshot?.repository])
-
-  useEffect(() => {
-    if (repository.repositoryFileRevealVersion === 0) return
-    setRepositoryOpen(true)
-    setRepositoryFilters((current) => (current.size === 0 ? current : new Set()))
-    setShowHiddenFiles(true)
-    setShowIgnoredFiles(true)
-  }, [repository.repositoryFileRevealVersion])
-
-  useEffect(() => {
-    if (repository.graphReveal != null) setGraphOpen(true)
-  }, [repository.graphReveal])
-
-  useEffect(() => {
-    if (selectedScope == null || selectedChangePath == null) return
-    setWorkflowOpen(true)
-    if (selectedScope === 'staged') setStagedOpen(true)
-    else setChangesOpen(true)
-  }, [selectedChangePath, selectedScope])
-
-  useEffect(() => {
-    if (snapshot?.repository === false) return
-    if (window.matchMedia('(max-width: 767px)').matches) setGraphOpen(false)
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'F6') {
-        event.preventDefault()
-        if (event.shiftKey) {
-          setGraphOpen(true)
-          queueMicrotask(() => graphHeader.current?.focus())
-        } else {
-          setWorkflowOpen(true)
-          setChangesOpen(true)
-          queueMicrotask(() => changesHeader.current?.focus())
-        }
-      } else if (event.key.toLowerCase() === 'c' && event.ctrlKey && event.shiftKey) {
-        event.preventDefault()
-        setWorkflowOpen(true)
-        queueMicrotask(() => composer.current?.focus())
-      }
-    }
-    window.addEventListener('keydown', onKeyDown)
-    return () => window.removeEventListener('keydown', onKeyDown)
-  }, [snapshot?.repository])
-
-  if (snapshot == null) {
-    return (
-      <div className="flex h-full items-center justify-center px-4 text-sm text-muted-foreground">
-        {connectionHealthy &&
-          (repository.error ?? <LoadingIndicator>Loading repository…</LoadingIndicator>)}
-      </div>
-    )
-  }
-
   return (
-    <section
-      className="source-control flex h-full min-h-0 flex-col"
-      aria-label={snapshot.repository ? 'Source Control workflow' : 'File Explorer'}
-    >
-      <div
-        ref={containerRef}
-        className="pane-stack grid min-h-0 flex-1 overflow-hidden overscroll-contain max-md:block max-md:overflow-y-auto"
-        style={{
-          gridTemplateRows: [
-            ...(snapshot.repository ? [workflowRow, '0'] : []),
-            repositoryOpen ? `minmax(142px, ${sizes[1]}fr)` : 'max-content',
-            ...(snapshot.repository
-              ? ['0', graphOpen ? `minmax(142px, ${sizes[2]}fr)` : 'max-content']
-              : []),
-            ...(conversations == null
-              ? []
-              : ['0', conversationsOpen ? `minmax(142px, ${sizes[3]}fr)` : 'max-content']),
-          ].join(' '),
-        }}
+    <>
+      <section
+        ref={workflowPane}
+        data-pane="source-control"
+        className="section min-h-0 overflow-hidden md:flex md:flex-col"
       >
-        {snapshot.repository && (
-          <section
-            ref={workflowPane}
-            data-pane="source-control"
-            className="section min-h-0 overflow-hidden md:flex md:flex-col"
-          >
-            <Header
-              level="pane"
-              className="border-t-0"
-              actions={
-                <SourceControlHeaderActions
-                  onConfirm={setPendingConfirm}
-                  onError={setLocalError}
-                  onOpenDialog={setOperationDialog}
-                  moreTrigger={moreTrigger}
-                />
-              }
-              dataSection="workflow"
-              icon={IconSymbolDiffstatFill}
-              count={workflowCount}
-              countTitle={workflowCountTitle}
-              open={workflowOpen}
-              title={headTitle}
-              onOpenChange={setWorkflowOpen}
+        <Header
+          level="pane"
+          className="border-t-0"
+          actions={
+            <SourceControlHeaderActions
+              onConfirm={setPendingConfirm}
+              onError={setLocalError}
+              onOpenDialog={setOperationDialog}
+              moreTrigger={moreTrigger}
             />
-            {workflowOpen && (
-              <Pane
-                ref={workflowContent}
-                data-pane-body="source-control"
-                className="min-h-0 md:flex md:flex-1 md:flex-col md:overflow-x-hidden max-md:overflow-visible"
-              >
-                <form
-                  className="commit-composer shrink-0 px-3 py-2"
-                  onSubmit={(event) => {
+          }
+          dataSection="workflow"
+          icon={IconSymbolDiffstatFill}
+          count={workflowCount}
+          countTitle={workflowCountTitle}
+          open={workflowOpen}
+          title={headTitle}
+          onOpenChange={setWorkflowOpen}
+        />
+        {workflowOpen && (
+          <Pane
+            ref={workflowContent}
+            data-pane-body="source-control"
+            className="min-h-0 md:flex md:flex-1 md:flex-col md:overflow-x-hidden max-md:overflow-visible"
+          >
+            <form
+              className="commit-composer shrink-0 px-3 py-2"
+              onSubmit={(event) => {
+                event.preventDefault()
+                void submitCommit()
+              }}
+            >
+              <textarea
+                ref={composer}
+                aria-label="Commit message"
+                className="min-h-16 w-full resize-y rounded-md border border-border bg-background px-2.5 py-2 text-sm text-foreground outline-none placeholder:text-muted-foreground focus:border-[var(--ring)]"
+                disabled={repository.busy}
+                placeholder="Commit message"
+                spellCheck
+                value={commitMessage}
+                onChange={(event) => setCommitMessage(event.currentTarget.value)}
+                onKeyDown={(event) => {
+                  if (event.key === 'Enter' && event.ctrlKey) {
                     event.preventDefault()
                     void submitCommit()
-                  }}
+                  }
+                }}
+              />
+              <div className="mbs-2 flex flex-wrap items-center gap-2">
+                <label
+                  htmlFor="gitna-amend"
+                  className="me-auto flex cursor-pointer items-center gap-1.5 text-xs text-muted-foreground"
                 >
-                  <textarea
-                    ref={composer}
-                    aria-label="Commit message"
-                    className="min-h-16 w-full resize-y rounded-md border border-border bg-background px-2.5 py-2 text-sm text-foreground outline-none placeholder:text-muted-foreground focus:border-[var(--ring)]"
-                    disabled={repository.busy}
-                    placeholder="Commit message"
-                    spellCheck
-                    value={commitMessage}
-                    onChange={(event) => setCommitMessage(event.currentTarget.value)}
-                    onKeyDown={(event) => {
-                      if (event.key === 'Enter' && event.ctrlKey) {
-                        event.preventDefault()
-                        void submitCommit()
-                      }
-                    }}
+                  <Switch
+                    id="gitna-amend"
+                    aria-label="Amend"
+                    checked={amend}
+                    disabled={repository.busy || snapshot.headOid == null}
+                    onCheckedChange={setAmend}
                   />
-                  <div className="mbs-2 flex flex-wrap items-center gap-2">
-                    <label
-                      htmlFor="gitna-amend"
-                      className="me-auto flex cursor-pointer items-center gap-1.5 text-xs text-muted-foreground"
-                    >
-                      <Switch
-                        id="gitna-amend"
-                        aria-label="Amend"
-                        checked={amend}
-                        disabled={repository.busy || snapshot.headOid == null}
-                        onCheckedChange={setAmend}
-                      />
-                      Amend
-                    </label>
-                    <Button
-                      type="submit"
-                      variant="default"
-                      size="sm"
-                      disabled={
-                        repository.busy ||
-                        backendDisabledReason != null ||
-                        commitMessage.trim().length === 0 ||
-                        (staged.length === 0 && (!amend || snapshot.headOid == null))
-                      }
-                    >
-                      Commit
-                    </Button>
-                  </div>
-                </form>
+                  Amend
+                </label>
+                <Button
+                  type="submit"
+                  variant="default"
+                  size="sm"
+                  disabled={
+                    repository.busy ||
+                    backendDisabledReason != null ||
+                    commitMessage.trim().length === 0 ||
+                    (staged.length === 0 && (!amend || snapshot.headOid == null))
+                  }
+                >
+                  Commit
+                </Button>
+              </div>
+            </form>
 
-                <Conflicts onError={setLocalError} />
+            <Conflicts onError={setLocalError} />
 
-                {staged.length > 0 && (
-                  <ChangeSection
-                    changes={staged}
-                    modelId="gitna-staged-tree"
-                    onConfirm={setPendingConfirm}
-                    onRun={run}
-                    open={stagedOpen}
-                    scope="staged"
-                    source={stagedSource}
-                    title="Staged Changes"
-                    onOpenChange={setStagedOpen}
-                  />
-                )}
-                {unstaged.length > 0 && (
-                  <ChangeSection
-                    changes={unstaged}
-                    headerRef={changesHeader}
-                    modelId="gitna-unstaged-tree"
-                    onConfirm={setPendingConfirm}
-                    onRun={run}
-                    open={changesOpen}
-                    scope="unstaged"
-                    source={unstagedSource}
-                    title="Changes"
-                    onOpenChange={setChangesOpen}
-                  />
-                )}
-              </Pane>
+            {staged.length > 0 && (
+              <ChangeSection
+                changes={staged}
+                modelId="gitna-staged-tree"
+                onConfirm={setPendingConfirm}
+                onRun={run}
+                open={stagedOpen}
+                scope="staged"
+                source={stagedSource}
+                title="Staged Changes"
+                onOpenChange={setStagedOpen}
+              />
             )}
-          </section>
+            {unstaged.length > 0 && (
+              <ChangeSection
+                changes={unstaged}
+                headerRef={changesHeader}
+                modelId="gitna-unstaged-tree"
+                onConfirm={setPendingConfirm}
+                onRun={run}
+                open={changesOpen}
+                scope="unstaged"
+                source={unstagedSource}
+                title="Changes"
+                onOpenChange={setChangesOpen}
+              />
+            )}
+          </Pane>
         )}
-
-        {snapshot.repository && (
-          <PaneResizeHandle
-            disabled={!workflowOpen || workflowCompact || !repositoryOpen}
-            index={0}
-            onResize={resizeBy}
-            onStart={startResize}
-            size={sizes[0]}
-          />
-        )}
-
-        <TreeSection
-          pane
-          count={repositoryCount}
-          countTitle={repositoryCountTitle}
-          headerClassName={snapshot.repository ? undefined : 'border-t-0'}
-          dragAndDrop={repositoryDragAndDrop}
-          dataSection="repository"
-          emptyMessage={snapshot.repository ? 'No repository files' : 'No folder files'}
-          footer={
-            <>
-              {repository.repositoryFilesLoading && repository.repositoryPaths.length === 0 && (
-                <LoadingIndicator>
-                  <p className="px-8 py-2 text-xs text-muted-foreground" role="status">
-                    Loading files…
-                  </p>
-                </LoadingIndicator>
-              )}
-              {connectionHealthy && repository.repositoryFilesError != null && (
-                <p className="px-8 py-2 text-xs text-destructive" role="alert">
-                  {repository.repositoryFilesError}
-                </p>
-              )}
-              {!snapshot.repository && pagedOrdinaryDirectory != null && (
-                <div className="px-6 py-1">
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="sm"
-                    disabled={repository.repositoryFilesLoading}
-                    onClick={() =>
-                      void repository.loadMoreOrdinaryDirectory(pagedOrdinaryDirectory)
-                    }
-                  >
-                    Load more files in{' '}
-                    {pagedOrdinaryDirectory === ''
-                      ? repositoryName(snapshot.root)
-                      : (pagedOrdinaryDirectory.split('/').at(-1) ?? pagedOrdinaryDirectory)}
-                  </Button>
-                </div>
-              )}
-              {!snapshot.repository && repository.ordinaryWatchCoverage === 'partial' && (
-                <p className="px-8 py-2 text-xs text-muted-foreground" role="status">
-                  Unopened folders refresh when opened.
-                </p>
-              )}
-            </>
-          }
-          renderContextMenu={renderRepositoryContextMenu}
-          renderHeaderActions={(model) => (
-            <RepositoryHeaderActions
-              availableStatuses={availableRepositoryStatuses}
-              repositoryMode={snapshot.repository}
-              loading={repositoryRefreshing}
-              refreshing={repositoryRefreshVisible}
-              model={model}
-              paths={repositoryView === 'tree' ? filteredRepositoryPaths : []}
-              selectedStatuses={activeRepositoryFilters}
-              showHiddenFiles={showHiddenFiles}
-              showIgnoredFiles={showIgnoredFiles}
-              view={repositoryView}
-              onClearFilters={() => setRepositoryFilters(new Set())}
-              onIsolateFilter={(status) => setRepositoryFilters(new Set([status]))}
-              onCreate={(kind, initialPath) => setRepositoryEntryDialog({ kind, initialPath })}
-              onFindInFiles={onFindInFiles}
-              onRefresh={() => void repository.refreshExplorer()}
-              onShowHiddenFilesChange={setShowHiddenFiles}
-              onShowIgnoredFilesChange={setShowIgnoredFiles}
-              onRename={(source) =>
-                setRepositoryEntryDialog({
-                  kind: 'rename',
-                  source: source.replace(/\/$/, ''),
-                  initialPath: source.replace(/\/$/, ''),
-                })
-              }
-              onToggleFilter={(status) =>
-                setRepositoryFilters(() => {
-                  const next = new Set(activeRepositoryFilters)
-                  if (next.has(status)) next.delete(status)
-                  else next.add(status)
-                  return next
-                })
-              }
-              onViewChange={setRepositoryView}
-            />
-          )}
-          icon={IconFileTree}
-          lazyDirectories={lazyRepositoryTree ? repository.ordinaryUnloadedDirectories : undefined}
-          knownEmptyDirectories={
-            lazyRepositoryTree ? repository.ordinaryKnownEmptyDirectories : undefined
-          }
-          pagedDirectories={lazyRepositoryTree ? repository.ordinaryPagedDirectories : undefined}
-          modelId="gitna-repository-tree"
-          onLoadDirectory={lazyRepositoryTree ? loadOrdinaryDirectory : undefined}
-          onLoadMoreDirectory={lazyRepositoryTree ? loadMoreOrdinaryDirectory : undefined}
-          open={repositoryOpen}
-          selectedPath={repository.repositoryFilePath ?? repository.selection?.change.path}
-          selectedPaths={repository.repositorySelectedPaths}
-          source={repositorySource}
-          title={repositoryName(snapshot.root)}
-          onOpenChange={setRepositoryOpen}
-          onSelectPath={selectRepositoryPath}
-          onSelectPaths={(paths) => repository.setRepositorySelectedPaths(paths)}
-        />
-
-        {snapshot.repository && (
-          <PaneResizeHandle
-            disabled={!repositoryOpen || !graphOpen}
-            index={1}
-            onResize={resizeBy}
-            onStart={startResize}
-            size={sizes[1]}
-          />
-        )}
-
-        {snapshot.repository && (
-          <Graph
-            onSearchCommits={onSearchCommits}
-            headerRef={graphHeader}
-            scrollRootRef={containerRef}
-            open={graphOpen}
-            onConfirm={setPendingConfirm}
-            onOpenChange={setGraphOpen}
-          />
-        )}
-
-        {conversations != null && snapshot.repository && (
-          <PaneResizeHandle
-            disabled={!graphOpen || !conversationsOpen}
-            index={2}
-            onResize={resizeBy}
-            onStart={startResize}
-            size={sizes[2]}
-          />
-        )}
-
-        {conversations != null && (
-          <Conversations
-            conversations={conversations}
-            open={conversationsOpen}
-            onOpenChange={setConversationsOpen}
-          />
-        )}
-      </div>
-
-      {repository.uncertainMutation != null && (
-        <div
-          className="mx-3 mb-3 rounded-md bg-warning/15 px-2.5 py-2 text-xs text-foreground"
-          role="alert"
-        >
-          <p>{repository.uncertainMutation}</p>
-          <Button
-            className="mt-2"
-            size="xs"
-            variant="outline"
-            onClick={() => repository.acknowledgeUncertainMutation()}
-          >
-            Acknowledge
-          </Button>
-        </div>
-      )}
-      {connectionHealthy && (localError ?? repository.mutationError) != null && (
-        <p
-          className="mx-3 mb-3 rounded-md bg-destructive/10 px-2.5 py-2 text-xs text-destructive"
-          role="alert"
-        >
-          {localError ?? repository.mutationError}
-        </p>
-      )}
-
-      {repositoryEntryDialog != null && (
-        <EntryDialog
-          key={`${repositoryEntryDialog.kind}:${repositoryEntryDialog.initialPath}`}
-          kind={repositoryEntryDialog.kind}
-          initialPath={repositoryEntryDialog.initialPath}
-          source={'source' in repositoryEntryDialog ? repositoryEntryDialog.source : undefined}
-          onClose={() => setRepositoryEntryDialog(null)}
-          onError={(error) => setLocalError(error || null)}
-          onCreatedFolder={(path) =>
-            setRepositoryEntryDialog({ kind: 'file', initialPath: `${path.replace(/\/$/, '')}/` })
-          }
-        />
-      )}
+      </section>
       {operationDialog != null && (
         <OperationModal
           kind={operationDialog}
@@ -1087,21 +329,7 @@ function SourceControlInner({
           onError={setLocalError}
         />
       )}
-      {pendingConfirm != null && (
-        <Confirm
-          title={pendingConfirm.title}
-          message={pendingConfirm.message}
-          confirmLabel={pendingConfirm.confirmLabel}
-          disabledReason={repository.getActionDisabledReason()}
-          onCancel={() => setPendingConfirm(null)}
-          onConfirm={async () => {
-            const pending = pendingConfirm
-            setPendingConfirm(null)
-            await run(pending.run)
-          }}
-        />
-      )}
-    </section>
+    </>
   )
 }
 

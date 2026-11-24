@@ -89,7 +89,7 @@ import { LoadingIndicator, LOADING_INDICATOR_DELAY_MS } from '../components/ui/l
 import { Home } from '../features/home/home'
 import { Blame } from '../features/viewer/blame'
 import { ChangeGutter } from '../features/viewer/change-gutter'
-import { SourceControl } from '../features/source-control/source-control'
+import { Panes } from './panes'
 import { Confirm } from '../components/modal'
 import { SaveAs } from '../features/viewer/save-as'
 import { UnsavedChanges } from '../features/viewer/unsaved-changes'
@@ -2788,7 +2788,7 @@ export function Workbench({
                     />
                   </Suspense>
                 )}
-                <SourceControl
+                <Panes
                   active={sidebarMode === 'source'}
                   onFindInFiles={openFindInFiles}
                   conversations={showConversations ? conversationsPane : undefined}
