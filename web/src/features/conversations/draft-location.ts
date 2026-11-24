@@ -1,4 +1,3 @@
-// Modified by Gitna: keep unsent conversations anchored across review refreshes.
 import type { CodeViewItem, DiffLineAnnotation, LineAnnotation } from '@pierre/diffs'
 
 import { shownCode, shownLines } from '../../lib/shown-lines'
