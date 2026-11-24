@@ -199,9 +199,9 @@ test('sustained typing reuses a busy gutter worker and rejects obsolete results'
 }) => {
   let workers = 0
   page.on('worker', (worker) => {
-    if (worker.url().includes('changeGutterWorker-')) workers++
+    if (worker.url().includes('gutter-changes-worker-')) workers++
   })
-  await page.route('**/changeGutterWorker-*.js', async (route) => {
+  await page.route('**/gutter-changes-worker-*.js', async (route) => {
     const response = await route.fetch()
     await route.fulfill({
       response,

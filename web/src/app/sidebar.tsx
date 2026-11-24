@@ -1,0 +1,106 @@
+// Modified by Gitna: declare callbacks as receiver-independent function properties.
+'use client'
+
+// Modified from the pinned DiffsHub donor: Gitna's only sidebar is the
+// VS Code Source Control workflow. The donor tab row, comments, diff stats and
+// worker monitor are removed; the themed responsive drawer remains intact.
+import { memo, type ReactNode, type RefObject, useEffect, useState } from 'react'
+
+import { CHROME_ICON_BUTTON_CLASS } from '../components/ui/button-styles'
+import { Button } from '@/components/ui/button'
+import { cn } from '@/lib/cn'
+import { IconXSquircle } from '@pierre/icons'
+
+const MOBILE_MEDIA_QUERY = '(max-width: 767px)'
+
+interface SidebarProps {
+  children: ReactNode
+  className?: string
+  mobileOverlayOpen?: boolean
+  onMobileClose: () => void
+  scrollRef: RefObject<HTMLDivElement | null>
+  ariaLabel?: string
+}
+
+export const Sidebar = memo(function Sidebar({
+  children,
+  className,
+  mobileOverlayOpen = false,
+  onMobileClose,
+  scrollRef,
+  ariaLabel = 'Source Control',
+}: SidebarProps) {
+  const [mobileViewport, setMobileViewport] = useState(
+    () => window.matchMedia(MOBILE_MEDIA_QUERY).matches,
+  )
+  useEffect(() => {
+    const media = window.matchMedia(MOBILE_MEDIA_QUERY)
+    const update = (event: MediaQueryListEvent) => setMobileViewport(event.matches)
+    setMobileViewport(media.matches)
+    media.addEventListener('change', update)
+    return () => media.removeEventListener('change', update)
+  }, [])
+
+  useEffect(() => {
+    if (!mobileOverlayOpen || !window.matchMedia(MOBILE_MEDIA_QUERY).matches) {
+      return undefined
+    }
+
+    const { body, documentElement } = document
+    const codeViewScroll = scrollRef.current
+    const previousBodyOverflow = body.style.overflow
+    const previousRootOverscrollBehavior = documentElement.style.overscrollBehavior
+    const previousCodeViewOverflow = codeViewScroll?.style.overflow
+
+    body.style.overflow = 'hidden'
+    documentElement.style.overscrollBehavior = 'none'
+    if (codeViewScroll != null) codeViewScroll.style.overflow = 'hidden'
+
+    return () => {
+      body.style.overflow = previousBodyOverflow
+      documentElement.style.overscrollBehavior = previousRootOverscrollBehavior
+      if (codeViewScroll != null) codeViewScroll.style.overflow = previousCodeViewOverflow ?? ''
+    }
+  }, [mobileOverlayOpen, scrollRef])
+
+  return (
+    <>
+      <button
+        type="button"
+        aria-hidden={!mobileOverlayOpen}
+        aria-label={`Close ${ariaLabel}`}
+        tabIndex={mobileOverlayOpen ? 0 : -1}
+        className={cn(
+          'z-20 cursor-default bg-background/60 backdrop-blur-xs transition-opacity [grid-column:1/-1] [grid-row:1/-1] md:hidden',
+          mobileOverlayOpen ? 'pointer-events-auto opacity-100' : 'pointer-events-none opacity-0',
+        )}
+        onClick={onMobileClose}
+      />
+      <aside
+        aria-hidden={(mobileViewport && !mobileOverlayOpen) || undefined}
+        aria-label={ariaLabel}
+        inert={(mobileViewport && !mobileOverlayOpen) || undefined}
+        className={cn(
+          className,
+          'contain-strict z-30 flex h-full min-h-0 flex-col border-r border-[var(--color-border-opaque)] bg-[var(--diffshub-sidebar-bg)] transition-transform duration-300 ease-[cubic-bezier(0.32,0.72,0,1)] will-change-transform motion-reduce:transition-none md:z-auto md:translate-y-0 md:will-change-auto',
+          mobileOverlayOpen
+            ? 'pointer-events-auto translate-y-0 overflow-hidden rounded-t-xl md:h-full md:overflow-visible md:rounded-none'
+            : 'pointer-events-none translate-y-[calc(100%+1.5rem)] overflow-hidden rounded-xl md:pointer-events-auto md:h-full md:overflow-visible md:rounded-none',
+        )}
+      >
+        <div className="flex h-10 shrink-0 items-center justify-end px-4 md:hidden">
+          <Button
+            variant="ghost"
+            size="icon-only"
+            className={CHROME_ICON_BUTTON_CLASS}
+            aria-label={`Close ${ariaLabel}`}
+            onClick={onMobileClose}
+          >
+            <IconXSquircle className="size-4" />
+          </Button>
+        </div>
+        <div className="min-h-0 flex-1">{children}</div>
+      </aside>
+    </>
+  )
+})

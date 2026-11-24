@@ -1,0 +1,115 @@
+import { type SyntheticEvent, useEffect, useRef, useState } from 'react'
+
+import { Button } from '../../components/ui/button'
+import { Input } from '../../components/ui/input'
+import { Modal } from '../../components/modal'
+import { useLoadingIndicator } from '../../components/ui/loading'
+import { useRepository } from '../../repository/repository'
+
+interface EntryDialogProps {
+  initialPath: string
+  kind: 'file' | 'folder' | 'rename'
+  onClose: () => void
+  onCreatedFolder: (path: string) => void
+  onError: (error: string) => void
+  source?: string
+}
+
+export function EntryDialog({
+  initialPath,
+  kind,
+  onClose,
+  onCreatedFolder,
+  onError,
+  source,
+}: EntryDialogProps) {
+  const repository = useRepository()
+  const [path, setPath] = useState(initialPath)
+  const [submitting, setSubmitting] = useState(false)
+  const submittingVisible = useLoadingIndicator(submitting)
+  const [error, setError] = useState<string | null>(null)
+  const mounted = useRef(true)
+  useEffect(() => {
+    mounted.current = true
+    return () => {
+      mounted.current = false
+    }
+  }, [])
+  const title = kind === 'rename' ? 'Rename entry' : kind === 'folder' ? 'New folder' : 'New file'
+
+  const submit = async (event: SyntheticEvent<HTMLFormElement>) => {
+    event.preventDefault()
+    const destination = path.trim().replace(/\/$/, '')
+    if (destination.length === 0 || submitting) return
+    const disabledReason = repository.getActionDisabledReason()
+    if (disabledReason != null) return
+    setSubmitting(true)
+    setError(null)
+    onError('')
+    try {
+      if (kind === 'rename') {
+        if (source == null || destination === source) {
+          onClose()
+          return
+        }
+        await repository.renameWorktreeEntry(source, destination)
+        onClose()
+      } else {
+        await repository.createWorktreeEntry(destination, kind === 'folder')
+        if (kind === 'folder') onCreatedFolder(destination)
+        else onClose()
+      }
+    } catch (error) {
+      if (mounted.current) {
+        const message = error instanceof Error ? error.message : String(error)
+        setError(message)
+        repository.dismissMutationError(message)
+      }
+    } finally {
+      setSubmitting(false)
+    }
+  }
+
+  return (
+    <Modal title={title} onClose={onClose} error={error}>
+      <form onSubmit={(event) => void submit(event)}>
+        <label className="text-xs font-medium" htmlFor="gitna-repository-entry-path">
+          Repository-relative path
+        </label>
+        <Input
+          data-autofocus
+          id="gitna-repository-entry-path"
+          className="mt-2"
+          autoComplete="off"
+          spellCheck={false}
+          value={path}
+          onChange={(event) => setPath(event.currentTarget.value)}
+        />
+        {repository.getActionDisabledReason() != null && (
+          <p className="mt-2 overflow-wrap-anywhere text-xs text-muted-foreground" role="note">
+            {repository.getActionDisabledReason()}
+          </p>
+        )}
+        {kind === 'folder' && (
+          <p className="mt-2 text-xs text-muted-foreground">
+            Git does not track empty folders, so Gitna will offer to create a file inside it next.
+          </p>
+        )}
+        <div className="mt-5 flex justify-end gap-2">
+          <Button type="button" variant="outline" size="sm" onClick={onClose}>
+            Cancel
+          </Button>
+          <Button
+            type="submit"
+            size="sm"
+            disabled={
+              path.trim().length === 0 || submitting || repository.getActionDisabledReason() != null
+            }
+          >
+            {submittingVisible ? 'Working…' : kind === 'rename' ? 'Rename' : 'Create'}
+          </Button>
+        </div>
+      </form>
+    </Modal>
+  )
+}

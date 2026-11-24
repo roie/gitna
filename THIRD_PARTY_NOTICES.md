@@ -14,9 +14,42 @@ Gitna's DiffsHub donor is pinned to:
 - Commit: `8b12bdd75d723ac5b83cb9efe11c8ddb818bf462`
 - License: Apache-2.0, Copyright 2025 Pierre Computer Company
 - Verbatim license: `LICENSES/Apache-2.0.txt`
-- Donor app license copy: `web/src/diffshub/LICENSE.md`
+- Donor app license copy: `LICENSES/diffshub-Apache-2.0.md`
 
-Retained source from `apps/diffshub` lives under `web/src/diffshub`; changed copies carry in-file `Modified by Gitna:` notes.
+Retained copies and adaptations carry in-file `Modified by Gitna:` notes where changed.
+
+| Gitna path | Donor path |
+| --- | --- |
+| `web/src/main.tsx` | `apps/diffshub/app/layout.tsx`, `apps/diffshub/components/RootLayout.tsx` |
+| `web/src/styles/globals.css` | `apps/diffshub/app/globals.css` |
+| `web/src/styles/fonts.css` | `apps/diffshub/app/layout.tsx` |
+| `web/src/app/workbench-header.tsx` | `apps/diffshub/components/DiffsHubHeader.tsx` |
+| `web/src/app/sidebar.tsx` | `apps/diffshub/components/DiffsHubSidebar.tsx` |
+| `web/src/app/worker-pool.tsx` | `apps/diffshub/components/WorkerPoolProvider.tsx` |
+| `web/src/app/scrollbar-gutter.tsx` | `apps/diffshub/components/ScrollbarGutterVariables.tsx` |
+| `web/src/features/conversations/conversation-list.tsx` | `apps/diffshub/components/DiffsHubCommentsList.tsx` |
+| `web/src/features/conversations/conversation-card.tsx` | `apps/diffshub/components/ExampleAnnotation.tsx` |
+| `web/src/features/conversations/draft-comment.tsx` | `apps/diffshub/components/DraftAnnotation.tsx` |
+| `web/src/features/conversations/annotation.ts` | `apps/diffshub/lib/annotation.ts` |
+| `web/src/features/viewer/viewer.tsx` | `apps/diffshub/components/DiffsHubViewer.tsx` |
+| `web/src/features/viewer/review-status.tsx` | `apps/diffshub/components/DiffsHubStatusPanel.tsx` |
+| `web/src/features/viewer/review-data.ts` | `apps/diffshub/lib/diffsHubDataAccumulator.ts` |
+| `web/src/components/ui/button.tsx` | `apps/diffshub/components/Button.tsx` |
+| `web/src/components/ui/button-styles.ts` | `apps/diffshub/components/chromeButtonStyles.ts` |
+| `web/src/components/ui/input.tsx` | `apps/diffshub/components/Input.tsx` |
+| `web/src/components/ui/switch.tsx` | `apps/diffshub/components/Switch.tsx` |
+| `web/src/components/ui/dropdown-menu.tsx` | `apps/diffshub/components/DropdownMenu.tsx` |
+| `web/src/components/ui/dialog.tsx` | `apps/docs/components/ui/dialog.tsx` |
+| `web/src/components/tree.tsx` | `apps/diffshub/components/DiffsHubFileTree.tsx` |
+| `web/src/lib/review-types.ts` | `apps/diffshub/lib/types.ts` |
+| `web/src/lib/cn.ts` | `apps/diffshub/lib/cn.ts` |
+| `web/src/lib/code-view.ts` | `apps/diffshub/lib/constants.ts` |
+| `web/src/lib/git-status.ts` | `apps/diffshub/lib/mapChangeTypeToGitStatus.ts` |
+| `web/src/lib/tree-source.ts` | `apps/diffshub/lib/filterDiffsHubFileTreeSource.ts` |
+| `web/src/lib/gutter-detector.ts` | `apps/diffshub/lib/gutterDetector.ts` |
+| `web/src/lib/theme/theme-root.tsx` | `apps/diffshub/components/ThemeProvider.tsx`, `apps/diffshub/components/ThemeSourceProvider.tsx`, `apps/diffshub/components/themeController.ts` |
+| `web/src/lib/theme/chrome-tokens.ts` | `apps/diffshub/lib/theme/deriveChromeTokens.ts` |
+| `web/src/lib/theme/theme-names.ts` | `apps/diffshub/lib/themeNames.ts` |
 
 ## Pierre npm packages
 

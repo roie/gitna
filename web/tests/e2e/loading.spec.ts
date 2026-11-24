@@ -161,7 +161,7 @@ test('startup loader waits 200 ms while module delivery is pending and errors by
   page,
   app,
 }) => {
-  const pending = await hold(page, '**/assets/Workbench-*.js')
+  const pending = await hold(page, '**/assets/workbench-*.js')
   try {
     await page.goto(app.url, { waitUntil: 'commit' })
     const route = await pending.request

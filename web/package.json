@@ -8,8 +8,8 @@
     "build": "vp build",
     "check": "tsc -p tsconfig.node.json && tsc -p tsconfig.react.json",
     "lint": "vp lint src tests --deny-warnings",
-    "format": "vp fmt --write src/diffshub/gitna src/diffshub/main.tsx src/diffshub/vite src/lib tests vite.config.ts playwright.config.ts postcss.config.mjs",
-    "format:check": "vp fmt --check src/diffshub/gitna src/diffshub/main.tsx src/diffshub/vite src/lib tests vite.config.ts playwright.config.ts postcss.config.mjs",
+    "format": "vp fmt --write src tests vite.config.ts playwright.config.ts postcss.config.mjs",
+    "format:check": "vp fmt --check src tests vite.config.ts playwright.config.ts postcss.config.mjs",
     "test": "vp test run",
     "test:e2e": "playwright test"
   },

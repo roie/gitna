@@ -1,0 +1,717 @@
+import { IconBranch, IconCommit, IconFileStatusD, IconInProgress, IconSearch } from '@pierre/icons'
+import {
+  Fragment,
+  type ReactNode,
+  useEffect,
+  useId,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react'
+
+import type { ApiClient } from '../../lib/api'
+import type { GraphPage } from '../../lib/types'
+
+import { cn } from '../../lib/cn'
+import { Row } from '../../components/ui/row'
+import { useLoadingIndicator } from '../../components/ui/loading'
+import { splitPaletteFileMatchIndices, paletteTextMatches } from './palette-match'
+
+import { FileIcon, FileIconSprite } from '../../components/file-icon'
+
+function HighlightedText({
+  text,
+  matchIndices,
+}: {
+  text: string
+  matchIndices: ReadonlySet<number>
+}) {
+  const characters = Array.from(text)
+  const runs: { highlighted: boolean; start: number; text: string }[] = []
+  for (const [index, character] of characters.entries()) {
+    const highlighted = matchIndices.has(index)
+    const previous = runs.at(-1)
+    if (previous?.highlighted === highlighted) {
+      previous.text += character
+    } else {
+      runs.push({ highlighted, start: index, text: character })
+    }
+  }
+  return runs.map((run) =>
+    run.highlighted ? (
+      <span key={run.start} data-palette-match className="text-[var(--gitna-list-highlight)]">
+        {run.text}
+      </span>
+    ) : (
+      <Fragment key={run.start}>{run.text}</Fragment>
+    ),
+  )
+}
+
+function MiddleTruncatedHighlightedText({
+  text,
+  matchIndices,
+}: {
+  text: string
+  matchIndices: ReadonlySet<number>
+}) {
+  const characters = Array.from(text)
+  if (characters.length <= 24) {
+    return (
+      <span className="min-w-0 truncate">
+        <HighlightedText text={text} matchIndices={matchIndices} />
+      </span>
+    )
+  }
+  const suffixLength = Math.min(12, Math.max(1, Math.floor(characters.length / 2)))
+  const split = characters.length - suffixLength
+  const prefixMatches = new Set([...matchIndices].filter((index) => index < split))
+  const suffixMatches = new Set(
+    [...matchIndices].filter((index) => index >= split).map((index) => index - split),
+  )
+  return (
+    <>
+      <span
+        data-palette-file-name-prefix
+        className="min-w-0 overflow-hidden text-ellipsis whitespace-nowrap"
+      >
+        <HighlightedText text={characters.slice(0, split).join('')} matchIndices={prefixMatches} />
+      </span>
+      <span
+        data-palette-file-name-suffix
+        className="max-w-1/2 shrink-0 overflow-hidden whitespace-nowrap text-right [direction:rtl]"
+      >
+        <bdi dir="ltr">
+          <HighlightedText text={characters.slice(split).join('')} matchIndices={suffixMatches} />
+        </bdi>
+      </span>
+    </>
+  )
+}
+
+export interface GitnaPaletteCommand {
+  description?: string
+  detail?: string
+  disabledReason?: string | null
+  icon: ReactNode
+  id: string
+  keywords?: string
+  label: string
+  paletteQuery?: string
+  keepOpen?: boolean
+  run: () => Promise<void> | void
+}
+
+export interface GitnaPaletteFileResult {
+  matchIndices?: readonly number[]
+  name: string
+  parent: string
+  path: string
+}
+
+interface CommandPaletteProps {
+  searchCommits?: ApiClient['searchCommits']
+  repositoryKey?: string
+  onOpenCommit?: (oid: string, subject: string, currentBranch: boolean) => void | Promise<void>
+  commands: readonly GitnaPaletteCommand[]
+  externalFileResults: readonly GitnaPaletteFileResult[]
+  fileSearchComplete: boolean
+  fileResultIncludeIgnored: boolean
+  fileResultQuery: string | null
+  folderLabel: string
+  error: string | null
+  searching: boolean
+  supportsIgnoredFiles: boolean
+  onClose: () => void
+  onError: (error: string) => void
+  onFileQueryChange: (query: string, includeIgnored: boolean) => void
+  onGoToLine?: (line: number) => void
+  onOpenFile: (path: string) => void | Promise<void>
+  open: boolean
+  initialQuery?: string
+}
+
+type PaletteResult =
+  | { id: string; kind: 'command'; command: GitnaPaletteCommand }
+  | {
+      id: string
+      kind: 'file'
+      matchIndices: readonly number[]
+      name: string
+      parent: string
+      path: string
+      stale: boolean
+    }
+
+type PaletteFileResult = Extract<PaletteResult, { kind: 'file' }>
+
+function paletteFileParentLabel(parent: string, folderLabel: string): string {
+  if (parent !== '') return `${parent}/`
+  return folderLabel.endsWith('/') ? folderLabel : `${folderLabel}/`
+}
+
+function PaletteFileLabel({
+  result,
+  folderLabel,
+}: {
+  result: PaletteFileResult
+  folderLabel: string
+}) {
+  const displayParent = paletteFileParentLabel(result.parent, folderLabel)
+  const matches = splitPaletteFileMatchIndices(
+    result.path,
+    result.name,
+    result.parent,
+    result.matchIndices,
+  )
+  return (
+    <span
+      data-palette-file-label
+      className="flex min-w-0 flex-1 items-baseline gap-1.5 whitespace-nowrap"
+    >
+      <span
+        data-palette-file-name
+        className="flex max-w-[55%] min-w-0 shrink-0 overflow-hidden text-sm"
+      >
+        <MiddleTruncatedHighlightedText text={result.name} matchIndices={matches.name} />
+      </span>
+      <span
+        data-palette-file-parent
+        className="min-w-0 flex-1 truncate text-left text-xs text-muted-foreground [direction:rtl]"
+      >
+        <bdi dir="ltr">
+          <HighlightedText text={displayParent} matchIndices={matches.parent} />
+        </bdi>
+      </span>
+    </span>
+  )
+}
+
+export function CommandPalette({
+  commands,
+  searchCommits,
+  repositoryKey,
+  onOpenCommit,
+  error,
+  externalFileResults,
+  fileSearchComplete,
+  fileResultIncludeIgnored,
+  fileResultQuery,
+  folderLabel,
+  searching,
+  supportsIgnoredFiles,
+  onClose,
+  onError,
+  onFileQueryChange,
+  onGoToLine,
+  onOpenFile,
+  open,
+  initialQuery = '',
+}: CommandPaletteProps) {
+  const dialogRef = useRef<HTMLDialogElement>(null)
+  const inputRef = useRef<HTMLInputElement>(null)
+  const listRef = useRef<HTMLDivElement>(null)
+  const lastRequestedFileQueryRef = useRef<string | null>(null)
+  const [query, setQuery] = useState('')
+  const [includeIgnored, setIncludeIgnored] = useState(true)
+  const [activeIndex, setActiveIndex] = useState(0)
+  const [refusal, setRefusal] = useState<string | null>(null)
+  const listboxId = useId()
+  const [allBranches, setAllBranches] = useState(false)
+  const [commitPage, setCommitPage] = useState<{ key: string; page: GraphPage } | null>(null)
+  const [commitError, setCommitError] = useState<string | null>(null)
+  const [commitLoading, setCommitLoading] = useState(false)
+  const [commitSkip, setCommitSkip] = useState(0)
+  const commitMode = query.trimStart().startsWith('#')
+  const commitQuery = commitMode ? query.trimStart().slice(1).trim() : ''
+  const commitKey = `${repositoryKey}\u0000${allBranches}\u0000${commitQuery}`
+  const commitsCurrent = commitPage?.key === commitKey
+  const commandMode = query.trimStart().startsWith('>')
+  const lineMode = query.trimStart().startsWith(':')
+  const commandQuery = commandMode ? query.trimStart().slice(1).trim() : ''
+  const lineQuery = lineMode ? query.trimStart().slice(1).trim() : ''
+  const fileQuery = query.startsWith('\\#') ? query.slice(1) : query
+  const fileRequestKey = `${includeIgnored ? '1' : '0'}\u0000${fileQuery}`
+
+  const fileResultsCurrent =
+    fileResultQuery === fileQuery && fileResultIncludeIgnored === includeIgnored
+  const results = useMemo<PaletteResult[]>(() => {
+    if (commitMode) {
+      const rows: PaletteResult[] = (commitsCurrent ? (commitPage?.page.commits ?? []) : []).map(
+        (commit) => ({
+          id: `commit:${commit.oid}`,
+          kind: 'command',
+          command: {
+            id: `commit:${commit.oid}`,
+            icon: <IconCommit />,
+            label: commit.subject || '(No commit message)',
+            description: `${commit.oid.slice(0, 8)} · ${commit.authorName} · ${new Date(commit.authorTime).toLocaleString(undefined, { dateStyle: 'short', timeStyle: 'short' })}`,
+            detail: allBranches
+              ? `Branches: ${commit.branches?.join(', ') || 'No branch'}`
+              : undefined,
+            run: () => onOpenCommit?.(commit.oid, commit.subject, !allBranches),
+          },
+        }),
+      )
+      if (commitsCurrent && commitPage?.page.hasMore && commitPage.page.commits.length <= 10000)
+        rows.push({
+          id: 'more-commits',
+          kind: 'command',
+          command: {
+            id: 'more-commits',
+            icon: null,
+            label: 'Load more commits',
+            keepOpen: true,
+            disabledReason: commitLoading ? 'Loading commits…' : undefined,
+            run: () => setCommitSkip(commitPage.page.commits.length),
+          },
+        })
+      return rows
+    }
+    if (lineMode) {
+      const line = Number.parseInt(lineQuery, 10)
+      return Number.isFinite(line) && line > 0 && onGoToLine != null
+        ? [
+            {
+              id: 'go-to-line',
+              kind: 'command',
+              command: {
+                id: 'go-to-line',
+                icon: null,
+                label: `Go to line ${line}`,
+                description: 'Move the editor caret to this line',
+                run: () => onGoToLine(line),
+              },
+            },
+          ]
+        : []
+    }
+    if (commandMode) {
+      return commands
+        .filter((command) =>
+          paletteTextMatches(
+            `${command.label}\n${command.description ?? ''}\n${command.keywords ?? ''}`,
+            commandQuery,
+          ),
+        )
+        .slice(0, 100)
+        .map((command) => ({ id: `command:${command.id}`, kind: 'command', command }))
+    }
+    return externalFileResults.map((file) => ({
+      id: `file:${file.path}`,
+      kind: 'file',
+      matchIndices: file.matchIndices ?? [],
+      name: file.name,
+      parent: file.parent,
+      path: file.path,
+      stale: !fileResultsCurrent,
+    }))
+  }, [
+    commitMode,
+    commitsCurrent,
+    commitPage,
+    commitLoading,
+    allBranches,
+    onOpenCommit,
+    commandMode,
+    commandQuery,
+    commands,
+    externalFileResults,
+    fileResultsCurrent,
+    lineMode,
+    lineQuery,
+    onGoToLine,
+  ])
+
+  const fileSearchErrorCurrent =
+    !commitMode &&
+    !commandMode &&
+    !lineMode &&
+    error != null &&
+    lastRequestedFileQueryRef.current === fileRequestKey
+  const fileSearchBusy =
+    !commitMode &&
+    !commandMode &&
+    !lineMode &&
+    (searching || (!fileSearchErrorCurrent && (!fileResultsCurrent || !fileSearchComplete)))
+
+  useEffect(() => {
+    setCommitSkip(0)
+    setCommitPage(null)
+    setCommitError(null)
+    setActiveIndex(0)
+  }, [commitKey, open])
+
+  useEffect(() => {
+    if (!open || !commitMode) return
+    const controller = new AbortController()
+    setCommitLoading(true)
+    setCommitError(null)
+    const timer = window.setTimeout(() => {
+      if (searchCommits == null) {
+        setCommitError('Commit search is unavailable in this folder.')
+        setCommitLoading(false)
+        return
+      }
+      void searchCommits(commitQuery, allBranches, commitSkip, controller.signal)
+        .then((page) => {
+          if (controller.signal.aborted) return
+          setCommitPage((previous) => ({
+            key: commitKey,
+            page: {
+              ...page,
+              commits:
+                commitSkip > 0 &&
+                previous?.key === commitKey &&
+                previous.page.generation === page.generation
+                  ? [...previous.page.commits, ...page.commits]
+                  : page.commits,
+            },
+          }))
+        })
+        .catch((reason: unknown) => {
+          if (!controller.signal.aborted)
+            setCommitError(reason instanceof Error ? reason.message : String(reason))
+        })
+        .finally(() => {
+          if (!controller.signal.aborted) setCommitLoading(false)
+        })
+    }, 150)
+    return () => {
+      controller.abort()
+      window.clearTimeout(timer)
+    }
+  }, [open, commitMode, commitKey, commitQuery, allBranches, commitSkip, searchCommits])
+
+  const showFileSearchBusy = useLoadingIndicator(open && fileSearchBusy, fileRequestKey)
+  const showCommitBusy = useLoadingIndicator(
+    open && commitMode && commitLoading,
+    `${commitKey}\u0000${commitSkip}`,
+  )
+
+  useLayoutEffect(() => {
+    const dialog = dialogRef.current
+    if (!open || dialog == null) return
+    setQuery(initialQuery)
+    setIncludeIgnored(true)
+    setActiveIndex(0)
+    setRefusal(null)
+    lastRequestedFileQueryRef.current = null
+    if (!dialog.open) dialog.showModal()
+    queueMicrotask(() => inputRef.current?.focus())
+    return () => {
+      if (dialog.open) dialog.close()
+    }
+  }, [initialQuery, open])
+
+  useEffect(() => {
+    setActiveIndex((current) => Math.min(current, Math.max(0, results.length - 1)))
+  }, [results.length])
+
+  useEffect(() => {
+    if (!open || commitMode || commandMode || lineMode) return
+    const repeatedQuery = lastRequestedFileQueryRef.current === fileRequestKey
+    if (repeatedQuery && ((fileResultsCurrent && fileSearchComplete) || searching || error != null))
+      return
+    const timer = window.setTimeout(
+      () => {
+        lastRequestedFileQueryRef.current = fileRequestKey
+        onFileQueryChange(fileQuery, includeIgnored)
+      },
+      repeatedQuery ? 500 : 100,
+    )
+    return () => window.clearTimeout(timer)
+  }, [
+    commitMode,
+    commandMode,
+    error,
+    lineMode,
+    fileRequestKey,
+    fileResultsCurrent,
+    fileSearchComplete,
+    includeIgnored,
+    onFileQueryChange,
+    open,
+    fileQuery,
+    searching,
+  ])
+
+  useEffect(() => {
+    listRef.current
+      ?.querySelector<HTMLElement>(`[data-palette-index="${activeIndex}"]`)
+      ?.scrollIntoView({ block: 'nearest' })
+  }, [activeIndex])
+
+  const execute = (result: PaletteResult | undefined) => {
+    if (result == null || (result.kind === 'file' && result.stale)) return
+    if (result.kind === 'command' && result.command.disabledReason != null) {
+      setRefusal(result.command.disabledReason)
+      return
+    }
+    if (result.kind === 'command' && result.command.paletteQuery != null) {
+      setQuery(result.command.paletteQuery)
+      setActiveIndex(0)
+      setRefusal(null)
+      return
+    }
+    try {
+      const operation = result.kind === 'file' ? onOpenFile(result.path) : result.command.run()
+      void Promise.resolve(operation)
+        .then(() => {
+          if (result.kind !== 'command' || !result.command.keepOpen) onClose()
+        })
+        .catch((reason: unknown) =>
+          onError(reason instanceof Error ? reason.message : String(reason)),
+        )
+    } catch (reason) {
+      onError(reason instanceof Error ? reason.message : String(reason))
+    }
+  }
+
+  if (!open) return null
+
+  return (
+    <dialog
+      ref={dialogRef}
+      aria-label="Command palette"
+      className="fixed inset-x-0 top-[8dvh] m-0 mx-auto max-h-[min(660px,84dvh)] w-[min(680px,calc(100vw-1.5rem))] overflow-hidden rounded-xl border border-border bg-background p-0 text-foreground backdrop:bg-black/45 md:top-[12dvh]"
+      onCancel={(event) => {
+        event.preventDefault()
+        onClose()
+      }}
+      onClick={(event) => {
+        if (event.target === dialogRef.current) onClose()
+      }}
+    >
+      <FileIconSprite />
+      <div className="flex items-center gap-3 border-b border-border px-4 py-3">
+        <IconSearch aria-hidden="true" className="size-4 shrink-0 text-muted-foreground" />
+        <input
+          ref={inputRef}
+          role="combobox"
+          aria-activedescendant={
+            results[activeIndex] == null ? undefined : `${listboxId}-option-${activeIndex}`
+          }
+          aria-autocomplete="list"
+          aria-controls={listboxId}
+          aria-expanded="true"
+          aria-label="Search files and commands"
+          autoComplete="off"
+          className="h-8 min-w-0 flex-1 bg-transparent text-sm outline-none placeholder:text-muted-foreground"
+          placeholder={
+            commitMode
+              ? 'Search by message, author, or hash'
+              : 'Search files, > commands, # commits, : line'
+          }
+          spellCheck={false}
+          value={query}
+          onChange={(event) => {
+            setQuery(event.currentTarget.value)
+            setActiveIndex(0)
+            setRefusal(null)
+          }}
+          onKeyDown={(event) => {
+            if (event.nativeEvent.isComposing) return
+            if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+              if (results.length === 0) return
+              event.preventDefault()
+              setActiveIndex(
+                (current) =>
+                  (current + (event.key === 'ArrowDown' ? 1 : -1) + results.length) %
+                  results.length,
+              )
+            } else if (event.key === 'Home' || event.key === 'End') {
+              if (results.length === 0) return
+              event.preventDefault()
+              setActiveIndex(event.key === 'Home' ? 0 : results.length - 1)
+            } else if (event.key === 'Enter') {
+              event.preventDefault()
+              execute(results[activeIndex])
+            } else if (event.key === 'Escape') {
+              event.preventDefault()
+              onClose()
+            }
+          }}
+        />
+        <span
+          className="flex size-3.5 shrink-0 items-center text-muted-foreground"
+          style={{ visibility: showFileSearchBusy || showCommitBusy ? 'visible' : 'hidden' }}
+          role={showFileSearchBusy || showCommitBusy ? 'status' : undefined}
+        >
+          <IconInProgress
+            aria-hidden="true"
+            className="size-3.5 animate-spin motion-reduce:animate-none"
+          />
+          <span className="sr-only">
+            {commitMode ? 'Searching commits' : searching ? 'Searching files' : 'Scanning folder'}
+          </span>
+        </span>
+        {commitMode && (
+          <button
+            type="button"
+            aria-label={allBranches ? 'Exclude Other Branches' : 'Include All Branches'}
+            aria-pressed={allBranches}
+            title={allBranches ? 'Exclude Other Branches' : 'Include All Branches'}
+            className={cn(
+              'flex size-7 shrink-0 cursor-pointer items-center justify-center rounded text-muted-foreground outline-none hover:bg-accent hover:text-foreground active:bg-accent focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-ring',
+              allBranches && 'bg-muted text-foreground',
+            )}
+            onClick={() => setAllBranches((current) => !current)}
+          >
+            <IconBranch aria-hidden="true" className="size-4" />
+          </button>
+        )}
+        {!commitMode && !commandMode && !lineMode && supportsIgnoredFiles && (
+          <button
+            type="button"
+            aria-label={includeIgnored ? 'Exclude Ignored Files' : 'Include Ignored Files'}
+            aria-pressed={includeIgnored}
+            title={includeIgnored ? 'Exclude Ignored Files' : 'Include Ignored Files'}
+            className={cn(
+              'flex size-7 shrink-0 cursor-pointer items-center justify-center rounded text-muted-foreground outline-none hover:bg-accent hover:text-foreground focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-ring',
+              includeIgnored && 'bg-muted text-foreground',
+            )}
+            onClick={() => {
+              setIncludeIgnored((current) => !current)
+              setActiveIndex(0)
+            }}
+          >
+            <IconFileStatusD aria-hidden="true" className="size-4" />
+          </button>
+        )}
+      </div>
+
+      <div
+        ref={listRef}
+        id={listboxId}
+        role="listbox"
+        aria-label={commitMode ? 'Commits' : commandMode ? 'Commands' : 'Files'}
+        aria-busy={commitMode ? commitLoading : fileSearchBusy}
+        className="list-scrollbar h-[min(560px,calc(84dvh-58px))] overflow-y-auto overscroll-contain p-1.5"
+      >
+        {results.map((result, index) => (
+          <Row
+            size="lg"
+            key={result.id}
+            id={`${listboxId}-option-${index}`}
+            role="option"
+            aria-selected={index === activeIndex}
+            aria-disabled={
+              result.kind === 'file'
+                ? result.stale
+                : result.command.disabledReason == null
+                  ? undefined
+                  : true
+            }
+            aria-describedby={
+              result.kind === 'command' && result.command.disabledReason != null
+                ? `${listboxId}-reason-${index}`
+                : undefined
+            }
+            aria-label={
+              result.kind === 'file'
+                ? `${result.name} ${paletteFileParentLabel(result.parent, folderLabel)}`
+                : undefined
+            }
+            data-palette-index={index}
+            tabIndex={-1}
+            selected={index === activeIndex}
+            className={cn(
+              'gap-3 px-3 py-1.5 [&>button]:gap-3',
+              result.kind === 'file' && result.stale && '[&>button]:cursor-default',
+            )}
+            onClick={() => execute(result)}
+            onMouseDown={(event) => {
+              if (result.kind === 'command' && result.command.disabledReason != null) {
+                event.preventDefault()
+              }
+            }}
+            onPointerMove={() => {
+              if (result.kind !== 'file' || !result.stale) setActiveIndex(index)
+            }}
+            icon={
+              result.kind === 'file' ? (
+                <FileIcon path={result.path} palette />
+              ) : (
+                <span
+                  aria-hidden="true"
+                  data-palette-command-icon={result.command.id}
+                  className="flex size-4 shrink-0 items-center justify-center text-muted-foreground [&>svg]:size-4"
+                >
+                  {result.command.icon}
+                </span>
+              )
+            }
+            label={
+              result.kind === 'file' ? (
+                <PaletteFileLabel result={result} folderLabel={folderLabel} />
+              ) : (
+                <span className="font-medium">{result.command.label}</span>
+              )
+            }
+            detail={
+              result.kind === 'command' &&
+              (result.command.description != null ||
+                result.command.detail != null ||
+                result.command.disabledReason != null) ? (
+                <>
+                  {result.command.description != null && (
+                    <span className="block truncate">{result.command.description}</span>
+                  )}
+                  {result.command.detail != null && (
+                    <span title={result.command.detail} className="mbs-0.5 block truncate">
+                      {result.command.detail}
+                    </span>
+                  )}
+                  {result.command.disabledReason != null && (
+                    <span
+                      id={`${listboxId}-reason-${index}`}
+                      className="mt-0.5 block overflow-wrap-anywhere whitespace-normal"
+                    >
+                      {result.command.disabledReason}
+                    </span>
+                  )}
+                </>
+              ) : undefined
+            }
+          />
+        ))}
+
+        {commitMode && commitError != null && (
+          <p className="px-3 py-4 text-center text-sm text-muted-foreground" role="alert">
+            {commitError}
+          </p>
+        )}
+        {commitMode &&
+          !commitLoading &&
+          commitsCurrent &&
+          results.length === 0 &&
+          commitError == null && (
+            <p className="px-3 py-8 text-center text-sm text-muted-foreground" role="status">
+              No commits match.
+            </p>
+          )}
+        {refusal != null && (commandMode || commitMode) && (
+          <p className="px-3 py-2 text-xs text-muted-foreground" role="status">
+            {refusal}
+          </p>
+        )}
+        {fileSearchErrorCurrent && !searching && (
+          <div className="px-3 py-4 text-center" role="alert">
+            <p className="text-sm font-medium">Could not search files</p>
+            <p className="mt-1 text-xs text-muted-foreground">{error}</p>
+          </div>
+        )}
+        {results.length === 0 &&
+          !commitMode &&
+          (commandMode ||
+            (fileResultsCurrent && fileSearchComplete && !searching && error == null)) && (
+            <p className="px-3 py-8 text-center text-sm text-muted-foreground" role="status">
+              {commandMode ? 'No commands match.' : 'No files match.'}
+            </p>
+          )}
+      </div>
+    </dialog>
+  )
+}

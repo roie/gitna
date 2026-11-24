@@ -6,8 +6,8 @@ import { test, expect } from './fixtures.js'
 test('optional search tools are downloaded only when first opened', async ({ page, app }) => {
   const downloadedTools = new Set<string>()
   page.on('request', (request) => {
-    const match = new URL(request.url()).pathname.match(/\/(CommandPalette|FindInFiles)-[^/]+\.js$/)
-    if (match) downloadedTools.add(match[1]!)
+    const match = new URL(request.url()).pathname.match(/\/(command-palette|find-in-files)-[^/]+\.js$/)
+    if (match) downloadedTools.add(match[1] === 'command-palette' ? 'CommandPalette' : 'FindInFiles')
   })
 
   await page.goto(app.url)

@@ -1,0 +1,305 @@
+import {
+  parseDiffFromFile,
+  parsePatchFiles,
+  processFile,
+  type DiffLineAnnotation,
+  type FileContents,
+  type LineAnnotation,
+} from '@pierre/diffs'
+
+import { DIFF_PARSE_OPTIONS } from '../../lib/code-view'
+import {
+  appendReviewDiff,
+  createReviewAccumulator,
+  snapshotReviewData,
+  takePendingReviewItems,
+  type ReviewAccumulator,
+  type LoadedReviewData,
+} from './review-data'
+import type { CodeViewItem } from '@pierre/diffs'
+import type { CommentMetadata, ImageAnnotationMetadata } from '../../lib/review-types'
+import type { FileDiff, FileVersion, ReviewResponse, WorktreeFile } from '../../lib/types'
+
+function imageMetadata(version: FileVersion, alt: string): ImageAnnotationMetadata | null {
+  return version.image == null
+    ? null
+    : { kind: 'image', key: `image:${version.path}:${alt}`, alt, image: version.image }
+}
+
+function fileImageAnnotations(diff: FileDiff, path: string): LineAnnotation<CommentMetadata>[] {
+  const metadata = imageMetadata(diff.after.image == null ? diff.before : diff.after, path)
+  if (metadata != null) return [{ lineNumber: 0, metadata }]
+  return diffImageAnnotations(diff, path).flatMap(({ metadata }) =>
+    metadata.kind === 'preview' ? [{ lineNumber: 0, metadata }] : [],
+  )
+}
+
+export function diffImageAnnotations(
+  diff: FileDiff,
+  path: string,
+): DiffLineAnnotation<CommentMetadata>[] {
+  const annotations: DiffLineAnnotation<CommentMetadata>[] = []
+  const before = imageMetadata(diff.before, `Previous image for ${path}`)
+  const after = imageMetadata(diff.after, `Image preview for ${path}`)
+  if (before != null) annotations.push({ lineNumber: 0, side: 'deletions', metadata: before })
+  if (after != null) annotations.push({ lineNumber: 0, side: 'additions', metadata: after })
+  if (annotations.length === 0 && (diff.binary || diff.tooLarge)) {
+    annotations.push({
+      lineNumber: 0,
+      side: 'additions',
+      metadata: {
+        kind: 'preview',
+        key: `preview:${path}`,
+        message: diff.tooLarge ? 'Too large to preview' : 'Binary file changed',
+      },
+    })
+  }
+  return annotations
+}
+
+function reviewIdentityKey(review: ReviewResponse): string {
+  const { identity } = review
+  return [identity.scope, identity.commit, identity.from, identity.to].filter(Boolean).join(':')
+}
+
+function countFileLines(contents: string): number {
+  if (contents.length === 0) return 0
+  let lines = contents.endsWith('\n') ? 0 : 1
+  for (
+    let offset = contents.indexOf('\n');
+    offset !== -1;
+    offset = contents.indexOf('\n', offset + 1)
+  ) {
+    lines++
+  }
+  return lines
+}
+
+export function adaptWorktreeFile(
+  source: WorktreeFile,
+  generation: number,
+  draft?: FileContents,
+  cacheNamespace = '',
+): LoadedReviewData {
+  const file: FileContents = draft ?? {
+    name: source.path,
+    contents: source.content,
+    cacheKey: `${cacheNamespace}worktree:${source.hash}:${source.path}`,
+  }
+  const lineCount = countFileLines(file.contents)
+  return {
+    diffStats: { addedLines: 0, deletedLines: 0, fileCount: 1, totalLinesOfCode: lineCount },
+    itemIdToFile: new Map([[source.path, { fileOrder: 0, path: source.path }]]),
+    items: [{ id: source.path, type: 'file', file, edit: true, version: generation }],
+    treeSource: {
+      gitStatus: [],
+      pathCount: 1,
+      paths: [source.path],
+      pathToItemId: new Map([[source.path, source.path]]),
+    },
+  }
+}
+
+export function adaptWorktreeComparison(
+  diff: FileDiff,
+  generation: number,
+  leftDraft?: FileContents,
+  rightDraft?: FileContents,
+  cacheNamespace = '',
+): LoadedReviewData {
+  const before: FileContents = leftDraft ?? {
+    name: diff.before.path,
+    contents: diff.before.content,
+    lang: diff.before.language as FileContents['lang'],
+    cacheKey: `${cacheNamespace}worktree-compare:${generation}:${diff.before.path}`,
+  }
+  const after: FileContents = rightDraft ?? {
+    name: diff.after.path,
+    contents: diff.after.content,
+    lang: diff.after.language as FileContents['lang'],
+    cacheKey: `${cacheNamespace}worktree-compare:${generation}:${diff.after.path}`,
+  }
+  const fileDiff = parseDiffFromFile(before, after, DIFF_PARSE_OPTIONS, true)
+  const accumulator = createReviewAccumulator()
+  appendReviewDiff(accumulator, fileDiff, undefined)
+  const item = accumulator.items.at(-1)
+  if (item?.type === 'diff') {
+    item.version = generation
+    item.edit = !diff.binary && !diff.tooLarge
+    const annotations = diffImageAnnotations(diff, diff.after.path)
+    if (annotations.length > 0) item.annotations = annotations
+  }
+  return snapshotReviewData(accumulator)
+}
+
+export function adaptGitnaFile(
+  diff: FileDiff,
+  generation: number,
+  cacheNamespace = '',
+): LoadedReviewData {
+  const path = diff.after.path || diff.before.path
+  const contents = diff.binary || diff.tooLarge ? '' : diff.after.content
+  const file: FileContents = {
+    name: path,
+    contents,
+    lang: diff.after.language as FileContents['lang'],
+    cacheKey: `${cacheNamespace}file:${generation}:${path}`,
+  }
+  const lineCount = countFileLines(contents)
+  return {
+    diffStats: { addedLines: 0, deletedLines: 0, fileCount: 1, totalLinesOfCode: lineCount },
+    itemIdToFile: new Map([[path, { fileOrder: 0, path }]]),
+    items: [
+      {
+        id: path,
+        type: 'file',
+        file,
+        annotations: fileImageAnnotations(diff, path),
+        version: generation,
+      },
+    ],
+    treeSource: {
+      gitStatus: [],
+      pathCount: 1,
+      paths: [path],
+      pathToItemId: new Map([[path, path]]),
+    },
+  }
+}
+
+export interface GitnaReviewAccumulator {
+  accumulator: ReviewAccumulator
+  cacheKey: string
+  generation: number
+  itemVersion: number
+}
+
+export function createGitnaReviewAccumulator(
+  review: ReviewResponse,
+  itemVersion = review.generation,
+  cacheNamespace = '',
+): GitnaReviewAccumulator {
+  return {
+    accumulator: createReviewAccumulator(),
+    cacheKey: `${cacheNamespace}${reviewIdentityKey(review)}:${review.generation}`,
+    generation: review.generation,
+    itemVersion,
+  }
+}
+
+/** Appends one bounded server page while Pierre retains parsing and item ownership. */
+export function appendGitnaReviewPage(
+  assembly: GitnaReviewAccumulator,
+  review: ReviewResponse,
+): { data: LoadedReviewData; pendingItems: LoadedReviewData['items'] } {
+  if (review.generation !== assembly.generation) {
+    throw new Error('Review changed while additional files were loading')
+  }
+  const { accumulator } = assembly
+  if (review.patch.length > 0) {
+    const parsed = parsePatchFiles(review.patch, {
+      cacheKeyPrefix: assembly.cacheKey,
+      disableLineMatching: true,
+    })
+    for (const patch of parsed) {
+      for (const fileDiff of patch.files) {
+        appendReviewDiff(accumulator, fileDiff, undefined)
+      }
+    }
+  }
+
+  for (const supplement of review.supplements) {
+    const after: FileContents = {
+      name: supplement.path,
+      contents:
+        supplement.diff.binary || supplement.diff.tooLarge ? '' : supplement.diff.after.content,
+      lang: supplement.diff.after.language as FileContents['lang'],
+      cacheKey: `${assembly.cacheKey}:${supplement.path}`,
+    }
+    const before: FileContents | null =
+      supplement.kind === 'added' || supplement.kind === 'untracked'
+        ? null
+        : {
+            name: supplement.diff.before.path || supplement.path,
+            contents:
+              supplement.diff.binary || supplement.diff.tooLarge
+                ? ''
+                : supplement.diff.before.content,
+            lang: supplement.diff.before.language as FileContents['lang'],
+            cacheKey: `${assembly.cacheKey}:${supplement.path}:before`,
+          }
+    const fileDiff = supplement.diff.patch
+      ? processFile(supplement.diff.patch, {
+          oldFile: before ?? { name: '/dev/null', contents: '' },
+          newFile: after,
+          cacheKey: after.cacheKey,
+          throwOnError: true,
+        })
+      : parseDiffFromFile(before, after, DIFF_PARSE_OPTIONS, true)
+    if (fileDiff == null) throw new Error(`Invalid review patch for ${supplement.path}`)
+    // Protocol paths, not quoted patch headers, are the operation identity.
+    fileDiff.name = supplement.path
+    fileDiff.prevName = supplement.kind === 'renamed' ? supplement.diff.before.path : undefined
+    if (supplement.kind === 'added' || supplement.kind === 'untracked') fileDiff.type = 'new'
+    if (supplement.kind === 'deleted') fileDiff.type = 'deleted'
+    if (supplement.kind === 'renamed') {
+      fileDiff.type = fileDiff.hunks.length > 0 ? 'rename-changed' : 'rename-pure'
+    }
+    fileDiff.lang = after.lang
+    appendReviewDiff(accumulator, fileDiff, undefined)
+    const item = accumulator.items.at(-1)
+    const annotations = diffImageAnnotations(supplement.diff, supplement.path)
+    if (item?.type === 'diff' && annotations.length > 0) item.annotations = annotations
+  }
+
+  const pendingItems = takePendingReviewItems(accumulator)
+  for (const item of pendingItems) {
+    item.version = assembly.itemVersion
+    if (review.identity.scope === 'unstaged' && isEditableDiff(item)) item.edit = true
+  }
+  return { data: snapshotReviewData(accumulator), pendingItems }
+}
+
+function isEditableDiff(item: CodeViewItem<CommentMetadata>): boolean {
+  return (
+    item.type === 'diff' &&
+    !item.fileDiff.isPartial &&
+    item.fileDiff.type !== 'deleted' &&
+    !item.annotations?.some(
+      ({ metadata }) => metadata.kind === 'image' || metadata.kind === 'preview',
+    )
+  )
+}
+
+export function draftDiffItem(
+  item: CodeViewItem<CommentMetadata>,
+  diff: FileDiff,
+  draft: FileContents,
+): CodeViewItem<CommentMetadata> {
+  if (item.type !== 'diff') return item
+  const before: FileContents | null =
+    item.fileDiff.type === 'new'
+      ? null
+      : {
+          name: diff.before.path || item.fileDiff.prevName || item.fileDiff.name,
+          contents: diff.before.content,
+          lang: diff.before.language as FileContents['lang'],
+        }
+  const fileDiff = parseDiffFromFile(
+    before,
+    { ...draft, name: item.fileDiff.name },
+    DIFF_PARSE_OPTIONS,
+    true,
+  )
+  fileDiff.name = item.fileDiff.name
+  fileDiff.prevName = item.fileDiff.prevName
+  fileDiff.type = item.fileDiff.type === 'new' ? 'new' : fileDiff.type
+  return { ...item, fileDiff }
+}
+
+export function adaptGitnaReview(review: ReviewResponse, cacheNamespace = ''): LoadedReviewData {
+  return appendGitnaReviewPage(
+    createGitnaReviewAccumulator(review, review.generation, cacheNamespace),
+    review,
+  ).data
+}

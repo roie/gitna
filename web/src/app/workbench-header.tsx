@@ -1,0 +1,976 @@
+// Modified by Gitna: own local navigation and settings without donor button-group state.
+import type { DiffIndicators } from '@pierre/diffs'
+import {
+  IconArrowUpRight,
+  IconBrandGithub,
+  IconCheck,
+  IconChevronSm,
+  IconCodeStyleBars,
+  IconCollapsedRow,
+  IconColorAuto,
+  IconColorDark,
+  IconColorLight,
+  IconDiffSplit,
+  IconDiffUnified,
+  IconExpandAll,
+  IconEyeSlash,
+  IconFileTreeFill,
+  IconGearFill,
+  IconInfo,
+  IconShare,
+  IconSearch,
+  IconSymbolDiffstat,
+  IconTrash,
+  IconX,
+} from '@pierre/icons'
+import type { ColorMode } from '@pierre/theming'
+import type { Folder } from '../lib/types'
+import {
+  type Dispatch,
+  memo,
+  type ReactNode,
+  type Ref,
+  type SetStateAction,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react'
+
+import { GitnaLogo } from '../components/gitna-logo'
+import { CHROME_ICON_BUTTON_CLASS } from '../components/ui/button-styles'
+import { Button } from '../components/ui/button'
+import {
+  DropdownMenu,
+  DropdownMenuBackItem,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '../components/ui/dropdown-menu'
+import { Switch } from '../components/ui/switch'
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '../components/ui/tooltip'
+import { themeCatalog } from '../lib/theme/theme-root'
+import { cn } from '../lib/cn'
+
+type LightThemeName = string
+type DarkThemeName = string
+
+const SETTING_ROW_CLASS =
+  'w-full flex cursor-pointer items-center justify-between gap-4 px-2 py-1.5 text-sm'
+
+interface HeaderProps {
+  appVersion: string
+  className?: string
+  collapseMode: 'expanded' | 'collapsed'
+  colorMode: ColorMode
+  darkThemeName: DarkThemeName
+  diffIndicators: DiffIndicators
+  diffStyle: 'split' | 'unified'
+  fileTreeAvailable: boolean
+  fileTreeOverlayOpen: boolean
+  homeButtonRef?: Ref<HTMLButtonElement>
+  initialUrl: string
+  lightThemeName: LightThemeName
+  lineNumbers: boolean
+  overflow: 'wrap' | 'scroll'
+  onOpenHome: () => void
+  onOpenCommandPalette?: () => void
+  onOpenFolder?: (path: string) => Promise<void>
+  onOpenFolderInNewTab?: (path: string) => Promise<void>
+  onRemoveRecentFolder?: (path: string) => Promise<void>
+  onRevealFolder?: () => Promise<void>
+  backendDisabledReason?: string | null
+  connectionStatus?: ReactNode
+  openFolderDisabledReason?: string | null
+  recentFolders?: readonly Folder[]
+  onToggleCollapseMode: () => void
+  onToggleFileTreeOverlay: () => void
+  setColorMode: (mode: ColorMode) => void
+  setDarkThemeName: (name: DarkThemeName) => void
+  setDiffIndicators: Dispatch<SetStateAction<DiffIndicators>>
+  setDiffStyle: Dispatch<SetStateAction<'split' | 'unified'>>
+  setLightThemeName: (name: LightThemeName) => void
+  setLineNumbers: Dispatch<SetStateAction<boolean>>
+  setOverflow: Dispatch<SetStateAction<'wrap' | 'scroll'>>
+  setShowBackgrounds: Dispatch<SetStateAction<boolean>>
+  showBackgrounds: boolean
+  inlineBlame?: boolean
+  setInlineBlame?: (enabled: boolean) => void
+  conversations?: boolean
+  setConversations?: (enabled: boolean) => void
+}
+
+function LocalFolderForm({
+  initialPath,
+  onOpenInNewTab,
+  onRemoveRecent,
+  onSwitch,
+  backendDisabledReason,
+  openFolderDisabledReason,
+  recentFolders = [],
+}: {
+  initialPath: string
+  onOpenInNewTab?: (path: string) => Promise<void>
+  onRemoveRecent?: (path: string) => Promise<void>
+  onSwitch?: (path: string) => Promise<void>
+  backendDisabledReason?: string | null
+  openFolderDisabledReason?: string | null
+  recentFolders?: readonly Folder[]
+}) {
+  const [path, setPath] = useState(initialPath)
+  const [pending, setPending] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const [actionError, setActionError] = useState<string | null>(null)
+  const [folderAction, setFolderAction] = useState<string | null>(null)
+  const [suggestionsOpen, setSuggestionsOpen] = useState(false)
+  const [showAllRecent, setShowAllRecent] = useState(true)
+  const [activeIndex, setActiveIndex] = useState(-1)
+  const inputRef = useRef<HTMLInputElement>(null)
+  const listboxRef = useRef<HTMLUListElement>(null)
+  const listboxId = 'gitna-folder-location-suggestions'
+
+  useEffect(() => {
+    setPath(initialPath)
+    setSuggestionsOpen(false)
+    setActiveIndex(-1)
+  }, [initialPath])
+
+  const suggestions = useMemo(() => {
+    const available = recentFolders.filter((folder) => folder.path !== initialPath)
+    if (showAllRecent) return available
+    const query = path.trim().toLocaleLowerCase()
+    if (query === '') return available
+    return available.filter((folder) =>
+      `${folder.name}\n${folder.path}`.toLocaleLowerCase().includes(query),
+    )
+  }, [initialPath, path, recentFolders, showAllRecent])
+  const nextPath = path.trim()
+  const canSwitch = nextPath !== '' && nextPath !== initialPath && onSwitch != null
+  const showClear = path.length > 0 && (path === initialPath || error !== null)
+  const showSuggestions = suggestionsOpen && suggestions.length > 0
+
+  useEffect(() => {
+    if (activeIndex >= suggestions.length) setActiveIndex(suggestions.length - 1)
+  }, [activeIndex, suggestions.length])
+
+  useEffect(() => {
+    if (!showSuggestions || activeIndex < 0) return
+    listboxRef.current
+      ?.querySelector<HTMLElement>(`#${listboxId}-${activeIndex}`)
+      ?.scrollIntoView({ block: 'nearest' })
+  }, [activeIndex, showSuggestions])
+
+  const runFolderAction = (action: 'new-tab' | 'remove', folder: Folder) => {
+    const callback = action === 'new-tab' ? onOpenInNewTab : onRemoveRecent
+    if (callback == null || folderAction != null) return
+    const reason = action === 'new-tab' ? openFolderDisabledReason : backendDisabledReason
+    if (reason != null) {
+      setActionError(reason)
+      return
+    }
+    setFolderAction(`${action}:${folder.path}`)
+    setActionError(null)
+    void callback(folder.path)
+      .catch((reason: unknown) => {
+        setActionError(reason instanceof Error ? reason.message : String(reason))
+      })
+      .finally(() => setFolderAction(null))
+  }
+
+  const switchFolder = (targetPath: string) => {
+    if (targetPath === '' || targetPath === initialPath || onSwitch == null) return
+    if (openFolderDisabledReason != null) {
+      setError(openFolderDisabledReason)
+      return
+    }
+    setPath(targetPath)
+    setPending(true)
+    setError(null)
+    setSuggestionsOpen(false)
+    setActiveIndex(-1)
+    void onSwitch(targetPath)
+      .catch((reason: unknown) => {
+        setError(reason instanceof Error ? reason.message : String(reason))
+      })
+      .finally(() => setPending(false))
+  }
+
+  return (
+    <form
+      className="group relative order-last flex min-w-0 w-full items-center gap-1 md:order-none md:mr-auto"
+      onBlur={(event) => {
+        if (
+          event.relatedTarget instanceof Node &&
+          event.currentTarget.contains(event.relatedTarget)
+        ) {
+          return
+        }
+        setSuggestionsOpen(false)
+        setActiveIndex(-1)
+        if (path.trim() === '') setPath(initialPath)
+      }}
+      onSubmit={(event) => {
+        event.preventDefault()
+        if (activeIndex >= 0 && suggestions[activeIndex] != null) {
+          switchFolder(suggestions[activeIndex].path)
+          return
+        }
+        if (canSwitch) switchFolder(nextPath)
+      }}
+    >
+      <input
+        ref={inputRef}
+        role="combobox"
+        aria-activedescendant={
+          showSuggestions && activeIndex >= 0 ? `${listboxId}-${activeIndex}` : undefined
+        }
+        aria-autocomplete="list"
+        aria-controls={showSuggestions ? listboxId : undefined}
+        aria-expanded={showSuggestions}
+        aria-haspopup="listbox"
+        aria-label="Folder path"
+        aria-invalid={error != null}
+        autoComplete="off"
+        className="focus:text-primary block field-sizing-content h-9 min-w-[24ch] w-full rounded-md text-sm focus-visible:outline-none aria-invalid:text-destructive md:w-auto"
+        disabled={pending}
+        spellCheck={false}
+        title={error ?? initialPath}
+        value={path}
+        onChange={(event) => {
+          setPath(event.currentTarget.value)
+          setError(null)
+          setShowAllRecent(false)
+          setSuggestionsOpen(true)
+          setActiveIndex(-1)
+        }}
+        onFocus={(event) => {
+          if (path === initialPath) {
+            event.currentTarget.select()
+            setShowAllRecent(true)
+          }
+          setSuggestionsOpen(true)
+        }}
+        onKeyDown={(event) => {
+          if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+            if (suggestions.length === 0) return
+            event.preventDefault()
+            setSuggestionsOpen(true)
+            setActiveIndex((current) => {
+              if (current < 0) return event.key === 'ArrowDown' ? 0 : suggestions.length - 1
+              return (
+                (current + (event.key === 'ArrowDown' ? 1 : -1) + suggestions.length) %
+                suggestions.length
+              )
+            })
+          } else if (
+            event.key === 'Enter' &&
+            activeIndex >= 0 &&
+            suggestions[activeIndex] != null
+          ) {
+            event.preventDefault()
+            switchFolder(suggestions[activeIndex].path)
+          } else if (event.key === 'Escape') {
+            event.preventDefault()
+            setPath(initialPath)
+            setError(null)
+            setSuggestionsOpen(false)
+            setActiveIndex(-1)
+            inputRef.current?.blur()
+          }
+        }}
+      />
+      {canSwitch && (
+        <Button
+          type="submit"
+          variant="ghost"
+          size="icon-md"
+          aria-label="Switch folder"
+          disabled={pending || openFolderDisabledReason != null}
+          title={openFolderDisabledReason ?? 'Switch folder'}
+          className="text-primary"
+        >
+          <IconCheck className="size-4" />
+        </Button>
+      )}
+      {showClear && (
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon-md"
+          aria-label="Clear folder path"
+          title="Clear folder path"
+          className="opacity-0 transition-opacity duration-200 will-change-auto group-focus-within:opacity-50 group-hover:opacity-50 hover:opacity-75"
+          onClick={() => {
+            setPath('')
+            setError(null)
+            setShowAllRecent(true)
+            setSuggestionsOpen(true)
+            setActiveIndex(-1)
+            inputRef.current?.focus()
+          }}
+        >
+          <IconX className="size-4" />
+        </Button>
+      )}
+      {showSuggestions && (
+        <ul
+          ref={listboxRef}
+          id={listboxId}
+          role="listbox"
+          aria-label="Recent folders"
+          className="list-scrollbar absolute top-full left-0 z-50 mt-1 max-h-72 w-full min-w-72 overflow-y-auto overscroll-contain rounded-md border border-border bg-background py-1 text-foreground md:w-96"
+        >
+          <TooltipProvider delayDuration={500}>
+            {suggestions.map((folder, index) => {
+              const actionPending = folderAction?.endsWith(`:${folder.path}`) === true
+              return (
+                <li
+                  key={folder.path}
+                  role="none"
+                  className={cn(
+                    'group/folder flex min-w-0 items-center px-1 hover:bg-muted',
+                    index === activeIndex && 'bg-muted',
+                  )}
+                >
+                  <button
+                    id={`${listboxId}-${index}`}
+                    type="button"
+                    role="option"
+                    aria-selected={index === activeIndex}
+                    className="min-w-0 flex-1 cursor-pointer px-2 py-2 text-left outline-none"
+                    disabled={pending || actionPending || openFolderDisabledReason != null}
+                    title={openFolderDisabledReason ?? undefined}
+                    onClick={() => switchFolder(folder.path)}
+                  >
+                    <span className="block truncate text-sm font-medium">{folder.name}</span>
+                    <span
+                      className="mt-0.5 block truncate text-xs text-muted-foreground"
+                      title={folder.path}
+                    >
+                      {folder.path}
+                    </span>
+                  </button>
+                  <span className="flex shrink-0 items-center opacity-100 sm:opacity-0 sm:group-focus-within/folder:opacity-100 sm:group-hover/folder:opacity-100">
+                    {onOpenInNewTab != null && (
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="icon-md"
+                            className="size-8"
+                            aria-label={`Open ${folder.name} in new tab`}
+                            disabled={
+                              pending || folderAction != null || openFolderDisabledReason != null
+                            }
+                            title={openFolderDisabledReason ?? undefined}
+                            onMouseDown={(event) => event.preventDefault()}
+                            onClick={() => runFolderAction('new-tab', folder)}
+                          >
+                            <IconArrowUpRight className="size-4" />
+                          </Button>
+                        </TooltipTrigger>
+                        <TooltipContent>Open in New Tab</TooltipContent>
+                      </Tooltip>
+                    )}
+                    {onRemoveRecent != null && (
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="icon-md"
+                            className="size-8 hover:text-destructive"
+                            aria-label={`Remove ${folder.name} from recent folders`}
+                            disabled={
+                              pending || folderAction != null || backendDisabledReason != null
+                            }
+                            title={backendDisabledReason ?? undefined}
+                            onMouseDown={(event) => event.preventDefault()}
+                            onClick={() => runFolderAction('remove', folder)}
+                          >
+                            <IconTrash className="size-4" />
+                          </Button>
+                        </TooltipTrigger>
+                        <TooltipContent>Remove from Recent</TooltipContent>
+                      </Tooltip>
+                    )}
+                  </span>
+                </li>
+              )
+            })}
+          </TooltipProvider>
+          {actionError != null && (
+            <li className="px-3 py-2 text-xs text-destructive" role="alert">
+              {actionError}
+            </li>
+          )}
+        </ul>
+      )}
+    </form>
+  )
+}
+
+export const WorkbenchHeader = memo(function WorkbenchHeader({
+  appVersion,
+  className,
+  collapseMode,
+  colorMode,
+  darkThemeName,
+  diffIndicators,
+  diffStyle,
+  fileTreeAvailable,
+  fileTreeOverlayOpen,
+  homeButtonRef,
+  initialUrl,
+  lightThemeName,
+  lineNumbers,
+  overflow,
+  onOpenHome,
+  onOpenCommandPalette,
+  onOpenFolder,
+  onOpenFolderInNewTab,
+  onRemoveRecentFolder,
+  onRevealFolder,
+  backendDisabledReason,
+  connectionStatus,
+  openFolderDisabledReason,
+  recentFolders = [],
+  onToggleCollapseMode,
+  onToggleFileTreeOverlay,
+  setColorMode,
+  setDarkThemeName,
+  setDiffIndicators,
+  setDiffStyle,
+  setLightThemeName,
+  setLineNumbers,
+  setOverflow,
+  setShowBackgrounds,
+  showBackgrounds,
+  inlineBlame,
+  setInlineBlame,
+  conversations,
+  setConversations,
+}: HeaderProps) {
+  return (
+    <div
+      className={cn(
+        'z-10 contain-layout flex flex-wrap md:flex-nowrap items-center gap-2.5 pt-3 pb-2 px-4 md:px-3 md:py-1.5 border-b border-[var(--color-border-opaque)]',
+        className,
+      )}
+    >
+      <button
+        ref={homeButtonRef}
+        type="button"
+        aria-label="Open Gitna Home"
+        title="Gitna Home"
+        className="absolute top-4 left-[50%] inline-flex -translate-x-1/2 cursor-pointer rounded-md transition-transform duration-200 hover:scale-110 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring md:static md:translate-x-0"
+        onClick={onOpenHome}
+      >
+        <GitnaLogo />
+      </button>
+      <LocalFolderForm
+        initialPath={initialUrl}
+        onOpenInNewTab={onOpenFolderInNewTab}
+        onRemoveRecent={onRemoveRecentFolder}
+        onSwitch={onOpenFolder}
+        backendDisabledReason={backendDisabledReason}
+        openFolderDisabledReason={openFolderDisabledReason}
+        recentFolders={recentFolders}
+      />
+      {connectionStatus}
+      <div className="flex w-full items-center justify-between gap-2 md:w-auto md:justify-end">
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon-md"
+          aria-label={fileTreeOverlayOpen ? 'Close Source Control' : 'Open Source Control'}
+          aria-pressed={fileTreeOverlayOpen}
+          disabled={!fileTreeAvailable}
+          title={fileTreeOverlayOpen ? 'Close Source Control' : 'Open Source Control'}
+          className={cn(CHROME_ICON_BUTTON_CLASS, 'md:hidden')}
+          onClick={onToggleFileTreeOverlay}
+        >
+          <IconFileTreeFill className="size-4 md:size-3" />
+        </Button>
+        <div className="flex items-center gap-2">
+          {onOpenCommandPalette != null && (
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon-md"
+              aria-label="Open command palette"
+              title="Command palette (Ctrl or Cmd+K)"
+              className={CHROME_ICON_BUTTON_CLASS}
+              onClick={onOpenCommandPalette}
+            >
+              <IconSearch className="size-4 md:size-3" />
+            </Button>
+          )}
+          {onRevealFolder != null && (
+            <>
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon-md"
+                aria-label="Reveal folder in file manager"
+                title={backendDisabledReason ?? 'Reveal folder in file manager'}
+                disabled={backendDisabledReason != null}
+                className={cn(CHROME_ICON_BUTTON_CLASS, 'hidden md:flex')}
+                onClick={() => void onRevealFolder()}
+              >
+                <IconShare className="size-4 md:size-3" />
+              </Button>
+              <div className="bg-border hidden h-3 w-px md:block" />
+            </>
+          )}
+          <div className="flex items-center">
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon-md"
+              title={diffStyle === 'split' ? 'Switch to unified view' : 'Switch to split view'}
+              className={cn(CHROME_ICON_BUTTON_CLASS, 'hidden md:flex')}
+              onClick={() => setDiffStyle(diffStyle === 'split' ? 'unified' : 'split')}
+            >
+              {diffStyle === 'split' ? (
+                <IconDiffSplit className="size-4 md:size-3" />
+              ) : (
+                <IconDiffUnified className="size-4 md:size-3" />
+              )}
+            </Button>
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon-md"
+              aria-pressed={collapseMode === 'collapsed'}
+              title={collapseMode === 'expanded' ? 'Collapse all files' : 'Expand all files'}
+              className={CHROME_ICON_BUTTON_CLASS}
+              onClick={onToggleCollapseMode}
+            >
+              {collapseMode === 'expanded' ? (
+                <IconExpandAll className="size-4 md:size-3" />
+              ) : (
+                <IconCollapsedRow className="size-4 md:size-3" />
+              )}
+            </Button>
+            <ThemeDropdown
+              colorMode={colorMode}
+              darkThemeName={darkThemeName}
+              lightThemeName={lightThemeName}
+              setColorMode={setColorMode}
+              setDarkThemeName={setDarkThemeName}
+              setLightThemeName={setLightThemeName}
+            />
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button
+                  variant="ghost"
+                  size="icon-md"
+                  aria-label="Display settings"
+                  title="Display settings"
+                  className={CHROME_ICON_BUTTON_CLASS}
+                >
+                  <IconGearFill className="size-4 md:size-3" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="w-72 p-2">
+                <DropdownMenuItem
+                  className="cursor-default p-0"
+                  onSelect={(e) => e.preventDefault()}
+                >
+                  <label className={SETTING_ROW_CLASS}>
+                    <span className="min-w-0 flex-1">Backgrounds</span>
+                    <Switch checked={showBackgrounds} onCheckedChange={setShowBackgrounds} />
+                  </label>
+                </DropdownMenuItem>
+                <DropdownMenuItem
+                  className="cursor-default p-0"
+                  onSelect={(e) => e.preventDefault()}
+                >
+                  <label className={SETTING_ROW_CLASS}>
+                    <span className="min-w-0 flex-1">Line numbers</span>
+                    <Switch checked={lineNumbers} onCheckedChange={setLineNumbers} />
+                  </label>
+                </DropdownMenuItem>
+                <DropdownMenuItem
+                  className="cursor-default p-0"
+                  onSelect={(e) => e.preventDefault()}
+                >
+                  <label className={SETTING_ROW_CLASS}>
+                    <span className="min-w-0 flex-1">Word wrap</span>
+                    <Switch
+                      checked={overflow === 'wrap'}
+                      onCheckedChange={(checked) => setOverflow(checked ? 'wrap' : 'scroll')}
+                    />
+                  </label>
+                </DropdownMenuItem>
+                {setInlineBlame != null && (
+                  <DropdownMenuItem
+                    className="cursor-default p-0"
+                    onSelect={(e) => e.preventDefault()}
+                  >
+                    <label className={SETTING_ROW_CLASS}>
+                      <span className="min-w-0 flex-1">Inline blame</span>
+                      <Switch
+                        aria-label="Inline blame"
+                        checked={inlineBlame}
+                        onCheckedChange={setInlineBlame}
+                      />
+                    </label>
+                  </DropdownMenuItem>
+                )}
+                {setConversations != null && (
+                  <DropdownMenuItem
+                    className="cursor-default p-0"
+                    onSelect={(e) => e.preventDefault()}
+                  >
+                    <label className={SETTING_ROW_CLASS}>
+                      <span className="flex min-w-0 flex-1 items-center gap-1.5">
+                        Conversations
+                        <TooltipProvider delayDuration={200}>
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <span
+                                role="img"
+                                aria-label="About conversations"
+                                tabIndex={0}
+                                className="inline-flex text-muted-foreground"
+                                onClick={(e) => e.preventDefault()}
+                              >
+                                <IconInfo className="size-3" />
+                              </span>
+                            </TooltipTrigger>
+                            <TooltipContent side="bottom" className="max-w-60">
+                              Comment on lines of code and discuss them with coding agents. Turning
+                              this off hides conversations; nothing is deleted.
+                            </TooltipContent>
+                          </Tooltip>
+                        </TooltipProvider>
+                      </span>
+                      <Switch
+                        aria-label="Conversations"
+                        checked={conversations}
+                        onCheckedChange={setConversations}
+                      />
+                    </label>
+                  </DropdownMenuItem>
+                )}
+                <DropdownMenuItem
+                  className="w-full px-2 focus:bg-transparent"
+                  onSelect={(e) => e.preventDefault()}
+                >
+                  <span>Indicator style</span>
+                  <div
+                    role="group"
+                    className="bg-secondary inline-flex self-start rounded-lg ml-auto"
+                  >
+                    {(
+                      [
+                        ['bars', IconCodeStyleBars],
+                        ['classic', IconSymbolDiffstat],
+                        ['none', IconEyeSlash],
+                      ] as const
+                    ).map(([value, Icon]) => (
+                      <Button
+                        key={value}
+                        title={value}
+                        className={cn(
+                          'text-muted-foreground rounded-[calc(var(--radius-lg)-1px)] gap-1.5',
+                          diffIndicators === value && 'text-foreground pointer-events-none',
+                          'size-7 p-0',
+                        )}
+                        variant={diffIndicators === value ? 'outline' : 'ghost'}
+                        onClick={() => setDiffIndicators(value)}
+                      >
+                        <Icon className="size-3" />
+                      </Button>
+                    ))}
+                  </div>
+                </DropdownMenuItem>
+                <div className="bg-border/70 my-2 h-px" />
+                <div className="flex items-center gap-3 px-2 py-1.5">
+                  <p className="min-w-0 flex-1 text-sm font-medium text-foreground">
+                    Gitna{' '}
+                    <span data-gitna-version className="font-normal text-muted-foreground">
+                      {appVersion === 'dev' ? 'dev' : `v${appVersion}`}
+                    </span>
+                  </p>
+                  <div className="flex shrink-0 items-center gap-1">
+                    <Button asChild variant="ghost" size="icon-sm">
+                      <a
+                        aria-label="GitHub repository"
+                        href="https://github.com/roie/gitna"
+                        rel="noreferrer noopener"
+                        target="_blank"
+                        title="GitHub repository"
+                      >
+                        <IconBrandGithub className="size-3.5" />
+                      </a>
+                    </Button>
+                    <Button asChild variant="ghost" size="icon-sm">
+                      <a
+                        aria-label="npm package"
+                        href="https://www.npmjs.com/package/gitna"
+                        rel="noreferrer noopener"
+                        target="_blank"
+                        title="npm package"
+                      >
+                        <svg aria-hidden="true" className="size-3.5" viewBox="0 0 16 16">
+                          <path
+                            fill="currentColor"
+                            fillRule="evenodd"
+                            d="M0 0h16v16H0V0Zm3 3v10h5V5h3v8h2V3H3Z"
+                            clipRule="evenodd"
+                          />
+                        </svg>
+                      </a>
+                    </Button>
+                  </div>
+                </div>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          </div>
+        </div>
+      </div>
+      <hr className="border-border/80 w-full md:hidden" />
+    </div>
+  )
+})
+
+function colorModeIcon(colorMode: ColorMode) {
+  if (colorMode === 'light') return IconColorLight
+  if (colorMode === 'dark') return IconColorDark
+  return IconColorAuto
+}
+
+interface ThemeDropdownProps {
+  colorMode: ColorMode
+  darkThemeName: DarkThemeName
+  lightThemeName: LightThemeName
+  setColorMode: (mode: ColorMode) => void
+  setDarkThemeName: (name: DarkThemeName) => void
+  setLightThemeName: (name: LightThemeName) => void
+}
+
+// Theme picker shown next to the gear icon. Avoids horizontal sub-menus
+// (which overflow on narrow viewports) by re-using the same DropdownMenu
+// content for three "views" — main, light theme list, dark theme list —
+// switched via local state. The user enters a list by clicking the
+// corresponding row, picks a theme, and is returned to the main view. The
+// menu auto-resets to the main view whenever it closes so the next open
+// always starts from the top.
+function ThemeDropdown({
+  colorMode,
+  darkThemeName,
+  lightThemeName,
+  setColorMode,
+  setDarkThemeName,
+  setLightThemeName,
+}: ThemeDropdownProps) {
+  const TriggerIcon = colorModeIcon(colorMode)
+  const [view, setView] = useState<'main' | 'light' | 'dark'>('main')
+  // Only offer a reset when at least one slot drifts from the default
+  // pierre pair, so the link stays out of the way until it's useful.
+  const themesAreCustom =
+    lightThemeName !== themeCatalog.defaultLightThemeName ||
+    darkThemeName !== themeCatalog.defaultDarkThemeName
+  return (
+    // `modal={false}` lets the user scroll and click the code view while the
+    // theme picker is open. The default Radix DropdownMenu blocks pointer
+    // events outside its content (incl. wheel/scroll), which made the diff
+    // feel frozen while previewing themes.
+    <DropdownMenu
+      modal={false}
+      onOpenChange={(open) => {
+        if (!open) setView('main')
+      }}
+    >
+      <DropdownMenuTrigger asChild>
+        <Button
+          variant="ghost"
+          size="icon-md"
+          aria-label="Theme settings"
+          title="Theme settings"
+          className={CHROME_ICON_BUTTON_CLASS}
+        >
+          <TriggerIcon className="size-4 md:size-3" />
+        </Button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end" className="w-72 p-2">
+        {view === 'main' ? (
+          <>
+            <DropdownMenuItem
+              className="cursor-default p-0 focus:bg-transparent"
+              onSelect={(event) => event.preventDefault()}
+            >
+              <div role="group" className="bg-secondary inline-flex self-start rounded-lg w-full">
+                {(
+                  [
+                    ['system', 'Auto', IconColorAuto],
+                    ['light', 'Light', IconColorLight],
+                    ['dark', 'Dark', IconColorDark],
+                  ] as const
+                ).map(([value, label, Icon]) => (
+                  <Button
+                    key={value}
+                    title={value}
+                    className={cn(
+                      'text-muted-foreground rounded-[calc(var(--radius-lg)-1px)] gap-1.5',
+                      colorMode === value && 'text-foreground pointer-events-none',
+                      'flex-1',
+                    )}
+                    variant={colorMode === value ? 'outline' : 'ghost'}
+                    onClick={() => setColorMode(value)}
+                  >
+                    <Icon />
+                    {label}
+                  </Button>
+                ))}
+              </div>
+            </DropdownMenuItem>
+            <DropdownMenuItem
+              className="mt-1 flex cursor-pointer items-center gap-2"
+              onSelect={(event) => {
+                event.preventDefault()
+                setView('light')
+              }}
+            >
+              <IconColorLight />
+              <span className="min-w-0 flex-1 truncate">{lightThemeName}</span>
+              <IconChevronSm aria-hidden className="text-muted-foreground -rotate-90" />
+            </DropdownMenuItem>
+            <DropdownMenuItem
+              className="flex cursor-pointer items-center gap-2"
+              onSelect={(event) => {
+                event.preventDefault()
+                setView('dark')
+              }}
+            >
+              <IconColorDark />
+              <span className="min-w-0 flex-1 truncate">{darkThemeName}</span>
+              <IconChevronSm aria-hidden className="text-muted-foreground -rotate-90" />
+            </DropdownMenuItem>
+            {themesAreCustom && (
+              <DropdownMenuItem
+                className="text-muted-foreground hover:text-foreground mt-1 cursor-pointer justify-center text-xs focus:bg-transparent"
+                onSelect={(event) => {
+                  event.preventDefault()
+                  setLightThemeName(themeCatalog.defaultLightThemeName)
+                  setDarkThemeName(themeCatalog.defaultDarkThemeName)
+                }}
+              >
+                Reset to default themes
+              </DropdownMenuItem>
+            )}
+          </>
+        ) : (
+          <ThemeList
+            view={view}
+            currentLight={lightThemeName}
+            currentDark={darkThemeName}
+            onBack={() => setView('main')}
+            onPickLight={(theme) => {
+              setLightThemeName(theme)
+              setColorMode('light')
+              setView('main')
+            }}
+            onPickDark={(theme) => {
+              setDarkThemeName(theme)
+              setColorMode('dark')
+              setView('main')
+            }}
+          />
+        )}
+      </DropdownMenuContent>
+    </DropdownMenu>
+  )
+}
+
+interface ThemeListProps {
+  view: 'light' | 'dark'
+  currentLight: LightThemeName
+  currentDark: DarkThemeName
+  onBack: () => void
+  onPickLight: (theme: LightThemeName) => void
+  onPickDark: (theme: DarkThemeName) => void
+}
+
+// Inline list of theme names shown after the user enters the light or dark
+// "view" from the main panel. The list is keyboard-friendly (each row is a
+// DropdownMenuItem) and scrolls in place so it fits inside the same
+// dropdown content even on narrow viewports.
+function ThemeList({
+  view,
+  currentLight,
+  currentDark,
+  onBack,
+  onPickLight,
+  onPickDark,
+}: ThemeListProps) {
+  const isLight = view === 'light'
+  const themes = themeCatalog.getThemeNames({
+    colorScheme: isLight ? 'light' : 'dark',
+  })
+  const current = isLight ? currentLight : currentDark
+  const HeaderIcon = isLight ? IconColorLight : IconColorDark
+  // Auto-scroll so the currently-selected row sits at the second visible
+  // position when the list opens. The current theme lands right under the
+  // user's cursor (Radix opens the menu under the trigger) and the row
+  // above it makes the previous theme easy to reach with one tap of the
+  // up arrow — sequential browsing through themes feels natural without
+  // the user having to hunt for the active row first.
+  const scrollContainerRef = useRef<HTMLDivElement>(null)
+  const selectedItemRef = useRef<HTMLDivElement>(null)
+  useLayoutEffect(() => {
+    const container = scrollContainerRef.current
+    const selected = selectedItemRef.current
+    if (container == null || selected == null) return
+    // `offsetTop` measures from the nearest positioned ancestor, which the
+    // scroll container is not — use bounding rects so the math works
+    // regardless of where ancestors set `position`. Subtract one row
+    // height so the selected row appears as the second-from-top visible
+    // row instead of flush with the top.
+    const containerTop = container.getBoundingClientRect().top
+    const selectedTop = selected.getBoundingClientRect().top
+    const offsetWithinScroll = selectedTop - containerTop + container.scrollTop
+    const rowHeight = selected.offsetHeight
+    container.scrollTop = Math.max(0, offsetWithinScroll - rowHeight)
+  }, [view])
+  return (
+    <>
+      <DropdownMenuBackItem onBack={onBack}>
+        <HeaderIcon />
+        <span className="flex-1 truncate">{isLight ? 'Light theme' : 'Dark theme'}</span>
+      </DropdownMenuBackItem>
+      <div
+        ref={scrollContainerRef}
+        className="list-scrollbar mt-1 max-h-[320px] overflow-y-auto overscroll-contain"
+      >
+        {themes.map((theme) => (
+          <DropdownMenuItem
+            key={theme}
+            ref={current === theme ? selectedItemRef : undefined}
+            onSelect={(event) => {
+              event.preventDefault()
+              if (isLight) {
+                onPickLight(theme)
+              } else {
+                onPickDark(theme)
+              }
+            }}
+            selected={current === theme}
+          >
+            <span className="flex-1 truncate">{theme}</span>
+            {current === theme ? (
+              <IconCheck className="ml-auto" />
+            ) : (
+              <div className="ml-2 h-4 w-4" />
+            )}
+          </DropdownMenuItem>
+        ))}
+      </div>
+    </>
+  )
+}

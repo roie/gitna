@@ -1,0 +1,320 @@
+import { describe, expect, it } from 'vite-plus/test'
+import {
+  adaptGitnaFile,
+  adaptGitnaReview,
+  adaptWorktreeFile,
+  adaptWorktreeComparison,
+  appendGitnaReviewPage,
+  createGitnaReviewAccumulator,
+} from './review-adapter'
+import type { ReviewResponse } from '../../lib/types'
+
+function page(path: string, generation = 7, nextCursor?: string): ReviewResponse {
+  return {
+    generation,
+    identity: { scope: 'unstaged' },
+    patch: '',
+    supplements: [
+      {
+        path,
+        kind: 'untracked',
+        diff: {
+          before: { path, content: '', language: 'text' },
+          after: { path, content: `${path}\n`, language: 'text' },
+          binary: false,
+          tooLarge: false,
+        },
+      },
+    ],
+    nextCursor,
+  }
+}
+
+describe('parsed review patches', () => {
+  it('retains stable, isolated worker cache keys for parsed patches', () => {
+    const input: ReviewResponse = {
+      generation: 7,
+      identity: { scope: 'unstaged' },
+      supplements: [],
+      patch: `diff --git a/a.txt b/a.txt
+index df967b9..3e75765 100644
+--- a/a.txt
++++ b/a.txt
+@@ -1 +1 @@
+-base
++changed
+`,
+    }
+    const key = (owner: string) => {
+      const item = adaptGitnaReview(input, owner).items[0]
+      if (item?.type !== 'diff') throw new Error('Expected a parsed diff')
+      return item.fileDiff.cacheKey
+    }
+    expect(key('first')).toBeDefined()
+    expect(key('first')).toBe(key('first'))
+    expect(key('first')).not.toBe(key('second'))
+  })
+
+  it('preserves Git change blocks instead of realigning similar source lines', () => {
+    const input: ReviewResponse = {
+      generation: 7,
+      identity: { scope: 'unstaged' },
+      supplements: [],
+      patch: `diff --git a/a.txt b/a.txt
+--- a/a.txt
++++ b/a.txt
+@@ -1,3 +1,4 @@
+-export const alpha = 1;
+-export const beta = 2;
+-export const gamma = 3;
++// inserted heading
++export const alpha = 10;
++export const beta = 20;
++export const gamma = 30;
+`,
+    }
+    const item = adaptGitnaReview(input).items[0]
+    if (item?.type !== 'diff') throw new Error('Expected a parsed diff')
+    expect(item.fileDiff.hunks[0]?.hunkContent).toEqual([
+      {
+        type: 'change',
+        additions: 4,
+        deletions: 3,
+        additionLineIndex: 0,
+        deletionLineIndex: 0,
+      },
+    ])
+  })
+})
+
+describe('persistent worker cache ownership', () => {
+  it('isolates identical file paths and generations between owners while retaining within-owner reuse', () => {
+    const diff = {
+      before: { path: 'same.txt', content: 'before\n', language: 'text' },
+      after: { path: 'same.txt', content: 'after\n', language: 'text' },
+      binary: false,
+      tooLarge: false,
+    }
+    const adapters = [
+      (owner: string) =>
+        adaptWorktreeFile(
+          { path: 'same.txt', content: 'after\n', hash: 'same-hash' },
+          7,
+          undefined,
+          owner,
+        ),
+      (owner: string) => adaptGitnaFile(diff, 7, owner),
+      (owner: string) => adaptWorktreeComparison(diff, 7, undefined, undefined, owner),
+      (owner: string) => {
+        const review = page('same.txt')
+        review.supplements[0]!.kind = 'modified'
+        review.supplements[0]!.diff.before.content = 'before\n'
+        return adaptGitnaReview(review, owner)
+      },
+    ]
+    for (const adapt of adapters) {
+      const key = (owner: string) => {
+        const item = adapt(owner).items[0]!
+        return item.type === 'file' ? item.file.cacheKey : item.fileDiff.cacheKey
+      }
+      expect(key('first:')).toBeDefined()
+      expect(key('first:')).toBe(key('first:'))
+      expect(key('first:')).not.toBe(key('second:'))
+    }
+    const draft = { name: 'same.txt', contents: 'unsaved revision\n' }
+    const item = adaptWorktreeFile(
+      { path: 'same.txt', content: 'after\n', hash: 'same-hash' },
+      7,
+      draft,
+      'first:',
+    ).items[0]!
+    expect(item.type === 'file' && item.file.cacheKey).toBeUndefined()
+  })
+})
+
+describe('whole-file line counts', () => {
+  it.each([
+    ['', 0],
+    ['one', 1],
+    ['one\n', 1],
+    ['\n', 1],
+    ['\n\n', 2],
+    ['one\r\ntwo\r\n', 2],
+    ['one\ntwo', 2],
+    ['one\r', 1],
+    ['x\n'.repeat(1_000_000), 1_000_000],
+  ] as const)('counts lines without changing file content (%#)', (content, expected) => {
+    const source = { path: 'file.txt', content, hash: 'hash' }
+    const diff = {
+      before: { path: source.path, content: '', language: 'text' },
+      after: { path: source.path, content, language: 'text' },
+      binary: false,
+      tooLarge: false,
+    }
+    for (const result of [adaptWorktreeFile(source, 1), adaptGitnaFile(diff, 1)]) {
+      expect(result.diffStats.totalLinesOfCode).toBe(expected)
+      const item = result.items[0]!
+      expect(item.type === 'file' && item.file.contents).toBe(content)
+    }
+  })
+
+  it('counts the live draft rather than its disk baseline', () => {
+    const result = adaptWorktreeFile({ path: 'file.txt', content: 'disk\n', hash: 'hash' }, 1, {
+      name: 'file.txt',
+      contents: 'first\nsecond\nthird',
+    })
+    expect(result.diffStats.totalLinesOfCode).toBe(3)
+  })
+})
+
+describe('unavailable worktree previews', () => {
+  it.each([
+    { binary: false, tooLarge: true, message: 'Too large to preview' },
+    { binary: true, tooLarge: false, message: 'Binary file changed' },
+  ])('explains non-editable file previews: $message', ({ binary, tooLarge, message }) => {
+    const item = adaptGitnaFile(
+      {
+        before: { path: 'large.txt', content: '', language: 'text' },
+        after: { path: 'large.txt', content: '', language: 'text' },
+        binary,
+        tooLarge,
+      },
+      1,
+    ).items[0]!
+    expect(item.type).toBe('file')
+    expect(item.edit).not.toBe(true)
+    expect(item.annotations?.[0]?.metadata).toMatchObject({ kind: 'preview', message })
+  })
+})
+
+describe('worktree comparison adapter', () => {
+  it('uses dirty draft contents and image annotations in Pierre diff items', () => {
+    const text = adaptWorktreeComparison(
+      {
+        before: { path: 'left.txt', content: 'left\n', language: 'text' },
+        after: { path: 'right.txt', content: 'right\n', language: 'text' },
+        binary: false,
+        tooLarge: false,
+      },
+      3,
+      { name: 'left.txt', contents: 'dirty left\n' },
+    )
+    expect(text.items).toHaveLength(1)
+    expect(text.items[0]?.type).toBe('diff')
+    if (text.items[0]?.type === 'diff') {
+      expect(text.items[0].fileDiff.deletionLines).toContain('dirty left\n')
+      expect(text.items[0].fileDiff.additionLines).toContain('right\n')
+    }
+
+    const image = adaptWorktreeComparison(
+      {
+        before: {
+          path: 'left.png',
+          content: '',
+          image: { mime: 'image/png', data: 'bGVmdA==', size: 4 },
+        },
+        after: {
+          path: 'right.png',
+          content: '',
+          image: { mime: 'image/png', data: 'cmlnaHQ=', size: 5 },
+        },
+        binary: true,
+        tooLarge: false,
+      },
+      3,
+    )
+    expect(image.items[0]?.annotations).toHaveLength(2)
+  })
+})
+
+describe('paged Gitna review adapter', () => {
+  it('parses the supplied Git hunk and preserves complete context and canonical paths', () => {
+    const path = 'Q3 — FINAL.md'
+    const input = page(path)
+    input.supplements[0]!.kind = 'modified'
+    input.supplements[0]!.diff.before.content = 'same\nsame\nsame\n'
+    input.supplements[0]!.diff.after.content = 'same\nsame\n'
+    input.supplements[0]!.diff.patch =
+      'diff --git a/escaped.md b/escaped.md\n--- a/escaped.md\n+++ b/escaped.md\n@@ -3 +2,0 @@\n-same\n'
+    const result = appendGitnaReviewPage(createGitnaReviewAccumulator(input), input)
+    const item = result.data.items[0]
+    expect(item?.type).toBe('diff')
+    if (item?.type !== 'diff') throw new Error('Expected a diff')
+    expect(item.fileDiff.name).toBe(path)
+    expect(item.fileDiff.isPartial).toBe(false)
+    expect(item.fileDiff.deletionLines).toHaveLength(3)
+    expect(item.fileDiff.additionLines).toHaveLength(2)
+    expect(item.fileDiff.hunks[0]?.deletionStart).toBe(3)
+    expect(result.data.treeSource.paths).toEqual([path])
+  })
+
+  it.each(['binary', 'tooLarge'] as const)('explains omitted %s previews', (flag) => {
+    const input = page('generated.dat')
+    input.supplements[0]!.kind = 'modified'
+    input.supplements[0]!.diff.after.content = ''
+    input.supplements[0]!.diff[flag] = true
+    const result = appendGitnaReviewPage(createGitnaReviewAccumulator(input), input)
+    expect(result.data.items[0]?.annotations?.[0]?.metadata).toMatchObject({
+      kind: 'preview',
+      message: flag === 'binary' ? 'Binary file changed' : 'Too large to preview',
+    })
+  })
+
+  it('marks only complete working-tree diffs as editable', () => {
+    const input = page('untracked.txt')
+    input.patch = [
+      'diff --git a/changed.txt b/changed.txt\n--- a/changed.txt\n+++ b/changed.txt\n@@ -1 +1 @@\n-a\n+b\n',
+      'diff --git a/added.txt b/added.txt\nnew file mode 100644\n--- /dev/null\n+++ b/added.txt\n@@ -0,0 +1 @@\n+a\n',
+      'diff --git a/removed.txt b/removed.txt\ndeleted file mode 100644\n--- a/removed.txt\n+++ /dev/null\n@@ -1 +0,0 @@\n-a\n',
+    ].join('')
+    const editable = (review: ReviewResponse) =>
+      Object.fromEntries(
+        appendGitnaReviewPage(createGitnaReviewAccumulator(review), review).data.items.map(
+          (item) => [
+            item.type === 'diff' ? item.fileDiff.name : item.file.name,
+            item.edit === true,
+          ],
+        ),
+      )
+    expect(editable(input)).toEqual({
+      'changed.txt': false,
+      'added.txt': false,
+      'removed.txt': false,
+      'untracked.txt': true,
+    })
+    expect(Object.values(editable({ ...input, identity: { scope: 'staged' } }))).not.toContain(true)
+  })
+
+  it('keeps canonical unicode paths for content-derived untracked files', () => {
+    const path = 'Q3 — FINAL.md'
+    const input = page(path)
+    const result = appendGitnaReviewPage(createGitnaReviewAccumulator(input), input)
+    const item = result.data.items[0]
+    if (item?.type !== 'diff') throw new Error('Expected a diff')
+    expect(item.fileDiff.name).toBe(path)
+    expect(result.data.treeSource.paths).toEqual([path])
+  })
+
+  it('appends pages with stable unique item ids and a shared viewer version', () => {
+    const first = page('a.txt', 7, 'next')
+    const assembly = createGitnaReviewAccumulator(first, 42)
+    const firstResult = appendGitnaReviewPage(assembly, first)
+    const secondResult = appendGitnaReviewPage(assembly, page('b.txt'))
+
+    expect(firstResult.pendingItems.map((item) => item.id)).toEqual(['a.txt'])
+    expect(secondResult.pendingItems.map((item) => item.id)).toEqual(['b.txt'])
+    expect(secondResult.data.items.map((item) => item.id)).toEqual(['a.txt', 'b.txt'])
+    expect(secondResult.data.items.map((item) => item.version)).toEqual([42, 42])
+    expect(secondResult.data.treeSource.paths).toEqual(['a.txt', 'b.txt'])
+  })
+
+  it('rejects pages from a different repository generation', () => {
+    const first = page('a.txt')
+    const assembly = createGitnaReviewAccumulator(first)
+    appendGitnaReviewPage(assembly, first)
+
+    expect(() => appendGitnaReviewPage(assembly, page('b.txt', 8))).toThrow(
+      'Review changed while additional files were loading',
+    )
+  })
+})

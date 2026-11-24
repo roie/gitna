@@ -1,6 +1,6 @@
-import { readContentSearchStream } from './contentSearchStream'
+import { readContentSearchStream } from './content-search-stream'
 import { createConversationsApi, type ConversationsApi } from './conversations'
-import { serializeDraft } from './draftSerialization'
+import { serializeDraft } from './draft-serialization'
 import type {
   Branch,
   CommitFiles,
