@@ -82,7 +82,7 @@ export const Sidebar = memo(function Sidebar({
         inert={(mobileViewport && !mobileOverlayOpen) || undefined}
         className={cn(
           className,
-          'contain-strict z-30 flex h-full min-h-0 flex-col border-r border-[var(--color-border-opaque)] bg-[var(--diffshub-sidebar-bg)] transition-transform duration-300 ease-[cubic-bezier(0.32,0.72,0,1)] will-change-transform motion-reduce:transition-none md:z-auto md:translate-y-0 md:will-change-auto',
+          'contain-strict z-30 flex h-full min-h-0 flex-col border-r border-[var(--color-border-opaque)] bg-[var(--gitna-sidebar-bg)] transition-transform duration-300 ease-[cubic-bezier(0.32,0.72,0,1)] will-change-transform motion-reduce:transition-none md:z-auto md:translate-y-0 md:will-change-auto',
           mobileOverlayOpen
             ? 'pointer-events-auto translate-y-0 overflow-hidden rounded-t-xl md:h-full md:overflow-visible md:rounded-none'
             : 'pointer-events-none translate-y-[calc(100%+1.5rem)] overflow-hidden rounded-xl md:pointer-events-auto md:h-full md:overflow-visible md:rounded-none',

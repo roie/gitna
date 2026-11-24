@@ -18,7 +18,7 @@ import { DropdownMenuTrigger } from './ui/dropdown-menu'
 import { cn } from '../lib/cn'
 import { CODE_VIEW_FILE_TREE_SEARCH_OPEN_HEIGHT } from '../lib/code-view'
 import { Tree, TREE_CSS } from './tree'
-import type { DiffsHubFileTreeSource } from '../lib/review-types'
+import type { FileTreeSource } from '../lib/review-types'
 import { Header } from './ui/header'
 
 export interface PendingConfirm {
@@ -56,7 +56,7 @@ export function createRepositoryListSource(
   paths: readonly string[],
   changes: readonly TreeFile[],
   ignored: ReadonlySet<string>,
-): DiffsHubFileTreeSource {
+): FileTreeSource {
   const statusesByPath = new Map<string, GitStatus>([
     ...[...ignored].map((path) => [path, 'ignored'] as const),
     ...changes.map((change) => [change.path, gitStatus(change.kind)] as const),
@@ -88,7 +88,7 @@ export function createRepositoryListSource(
   }
 }
 
-export function createTreeSource(files: readonly TreeFile[]): DiffsHubFileTreeSource {
+export function createTreeSource(files: readonly TreeFile[]): FileTreeSource {
   const byPath = new Map<string, TreeFile>()
   for (const file of files) byPath.set(file.path, file)
   const paths = [...byPath.keys()].sort()
@@ -104,7 +104,7 @@ export function createTreeSource(files: readonly TreeFile[]): DiffsHubFileTreeSo
   }
 }
 
-function treeViewportHeight(source: DiffsHubFileTreeSource): number {
+function treeViewportHeight(source: FileTreeSource): number {
   if (source.pathCount === 0) return 0
   const directories = new Set<string>()
   for (const path of source.paths) {
@@ -190,7 +190,7 @@ interface TreeSectionProps {
   renderRowActions?: FileTreeOptions['renderRowActions']
   selectedPath?: string | null
   selectedPaths?: readonly string[]
-  source: DiffsHubFileTreeSource
+  source: FileTreeSource
   title: string
   titleAccessory?: ReactNode
 }

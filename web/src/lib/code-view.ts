@@ -76,7 +76,7 @@ export const CODE_VIEW_CUSTOM_CSS = `
     width: 100%;
     height: 1px;
     content: '';
-    background-color: var(--diffshub-annotation-border);
+    background-color: var(--gitna-annotation-border);
   }
 }
 `;

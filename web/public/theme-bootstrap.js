@@ -6,7 +6,8 @@ try {
     for (const [name, cssValue] of Object.entries(cached)) {
       if (typeof cssValue !== 'string') continue
       if (name === 'color-scheme') root.style.colorScheme = cssValue
-      else root.style.setProperty(name, cssValue)
+      // shortcut: drop once old caches are gone.
+      else root.style.setProperty(name.replace(/^--diffshub-/, '--gitna-'), cssValue)
     }
   }
 } catch {}

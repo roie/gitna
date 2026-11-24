@@ -21,7 +21,7 @@ import {
   DropdownMenuTrigger,
 } from '../../components/ui/dropdown-menu'
 import { cn } from '../../lib/cn'
-import type { DiffsHubFileTreeSource } from '../../lib/review-types'
+import type { FileTreeSource } from '../../lib/review-types'
 import { expandRepositoryFolders } from './expand-repository-folders'
 import { useRepository } from '../../repository/repository'
 import {
@@ -95,7 +95,7 @@ export function createRepositoryTreeSource(
   paths: readonly string[],
   changes: readonly TreeFile[],
   ignored: ReadonlySet<string>,
-): DiffsHubFileTreeSource {
+): FileTreeSource {
   const identity = new Map(paths.filter((path) => !path.endsWith('/')).map((path) => [path, path]))
   return {
     gitStatus: [
@@ -376,7 +376,7 @@ export function RepositoryHeaderActions({
               {filtered && (
                 <span
                   aria-hidden="true"
-                  className="absolute -right-0.5 -top-0.5 size-2 rounded-full border-[1px] border-[var(--diffshub-sidebar-bg)] bg-highlight"
+                  className="absolute -right-0.5 -top-0.5 size-2 rounded-full border-[1px] border-[var(--gitna-sidebar-bg)] bg-highlight"
                 />
               )}
             </Button>

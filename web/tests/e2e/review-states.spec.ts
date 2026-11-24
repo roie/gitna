@@ -9,7 +9,7 @@ function git(repo: string, ...args: string[]): string {
   return result.stdout.trim()
 }
 
-test('DiffsHub controls, complete file search, and theme persist', async ({ page, app }) => {
+test('Review controls, complete file search, and theme persist', async ({ page, app }) => {
   await page.goto(app.url)
   await expect(page.locator('diffs-container').first()).toBeVisible({ timeout: 30_000 })
 

@@ -42,9 +42,9 @@ import {
   TooltipTrigger,
 } from '../../components/ui/tooltip'
 import { cn } from '../../lib/cn'
-import { filterDiffsHubFileTreeSource } from '../../lib/tree-source'
+import { filterFileTreeSource } from '../../lib/tree-source'
 import { LoadingIndicator, useLoadingIndicator } from '../../components/ui/loading'
-import type { DiffsHubFileTreeSource } from '../../lib/review-types'
+import type { FileTreeSource } from '../../lib/review-types'
 import { Confirm, Modal } from '../../components/modal'
 import { EntryDialog } from '../explorer/entry-dialog'
 import { useRepository } from '../../repository/repository'
@@ -404,7 +404,7 @@ function SourceControlInner({
     () =>
       activeRepositoryFilters.size === 0
         ? null
-        : filterDiffsHubFileTreeSource(
+        : filterFileTreeSource(
             createTreeSource(repositoryChanges),
             activeRepositoryFilters,
           ),
@@ -1666,7 +1666,7 @@ interface ChangeSectionProps {
   onRun: (action: () => Promise<void>) => Promise<void>
   open: boolean
   scope: ChangeScope
-  source: DiffsHubFileTreeSource
+  source: FileTreeSource
   title: string
 }
 

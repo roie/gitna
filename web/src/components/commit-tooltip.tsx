@@ -70,10 +70,10 @@ export function CommitTooltip({
             <span className="text-muted-foreground">
               {stats.files} {stats.files === 1 ? 'file' : 'files'}
             </span>
-            <span className="font-medium text-[var(--diffshub-comment-add-fg)]">
+            <span className="font-medium text-[var(--gitna-comment-add-fg)]">
               +{stats.additions}
             </span>
-            <span className="font-medium text-[var(--diffshub-comment-del-fg)]">
+            <span className="font-medium text-[var(--gitna-comment-del-fg)]">
               −{stats.deletions}
             </span>
             {stats.binaryFiles > 0 && (

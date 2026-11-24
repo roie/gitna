@@ -175,8 +175,8 @@ function App({ Workbench }: { Workbench: ReviewUI | null }) {
   )
 }
 
-const root = document.getElementById('diffshub-root')
-if (root == null) throw new Error('Missing DiffsHub React root')
+const root = document.getElementById('root')
+if (root == null) throw new Error('Missing Gitna React root')
 root.className = 'flex h-dvh min-h-0 flex-col'
 startPreferenceSync()
 async function mountApp(root: HTMLElement): Promise<void> {

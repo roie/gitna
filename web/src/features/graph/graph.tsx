@@ -552,7 +552,7 @@ function Lanes({ laneCount, open, row }: { laneCount: number; open: boolean; row
         cy={middle}
         r="4"
         fill={
-          open ? graphLaneColor(row.column) : 'var(--diffshub-sidebar-bg, var(--color-background))'
+          open ? graphLaneColor(row.column) : 'var(--gitna-sidebar-bg, var(--color-background))'
         }
         stroke={graphLaneColor(row.column)}
         strokeWidth="2"

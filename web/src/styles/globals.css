@@ -81,7 +81,7 @@
   --sidebar-accent-foreground: #0a0a0a;
   --sidebar-border: #e4e4e7;
   --sidebar-ring: #a1a1aa;
-  --diffshub-sidebar-bg: #f7f7f7;
+  --gitna-sidebar-bg: #f7f7f7;
   color-scheme: light;
 }
 
@@ -109,8 +109,8 @@
   body {
     @apply bg-background text-foreground font-geist;
   }
-  body.diffshub {
-    background-color: var(--diffshub-sidebar-bg);
+  body.gitna {
+    background-color: var(--gitna-sidebar-bg);
   }
   textarea {
     @apply outline-offset-1;
@@ -192,7 +192,7 @@
   /* Themed thumb from the diffshub chrome mapping (deriveChromeTokens);
      light-dark fallback for non-themed contexts. */
   --cv-scrollbar-thumb-bg: var(
-    --diffshub-scrollbar-thumb-bg,
+    --gitna-scrollbar-thumb-bg,
     light-dark(
       color-mix(in lab, var(--background) 85%, black),
       color-mix(in lab, var(--background) 80%, white)
@@ -225,11 +225,11 @@
 .cv-scrollbar::-webkit-scrollbar-track {
   /* Themed editor surface so the gutter isn't a dark band beside the diff;
      transparent fallback keeps default behavior. */
-  background: var(--diffshub-scrollbar-track-bg, transparent);
+  background: var(--gitna-scrollbar-track-bg, transparent);
   /* Reuse the inter-file separator so the gutter edge reads as one hairline
      with the file boundaries. */
   border-left: 1px solid
-    var(--diffshub-diff-separator, var(--color-border-opaque));
+    var(--gitna-diff-separator, var(--color-border-opaque));
   margin-top: -1px;
 }
 
@@ -244,7 +244,7 @@
    retain their package-owned scroll roots and scrollbar styling. */
 .list-scrollbar {
   --list-scrollbar-thumb-color: var(
-    --diffshub-scrollbar-thumb-bg,
+    --gitna-scrollbar-thumb-bg,
     light-dark(
       color-mix(in lab, var(--background) 85%, black),
       color-mix(in lab, var(--background) 80%, white)
@@ -277,7 +277,7 @@
 @supports (-moz-appearance: none) {
   .cv-scrollbar {
     scrollbar-color: var(--cv-scrollbar-thumb-bg)
-      var(--diffshub-scrollbar-track-bg, transparent);
+      var(--gitna-scrollbar-track-bg, transparent);
   }
   .list-scrollbar {
     scrollbar-color: var(--list-scrollbar-thumb-bg) transparent;
@@ -330,12 +330,12 @@
   }
 }
 
-.diffshub-border-deleted {
+.gitna-border-deleted {
   display: inline-flex;
   align-items: stretch;
 }
 
-.diffshub-border-deleted::before {
+.gitna-border-deleted::before {
   flex-shrink: 0;
   display: block;
   content: '';

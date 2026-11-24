@@ -10,15 +10,15 @@ import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/cn'
 import type {
   CommentLineType,
-  DiffsHubSavedCommentEntry,
-  DiffsHubSavedCommentItem,
+  SavedCommentEntry,
+  SavedCommentItem,
 } from '@/lib/review-types'
 
 interface ConversationListProps {
-  commentSections: readonly DiffsHubSavedCommentItem[]
-  onSelectComment?: (comment: DiffsHubSavedCommentEntry) => void
+  commentSections: readonly SavedCommentItem[]
+  onSelectComment?: (comment: SavedCommentEntry) => void
   onSelectItem?: (itemId: string) => void
-  onReopen?: (comment: DiffsHubSavedCommentEntry) => void
+  onReopen?: (comment: SavedCommentEntry) => void
   emptyTitle?: string
 }
 
@@ -38,7 +38,7 @@ function getCommentLineClassName(side: AnnotationSide, lineType: CommentLineType
   if (lineType === 'context') {
     return 'text-muted-foreground'
   }
-  // The themed chrome sets --diffshub-comment-add-fg / -del-fg with a shade
+  // The themed chrome sets --gitna-comment-add-fg / -del-fg with a shade
   // chosen from the active Shiki surface's luminance, so addition/deletion
   // labels stay legible even on mixed-palette themes (e.g. slack-ochin's
   // "light" classification with a dark navy sidebar, where the global
@@ -46,8 +46,8 @@ function getCommentLineClassName(side: AnnotationSide, lineType: CommentLineType
   // on a dark card). The Tailwind shades stay as fallbacks for the
   // first-render window before the chrome style applies.
   return side === 'additions'
-    ? 'text-[var(--diffshub-comment-add-fg,#047857)] dark:text-[var(--diffshub-comment-add-fg,#34d399)]'
-    : 'text-[var(--diffshub-comment-del-fg,#be123c)] dark:text-[var(--diffshub-comment-del-fg,#fb7185)]'
+    ? 'text-[var(--gitna-comment-add-fg,#047857)] dark:text-[var(--gitna-comment-add-fg,#34d399)]'
+    : 'text-[var(--gitna-comment-del-fg,#be123c)] dark:text-[var(--gitna-comment-del-fg,#fb7185)]'
 }
 
 // Wraps a click handler so users can drag-select text inside the row without
@@ -119,11 +119,11 @@ export const ConversationList = memo(function ConversationList({
               {section.path}
             </div>
           )}
-          <div className="rounded-lg border border-[var(--diffshub-card-border,rgb(0_0_0_/_0.1))] dark:border-[var(--diffshub-card-border,rgb(255_255_255_/_0.15))]">
+          <div className="rounded-lg border border-[var(--gitna-card-border,rgb(0_0_0_/_0.1))] dark:border-[var(--gitna-card-border,rgb(255_255_255_/_0.15))]">
             {section.comments.map((comment) => (
               <div
                 key={comment.key}
-                className="group relative border-b border-[var(--diffshub-card-border,rgb(0_0_0_/_0.1))] first:rounded-t-lg last:rounded-b-lg last:border-b-0 dark:border-[var(--diffshub-card-border,rgb(255_255_255_/_0.15))]"
+                className="group relative border-b border-[var(--gitna-card-border,rgb(0_0_0_/_0.1))] first:rounded-t-lg last:rounded-b-lg last:border-b-0 dark:border-[var(--gitna-card-border,rgb(255_255_255_/_0.15))]"
               >
                 <button
                   type="button"
@@ -139,7 +139,7 @@ export const ConversationList = memo(function ConversationList({
                   // on each card visibly trails the rest of the UI (header,
                   // file tree, diff body) which snap instantly. Hover bg is
                   // snappy enough without an interpolated transition.
-                  className="focus-visible:ring-ring flex w-full cursor-pointer items-start gap-2 rounded-[inherit] bg-[var(--diffshub-card-bg,var(--color-card))] p-3 text-left text-sm outline-none hover:bg-[var(--diffshub-card-hover-bg,var(--color-muted))] focus-visible:ring-2"
+                  className="focus-visible:ring-ring flex w-full cursor-pointer items-start gap-2 rounded-[inherit] bg-[var(--gitna-card-bg,var(--color-card))] p-3 text-left text-sm outline-none hover:bg-[var(--gitna-card-hover-bg,var(--color-muted))] focus-visible:ring-2"
                   onClick={(event) => handleRowClick(event, () => onSelectComment?.(comment))}
                 >
                   <AuthorInitial name={comment.author} className="size-5 text-[11px]" />

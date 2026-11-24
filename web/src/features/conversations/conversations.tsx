@@ -12,7 +12,7 @@ import {
   DropdownMenuTrigger,
 } from '../../components/ui/dropdown-menu'
 import { cn } from '../../lib/cn'
-import type { DiffsHubSavedCommentItem } from '../../lib/review-types'
+import type { SavedCommentItem } from '../../lib/review-types'
 import { Header } from '../../components/ui/header'
 
 export interface ConversationsPane {
@@ -23,8 +23,8 @@ export interface ConversationsPane {
 function conversationSections(
   list: readonly Conversation[],
   name: (author: Participant) => string,
-): DiffsHubSavedCommentItem[] {
-  const byPath = new Map<string, DiffsHubSavedCommentItem>()
+): SavedCommentItem[] {
+  const byPath = new Map<string, SavedCommentItem>()
   for (const conversation of list) {
     const path = conversation.location?.path ?? conversation.path
     const start = conversation.location?.startLine ?? conversation.anchor.startLine
@@ -150,7 +150,7 @@ function ConversationFilter({
           {value === 'resolved' && (
             <span
               aria-hidden="true"
-              className="absolute -right-0.5 -top-0.5 size-2 rounded-full border-[1px] border-[var(--diffshub-sidebar-bg)] bg-highlight"
+              className="absolute -right-0.5 -top-0.5 size-2 rounded-full border-[1px] border-[var(--gitna-sidebar-bg)] bg-highlight"
             />
           )}
         </Button>

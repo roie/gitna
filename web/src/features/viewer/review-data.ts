@@ -5,16 +5,16 @@ import type { GitStatusEntry } from '@pierre/trees'
 import { mapChangeTypeToGitStatus } from '../../lib/git-status'
 import type {
   CommentMetadata,
-  DiffsHubCommentFileByItemId,
-  DiffsHubCommentSidebarFile,
-  DiffsHubDiffStats,
-  DiffsHubFileTreeSource,
+  CommentFileByItemId,
+  CommentSidebarFile,
+  DiffStats,
+  FileTreeSource,
 } from '../../lib/review-types'
 
 export interface ReviewAccumulator {
-  diffStats: DiffsHubDiffStats
+  diffStats: DiffStats
   gitStatusByPath: Map<string, GitStatusEntry>
-  itemIdToFile: Map<string, DiffsHubCommentSidebarFile>
+  itemIdToFile: Map<string, CommentSidebarFile>
   items: CodeViewItem<CommentMetadata>[]
   nextCollisionSuffixByBase: Map<string, number>
   pendingItems: CodeViewItem<CommentMetadata>[]
@@ -37,10 +37,10 @@ interface CodeViewPathState {
 }
 
 export interface LoadedReviewData {
-  itemIdToFile: DiffsHubCommentFileByItemId
-  diffStats: DiffsHubDiffStats
+  itemIdToFile: CommentFileByItemId
+  diffStats: DiffStats
   items: CodeViewItem<CommentMetadata>[]
-  treeSource: DiffsHubFileTreeSource
+  treeSource: FileTreeSource
 }
 
 export function createReviewAccumulator(): ReviewAccumulator {

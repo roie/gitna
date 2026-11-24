@@ -38,7 +38,7 @@ describe('root theme tokens', () => {
 
       expect(result['--background']).toBe(background)
       expect(result['--sidebar']).toBe(background)
-      expect(result['--diffshub-sidebar-bg']).toBe(background)
+      expect(result['--gitna-sidebar-bg']).toBe(background)
       expect(result['--popover']).toBe(`color-mix(in srgb, ${foreground} 7%, ${background})`)
       expect(result['--destructive']).toBeTruthy()
       expect(result['--gitna-git-added']).toBeTruthy()

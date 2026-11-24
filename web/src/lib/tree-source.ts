@@ -1,6 +1,6 @@
 import type { GitStatus } from '@pierre/trees';
 
-import type { DiffsHubFileTreeSource } from './review-types';
+import type { FileTreeSource } from './review-types';
 
 // Returns a filtered copy of the source keeping only paths whose effective git
 // status is in `selectedStatuses`. An empty selection means "no filter" and
@@ -8,10 +8,10 @@ import type { DiffsHubFileTreeSource } from './review-types';
 // are treated as 'modified' (the accumulator intentionally omits them so the
 // tree renders them as the visual default). Patch order is preserved because
 // the filtered `paths` keep their original relative order from the source.
-export function filterDiffsHubFileTreeSource(
-  source: DiffsHubFileTreeSource,
+export function filterFileTreeSource(
+  source: FileTreeSource,
   selectedStatuses: ReadonlySet<GitStatus>
-): DiffsHubFileTreeSource {
+): FileTreeSource {
   if (selectedStatuses.size === 0) return source;
 
   const pathStatusMap = new Map<string, GitStatus>(

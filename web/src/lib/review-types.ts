@@ -48,14 +48,14 @@ export type CommentMetadata =
   | ImageAnnotationMetadata
   | { kind: 'preview'; key: string; message: string };
 
-export interface DiffsHubCommentSidebarFile {
+export interface CommentSidebarFile {
   fileOrder: number;
   path: string;
 }
 
-export type DiffsHubCommentFileByItemId = ReadonlyMap<
+export type CommentFileByItemId = ReadonlyMap<
   string,
-  DiffsHubCommentSidebarFile
+  CommentSidebarFile
 >;
 
 // Whether the line the comment is anchored to is a real addition/deletion or
@@ -63,7 +63,7 @@ export type DiffsHubCommentFileByItemId = ReadonlyMap<
 // render "Line N" without a misleading + / - sigil for context lines.
 export type CommentLineType = 'change' | 'context';
 
-export interface DiffsHubSavedCommentEntry {
+export interface SavedCommentEntry {
   author: string;
   itemId: string;
   key: string;
@@ -74,8 +74,8 @@ export interface DiffsHubSavedCommentEntry {
   side: AnnotationSide;
 }
 
-export interface DiffsHubSavedCommentItem {
-  comments: DiffsHubSavedCommentEntry[];
+export interface SavedCommentItem {
+  comments: SavedCommentEntry[];
   fileOrder: number;
   itemId: string;
   path: string;
@@ -92,7 +92,7 @@ export interface DiffsHubSavedCommentItem {
 // iterating `paths`. The `readonly` markers and ReadonlyMap type enforce the
 // read-only side; pathCount is what keeps later in-place growth invisible to
 // this snapshot.
-export interface DiffsHubFileTreeSource {
+export interface FileTreeSource {
   gitStatus: readonly GitStatusEntry[];
   pathCount: number;
   paths: readonly string[];
@@ -100,7 +100,7 @@ export interface DiffsHubFileTreeSource {
   itemIdToPath?: ReadonlyMap<string, string>;
 }
 
-export interface DiffsHubDiffStats {
+export interface DiffStats {
   addedLines: number;
   deletedLines: number;
   fileCount: number;

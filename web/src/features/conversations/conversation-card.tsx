@@ -50,7 +50,7 @@ export const ConversationCard = memo(function ConversationCard({
       role="article"
       className={cn(
         annotationCardBase,
-        'group relative flex-col hover:border-[var(--diffshub-annotation-hover-border,var(--diffshub-annotation-border,var(--color-border)))]',
+        'group relative flex-col hover:border-[var(--gitna-annotation-hover-border,var(--gitna-annotation-border,var(--color-border)))]',
       )}
       onKeyDown={isolate}
       onPointerDown={isolate}

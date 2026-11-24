@@ -31,7 +31,7 @@ import { themeController } from '../lib/theme/theme-root'
 import { deriveChromeTokens } from '../lib/theme/chrome-tokens'
 import { CODE_VIEW_FILE_TREE_ITEM_HEIGHT, getInitialBatchSize } from '@/lib/code-view'
 import { cn } from '@/lib/cn'
-import type { DiffsHubFileTreeSource } from '@/lib/review-types'
+import type { FileTreeSource } from '@/lib/review-types'
 type FileTreePublicId = string
 type FileTreeSortComparator = Exclude<NonNullable<FileTreeOptions['sort']>, 'default'>
 const PRESERVE_INPUT_ORDER_SORT: FileTreeSortComparator = () => 0
@@ -249,7 +249,7 @@ interface TreeProps {
   renderRowActions?: FileTreeOptions['renderRowActions']
   selectedPath?: string | null
   selectedPaths?: readonly string[]
-  source: DiffsHubFileTreeSource
+  source: FileTreeSource
 }
 
 export const Tree = memo(function Tree({
