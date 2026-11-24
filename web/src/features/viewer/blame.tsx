@@ -12,7 +12,7 @@ import {
 } from '../../components/ui/tooltip'
 import { CommitTooltip } from '../../components/commit-tooltip'
 import { formatLineHistoryAge, lineHistoryFromBlame } from './line-history'
-import { useRepository } from '../../repository/repository'
+import { useRepository } from '../../repository/repository-provider'
 
 const blameCache = new WeakMap<ApiClient, Map<string, FileBlame>>()
 

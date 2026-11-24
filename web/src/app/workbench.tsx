@@ -79,7 +79,8 @@ import {
   adaptWorktreeFile,
   diffImageAnnotations,
 } from '../features/viewer/review-adapter'
-import { ActionGuardError, useRepository } from '../repository/repository'
+import { ActionGuardError } from '../repository/repository'
+import { useRepository } from '../repository/repository-provider'
 
 const CommandPalette = lazy(() =>
   import('../features/command-palette/command-palette').then(({ CommandPalette }) => ({

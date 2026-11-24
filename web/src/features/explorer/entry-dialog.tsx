@@ -4,7 +4,7 @@ import { Button } from '../../components/ui/button'
 import { Input } from '../../components/ui/input'
 import { Modal } from '../../components/modal'
 import { useLoadingIndicator } from '../../components/ui/loading'
-import { useRepository } from '../../repository/repository'
+import { useRepository } from '../../repository/repository-provider'
 
 interface EntryDialogProps {
   initialPath: string

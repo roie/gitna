@@ -37,7 +37,7 @@ import {
   shouldLoadMoreGraph,
 } from './graph-virtualization'
 import { CommitTooltip } from '../../components/commit-tooltip'
-import { useRepository } from '../../repository/repository'
+import { useRepository } from '../../repository/repository-provider'
 import { Header } from '../../components/ui/header'
 import { Pane } from '../../components/ui/pane'
 import { Row } from '../../components/ui/row'

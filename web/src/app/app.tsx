@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
 import { Theme } from '../lib/theme/theme-root'
-import { RepositoryProvider } from '../repository/repository'
+import { RepositoryProvider } from '../repository/repository-provider'
 import { isHomePath } from './navigation'
 import { ScrollbarGutterVariables } from './scrollbar-gutter'
 import { WorkerPoolContext } from './worker-pool'

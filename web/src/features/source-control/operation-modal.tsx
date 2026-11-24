@@ -5,7 +5,7 @@ import { Button } from '../../components/ui/button'
 import { Input } from '../../components/ui/input'
 import { useLoadingIndicator } from '../../components/ui/loading'
 import { Switch } from '../../components/ui/switch'
-import { useRepository } from '../../repository/repository'
+import { useRepository } from '../../repository/repository-provider'
 
 export type OperationDialog = 'compare' | 'integrate' | 'stash' | 'tags' | null
 

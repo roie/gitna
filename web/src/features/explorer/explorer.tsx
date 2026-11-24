@@ -29,7 +29,7 @@ import {
 import { cn } from '../../lib/cn'
 import type { FileTreeSource } from '../../lib/review-types'
 import { expandRepositoryFolders } from './expand-repository-folders'
-import { useRepository } from '../../repository/repository'
+import { useRepository } from '../../repository/repository-provider'
 import {
   trimDirectoryPath,
   TreeSection,

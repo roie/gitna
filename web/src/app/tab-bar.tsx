@@ -17,7 +17,7 @@ import {
 } from '../components/ui/dropdown-menu'
 import { Row } from '../components/ui/row'
 import { cn } from '../lib/cn'
-import { useRepository } from '../repository/repository'
+import { useRepository } from '../repository/repository-provider'
 
 const repositoryTabIconResolver = createFileTreeIconResolver('complete')
 const repositoryTabIconSprite = getBuiltInSpriteSheet('complete')

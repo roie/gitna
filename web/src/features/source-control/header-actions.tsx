@@ -20,7 +20,7 @@ import {
 } from '../../components/ui/tooltip'
 import { ApiError } from '../../lib/api'
 import { cn } from '../../lib/cn'
-import { useRepository } from '../../repository/repository'
+import { useRepository } from '../../repository/repository-provider'
 import { BranchPicker } from './branch-picker'
 import type { OperationDialog } from './operation-modal'
 

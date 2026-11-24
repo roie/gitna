@@ -1,7 +1,7 @@
 import { message } from '../../components/tree-section'
 import { Button } from '../../components/ui/button'
 import type { ConflictEntry } from '../../lib/types'
-import { useRepository } from '../../repository/repository'
+import { useRepository } from '../../repository/repository-provider'
 
 export function Conflicts({ onError }: { onError: (error: string | null) => void }) {
   const repository = useRepository()

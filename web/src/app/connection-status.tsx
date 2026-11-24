@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 
-import { useRepository, type ConnectionState } from '../repository/repository'
+import { type ConnectionState } from '../repository/repository'
+import { useRepository } from '../repository/repository-provider'
 import { ToastHost, type Toast } from './toast-host'
 
 const LABELS: Record<Exclude<ConnectionState, 'connected'>, string> = {

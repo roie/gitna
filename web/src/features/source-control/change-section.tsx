@@ -16,7 +16,7 @@ import {
 import type { FileTreeSource } from '../../lib/review-types'
 import type { TreeFile } from '../../lib/tree-files'
 import type { ChangeScope } from '../../lib/types'
-import { useRepository } from '../../repository/repository'
+import { useRepository } from '../../repository/repository-provider'
 
 export const CHANGE_TREE_VIRTUALIZATION_THRESHOLD = 8
 

@@ -21,7 +21,7 @@ import {
   TooltipTrigger,
 } from '../../components/ui/tooltip'
 import { ApiError } from '../../lib/api'
-import { useRepository } from '../../repository/repository'
+import { useRepository } from '../../repository/repository-provider'
 
 export function BranchPicker({
   onConfirm,

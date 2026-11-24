@@ -10,7 +10,7 @@ import { CHANGE_TREE_VIRTUALIZATION_THRESHOLD } from '../features/source-control
 import { SourceControl } from '../features/source-control/source-control'
 import { cn } from '../lib/cn'
 import { savePreference } from '../lib/preferences'
-import { useRepository } from '../repository/repository'
+import { useRepository } from '../repository/repository-provider'
 
 const PANE_SIZES_STORAGE_KEY = 'gitna-source-control-pane-sizes-v2'
 const DEFAULT_PANE_SIZES = [46, 26, 14, 14] as const
