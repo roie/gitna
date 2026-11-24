@@ -31,7 +31,10 @@ function gzipOutput(): Plugin {
 export default defineConfig({
   lint: {
     jsPlugins: [{ name: 'vite-plus', specifier: 'vite-plus/oxlint-plugin' }],
-    rules: { 'vite-plus/prefer-vite-plus-imports': 'error' },
+    rules: {
+      'vite-plus/prefer-vite-plus-imports': 'error',
+      'unicorn/filename-case': ['error', { case: 'kebabCase' }],
+    },
     options: { typeAware: true, typeCheck: true },
   },
   fmt: {
