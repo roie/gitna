@@ -6,10 +6,8 @@ import { message, type PendingConfirm } from '../components/tree-section'
 import { Conversations, type ConversationsPane } from '../features/conversations/conversations'
 import { Explorer } from '../features/explorer/explorer'
 import { Graph } from '../features/graph/graph'
-import {
-  SourceControl,
-  CHANGE_TREE_VIRTUALIZATION_THRESHOLD,
-} from '../features/source-control/source-control'
+import { CHANGE_TREE_VIRTUALIZATION_THRESHOLD } from '../features/source-control/change-section'
+import { SourceControl } from '../features/source-control/source-control'
 import { cn } from '../lib/cn'
 import { savePreference } from '../lib/preferences'
 import { useRepository } from '../repository/repository'

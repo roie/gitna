@@ -943,7 +943,7 @@ describe('GitnaRepository action guards', () => {
   it('binds each named Graph and Stage-edited callback to its own catch', () => {
     const source = [
       '../features/graph/graph.tsx',
-      '../features/source-control/source-control.tsx',
+      '../features/source-control/conflicts.tsx',
       '../components/tree-section.tsx',
     ]
       .map((file) => readFileSync(new URL(file, import.meta.url), 'utf8'))
