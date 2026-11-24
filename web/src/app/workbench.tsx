@@ -1,5 +1,5 @@
 import { isHomePath, resolveFolderHref } from './navigation'
-import type { DiffIndicators, FileContents } from '@pierre/diffs'
+import type { FileContents } from '@pierre/diffs'
 import { EditStateManager, type EditorViewState } from '@pierre/diffs/edit'
 import { type CodeViewHandle, useWorkerPool } from '@pierre/diffs/react'
 import {
@@ -46,6 +46,7 @@ import {
 } from '../components/ui/dropdown-menu'
 import { Sidebar } from './sidebar'
 import { ReviewStatus } from '../features/viewer/review-status'
+import { useViewSettings } from '../features/viewer/use-view-settings'
 import {
   Viewer,
   getNextItemVersion,
@@ -559,8 +560,22 @@ export function Workbench({
     (target?.request?.scope === 'staged' && repository.snapshot?.staged.length === 0) ||
     (target?.request?.scope === 'unstaged' && repository.snapshot?.unstaged.length === 0)
   const workerReady = useIsWorkerPoolReadyOrDisabled()
-  const [diffStyle, setDiffStyle] = useState<'split' | 'unified'>('split')
-  const [collapseMode, setCollapseMode] = useState<'expanded' | 'collapsed'>('expanded')
+  const {
+    diffStyle,
+    setDiffStyle,
+    collapseMode,
+    setCollapseMode,
+    overflow,
+    setOverflow,
+    showBackgrounds,
+    setShowBackgrounds,
+    inlineBlame,
+    changeInlineBlame,
+    diffIndicators,
+    setDiffIndicators,
+    lineNumbers,
+    setLineNumbers,
+  } = useViewSettings()
   const [fileTreeOverlayOpen, setFileTreeOverlayOpen] = useState(false)
   const [mobileViewport, setMobileViewport] = useState(false)
   const [sidebarVisible, setSidebarVisible] = useState(true)
@@ -598,19 +613,6 @@ export function Workbench({
   }, [commandPaletteOpen, sidebarMode])
   const [commandPaletteInitialQuery, setCommandPaletteInitialQuery] = useState('')
   const [recentFilePaths, setRecentFilePaths] = useState<readonly string[]>([])
-  const [overflow, setOverflow] = useState<'wrap' | 'scroll'>('wrap')
-  const [showBackgrounds, setShowBackgrounds] = useState(true)
-  const [inlineBlame, setInlineBlame] = useState(() => {
-    try {
-      return localStorage.getItem('gitna:inline-blame') !== 'false'
-    } catch {
-      return true
-    }
-  })
-  const changeInlineBlame = (enabled: boolean) => {
-    setInlineBlame(enabled)
-    savePreference('gitna:inline-blame', String(enabled))
-  }
   const [showConversations, setShowConversations] = useState(() => {
     try {
       return localStorage.getItem('gitna:conversations') === 'true'
@@ -622,8 +624,6 @@ export function Workbench({
     setShowConversations(enabled)
     savePreference('gitna:conversations', String(enabled))
   }
-  const [diffIndicators, setDiffIndicators] = useState<DiffIndicators>('bars')
-  const [lineNumbers, setLineNumbers] = useState(true)
   const [filePreviewModes, setFilePreviewModes] = useState<Map<string, FilePreviewMode>>(
     () => new Map(),
   )
@@ -1492,7 +1492,7 @@ export function Workbench({
     const next = collapseMode === 'expanded' ? 'collapsed' : 'expanded'
     setCollapseMode(next)
     applyCollapseMode(next)
-  }, [applyCollapseMode, collapseMode])
+  }, [applyCollapseMode, collapseMode, setCollapseMode])
 
   const goToLine = useCallback(
     (line: number, column = 0) => {
